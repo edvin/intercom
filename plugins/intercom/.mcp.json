@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "intercom": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/intercom-channel.mjs"]
+    }
+  }
+}

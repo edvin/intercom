@@ -1,0 +1,12 @@
+{
+  "name": "intercom",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-28",
+  "routes": [{ "pattern": "intercom.mhst.io", "custom_domain": true }],
+  // Client scripts and SQL migrations are bundled as text.
+  "rules": [{ "type": "Text", "globs": ["**/*.sh", "**/*.md", "**/*.sql"], "fallthrough": false }],
+  "durable_objects": {
+    "bindings": [{ "name": "HUB", "class_name": "TeamHub" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["TeamHub"] }]
+}

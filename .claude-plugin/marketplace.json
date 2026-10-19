@@ -1,0 +1,13 @@
+{
+  "name": "intercom",
+  "owner": { "name": "Edvin Syse" },
+  "metadata": { "description": "Intercom: coordination between the Claude Code sessions of people working together." },
+  "plugins": [
+    {
+      "name": "intercom",
+      "source": "./plugins/intercom",
+      "description": "Messages, deploy locks, votes and project rules shared between teammates' Claude Code sessions, across machines and companies.",
+      "version": "0.3.0"
+    }
+  ]
+}

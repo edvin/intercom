@@ -1,0 +1,8 @@
+{
+  "name": "intercom",
+  "version": "0.3.0",
+  "description": "Messages, deploy locks, votes and project rules shared between teammates' Claude Code sessions, across machines and companies.",
+  "author": { "name": "Edvin Syse" },
+  "homepage": "https://github.com/edvin/intercom",
+  "license": "MIT"
+}
