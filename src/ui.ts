@@ -132,7 +132,7 @@ p{margin:.5em 0}
 .live.on .dot{background:var(--green);box-shadow:0 0 0 0 var(--green);animation:pulse 2.4s infinite}
 .live.on{color:var(--ink-2)}
 @keyframes pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--green) 60%,transparent)}70%{box-shadow:0 0 0 7px transparent}100%{box-shadow:0 0 0 0 transparent}}
-.me{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--ink-2)}
+.me{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--ink-2);padding:4px 8px;border-radius:9px}.me:hover{background:var(--surface-2);text-decoration:none}
 
 /* layout */
 .shell{max-width:1440px;margin:0 auto;padding:24px 20px 80px;display:grid;grid-template-columns:232px minmax(0,1fr) 360px;gap:24px;align-items:start}
@@ -153,6 +153,7 @@ p{margin:.5em 0}
 .badge.accent{background:var(--accent-soft);color:var(--accent)}.badge.amber{background:var(--amber-soft);color:var(--amber)}.badge.green{background:var(--green-soft);color:var(--green)}.badge.red{background:var(--red-soft);color:var(--red)}
 .person{display:flex;align-items:center;gap:9px;padding:6px 10px;border-radius:9px}
 .person .where{font-size:12px;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.person .note{font-size:12px;color:var(--ink-2);margin-top:2px;line-height:1.35;overflow-wrap:anywhere}
 .presence{position:relative}.presence::after{content:"";position:absolute;right:-3px;bottom:-3px;width:9px;height:9px;border-radius:50%;border:2px solid var(--bg);background:var(--mute)}
 .presence.on::after{background:var(--green)}.presence.idle::after{background:var(--amber)}
 
@@ -332,12 +333,13 @@ const SCRIPT = `
     $$("[data-open]", root).forEach((b) => b.onclick = (e) => { e.preventDefault(); const d = document.getElementById(b.dataset.open); d && d.showModal(); const f = d && d.querySelector("input:not([type=hidden]),textarea"); f && f.focus(); });
     $$("[data-dm]", root).forEach((b) => b.onclick = () => { const s = $("#compose-to"), c = $("#compose"); if (s && c) { s.value = b.dataset.dm; c.focus(); c.scrollIntoView({ block: "center", behavior: "smooth" }); } });
     $$("[data-close]", root).forEach((b) => b.onclick = () => b.closest("dialog").close());
-    $$("form:not([data-native])", root).forEach((f) => f.onsubmit = submit);
+    $$("form", root).forEach((f) => { if (!f.hasAttribute("data-native") || f.dataset.confirm) f.onsubmit = submit; });
     $$("input[data-noenter]", root).forEach((i) => i.onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); toast("Pick an option to vote"); } });
     $$("textarea[data-enter]", root).forEach((t) => t.onkeydown = (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); t.form.requestSubmit(); } });
   }
   async function submit(e) {
     const f = e.target; if (f.dataset.confirm && !f.dataset.ok) { e.preventDefault(); const d = $("#confirm"); if (d) { $("#confirm-text").textContent = f.dataset.confirm; d.showModal(); $("#confirm-yes").onclick = () => { d.close(); f.dataset.ok = "1"; f.requestSubmit(); delete f.dataset.ok; }; } return; }
+    if (f.hasAttribute("data-native")) return;
     e.preventDefault();
     const btns = $$("button", f); btns.forEach((b) => (b.disabled = true));
     const data = new FormData(f); if (e.submitter && e.submitter.name) data.set(e.submitter.name, e.submitter.value);

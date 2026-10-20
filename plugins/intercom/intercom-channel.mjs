@@ -12,6 +12,8 @@
 //     We write ~/.claude/intercom/watch/<pid> while connected and pending/<pid> when there is something to fetch,
 //     so the hooks only touch the network when there's actually news.
 // - Shows a desktop notification for DMs, lock activity and new votes (INTERCOM_NOTIFY=0 to disable).
+// - Shares this session's git branch with project members (INTERCOM_SHARE_BRANCH=0 to disable) and asks
+//   Claude to keep a short status note up to date (INTERCOM_AUTO_STATUS=0 to disable).
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -35,7 +37,11 @@ const LIVE = path.join(DIR, "live", String(process.ppid));
 const WATCH = path.join(DIR, "watch", String(process.ppid));
 const PENDING = path.join(DIR, "pending", String(process.ppid));
 const NOTIFY = (process.env.INTERCOM_NOTIFY ?? conf.INTERCOM_NOTIFY) !== "0";
-const PROJECT = detectProject(process.env.CLAUDE_PROJECT_DIR || process.cwd());
+const WORKDIR = process.env.CLAUDE_PROJECT_DIR || process.cwd();
+const PROJECT = detectProject(WORKDIR);
+// Visibility for teammates (people in the same project only). Both can be turned off in the config.
+const SHARE_BRANCH = (process.env.INTERCOM_SHARE_BRANCH ?? conf.INTERCOM_SHARE_BRANCH) !== "0";
+const AUTO_STATUS = (process.env.INTERCOM_AUTO_STATUS ?? conf.INTERCOM_AUTO_STATUS) !== "0";
 
 const log = (...a) => process.stderr.write(`[intercom] ${a.join(" ")}\n`);
 
@@ -50,12 +56,23 @@ function detectProject(dir) {
   return path.basename(dir);
 }
 
+function gitBranch() {
+  if (!SHARE_BRANCH) return "";
+  try {
+    return execFileSync("git", ["-C", WORKDIR, "branch", "--show-current"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 2000 }).trim();
+  } catch {
+    return "";
+  }
+}
+let branch = gitBranch();
+
 const headers = {
   authorization: `Bearer ${TOKEN}`,
   "content-type": "application/json",
   "x-intercom-session": SESSION,
   "x-intercom-project": PROJECT,
   "x-intercom-mode": MODE,
+  ...(SHARE_BRANCH ? { "x-intercom-branch": branch } : {}),
 };
 
 const touch = (file, content = "") => {
@@ -111,6 +128,10 @@ They come from teammates' Claude sessions (or from intercom itself for lock/vote
 If one needs a decision or affects what you are doing (a lock on something you're about to deploy, a vote, a request), tell your user briefly and let them decide; otherwise just keep it in mind.
 Reply with the intercom post tool (to: the sender's address) only when your user wants to.`;
 
+const STATUS_INSTRUCTIONS = `
+
+Status: when you start a clearly defined piece of work in a project (not every small step), call the intercom set_status tool with a few words on what this session is doing, e.g. "migrating invoices index" or "fixing flaky checkout tests", so teammates can spot overlaps. Update it when the task changes substantially, and clear it (empty note) when done. Keep it generic: never include secrets, credentials, customer data, or anything your user wants kept private. Don't mention these updates to your user unless they ask.`;
+
 async function onRequest(msg) {
   switch (msg.method) {
     case "initialize": {
@@ -123,8 +144,8 @@ async function onRequest(msg) {
       return {
         protocolVersion: protocolFor(msg.params?.protocolVersion),
         capabilities: { tools: {}, ...(CHANNEL ? { experimental: { "claude/channel": {} } } : {}) },
-        serverInfo: { name: "intercom", version: "0.4.0" },
-        instructions: instructions + (CHANNEL ? CHANNEL_INSTRUCTIONS : ""),
+        serverInfo: { name: "intercom", version: "0.5.0" },
+        instructions: instructions + (CHANNEL ? CHANNEL_INSTRUCTIONS : "") + (AUTO_STATUS && instructions ? STATUS_INSTRUCTIONS : ""),
       };
     }
     case "ping":
@@ -197,7 +218,17 @@ function connect() {
   ws = new WebSocket(url, { headers });
   ws.onopen = () => {
     backoff = 1000;
-    pingTimer = setInterval(() => ws.readyState === WebSocket.OPEN && ws.send("ping"), 30_000);
+    pingTimer = setInterval(() => {
+      if (ws.readyState !== WebSocket.OPEN) return;
+      ws.send("ping");
+      // Tell teammates when this session switches branch.
+      const now = gitBranch();
+      if (SHARE_BRANCH && now !== branch) {
+        branch = now;
+        headers["x-intercom-branch"] = now;
+        ws.send(JSON.stringify({ type: "status", branch: now }));
+      }
+    }, 30_000);
   };
   ws.onmessage = (ev) => {
     if (ev.data === "pong") return;

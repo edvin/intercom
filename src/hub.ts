@@ -1,12 +1,13 @@
 import { DurableObject } from "cloudflare:workers";
 import { handle, json } from "./app";
 import { SqlDb, splitStatements } from "./db";
-import { type Env, type Message, address, authenticate, fmtMessage, prune, resolveProject, setPresence, touchSession, unread } from "./lib";
+import { type Env, type Message, address, authenticate, cleanBranch, fmtMessage, prune, resolveProject, setPresence, touchSession, unread } from "./lib";
 import m0001 from "../migrations/0001_init.sql";
 import m0002 from "../migrations/0002_projects.sql";
 import m0003 from "../migrations/0003_sessions.sql";
 import m0004 from "../migrations/0004_broadcast.sql";
 import m0005 from "../migrations/0005_membership.sql";
+import m0006 from "../migrations/0006_visibility.sql";
 
 const MIGRATIONS: [string, string][] = [
   ["0001_init", m0001],
@@ -14,6 +15,7 @@ const MIGRATIONS: [string, string][] = [
   ["0003_sessions", m0003],
   ["0004_broadcast", m0004],
   ["0005_membership", m0005],
+  ["0006_visibility", m0006],
 ];
 
 const DAY = 86400_000;
@@ -99,8 +101,9 @@ export class TeamHub extends DurableObject<WorkerEnv> {
     if (!sessionId) return json({ error: "missing x-intercom-session" }, 400);
     const raw = req.headers.get("x-intercom-project");
     const project = raw ? ((await resolveProject(env, raw, me))?.name ?? "") : "";
-    await setPresence(env, me, project || null, null);
-    const session = await touchSession(env, me, sessionId, project);
+    const branch = cleanBranch(req.headers.get("x-intercom-branch"));
+    await setPresence(env, me, project || null, null, project ? branch : null);
+    const session = await touchSession(env, me, sessionId, project, branch);
     const mode = req.headers.get("x-intercom-mode") === "peek" ? "peek" : "push";
 
     const [client, server] = Object.values(new WebSocketPair());
@@ -173,8 +176,21 @@ export class TeamHub extends DurableObject<WorkerEnv> {
     }
   }
 
-  async webSocketMessage(): Promise<void> {
-    // Channel servers only listen; tool calls go over HTTP. Keep-alive "ping" is auto-answered.
+  /** Channel servers report their git branch when it changes; tool calls go over HTTP. "ping" is auto-answered. */
+  async webSocketMessage(ws: WebSocket, data: string | ArrayBuffer): Promise<void> {
+    const s = ws.deserializeAttachment() as SocketInfo | null;
+    if (!s || s.mode === "web" || typeof data !== "string") return;
+    let f: { type?: string; branch?: unknown };
+    try {
+      f = JSON.parse(data);
+    } catch {
+      return;
+    }
+    const branch = cleanBranch(f.branch);
+    if (f.type !== "status" || branch === null) return;
+    const env = this.appEnv();
+    await env.DB.prepare("UPDATE sessions SET branch = ?, last_seen = ? WHERE member = ? AND session_id = ?").bind(branch, Date.now(), s.member, s.session_id).run();
+    if (s.project) await setPresence(env, s.member, s.project, null, branch);
   }
 
   async webSocketClose(ws: WebSocket, code: number): Promise<void> {

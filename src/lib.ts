@@ -9,6 +9,8 @@ export interface Env {
   session?: Session;
   /** Public origin, e.g. https://intercom.mhst.io (for invite links). */
   origin?: string;
+  /** Repo name the calling session runs in, as reported by the client. */
+  repo?: string;
 }
 
 export interface Message {
@@ -30,6 +32,10 @@ export interface Session {
   label: string;
   project: string;
 }
+
+/** Git branch names as reported by clients: printable, short. */
+export const cleanBranch = (raw: unknown): string | null =>
+  typeof raw === "string" ? raw.replace(/[^\w./@+#-]/g, "").slice(0, 80) : null;
 
 export interface Lock {
   resource: string;
@@ -233,16 +239,16 @@ async function getCursor(env: Env, me: string): Promise<number> {
 }
 
 /** Register/refresh a session. New sessions start reading where the member's person-level cursor is. */
-export async function touchSession(env: Env, me: string, sessionId: string, project: string): Promise<Session & { cursor: number }> {
+export async function touchSession(env: Env, me: string, sessionId: string, project: string, branch: string | null = null): Promise<Session & { cursor: number }> {
   const label = `${project || "session"}-${sessionId.replace(/[^a-z0-9]/gi, "").slice(0, 4).toLowerCase()}`;
   const base = await getCursor(env, me);
   const now = Date.now();
   const row = await env.DB.prepare(
-    `INSERT INTO sessions (member, session_id, label, project, cursor, started_at, last_seen) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)
-     ON CONFLICT(member, session_id) DO UPDATE SET project = ?4, last_seen = ?6
+    `INSERT INTO sessions (member, session_id, label, project, cursor, started_at, last_seen, branch) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6, COALESCE(?7, ''))
+     ON CONFLICT(member, session_id) DO UPDATE SET project = ?4, last_seen = ?6, branch = COALESCE(?7, sessions.branch)
      RETURNING label, cursor`,
   )
-    .bind(me, sessionId, label, project, base, now)
+    .bind(me, sessionId, label, project, base, now, branch)
     .first<{ label: string; cursor: number }>();
   return { session_id: sessionId, project, ...row! };
 }
@@ -312,16 +318,22 @@ export async function tally(env: Env, p: Proposal, me: string): Promise<string> 
     .join("\n");
 }
 
-export async function setPresence(env: Env, me: string, project: string | null, note: string | null): Promise<void> {
+export async function setPresence(env: Env, me: string, project: string | null, note: string | null, branch: string | null = null): Promise<void> {
   await env.DB.prepare(
-    `INSERT INTO presence (member, project, note, updated_at) VALUES (?1, COALESCE(?2, ''), COALESCE(?3, ''), ?4)
+    `INSERT INTO presence (member, project, note, updated_at, branch) VALUES (?1, COALESCE(?2, ''), COALESCE(?3, ''), ?4, COALESCE(?5, ''))
      ON CONFLICT(member) DO UPDATE SET
        project = COALESCE(?2, presence.project),
        note = CASE WHEN ?2 IS NOT NULL AND ?2 != presence.project THEN COALESCE(?3, '') ELSE COALESCE(?3, presence.note) END,
+       branch = CASE WHEN ?2 IS NOT NULL AND ?2 != presence.project THEN COALESCE(?5, '') ELSE COALESCE(?5, presence.branch) END,
        updated_at = ?4`,
   )
-    .bind(me, project, note, Date.now())
+    .bind(me, project, note, Date.now(), branch)
     .run();
+}
+
+/** "#billing · feat/ledger · reviewing 0042", for people you share that project with. */
+export function workingOn(project: string | null, branch: string | null | undefined, note: string | null | undefined): string {
+  return [project ? `#${project}` : "", branch ? `branch ${branch}` : "", note ? `“${note}”` : ""].filter(Boolean).join(" · ");
 }
 
 export const RETENTION_DAYS = 90;

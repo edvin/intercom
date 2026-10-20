@@ -237,3 +237,56 @@ describe("retention", () => {
     assert.match(await w.ok("bob", "proposals"), /Keep me\?/);
   });
 });
+
+describe("visibility", () => {
+  test("branch and status are shown to project members only", async () => {
+    const w = await standardWorld();
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=aaaa1111&branch=feat/ledger-4.2", { as: "bob" });
+    await w.ok("bob", "set_status", { note: "migrating invoices index" }, { id: "aaaa1111", project: "billing-api" });
+    const team = await w.ok("alice", "team");
+    assert.match(team, /bob\/billing-aaaa: #billing · branch feat\/ledger-4\.2 · “migrating invoices index”/);
+    // carol shares no project with bob: she can't even see him.
+    assert.doesNotMatch(await w.ok("carol", "team"), /bob/);
+    // A project alice isn't in stays hidden from her, even though she shares #billing with bob.
+    await w.ok("carol", "invite", { project: "shop", name: "bob" });
+    await w.request("/api/hook?event=SessionStart&project=shop&session=bbbb2222&branch=secret-shop-branch", { as: "bob" });
+    const later = await w.ok("alice", "team");
+    assert.doesNotMatch(later, /secret-shop-branch/);
+    assert.match(later, /also active in projects you're not in/);
+  });
+
+  test("any member can link a repo; the session's repo is the default", async () => {
+    const w = await standardWorld();
+    const out = await w.ok("bob", "link_repo", { project: "billing" }, { id: "cccc3333", project: "billing-legacy" });
+    assert.match(out, /Linked billing-legacy to #billing/);
+    assert.equal((await resolveProject(w.env(), "billing-legacy", "alice"))?.name, "billing");
+    assert.equal((await w.tool("carol", "link_repo", { project: "billing", repo: "x" })).error, true);
+  });
+
+  test("unlinked repos get an offer to link them", async () => {
+    const w = await standardWorld();
+    const res = await w.request("/api/hook?event=SessionStart&project=billing-fork&session=dddd4444", { as: "bob" });
+    const ctx = ((await res.json()) as { hookSpecificOutput: { additionalContext: string } }).hookSpecificOutput.additionalContext;
+    assert.match(ctx, /isn't linked.*#billing.*link_repo/s);
+  });
+});
+
+describe("account", () => {
+  test("a new token replaces the old one", async () => {
+    const w = await standardWorld();
+    const res = await w.form("/account", "bob", { action: "token" });
+    assert.equal(res.status, 200);
+    const page = await res.text();
+    const token = page.match(/setup\.sh \| sh -s -- ([0-9a-f]{48})/)![1];
+    assert.equal((await w.request("/api/whoami", { as: "bob" })).status, 401);
+    assert.equal(await (await w.request("/api/whoami", { headers: { authorization: `Bearer ${token}` } })).text(), "bob");
+    assert.equal((await w.form("/account", "alice", { action: "token" }, "https://evil.example")).status, 403);
+  });
+
+  test("invite links honour the chosen lifetime", async () => {
+    const w = await standardWorld();
+    await w.ok("alice", "invite", { project: "billing", expires_in_hours: 24 });
+    const inv = await w.db.prepare("SELECT expires_at, created_at FROM invites").first<{ expires_at: number; created_at: number }>();
+    assert.equal(Math.round((inv!.expires_at - inv!.created_at) / 3600_000), 24);
+  });
+});

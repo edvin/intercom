@@ -1,7 +1,7 @@
-import { type Env, type Proposal, MEMBER_OF, RECEIVES, UserError, activeLocks, address, ago, authenticate, coMembers, fmtLock, fmtMessage, myProjects, resolveProject, setPresence, tally, touchSession, unread } from "./lib";
+import { type Env, type Proposal, MEMBER_OF, RECEIVES, UserError, activeLocks, address, ago, cleanBranch, workingOn, authenticate, coMembers, fmtLock, fmtMessage, myProjects, resolveProject, setPresence, tally, touchSession, unread } from "./lib";
 import { INSTRUCTIONS, tools } from "./tools";
 import { guard } from "./guard";
-import { dashboard, exportProject, handleAction, handleAdminAction, handleJoin, handleLogin, handleLogout, loginPage } from "./web";
+import { accountPage, dashboard, exportProject, handleAction, handleAdminAction, handleJoin, handleLogin, handleLogout, loginPage } from "./web";
 
 const SUPPORTED_PROTOCOLS = ["2025-11-25", "2025-06-18", "2025-03-26"];
 const SERVER_INFO = { name: "intercom", version: "0.1.0" };
@@ -90,8 +90,9 @@ async function handleHook(url: URL, env: Env, me: string): Promise<Response> {
     return new Response("", { status: 200 });
   }
   const project = raw ? await resolveProject(env, raw, me) : null;
-  await setPresence(env, me, project?.name ?? null, null);
-  const session = sessionId ? await touchSession(env, me, sessionId, project?.name ?? "") : undefined;
+  const branch = cleanBranch(url.searchParams.get("branch"));
+  await setPresence(env, me, project?.name ?? null, null, project ? branch : null);
+  const session = sessionId ? await touchSession(env, me, sessionId, project?.name ?? "", branch) : undefined;
 
   const sections: string[] = [];
   if (event === "SessionStart") {
@@ -103,10 +104,10 @@ async function handleHook(url: URL, env: Env, me: string): Promise<Response> {
     const people = (await coMembers(env, me)).filter((p) => p !== me);
     const { results: active } = people.length
       ? await env.DB.prepare(
-          `SELECT member, project, note FROM presence WHERE member IN (${people.map(() => "?").join(",")}) AND updated_at > ? ORDER BY updated_at DESC`,
+          `SELECT member, project, note, branch FROM presence WHERE member IN (${people.map(() => "?").join(",")}) AND updated_at > ? ORDER BY updated_at DESC`,
         )
           .bind(...people, Date.now() - 2 * 3600_000)
-          .all<{ member: string; project: string; note: string }>()
+          .all<{ member: string; project: string; note: string; branch: string }>()
       : { results: [] };
     sections.push(
       `You are "${me}" on the intercom (MCP server "intercom"). Your projects: ${mine.length ? mine.map((p) => `#${p}`).join(", ") : "none"}.` +
@@ -117,7 +118,9 @@ async function handleHook(url: URL, env: Env, me: string): Promise<Response> {
     );
     if (raw && !project) {
       sections.push(
-        `This repo ("${raw}") isn't linked to any intercom project you're a member of. If your user wants it to be, they can create a project (configure_project) or ask a project owner to add the repo or invite them.`,
+        mine.length
+          ? `This repo ("${raw}") isn't linked to any of your user's intercom projects (${mine.map((p) => `#${p}`).join(", ")}). If it belongs to one of them, offer once to link it with the link_repo tool (any member can). Otherwise they can create a project with configure_project.`
+          : `This repo ("${raw}") isn't linked to an intercom project, and your user isn't in any project yet. They can create one (configure_project) or ask a project owner for an invite link.`,
       );
     }
     if (project && (project.rules || project.description)) {
@@ -127,7 +130,7 @@ async function handleHook(url: URL, env: Env, me: string): Promise<Response> {
     }
     // Only say where someone is when it's a project this member can see.
     const visible = new Set(mine);
-    if (active.length) sections.push(`Active in the last 2h: ${active.map((a) => `${a.member}${visible.has(a.project) ? ` (#${a.project}${a.note ? `: ${a.note}` : ""})` : ""}`).join(", ")}`);
+    if (active.length) sections.push(`Active in the last 2h: ${active.map((a) => `${a.member}${visible.has(a.project) ? ` (${workingOn(a.project, a.branch, a.note)})` : ""}`).join(", ")}`);
     sections.push(locks.length ? `Active locks:\n${locks.map((l) => fmtLock(l, me)).join("\n")}` : "No active locks.");
     if (open.length) sections.push(`Open proposals:\n${(await Promise.all(open.map((p) => tally(env, p, me)))).join("\n")}`);
   }
@@ -165,9 +168,9 @@ async function handleBrief(url: URL, env: Env, me: string): Promise<Response> {
   const people = (await coMembers(env, me)).filter((p) => p !== me);
   const visible = new Set(mine);
   const { results: active } = people.length
-    ? await env.DB.prepare(`SELECT member, project, note, updated_at FROM presence WHERE member IN (${people.map(() => "?").join(",")}) AND updated_at > ? ORDER BY updated_at DESC`)
+    ? await env.DB.prepare(`SELECT member, project, note, branch, updated_at FROM presence WHERE member IN (${people.map(() => "?").join(",")}) AND updated_at > ? ORDER BY updated_at DESC`)
         .bind(...people, Date.now() - 2 * 3600_000)
-        .all<{ member: string; project: string; note: string; updated_at: number }>()
+        .all<{ member: string; project: string; note: string; branch: string; updated_at: number }>()
     : { results: [] };
   const locks = await activeLocks(env, me);
   const { results: open } = await env.DB.prepare(`SELECT * FROM proposals WHERE status = 'open' AND ${MEMBER_OF} ORDER BY id DESC LIMIT 10`).bind(null, me).all<Proposal>();
@@ -175,7 +178,7 @@ async function handleBrief(url: URL, env: Env, me: string): Promise<Response> {
   const out = [
     `INTERCOM STATUS for ${me}${project ? ` · current project #${project.name}` : raw ? ` · this repo ("${raw}") isn't linked to any of your projects` : ""}`,
     `Projects: ${mine.length ? mine.map((p) => `#${p}`).join(", ") : "none"}`,
-    `Active (2h): ${active.length ? active.map((a) => `${a.member}${visible.has(a.project) ? ` (#${a.project}${a.note ? `: ${a.note}` : ""}, ${ago(a.updated_at)})` : ""}`).join(", ") : "nobody"}`,
+    `Active (2h): ${active.length ? active.map((a) => `${a.member} (${visible.has(a.project) ? `${workingOn(a.project, a.branch, a.note)}, ` : ""}${ago(a.updated_at)})`).join(", ") : "nobody"}`,
     locks.length ? `Locks:\n${locks.map((l) => `  ${fmtLock(l, me)}`).join("\n")}` : "Locks: none",
     open.length ? `Open votes:\n${(await Promise.all(open.map((p) => tally(env, p, me)))).map((t) => t.replace(/^/gm, "  ")).join("\n")}` : "Open votes: none",
     messages.length ? `Unread (${messages.length}${more ? "+" : ""}):\n${messages.map((m) => `  ${fmtMessage(m)}`).join("\n")}` : "Unread: none",
@@ -240,16 +243,18 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
   if (url.pathname === "/logout" && req.method === "POST") return handleLogout();
 
   const me = await authenticate(req, env);
-  if (!me) return url.pathname === "/" ? Response.redirect(new URL("/login", url).toString(), 303) : json({ error: "unauthorized" }, 401);
+  if (!me) return url.pathname === "/" || url.pathname === "/account" ? Response.redirect(new URL("/login", url).toString(), 303) : json({ error: "unauthorized" }, 401);
 
   // Requests proxied by the local channel server carry the Claude Code session, so posts get a sender address.
   const sid = req.headers.get("x-intercom-session");
   if (sid) {
     const raw = req.headers.get("x-intercom-project");
-    env.session = await touchSession(env, me, sid, raw ? ((await resolveProject(env, raw, me))?.name ?? "") : "");
+    if (raw) env.repo = raw;
+    env.session = await touchSession(env, me, sid, raw ? ((await resolveProject(env, raw, me))?.name ?? "") : "", cleanBranch(req.headers.get("x-intercom-branch")));
   }
 
   if (url.pathname === "/") return dashboard(url, env, me);
+  if (url.pathname === "/account") return accountPage(req, env, me);
   if (url.pathname.startsWith("/action/") && req.method === "POST") return handleAction(req, env, me, url.pathname.slice(8));
   if (url.pathname.startsWith("/admin-action/") && req.method === "POST") return handleAdminAction(req, env, me, url.pathname.slice(14));
   if (url.pathname === "/mcp") return handleMcp(req, env, me);

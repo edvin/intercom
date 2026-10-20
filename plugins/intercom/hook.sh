@@ -85,7 +85,10 @@ else
   [ -n "$session" ] && printf '%s' "$project" > "$pcache"
 fi
 
+branch=""
+[ "$INTERCOM_SHARE_BRANCH" = "0" ] || branch=$(git -C "${CLAUDE_PROJECT_DIR:-$PWD}" branch --show-current 2>/dev/null)
+
 curl -sf --max-time 3 -G "$INTERCOM_URL/api/hook" \
-  --data-urlencode "event=$event" --data-urlencode "project=$project" --data-urlencode "session=$session" \
+  --data-urlencode "event=$event" --data-urlencode "project=$project" --data-urlencode "session=$session" --data-urlencode "branch=$branch" \
   -H "Authorization: Bearer $INTERCOM_TOKEN" 2>/dev/null
 exit 0

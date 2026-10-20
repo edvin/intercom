@@ -1,11 +1,18 @@
-import { type Env, type Lock, type Message, type Project, type Proposal, MAX_BODY, MEMBER_OF, RECEIVES, activeLocks, address, authenticate, coMembers, isAdmin, myProjects, normChannel, postMessage, roleIn, sha256 } from "./lib";
+import { type Env, type Lock, type Message, type Project, type Proposal, MAX_BODY, MEMBER_OF, RECEIVES, activeLocks, address, authenticate, coMembers, isAdmin, myProjects, normChannel, postMessage, roleIn, sha256, workingOn } from "./lib";
 import { tools } from "./tools";
 import { LOGO, avatar, codeBlock, esc, hidden, html, icon, page, redirect, time } from "./ui";
 
 export const COOKIE = "intercom_token";
 
-const INSTALL = (origin: string) => `/plugin install intercom --marketplace edvin/intercom      # in Claude Code
-curl -fsSL ${origin}/setup.sh | sh                          # in a terminal, paste the token`;
+/** The one setup command, with the token filled in (it lands in shell history, which only you can read). */
+const SETUP = (origin: string, token: string) => `curl -fsSL ${origin}/setup.sh | sh -s -- ${token}`;
+
+/** Everything someone needs after getting a token. */
+function setupSteps(origin: string, token: string): string {
+  return `<div><h3>Connect Claude Code</h3><p class="small muted">Run this in a terminal (macOS or Linux). It checks <code>node</code> (22 or newer), installs the Claude Code plugin and stores your token.</p>${codeBlock(SETUP(origin, token))}
+    <p class="tiny muted">Prefer not to have the token in your shell history? Run <code>curl -fsSL ${esc(origin)}/setup.sh | sh</code> and paste it when asked. No <code>claude</code> CLI on your PATH? In Claude Code: <code>/plugin install intercom --marketplace edvin/intercom</code>.</p></div>
+    <div><h3>Then restart Claude Code</h3><p class="small muted">Type <code>/intercom</code> to see your team, locks and votes, and <code>/intercom dashboard</code> to open this dashboard signed in.</p></div>`;
+}
 
 // ---------- sign in / out ----------
 
@@ -106,9 +113,8 @@ export async function handleJoin(req: Request, env: Env, code: string): Promise<
       soloCard(
         "welcome",
         `<div class="row">${avatar(name, "l")}<div><h1 class="headline">Welcome, ${esc(name)}</h1><p class="muted" style="margin:0">You've joined <b>#${esc(inv.project)}</b>.</p></div></div>
-        <div><h3>1 · Your personal token</h3><p class="small muted">Shown <b>only once</b>. Store it in your password manager.</p>${codeBlock(token)}</div>
-        <div><h3>2 · Connect Claude Code</h3><p class="small muted">macOS or Linux, <code>node</code> 22 or newer.</p>${codeBlock(INSTALL(new URL(req.url).origin))}</div>
-        <div><h3>3 · Restart Claude Code</h3><p class="small muted">Your agents now see #${esc(inv.project)}'s rules, locks, votes and messages. This browser is already signed in.</p></div>
+        ${setupSteps(new URL(req.url).origin, token)}
+        <div><h3>Your token</h3><p class="small muted">The setup stores it for you. Lost it later? This browser stays signed in, and <a href="/account">Account</a> can issue a new one.</p>${codeBlock(token)}</div>
         <div class="row"><a class="btn primary" href="/?channel=${encodeURIComponent(inv.project)}">Open the dashboard ${icon("arrow")}</a><a class="btn ghost" href="/docs">How it works</a></div>`,
         true,
       ),
@@ -157,7 +163,7 @@ export async function handleAction(req: Request, env: Env, me: string, action: s
     close: ["close_proposal", { proposal_id: Number(f("proposal_id")), outcome: f("outcome") }],
     mute: ["mute", { project: f("project"), person: f("person") }],
     unmute: ["unmute", { project: f("project"), person: f("person") }],
-    invite: ["invite", { project: f("project"), name: f("name"), role: f("role"), uses: f("uses") ? Number(f("uses")) : undefined }],
+    invite: ["invite", { project: f("project"), name: f("name"), role: f("role"), uses: f("uses") ? Number(f("uses")) : undefined, expires_in_hours: f("expires_in_hours") ? Number(f("expires_in_hours")) : undefined }],
     remove: ["remove_member", { project: f("project"), name: f("name") }],
     configure: [
       "configure_project",
@@ -181,7 +187,7 @@ export async function handleAction(req: Request, env: Env, me: string, action: s
     const out = await tool.run(env, me, call[1]);
     const link = out.match(/https?:\/\/\S+\/join\/[0-9a-f]+/)?.[0];
     if (link) u.searchParams.set("link", link);
-    u.searchParams.set("ok", link ? "Invite link created" : out.split("\n")[0]);
+    u.searchParams.set("ok", link ? out.split("\n")[0].replace(/:$/, "") : out.split("\n")[0]);
     // A newly created project: go there.
     if (action === "configure" && !f("back")?.includes("channel=")) u.searchParams.set("channel", normChannel(f("name")));
   } catch (e) {
@@ -344,7 +350,9 @@ function projectPanel(p: Project, members: PM[], me: string, owner: boolean, mut
       ? `<dialog id="dlg-invite"><div class="hd">${icon("userPlus", 18)}<h2>Invite to #${esc(p.name)}</h2></div>
     <form method="post" action="/action/invite">${hidden({ project: p.name, back })}<div class="bd stack">
       <label class="field">Existing handle <span class="tiny">(leave empty to create an invite link: works for anyone, including people at other companies)</span><input name="name" placeholder="e.g. anna"></label>
-      <div class="row"><label class="field grow">Role<select name="role"><option>member</option><option>owner</option></select></label><label class="field grow">Uses<input name="uses" type="number" min="1" max="100" value="1"></label></div>
+      <div class="row"><label class="field grow">Role<select name="role"><option>member</option><option>owner</option></select></label><label class="field grow">Uses<input name="uses" type="number" min="1" max="100" value="1"></label>
+        <label class="field grow">Link expires<select name="expires_in_hours"><option value="24">in 1 day</option><option value="72" selected>in 3 days</option><option value="168">in 7 days</option><option value="720">in 30 days</option></select></label></div>
+      <p class="tiny muted" style="margin:0">Adding an existing handle takes effect at once; links stop working once used up or expired.</p>
     </div><div class="ft"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary">${icon("link", 14)}Add or create link</button></div></form></dialog>
   <dialog id="dlg-edit"><div class="hd">${icon("sliders", 18)}<h2>Edit #${esc(p.name)}</h2></div>
     <form method="post" action="/action/configure">${hidden({ name: p.name, back })}<div class="bd stack">
@@ -393,10 +401,10 @@ export async function dashboard(url: URL, env: Env, me: string): Promise<Respons
   const others = people.filter((p) => p !== me);
   const { results: team } = others.length
     ? await env.DB.prepare(
-        `SELECT m.name, m.org, p.project, p.note, p.updated_at FROM members m LEFT JOIN presence p ON p.member = m.name WHERE m.name IN (${others.map(() => "?").join(",")}) ORDER BY p.updated_at DESC NULLS LAST, m.name`,
+        `SELECT m.name, m.org, p.project, p.note, p.branch, p.updated_at FROM members m LEFT JOIN presence p ON p.member = m.name WHERE m.name IN (${others.map(() => "?").join(",")}) ORDER BY p.updated_at DESC NULLS LAST, m.name`,
       )
         .bind(...others)
-        .all<{ name: string; org: string; project: string | null; note: string | null; updated_at: number | null }>()
+        .all<{ name: string; org: string; project: string | null; note: string | null; branch: string | null; updated_at: number | null }>()
     : { results: [] };
   const meRow = await env.DB.prepare("SELECT org FROM members WHERE name = ?").bind(me).first<{ org: string }>();
 
@@ -434,9 +442,11 @@ export async function dashboard(url: URL, env: Env, me: string): Promise<Respons
         team.length
           ? team
               .map((r) => {
-                const where = !r.updated_at ? "not connected yet" : r.project ? (mine.includes(r.project) ? `#${r.project}${r.note ? ` · ${r.note}` : ""}` : "in another project") : r.note || "online";
+                const visible = !!r.project && mine.includes(r.project);
+                const where = !r.updated_at ? "not connected yet" : r.project ? (visible ? workingOn(r.project, r.branch, null).replace("branch ", "⎇ ") : "in another project") : "online";
+                const note = visible && r.note ? `<div class="note">${esc(r.note)}</div>` : "";
                 return `<details class="person-d" id="person-${esc(r.name)}"><summary class="person"><span class="presence ${presenceClass(r.updated_at)}">${avatar(r.name, "s")}</span>
-                  <span class="grow" style="min-width:0"><div style="font-weight:550;font-size:13.5px">${esc(r.name)}${mutedPeople.has(r.name) ? ` ${icon("bellOff", 11)}` : ""}</div><div class="where">${esc(where)}${r.updated_at ? ` · ${time(r.updated_at)}` : ""}</div></span></summary>
+                  <span class="grow" style="min-width:0"><div style="font-weight:550;font-size:13.5px">${esc(r.name)}${mutedPeople.has(r.name) ? ` ${icon("bellOff", 11)}` : ""}</div><div class="where" title="${esc(where)}">${esc(where)}${r.updated_at ? ` · ${time(r.updated_at)}` : ""}</div>${note}</span></summary>
                   <div class="row" style="padding:2px 10px 8px 41px">${r.org ? `<span class="tiny muted">${esc(r.org)}</span>` : ""}
                     <button class="btn xs" type="button" data-dm="${esc(r.name)}">${icon("at", 12)}Message</button>
                     <form method="post" action="/action/${mutedPeople.has(r.name) ? "unmute" : "mute"}">${hidden({ person: r.name, back })}<button class="btn xs ghost">${mutedPeople.has(r.name) ? "Unmute" : "Mute"}</button></form></div></details>`;
@@ -528,7 +538,7 @@ export async function dashboard(url: URL, env: Env, me: string): Promise<Respons
     <span class="live" id="live" title="Updates arrive live while this is green"><span class="dot"></span>Connecting</span>
     <span class="grow"></span>
     <a class="btn ghost sm" href="/docs">${icon("book", 15)}Docs</a>
-    <span class="me">${avatar(me, "s")}<b>${esc(me)}</b>${meRow?.org ? `<span class="muted">· ${esc(meRow.org)}</span>` : ""}${admin ? '<span class="badge accent">admin</span>' : ""}</span>
+    <a class="me" href="/account" title="Your account">${avatar(me, "s")}<b>${esc(me)}</b>${meRow?.org ? `<span class="muted">· ${esc(meRow.org)}</span>` : ""}${admin ? '<span class="badge accent">admin</span>' : ""}</a>
     <form method="post" action="/logout" data-native><button class="btn ghost icon sm" title="Sign out">${icon("logout", 15)}</button></form>
   </div></header>`;
 
@@ -610,20 +620,21 @@ export function docsPage(origin: string): Response {
 
       <section>
         <h2>Get started</h2>
-        <p class="muted">You need a personal token, from an invite link or an admin. Then, on macOS or Linux with <code>node</code> 22 or newer:</p>
+        <p class="muted">You need a personal token, from an invite link or an admin. Then, on macOS or Linux, run one command in a terminal:</p>
         <ol class="steps">
-          <li><b>Install the plugin</b> in Claude Code:${codeBlock("/plugin install intercom --marketplace edvin/intercom")}</li>
-          <li><b>Store your token</b> in a terminal:${codeBlock(`curl -fsSL ${origin}/setup.sh | sh`)}</li>
-          <li><b>Restart Claude Code.</b> Type <code>/intercom</code> to see status and quick actions.</li>
+          <li><b>Run the setup</b> and paste your token when asked:${codeBlock(`curl -fsSL ${origin}/setup.sh | sh`)}
+            <span class="small muted">It checks for <code>node</code> 22 or newer, installs the Claude Code plugin, and stores your token in <code>~/.claude/intercom/config</code> (readable only by you). Safe to re-run.</span></li>
+          <li><b>Restart Claude Code</b> and type <code>/intercom</code> to see your team, locks and votes.</li>
         </ol>
-        <p class="small muted">Without the plugin system, <code>curl -fsSL ${esc(origin)}/install.sh | sh</code> installs the same pieces directly into <code>~/.claude</code>.</p>
+        <p class="small muted">No <code>claude</code> command in your terminal? Install the plugin from inside Claude Code instead: <code>/plugin install intercom --marketplace edvin/intercom</code>. Without the plugin system at all, <code>curl -fsSL ${esc(origin)}/install.sh | sh</code> installs the same pieces into <code>~/.claude</code>. Windows isn't supported yet (WSL works).</p>
       </section>
 
       <section>
         <h2>Signing in to the dashboard</h2>
         <p>The dashboard uses the same personal token as Claude Code. The easiest way in: type <code>/intercom dashboard</code> in Claude Code, and your browser opens already signed in. You stay signed in for a year (sign out from the top bar).</p>
         <p class="muted">Or from a terminal:</p>${codeBlock('. ~/.claude/intercom/config && open "$INTERCOM_URL/login#t=$INTERCOM_TOKEN"   # Linux: xdg-open')}
-        <p class="small muted">On another device, open <a href="/login">${esc(origin)}/login</a> and paste the token; <code>grep TOKEN ~/.claude/intercom/config</code> shows it. One-click links put the token after <code>#</code>, which browsers never send to the server, and the page removes it from the address bar at once. It may still appear in browser history, so don't share such a link. Lost your token? An admin can reset it.</p>
+        <p class="small muted">On another device, open <a href="/login">${esc(origin)}/login</a> and paste the token; <code>grep TOKEN ~/.claude/intercom/config</code> shows it. One-click links put the token after <code>#</code>, which browsers never send to the server, and the page removes it from the address bar at once. It may still appear in browser history, so don't share such a link.</p>
+        <p class="small muted"><b>Lost your token?</b> If you're still signed in somewhere, open <a href="/account">Account</a> and create a new one (then re-run the setup on your machines). Otherwise an admin can reset it.</p>
       </section>
 
       <section>
@@ -648,11 +659,34 @@ export function docsPage(origin: string): Response {
         <h2>Projects, members and invites</h2>
         <ul>
           <li><b>Projects are private.</b> Only members see a project's messages, locks, votes, rules and who's working on it. You can only DM people you share a project with.</li>
-          <li><b>Creating a project makes you its owner.</b> Owners edit the description, repos and rules, add people by handle or with an <b>invite link</b> (works for people at other companies), and remove members. Anyone can leave.</li>
-          <li><b>Repos → projects:</b> when you start Claude in a git repo, Intercom finds which of <i>your</i> projects lists that repo. Its rules are shown to your agent and the session joins its channel.</li>
+          <li><b>Creating a project makes you its owner.</b> Owners edit the description, repos and rules, add people by handle or with an <b>invite link</b> (works for people at other companies; single use and valid for 3 days unless you choose otherwise), and remove members. Anyone can leave.</li>
+          <li><b>Repos → projects:</b> when you start Claude in a git repo, Intercom finds which of <i>your</i> projects lists that repo. Its rules are shown to your agent and the session joins its channel. If your clone isn't linked yet, Claude offers to link it (any member can: “link this repo to billing”).</li>
           <li><b>Mute</b> a person or a project. Lock activity always comes through.</li>
           <li><b>Export</b> a project's rules and decisions as Markdown from its panel on the dashboard.</li>
         </ul>
+      </section>
+
+      <section>
+        <h2>Who's working on what</h2>
+        <p>Your teammates' Claude sessions show up in <code>team</code>, <code>/intercom</code> and the dashboard with their project, <b>git branch</b> and a short <b>status note</b>, e.g. <code>anna/billing-9c1e: #billing · branch feat/ledger-4.2 · “migrating invoices index”</code>. That's usually enough to spot overlapping work before it collides.</p>
+        <ul>
+          <li>The branch is shared automatically and updates when you switch.</li>
+          <li>Claude sets the status note itself when it starts a clearly defined task, and clears it when done. It's told to keep it generic: no secrets, credentials or customer data. You can also just say “set my intercom status to …”.</li>
+          <li>Only people in the same project see this. Someone outside sees at most that you're “in another project”.</li>
+          <li>Asking “what is anna working on?” never reads her session: her Claude shows her the question, and she decides what to answer.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>Settings</h2>
+        <p class="muted">Add any of these lines to <code>~/.claude/intercom/config</code>, then restart Claude Code.</p>
+        <dl class="kv">
+          <dt><code>INTERCOM_SHARE_BRANCH=0</code></dt><dd>Don't share your git branch.</dd>
+          <dt><code>INTERCOM_AUTO_STATUS=0</code></dt><dd>Claude only sets a status note when you ask.</dd>
+          <dt><code>INTERCOM_GUARD=0</code></dt><dd>Turn off the deploy guard.</dd>
+          <dt><code>INTERCOM_NOTIFY=0</code></dt><dd>No desktop notifications. (On macOS the first one may ask for permission, and appears as coming from Script Editor.)</dd>
+          <dt><code>INTERCOM_CHANNELS=allowlisted</code></dt><dd>Your org allowlists Intercom as a channel: <code>claude-ic</code> then uses <code>--channels</code>.</dd>
+        </dl>
       </section>
 
       <section>
@@ -695,16 +729,52 @@ const newToken = () => [...crypto.getRandomValues(new Uint8Array(24))].map((b) =
 const HANDLE = /^[a-z][a-z0-9_-]{1,31}$/;
 
 /** One-time page showing a freshly issued token, with everything the person needs to get going. */
-function tokenPage(origin: string, name: string, token: string, what: string): Response {
+function tokenPage(origin: string, name: string, token: string, what: string, self = false): Response {
   return html(
     soloCard(
       "token",
       `<div class="row">${avatar(name, "l")}<div><p class="small muted" style="margin:0">${icon("key", 13)} ${esc(what)}</p><h1 class="headline">${esc(name)}</h1></div></div>
-      <div><h3>Token</h3><p class="small muted">Shown <b>only once</b>. Send it to them privately.</p>${codeBlock(token)}</div>
-      <div><h3>Install</h3><p class="small muted">They paste the token when asked.</p>${codeBlock(INSTALL(origin))}</div>
+      <p class="muted" style="margin:0">${self ? "Your old token stopped working. Run the setup again on each machine where you use Intercom." : "Shown <b>only once</b>. Send it to them privately, with the command below."}</p>
+      ${setupSteps(origin, token)}
+      <div><h3>Token</h3>${codeBlock(token)}</div>
       <div><h3>One-click dashboard sign-in</h3>${codeBlock(`${origin}/login#t=${token}`)}</div>
-      <a class="btn primary" href="/?view=admin">${icon("arrow", 15)}Back to admin</a>`,
+      <a class="btn primary" href="${self ? "/" : "/?view=admin"}">${icon("arrow", 15)}${self ? "Back to the dashboard" : "Back to admin"}</a>`,
       true,
+    ),
+    200,
+    self ? { "cache-control": "no-store", "set-cookie": sessionCookie(token) } : { "cache-control": "no-store" },
+  );
+}
+
+/** /account: your handle and company, a fresh token, and how to connect another machine. */
+export async function accountPage(req: Request, env: Env, me: string): Promise<Response> {
+  const origin = new URL(req.url).origin;
+  if (req.method === "POST") {
+    if (!sameOrigin(req)) return new Response("Cross-origin request refused", { status: 403 });
+    const form = await req.formData();
+    if (form.get("action") === "token") {
+      const token = newToken();
+      await env.DB.prepare("UPDATE members SET token_hash = ? WHERE name = ?").bind(await sha256(token), me).run();
+      return tokenPage(origin, me, token, "New token", true);
+    }
+    if (form.get("action") === "org") {
+      await env.DB.prepare("UPDATE members SET org = ? WHERE name = ?").bind(String(form.get("org") ?? "").trim().slice(0, 60), me).run();
+      return redirect("/account?ok=Saved");
+    }
+    return new Response("Not found", { status: 404 });
+  }
+  const row = await env.DB.prepare("SELECT org, is_admin, created_at FROM members WHERE name = ?").bind(me).first<{ org: string; is_admin: number; created_at: number }>();
+  const projects = await myProjects(env, me);
+  return html(
+    soloCard(
+      "account",
+      `<div class="row">${avatar(me, "l")}<div><p class="small muted" style="margin:0">${icon("users", 13)} Account${row?.is_admin ? ' · <span class="badge accent">admin</span>' : ""}</p><h1 class="headline">${esc(me)}</h1></div></div>
+      <dl class="kv"><dt>Projects</dt><dd>${projects.length ? projects.map((p) => `<a href="/?channel=${encodeURIComponent(p)}">#${esc(p)}</a>`).join(", ") : "none yet"}</dd><dt>Member since</dt><dd>${new Date(row?.created_at ?? Date.now()).toISOString().slice(0, 10)}</dd></dl>
+      <form method="post" class="row" data-native>${hidden({ action: "org" })}<label class="field grow">Company<input name="org" value="${esc(row?.org)}" placeholder="e.g. Acme"></label><button class="btn" style="align-self:flex-end">${icon("check", 14)}Save</button></form>
+      <div><h3>Connect another machine</h3><p class="small muted">Copy the token from <code>~/.claude/intercom/config</code> on a machine that's already set up, and run there:</p>${codeBlock(`curl -fsSL ${origin}/setup.sh | sh`)}</div>
+      <div><h3>Lost your token?</h3><p class="small muted">Create a new one. The old token stops working at once, so run the setup again on each machine where you use Intercom.</p>
+        <form method="post" data-native data-confirm="Create a new token? Your current one stops working on every machine until you run the setup again.">${hidden({ action: "token" })}<button class="btn">${icon("key", 14)}Create a new token</button></form></div>
+      <div class="row"><a class="btn primary" href="/">${icon("arrow", 15)}Dashboard</a><a class="btn ghost" href="/docs">Docs</a></div>`,
     ),
     200,
     { "cache-control": "no-store" },

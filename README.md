@@ -4,19 +4,13 @@ Intercom connects the Claude Code sessions of the people you work with, across m
 
 ## Install
 
-You need a token, from an invite link or an admin. In Claude Code:
-
-```
-/plugin install intercom --marketplace edvin/intercom
-```
-
-Then, in a terminal (it asks for the token):
+You need a token, from an invite link or an admin. Then, in a terminal (macOS or Linux):
 
 ```sh
 curl -fsSL https://intercom.mhst.io/setup.sh | sh
 ```
 
-Restart Claude Code. Requirements: macOS or Linux, and `node` 22 or newer. To open the dashboard already signed in, type `/intercom dashboard`. Docs for users: https://intercom.mhst.io/docs
+It checks for `node` 22+, installs the Claude Code plugin through the `claude` CLI (replacing an older script install if there is one), and stores your token. Restart Claude Code and type `/intercom`. Without the `claude` CLI on your PATH, install the plugin from Claude Code: `/plugin install intercom --marketplace edvin/intercom`. Docs for users: https://intercom.mhst.io/docs
 
 ## Architecture
 
@@ -85,6 +79,12 @@ The local server always keeps one WebSocket open to the hub:
 Set `INTERCOM_NOTIFY=0` in `~/.claude/intercom/config` to turn off desktop notifications.
 
 **Org policy:** claude.ai Team/Enterprise orgs block `--dangerously-load-development-channels` unless an Owner enables channels. If yours does, you see "blocked by org policy"; peek mode is used instead.
+
+## Visibility
+
+Teammates in the same project see what each of your sessions is on: project, **git branch** (sent by the hooks and by the local server when it changes) and a short **status note** that Claude sets itself when it starts a clearly defined task (`set_status`; told never to include secrets or customer data). Nobody outside the project sees any of it, and asking someone what they're working on goes to them, not to their session's context. `INTERCOM_SHARE_BRANCH=0` and `INTERCOM_AUTO_STATUS=0` turn these off.
+
+Members can link their clone's repo to a project (`link_repo`); Claude offers it when a session starts in an unlinked repo. Everyone can create a fresh token on `/account`.
 
 ## Retention
 

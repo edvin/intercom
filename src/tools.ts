@@ -23,6 +23,7 @@ import {
   setPresence,
   tally,
   unread,
+  workingOn,
 } from "./lib";
 
 type Args = Record<string, unknown>;
@@ -529,7 +530,8 @@ export const tools: Tool[] = [
   },
   {
     name: "team",
-    description: "People you share projects with: what each one's Claude is working on, their live sessions (addresses), and when they were last active.",
+    description:
+      "People you share projects with and what each of their Claude sessions is working on: project, git branch and status note, with session addresses you can message directly. Only shows work in projects you're also in.",
     annotations: { readOnlyHint: true },
     inputSchema: { type: "object", properties: {} },
     async run(env, me) {
@@ -538,40 +540,73 @@ export const tools: Tool[] = [
       const mine = new Set(await myProjects(env, me));
       const ph = people.map(() => "?").join(",");
       const [{ results }, { results: sessions }] = await Promise.all([
-        env.DB.prepare(`SELECT m.name, m.org, p.project, p.note, p.updated_at FROM members m LEFT JOIN presence p ON p.member = m.name WHERE m.name IN (${ph}) ORDER BY p.updated_at DESC NULLS LAST, m.name`)
+        env.DB.prepare(`SELECT m.name, m.org, p.project, p.note, p.branch, p.updated_at FROM members m LEFT JOIN presence p ON p.member = m.name WHERE m.name IN (${ph}) ORDER BY p.updated_at DESC NULLS LAST, m.name`)
           .bind(...people)
-          .all<{ name: string; org: string; project: string | null; note: string | null; updated_at: number | null }>(),
-        env.DB.prepare(`SELECT member, label, project, last_seen FROM sessions WHERE last_seen > ? AND member IN (${ph}) ORDER BY last_seen DESC`)
+          .all<{ name: string; org: string; project: string | null; note: string | null; branch: string | null; updated_at: number | null }>(),
+        env.DB.prepare(`SELECT member, label, project, branch, note, last_seen FROM sessions WHERE last_seen > ? AND member IN (${ph}) ORDER BY last_seen DESC`)
           .bind(Date.now() - 6 * 3600_000, ...people)
-          .all<{ member: string; label: string; project: string; last_seen: number }>(),
+          .all<{ member: string; label: string; project: string; branch: string; note: string; last_seen: number }>(),
       ]);
       return results
         .map((r) => {
           const who = `${r.name}${r.org ? ` (${r.org})` : ""}${r.name === me ? " — you" : ""}`;
-          if (!r.updated_at) return `${who}: never seen`;
+          if (!r.updated_at) return `${who}: never connected`;
           // Only reveal what someone is working on when it's a project you're in too.
-          const where = r.project && mine.has(r.project) ? `#${r.project}${r.note ? ` — ${r.note}` : ""}` : "elsewhere";
-          const live = sessions.filter((s) => s.member === r.name && (!s.project || mine.has(s.project))).map((s) => `${address(s.member, s.label)} (${ago(s.last_seen)})`);
-          return `${who}: ${where} (${ago(r.updated_at)})${live.length ? `\n    sessions: ${live.join(", ")}` : ""}`;
+          const live = sessions.filter((s) => s.member === r.name && s.project && mine.has(s.project));
+          const hidden = r.name !== me && sessions.some((s) => s.member === r.name && s.project && !mine.has(s.project));
+          const head = `${who}: active ${ago(r.updated_at)}${!live.length && r.project && mine.has(r.project) ? ` — ${workingOn(r.project, r.branch, r.note)}` : ""}`;
+          const lines = live.map((s) => `    ${address(s.member, s.label)}: ${workingOn(s.project, s.branch, s.note)} (${ago(s.last_seen)})`);
+          if (hidden) lines.push("    (also active in projects you're not in)");
+          return [head, ...lines].join("\n");
         })
         .join("\n");
     },
   },
   {
     name: "set_status",
-    description: "Tell your project members what you're working on (shown in `team`). The project is auto-detected; use this for a short note.",
+    description:
+      "Tell your project members what this session is working on, in a few words (shown in `team` and on the dashboard), e.g. \"migrating invoices index\". Never include secrets, credentials, customer data or anything your user wants kept private. An empty note clears it.",
     inputSchema: {
       type: "object",
       properties: {
-        note: { type: "string", description: "e.g. \"refactoring invoice export, touching shared billing lib\"" },
+        note: { type: "string", description: "Max ~80 characters." },
         project: { type: "string" },
       },
       required: ["note"],
     },
     async run(env, me, a) {
       const project = a.project ? await requireProject(env, me, a.project) : env.session?.project || null;
-      await setPresence(env, me, project, str(a, "note", true).slice(0, 200));
-      return "Status updated.";
+      const note = (typeof a.note === "string" ? a.note : "").trim().slice(0, 120);
+      await setPresence(env, me, project, note);
+      if (env.session) {
+        await env.DB.prepare("UPDATE sessions SET note = ?, note_at = ? WHERE member = ? AND session_id = ?").bind(note, Date.now(), me, env.session.session_id).run();
+      }
+      return note ? `Status set: ${note}` : "Status cleared.";
+    },
+  },
+  {
+    name: "link_repo",
+    description:
+      "Link a git repo to one of your projects, so sessions started in it join that project (its rules, channel and locks). Any member can add a repo; owners can edit the full list with configure_project. Defaults to the current session's repo.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project: { type: "string", description: "The project to link the repo to." },
+        repo: { type: "string", description: "Repo name, e.g. \"billing-api\". Defaults to the current session's repo." },
+      },
+      required: ["project"],
+    },
+    async run(env, me, a) {
+      const project = await requireProject(env, me, a.project);
+      const repo = normChannel(str(a, "repo") ?? env.repo ?? "", "");
+      if (!repo) throw new UserError("Which repo? Pass repo, e.g. \"billing-api\".");
+      const row = await env.DB.prepare("SELECT repos FROM projects WHERE name = ?").bind(project).first<{ repos: string }>();
+      const repos: string[] = JSON.parse(row?.repos ?? "[]");
+      if (repo === project || repos.includes(repo)) return `${repo} is already linked to #${project}.`;
+      repos.push(repo);
+      await env.DB.prepare("UPDATE projects SET repos = ?, updated_by = ?, updated_at = ? WHERE name = ?").bind(JSON.stringify(repos), me, Date.now(), project).run();
+      await postMessage(env, { channel: project, sender: me, kind: "event", body: `linked repo ${repo} to #${project}` });
+      return `Linked ${repo} to #${project}. Sessions started in it now join #${project} (new sessions, or after the next prompt).`;
     },
   },
 ];
