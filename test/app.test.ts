@@ -341,7 +341,12 @@ describe("GitHub", () => {
     w.github = { client_id: "id", client_secret: "secret" };
     stubGitHub({ id: 42, login: "Dominic.X" });
     try {
-      const res = await oauth(w, "");
+      const ask = await oauth(w, "");
+      const askPage = await ask.text();
+      assert.match(askPage, /Create a new account\?/);
+      assert.match(askPage, /Already have an Intercom account\?/);
+      const pending = askPage.match(/name="pending" value="([0-9a-f]+)"/)![1];
+      const res = await w.request("/auth/github/create", { method: "POST", headers: { origin: ORIGIN }, body: new URLSearchParams({ pending }), redirect: "manual" });
       assert.equal(res.status, 303);
       assert.equal(res.headers.get("location"), "/?welcome=1");
       const who = await (await w.request("/api/whoami", { headers: { cookie: sessionFrom(res) } })).text();
@@ -366,7 +371,9 @@ describe("GitHub", () => {
       assert.equal((await w.db.prepare("SELECT COUNT(*) AS n FROM members WHERE github_id = 7").first<{ n: number }>())!.n, 0);
       const code = (await w.ok("alice", "invite", { project: "billing" })).match(/\/join\/([0-9a-f]+)/)![1];
       const invited = await oauth(w, `?next=${encodeURIComponent(`/join/${code}`)}`);
-      assert.equal(invited.headers.get("location"), `/join/${code}`);
+      const pending = (await invited.text()).match(/name="pending" value="([0-9a-f]+)"/)![1];
+      const made = await w.request("/auth/github/create", { method: "POST", headers: { origin: ORIGIN }, body: new URLSearchParams({ pending }), redirect: "manual" });
+      assert.equal(made.headers.get("location"), `/join/${code}`);
     } finally {
       restore();
     }
@@ -397,6 +404,21 @@ describe("GitHub", () => {
       await w.member("mallory");
       const denied = await oauth(w, "?purpose=discover&repo=acme/billing-api", `intercom_token=${w.tokens.mallory}`);
       assert.match(decodeURIComponent(denied.headers.get("location")!), /doesn't have push access/);
+    } finally {
+      restore();
+    }
+  });
+
+  test("connecting GitHub folds in an empty duplicate account made by signing up", async () => {
+    const w = await standardWorld();
+    w.github = { client_id: "id", client_secret: "secret" };
+    await w.db.prepare("INSERT INTO members (name, token_hash, created_at, github_id, github_login) VALUES ('alice-2', 'x', 0, 55, 'alice')").run();
+    stubGitHub({ id: 55, login: "alice" });
+    try {
+      const res = await oauth(w, "?purpose=link", `intercom_token=${w.tokens.alice}`);
+      assert.match(decodeURIComponent(res.headers.get("location")!), /Connected GitHub \(@alice\)/);
+      assert.equal(await w.db.prepare("SELECT 1 FROM members WHERE name = 'alice-2'").first(), null);
+      assert.equal((await w.db.prepare("SELECT github_id FROM members WHERE name = 'alice'").first<{ github_id: number }>())!.github_id, 55);
     } finally {
       restore();
     }

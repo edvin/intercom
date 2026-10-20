@@ -62,7 +62,18 @@ export async function githubCallback(req: Request, env: Env, url: URL): Promise<
 
   // Attach this GitHub account to the signed-in member, unless another member already has it.
   const link = async (member: string): Promise<string | null> => {
-    if (owner && owner.name !== member) return `@${gh.login} is already connected to the Intercom account "${owner.name}".`;
+    if (owner && owner.name !== member) {
+      // A duplicate made by signing up with GitHub instead of connecting it: if it's still empty, fold it in.
+      const used = await env.DB.prepare("SELECT 1 FROM project_members WHERE member = ?1 UNION ALL SELECT 1 FROM messages WHERE sender = ?1 LIMIT 1").bind(owner.name).first();
+      if (used) return `@${gh.login} is already connected to the Intercom account "${owner.name}". Sign in to that one, disconnect GitHub there, and try again.`;
+      await env.DB.batch([
+        env.DB.prepare("DELETE FROM members WHERE name = ?").bind(owner.name),
+        env.DB.prepare("DELETE FROM tokens WHERE member = ?").bind(owner.name),
+        env.DB.prepare("DELETE FROM presence WHERE member = ?").bind(owner.name),
+        env.DB.prepare("DELETE FROM sessions WHERE member = ?").bind(owner.name),
+        env.DB.prepare("DELETE FROM join_requests WHERE member = ?").bind(owner.name),
+      ]);
+    }
     await env.DB.prepare("UPDATE members SET github_id = ?, github_login = ? WHERE name = ? AND (github_id IS NULL OR github_id = ?)").bind(gh.id, gh.login, member, gh.id).run();
     return null;
   };
@@ -97,16 +108,46 @@ export async function githubCallback(req: Request, env: Env, url: URL): Promise<
   if (!(await rateLimit(env, `signup:ip:${env.ip ?? "?"}`, 5, 60 * MIN)) || !(await rateLimit(env, "signup:all", 200, 24 * 60 * MIN))) {
     return loginPage("Too many new accounts right now. Try again later.", next, true);
   }
-  const name = await freeHandle(env, gh.login);
-  await env.DB.prepare("INSERT INTO members (name, token_hash, created_at, org, github_id, github_login) VALUES (?, ?, ?, '', ?, ?)")
-    .bind(name, await sha256(newToken()), Date.now(), gh.id, gh.login)
+  // Ask first: people with an existing (token) account should connect GitHub to it instead.
+  const pending = newToken();
+  await env.DB.prepare("INSERT INTO oauth_states (state, purpose, data, expires_at) VALUES (?, 'create', ?, ?)")
+    .bind(pending, JSON.stringify({ id: gh.id, login: gh.login, next }), Date.now() + 10 * MIN)
     .run();
-  return signedIn(env, name, next || "/?welcome=1", clear);
+  const name = await freeHandle(env, gh.login);
+  return solo(
+    "new account",
+    `<div>${LOGO}</div>
+    <div><p class="small muted" style="margin:0">${GITHUB_ICON} @${esc(gh.login)}</p><h1 class="headline">Create a new account?</h1></div>
+    <p class="muted">There's no Intercom account connected to this GitHub account yet. We'll create <b>${esc(name)}</b> for you.</p>
+    <form method="post" action="/auth/github/create" data-native>${hidden({ pending })}<button class="btn primary" style="width:100%;height:42px">${icon("userPlus", 15)} Create account “${esc(name)}”</button></form>
+    <div class="card" style="padding:14px;box-shadow:none"><b>Already have an Intercom account?</b><p class="small muted" style="margin:6px 0 10px">Sign in with your token (or <code>/intercom dashboard</code> in Claude Code), then connect GitHub under Account, so you don't end up with two accounts.</p>
+      <a class="btn sm" href="/login?next=/account">Sign in with a token</a></div>`,
+    200,
+    clear,
+  );
+}
+
+/** POST /auth/github/create: confirmed sign-up after a GitHub sign-in. */
+export async function githubCreate(req: Request, env: Env): Promise<Response> {
+  if (!sameOrigin(req)) return new Response("Cross-origin request refused", { status: 403 });
+  const form = await req.formData();
+  const row = await env.DB.prepare("DELETE FROM oauth_states WHERE state = ? AND purpose = 'create' RETURNING data, expires_at").bind(String(form.get("pending") ?? "")).first<{ data: string; expires_at: number }>();
+  if (!row || row.expires_at < Date.now()) return loginPage("That sign-up expired. Please continue with GitHub again.", "", true);
+  const { id, login, next } = JSON.parse(row.data) as { id: number; login: string; next: string };
+  const taken = await env.DB.prepare("SELECT name FROM members WHERE github_id = ?").bind(id).first<{ name: string }>();
+  if (taken) return signedIn(env, taken.name, next || "/", {});
+  const name = await freeHandle(env, login);
+  await env.DB.prepare("INSERT INTO members (name, token_hash, created_at, org, github_id, github_login) VALUES (?, ?, ?, '', ?, ?)")
+    .bind(name, await sha256(newToken()), Date.now(), id, login)
+    .run();
+  return signedIn(env, name, next || "/?welcome=1", {});
 }
 
 async function signedIn(env: Env, member: string, to: string, extra: Record<string, string>): Promise<Response> {
   const token = await issueToken(env, member, "web", "browser");
-  return new Response(null, { status: 303, headers: [["location", to], ["set-cookie", extra["set-cookie"]], ["set-cookie", sessionCookie(token)]] });
+  const headers: [string, string][] = [["location", to], ["set-cookie", sessionCookie(token)]];
+  if (extra["set-cookie"]) headers.push(["set-cookie", extra["set-cookie"]]);
+  return new Response(null, { status: 303, headers });
 }
 
 /** Sign out: also forget a browser session token. */

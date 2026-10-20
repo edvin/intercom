@@ -18,7 +18,7 @@ function setupSteps(origin: string, token: string): string {
 // ---------- sign in / out ----------
 
 /** Where sign-in may send you afterwards: only our own invite, device-approval and discovery pages. */
-export const safeNext = (next: string | null | undefined) => (next && /^\/(join\/|connect\?|discover)/.test(next) ? next : "");
+export const safeNext = (next: string | null | undefined) => (next && /^\/(join\/|connect\?|discover|account$)/.test(next) ? next : "");
 
 export function loginPage(error = "", next = "", github = false): Response {
   const safeNext_ = safeNext(next);

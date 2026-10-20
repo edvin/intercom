@@ -1,6 +1,6 @@
 import { type Env, type Proposal, MEMBER_OF, RECEIVES, UserError, activeLocks, address, ago, cleanBranch, workingOn, authenticate, coMembers, fmtLock, fmtMessage, myProjects, resolveProject, setPresence, tally, touchSession, unread } from "./lib";
 import { INSTRUCTIONS, tools } from "./tools";
-import { cliPoll, cliStart, connectPage, discoverJoin, discoverPage, discoverRequest, githubCallback, githubStart, signOut } from "./accounts";
+import { cliPoll, cliStart, connectPage, discoverJoin, discoverPage, discoverRequest, githubCallback, githubCreate, githubStart, signOut } from "./accounts";
 import { guard } from "./guard";
 import { getSetting, githubRepo, openSignup, setSetting } from "./github";
 import { landingPage } from "./landing";
@@ -251,6 +251,7 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
   }
   if (url.pathname === "/auth/github") return githubStart(req, env, url);
   if (url.pathname === "/auth/github/callback") return githubCallback(req, env, url);
+  if (url.pathname === "/auth/github/create" && req.method === "POST") return githubCreate(req, env);
   if (url.pathname === "/api/cli/start" && req.method === "POST") return cliStart(env, url.origin);
   if (url.pathname === "/api/cli/poll") return cliPoll(env, url.searchParams.get("code") ?? "");
 
