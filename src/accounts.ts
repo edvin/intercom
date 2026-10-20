@@ -42,11 +42,17 @@ export async function githubCallback(req: Request, env: Env, url: URL): Promise<
   const state = url.searchParams.get("state") ?? "";
   const row = state ? await env.DB.prepare("DELETE FROM oauth_states WHERE state = ? RETURNING *").bind(state).first<{ purpose: Purpose; data: string; member: string | null; expires_at: number }>() : null;
   // The state must be ours, fresh, and started in this browser (no login CSRF).
-  if (!cfg || !row || row.expires_at < Date.now() || cookieValue(req, STATE_COOKIE) !== state) return loginPage("That sign-in link expired. Please try again.", "", !!cfg);
+  if (!cfg || !row || row.expires_at < Date.now() || cookieValue(req, STATE_COOKIE) !== state) {
+    console.error("github oauth state", JSON.stringify({ row: !!row, cookie: !!cookieValue(req, STATE_COOKIE) }));
+    return loginPage("That sign-in link expired. Please try again.", "", !!cfg);
+  }
   const { next, repo } = JSON.parse(row.data) as { next: string; repo: string | null };
   const clear = { "set-cookie": `${STATE_COOKIE}=; Path=/auth/github; HttpOnly; Secure; SameSite=Lax; Max-Age=0` };
-  if (url.searchParams.get("error")) {
-    return row.purpose === "signin" ? loginPage("GitHub sign-in was cancelled.", next, true) : redirect(row.purpose === "link" ? "/account" : `/discover${repo ? `?repo=${repo}` : ""}`, clear);
+  const ghError = url.searchParams.get("error");
+  if (ghError) {
+    const why = ghError === "access_denied" ? "GitHub sign-in was cancelled." : `GitHub said: ${url.searchParams.get("error_description") ?? ghError}`;
+    if (row.purpose === "signin") return loginPage(why, next, true);
+    return redirect(row.purpose === "link" ? `/account?err=${encodeURIComponent(why)}` : `/discover?${repo ? `repo=${repo}&` : ""}err=${encodeURIComponent(why)}`, clear);
   }
 
   let token: string;
@@ -55,7 +61,10 @@ export async function githubCallback(req: Request, env: Env, url: URL): Promise<
     token = await exchangeCode(cfg, url.searchParams.get("code") ?? "");
     gh = await githubUser(token);
   } catch (e) {
-    return loginPage(`GitHub sign-in failed: ${(e as Error).message}`, next, true);
+    console.error("github oauth", (e as Error).message);
+    const why = `GitHub sign-in failed: ${(e as Error).message}`;
+    if (row.purpose === "link") return redirect(`/account?err=${encodeURIComponent(why)}`, clear);
+    return loginPage(why, next, true);
   }
   const owner = await env.DB.prepare("SELECT name FROM members WHERE github_id = ?").bind(gh.id).first<{ name: string }>();
   const me = await authenticate(req, env);

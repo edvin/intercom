@@ -72,14 +72,14 @@ export function riskyCommand(command: string): RiskyCommand | null {
     if (READ_ONLY.test(bin) || (bin === "git" && words[1] !== "push")) continue;
     const args = words.slice(1).filter((w) => !w.startsWith("-") || w === "--prod");
     const tool = TOOLS[bin];
-    if (tool && args.some((a) => tool.sub.test(a))) return { action: tool.action, env: detectEnv(command) };
+    if (tool && args.some((a) => tool.sub.test(a))) return { action: tool.action, env: detectEnv(seg) };
     // ./deploy.sh, scripts/release-prod, bin/migrate
     if (RISKY_WORD.test(bin) && (words[0].includes("/") || /\.(sh|py|rb|js|ts|mjs)$/.test(bin) || bin.startsWith("deploy"))) {
-      return { action: actionOf(bin), env: detectEnv(command) };
+      return { action: actionOf(bin), env: detectEnv(seg) };
     }
     if (RUNNERS.test(bin)) {
       const target = args.slice(0, 3).find((a) => RISKY_WORD.test(a) || /^(migrate|deploy|release|publish)$/i.test(a));
-      if (target) return { action: actionOf(target), env: detectEnv(command) };
+      if (target) return { action: actionOf(target), env: detectEnv(seg) };
     }
   }
   return null;
