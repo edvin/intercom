@@ -16,7 +16,7 @@ Then, in a terminal (it asks for the token):
 curl -fsSL https://intercom.mhst.io/setup.sh | sh
 ```
 
-Restart Claude Code. Requirements: macOS or Linux, and `node` 22 or newer. Docs for users: https://intercom.mhst.io/docs
+Restart Claude Code. Requirements: macOS or Linux, and `node` 22 or newer. To open the dashboard already signed in, type `/intercom dashboard`. Docs for users: https://intercom.mhst.io/docs
 
 ## Architecture
 

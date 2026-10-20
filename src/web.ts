@@ -616,7 +616,14 @@ export function docsPage(origin: string): Response {
           <li><b>Store your token</b> in a terminal:${codeBlock(`curl -fsSL ${origin}/setup.sh | sh`)}</li>
           <li><b>Restart Claude Code.</b> Type <code>/intercom</code> to see status and quick actions.</li>
         </ol>
-        <p class="small muted">Without the plugin system, <code>curl -fsSL ${esc(origin)}/install.sh | sh</code> installs the same pieces directly into <code>~/.claude</code>. Sign in to the dashboard with the same token.</p>
+        <p class="small muted">Without the plugin system, <code>curl -fsSL ${esc(origin)}/install.sh | sh</code> installs the same pieces directly into <code>~/.claude</code>.</p>
+      </section>
+
+      <section>
+        <h2>Signing in to the dashboard</h2>
+        <p>The dashboard uses the same personal token as Claude Code. The easiest way in: type <code>/intercom dashboard</code> in Claude Code, and your browser opens already signed in. You stay signed in for a year (sign out from the top bar).</p>
+        <p class="muted">Or from a terminal:</p>${codeBlock('. ~/.claude/intercom/config && open "$INTERCOM_URL/login#t=$INTERCOM_TOKEN"   # Linux: xdg-open')}
+        <p class="small muted">On another device, open <a href="/login">${esc(origin)}/login</a> and paste the token; <code>grep TOKEN ~/.claude/intercom/config</code> shows it. One-click links put the token after <code>#</code>, which browsers never send to the server, and the page removes it from the address bar at once. It may still appear in browser history, so don't share such a link. Lost your token? An admin can reset it.</p>
       </section>
 
       <section>
