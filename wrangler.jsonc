@@ -3,8 +3,11 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-09-28",
   "routes": [{ "pattern": "intercom.mhst.io", "custom_domain": true }],
-  // Client scripts and SQL migrations are bundled as text.
-  "rules": [{ "type": "Text", "globs": ["**/*.sh", "**/*.md", "**/*.sql"], "fallthrough": false }],
+  // Client scripts and SQL migrations are bundled as text, fonts as binary.
+  "rules": [
+    { "type": "Text", "globs": ["**/*.sh", "**/*.md", "**/*.sql"], "fallthrough": false },
+    { "type": "Data", "globs": ["**/*.woff2"], "fallthrough": false }
+  ],
   "durable_objects": {
     "bindings": [{ "name": "HUB", "class_name": "TeamHub" }]
   },

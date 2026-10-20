@@ -1,0 +1,21 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - name: Shell scripts parse
+        run: for f in client/*.sh plugins/intercom/*.sh scripts/*.sh; do sh -n "$f"; done
+      - name: Plugin manifests are valid JSON
+        run: for f in .claude-plugin/marketplace.json plugins/intercom/.claude-plugin/plugin.json plugins/intercom/.mcp.json plugins/intercom/hooks/hooks.json; do node -e "JSON.parse(require('fs').readFileSync('$f','utf8'))"; done

@@ -1,7 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import { handle, json } from "./app";
-import { SqlDb } from "./db";
-import { type Env, type Message, address, authenticate, fmtMessage, resolveProject, setPresence, touchSession, unread } from "./lib";
+import { SqlDb, splitStatements } from "./db";
+import { type Env, type Message, address, authenticate, fmtMessage, prune, resolveProject, setPresence, touchSession, unread } from "./lib";
 import m0001 from "../migrations/0001_init.sql";
 import m0002 from "../migrations/0002_projects.sql";
 import m0003 from "../migrations/0003_sessions.sql";
@@ -16,9 +16,13 @@ const MIGRATIONS: [string, string][] = [
   ["0005_membership", m0005],
 ];
 
+const DAY = 86400_000;
+
 export interface WorkerEnv {
   HUB: DurableObjectNamespace<TeamHub>;
   ADMIN_TOKEN?: string;
+  /** Days to keep messages (default 90). Decisions are kept forever. */
+  RETENTION_DAYS?: string;
 }
 
 /**
@@ -26,13 +30,14 @@ export interface WorkerEnv {
  * mode "push": a Claude Code channel; messages are delivered into the session and count as read.
  * mode "peek": channels unavailable (e.g. blocked by org policy); the local server is only told that
  * something arrived (to raise a desktop notification and let the hooks fetch it), nothing is marked read.
+ * mode "web": an open dashboard; told to refresh when anything it shows may have changed.
  */
 interface SocketInfo {
   member: string;
   session_id: string;
   label: string;
   project: string;
-  mode: "push" | "peek";
+  mode: "push" | "peek" | "web";
 }
 
 /**
@@ -47,7 +52,18 @@ export class TeamHub extends DurableObject<WorkerEnv> {
     this.db = new SqlDb(ctx.storage);
     // Keep-alive pings are answered without waking the object.
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
-    ctx.blockConcurrencyWhile(async () => this.migrate());
+    ctx.blockConcurrencyWhile(async () => {
+      this.migrate();
+      if ((await ctx.storage.getAlarm()) === null) await ctx.storage.setAlarm(Date.now() + 60_000);
+    });
+  }
+
+  /** Daily housekeeping: message retention, expired locks, invites and stale sessions. */
+  async alarm(): Promise<void> {
+    const days = Number(this.env.RETENTION_DAYS) || undefined;
+    const removed = await prune(this.appEnv(), days);
+    console.log("prune", JSON.stringify(removed));
+    await this.ctx.storage.setAlarm(Date.now() + DAY);
   }
 
   private migrate(): void {
@@ -56,12 +72,7 @@ export class TeamHub extends DurableObject<WorkerEnv> {
     const done = new Set(sql.exec("SELECT name FROM _migrations").toArray().map((r) => r.name));
     for (const [name, ddl] of MIGRATIONS) {
       if (done.has(name)) continue;
-      // Migration files hold several statements; exec() wants exactly one each (no comments-only remainder).
-      const statements = ddl
-        .replace(/--.*$/gm, "")
-        .split(";")
-        .map((st) => st.trim())
-        .filter(Boolean);
+      const statements = splitStatements(ddl);
       this.ctx.storage.transactionSync(() => {
         for (const st of statements) sql.exec(st);
         sql.exec("INSERT INTO _migrations (name, applied_at) VALUES (?, ?)", name, Date.now());
@@ -83,6 +94,7 @@ export class TeamHub extends DurableObject<WorkerEnv> {
     const env = this.appEnv();
     const me = await authenticate(req, env);
     if (!me) return json({ error: "unauthorized" }, 401);
+    if (new URL(req.url).searchParams.get("web") === "1") return this.acceptDashboard(req, me);
     const sessionId = req.headers.get("x-intercom-session");
     if (!sessionId) return json({ error: "missing x-intercom-session" }, 400);
     const raw = req.headers.get("x-intercom-project");
@@ -106,6 +118,15 @@ export class TeamHub extends DurableObject<WorkerEnv> {
     return new Response(null, { status: 101, webSocket: client });
   }
 
+  /** A dashboard tab. Cookie-authenticated, so only same-origin pages may connect (no cross-site WebSocket hijacking). */
+  private acceptDashboard(req: Request, me: string): Response {
+    if (req.headers.get("origin") !== new URL(req.url).origin) return json({ error: "cross-origin" }, 403);
+    const [client, server] = Object.values(new WebSocketPair());
+    this.ctx.acceptWebSocket(server, [me]);
+    server.serializeAttachment({ member: me, session_id: "", label: "web", project: "", mode: "web" } satisfies SocketInfo);
+    return new Response(null, { status: 101, webSocket: client });
+  }
+
   /** Push a freshly stored message to every connected session that should receive it (same rules as RECEIVES). */
   private fanout(m: Message): void {
     const sockets = this.ctx.getWebSockets();
@@ -118,7 +139,14 @@ export class TeamHub extends DurableObject<WorkerEnv> {
     const text = fmtMessage(m);
     for (const ws of sockets) {
       const s = ws.deserializeAttachment() as SocketInfo | null;
-      if (!s || s.member === m.sender) continue;
+      if (!s) continue;
+      if (s.mode === "web") {
+        // Dashboards also show your own activity, and muted things still appear in the feed.
+        const sees = m.recipient ? m.recipient === s.member || m.sender === s.member : members!.has(s.member);
+        if (sees) this.safeSend(ws, '{"type":"refresh"}');
+        continue;
+      }
+      if (s.member === m.sender) continue;
       const receives = m.recipient
         ? m.recipient === s.member && !mutedSender.has(s.member) && (!m.recipient_agent || m.recipient_agent === s.label || m.recipient_agent === s.project)
         : members!.has(s.member) && (m.broadcast === 1 || (!mutedSender.has(s.member) && !mutedChannel!.has(s.member)));
@@ -134,6 +162,14 @@ export class TeamHub extends DurableObject<WorkerEnv> {
       } catch {
         // Socket is closing; the session catches up from its cursor on reconnect.
       }
+    }
+  }
+
+  private safeSend(ws: WebSocket, data: string): void {
+    try {
+      ws.send(data);
+    } catch {
+      // closing
     }
   }
 

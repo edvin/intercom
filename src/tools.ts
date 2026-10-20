@@ -569,7 +569,7 @@ export const tools: Tool[] = [
       required: ["note"],
     },
     async run(env, me, a) {
-      const project = a.project ? await requireProject(env, me, a.project) : null;
+      const project = a.project ? await requireProject(env, me, a.project) : env.session?.project || null;
       await setPresence(env, me, project, str(a, "note", true).slice(0, 200));
       return "Status updated.";
     },

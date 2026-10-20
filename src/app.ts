@@ -1,6 +1,7 @@
-import { type Env, type Proposal, MEMBER_OF, RECEIVES, UserError, activeLocks, address, authenticate, coMembers, fmtLock, fmtMessage, myProjects, resolveProject, setPresence, tally, touchSession, unread } from "./lib";
+import { type Env, type Proposal, MEMBER_OF, RECEIVES, UserError, activeLocks, address, ago, authenticate, coMembers, fmtLock, fmtMessage, myProjects, resolveProject, setPresence, tally, touchSession, unread } from "./lib";
 import { INSTRUCTIONS, tools } from "./tools";
-import { dashboard, handleAction, handleAdminAction, handleJoin, handleLogin, handleLogout, loginPage } from "./web";
+import { guard } from "./guard";
+import { dashboard, exportProject, handleAction, handleAdminAction, handleJoin, handleLogin, handleLogout, loginPage } from "./web";
 
 const SUPPORTED_PROTOCOLS = ["2025-11-25", "2025-06-18", "2025-03-26"];
 const SERVER_INFO = { name: "intercom", version: "0.1.0" };
@@ -141,6 +142,48 @@ async function handleHook(url: URL, env: Env, me: string): Promise<Response> {
   });
 }
 
+/** PreToolUse deploy guard. Body: the hook's stdin JSON. Empty response = nothing to say. */
+async function handleGuard(req: Request, url: URL, env: Env, me: string): Promise<Response> {
+  let input: { tool_input?: { command?: unknown } };
+  try {
+    input = await req.json();
+  } catch {
+    return new Response("", { status: 200 });
+  }
+  const command = typeof input.tool_input?.command === "string" ? input.tool_input.command : "";
+  const raw = url.searchParams.get("project");
+  const project = raw ? await resolveProject(env, raw, me) : null;
+  const out = command ? await guard(env, me, project?.name ?? null, command) : null;
+  return out ? json(out) : new Response("", { status: 200 });
+}
+
+/** Plain-text status for the /intercom command. Read-only: nothing is marked read. */
+async function handleBrief(url: URL, env: Env, me: string): Promise<Response> {
+  const raw = url.searchParams.get("project");
+  const project = raw ? await resolveProject(env, raw, me) : null;
+  const mine = await myProjects(env, me);
+  const people = (await coMembers(env, me)).filter((p) => p !== me);
+  const visible = new Set(mine);
+  const { results: active } = people.length
+    ? await env.DB.prepare(`SELECT member, project, note, updated_at FROM presence WHERE member IN (${people.map(() => "?").join(",")}) AND updated_at > ? ORDER BY updated_at DESC`)
+        .bind(...people, Date.now() - 2 * 3600_000)
+        .all<{ member: string; project: string; note: string; updated_at: number }>()
+    : { results: [] };
+  const locks = await activeLocks(env, me);
+  const { results: open } = await env.DB.prepare(`SELECT * FROM proposals WHERE status = 'open' AND ${MEMBER_OF} ORDER BY id DESC LIMIT 10`).bind(null, me).all<Proposal>();
+  const { messages, more } = await unread(env, me, 8, false);
+  const out = [
+    `INTERCOM STATUS for ${me}${project ? ` · current project #${project.name}` : raw ? ` · this repo ("${raw}") isn't linked to any of your projects` : ""}`,
+    `Projects: ${mine.length ? mine.map((p) => `#${p}`).join(", ") : "none"}`,
+    `Active (2h): ${active.length ? active.map((a) => `${a.member}${visible.has(a.project) ? ` (#${a.project}${a.note ? `: ${a.note}` : ""}, ${ago(a.updated_at)})` : ""}`).join(", ") : "nobody"}`,
+    locks.length ? `Locks:\n${locks.map((l) => `  ${fmtLock(l, me)}`).join("\n")}` : "Locks: none",
+    open.length ? `Open votes:\n${(await Promise.all(open.map((p) => tally(env, p, me)))).map((t) => t.replace(/^/gm, "  ")).join("\n")}` : "Open votes: none",
+    messages.length ? `Unread (${messages.length}${more ? "+" : ""}):\n${messages.map((m) => `  ${fmtMessage(m)}`).join("\n")}` : "Unread: none",
+    `Dashboard: ${url.origin}/${project ? `?channel=${encodeURIComponent(project.name)}` : ""}`,
+  ];
+  return text(out.join("\n"));
+}
+
 /** One-line summary for a Claude Code status line. Does not mark anything read. */
 async function handleStatusline(env: Env, me: string): Promise<Response> {
   const cursor = await env.DB.prepare("SELECT last_read_id FROM cursors WHERE member = ?").bind(me).first<{ last_read_id: number }>();
@@ -213,5 +256,8 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
   if (url.pathname === "/api/hook") return handleHook(url, env, me);
   if (url.pathname === "/api/whoami") return text(me);
   if (url.pathname === "/api/statusline") return handleStatusline(env, me);
+  if (url.pathname === "/api/guard" && req.method === "POST") return handleGuard(req, url, env, me);
+  if (url.pathname === "/api/brief") return handleBrief(url, env, me);
+  if (url.pathname.startsWith("/export/")) return exportProject(env, me, decodeURIComponent(url.pathname.slice(8)).replace(/\.md$/, ""));
   return json({ error: "not found" }, 404);
 }

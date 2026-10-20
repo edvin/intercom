@@ -35,12 +35,19 @@ curl -fsSL "$URL/client/hook.sh" -o "$DIR/hook.sh"
 curl -fsSL "$URL/client/statusline.sh" -o "$DIR/statusline.sh"
 curl -fsSL "$URL/client/intercom.md" -o "$HOME/.claude/commands/intercom.md"
 curl -fsSL "$URL/client/intercom-channel.mjs" -o "$DIR/intercom-channel.mjs"
-chmod +x "$DIR/hook.sh" "$DIR/statusline.sh"
+curl -fsSL "$URL/client/brief.sh" -o "$DIR/brief.sh"
+chmod +x "$DIR/hook.sh" "$DIR/statusline.sh" "$DIR/brief.sh"
 
-# Launcher: Claude Code with the intercom channel enabled (live push into the session).
+# Launcher for live push (Claude Code channels, research preview).
+# If your organisation allowlists intercom as a channel, add INTERCOM_CHANNELS=allowlisted to the config:
+# the launcher then uses --channels instead of the development-channel flag.
 cat > "$DIR/claude-ic" <<'SH'
 #!/bin/sh
-# Claude Code with the team intercom channel: teammates' messages are pushed into the session live.
+# Claude Code with the intercom channel: messages are pushed into the session live.
+[ -f "$HOME/.claude/intercom/config" ] && . "$HOME/.claude/intercom/config"
+if [ "$INTERCOM_CHANNELS" = "allowlisted" ]; then
+  INTERCOM_CHANNEL=1 exec claude --channels server:intercom "$@"
+fi
 INTERCOM_CHANNEL=1 exec claude --dangerously-load-development-channels server:intercom "$@"
 SH
 chmod +x "$DIR/claude-ic"
@@ -55,9 +62,12 @@ import json, os, sys
 path, hook = sys.argv[1], sys.argv[2]
 settings = json.load(open(path)) if os.path.exists(path) else {}
 hooks = settings.setdefault("hooks", {})
-for event in ("SessionStart", "UserPromptSubmit", "PostToolUse", "SessionEnd"):
+for event in ("SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "SessionEnd"):
     groups = [g for g in hooks.get(event, []) if not any("intercom/hook.sh" in h.get("command", "") for h in g.get("hooks", []))]
-    groups.append({"hooks": [{"type": "command", "command": f"{hook} {event}", "timeout": 5}]})
+    entry = {"hooks": [{"type": "command", "command": f"{hook} {event}", "timeout": 5}]}
+    if event == "PreToolUse":
+        entry["matcher"] = "Bash"
+    groups.append(entry)
     hooks[event] = groups
 tmp = path + ".intercom.tmp"
 with open(tmp, "w") as f:

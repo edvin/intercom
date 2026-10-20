@@ -1,8 +1,10 @@
 #!/bin/sh
 # Claude Code hook for the team intercom.
-# Usage (from settings.json): hook.sh SessionStart | UserPromptSubmit | PostToolUse | SessionEnd
+# Usage (from settings.json): hook.sh SessionStart | UserPromptSubmit | PostToolUse | PreToolUse | SessionEnd
 # Prints hook JSON that adds unread team messages (and, at session start, rules/locks/votes) to Claude's context.
-# Never fails or blocks: any error just means no intercom context this time.
+# PreToolUse (Bash) is the deploy guard: if a command looks like a deploy/migration and a teammate holds a
+# matching lock, Claude Code asks the user to confirm. It never blocks on its own.
+# Never fails: any error just means no intercom context this time.
 
 D="$HOME/.claude/intercom"
 event="${1:-UserPromptSubmit}"
@@ -32,6 +34,23 @@ if [ -z "$INTERCOM_URL" ] || [ -z "$INTERCOM_TOKEN" ]; then
   exit 0
 fi
 
+# Deploy guard. Cheap local pre-filter first, so ordinary commands never touch the network.
+if [ "$event" = "PreToolUse" ]; then
+  [ "$INTERCOM_GUARD" = "0" ] && { cat >/dev/null 2>&1; exit 0; }
+  input=$(cat)
+  printf '%s' "$input" | grep -Eiq 'deploy|releas|rollout|rollback|migrat|publish|promote|helm|kubectl|flux|terraform|tofu|terragrunt|pulumi|wrangler|fly|vercel|netlify|kamal|heroku|ansible|argocd|gcloud|alembic|flyway|liquibase|prisma' || exit 0
+  session="${CLAUDE_CODE_SESSION_ID:-$(printf '%s' "$input" | sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)}"
+  project=$(cat "$D/.project-${session:-default}" 2>/dev/null)
+  if [ -z "$project" ]; then
+    dir="${CLAUDE_PROJECT_DIR:-$PWD}"
+    project=$(git -C "$dir" remote get-url origin 2>/dev/null | sed -e 's#\.git$##' -e 's#.*[/:]##')
+    [ -n "$project" ] || project=$(basename "$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null || echo "$dir")")
+  fi
+  printf '%s' "$input" | curl -sf --max-time 3 -X POST "$INTERCOM_URL/api/guard?project=$(printf '%s' "$project" | sed 's/[^A-Za-z0-9._-]/-/g')" \
+    -H "Authorization: Bearer $INTERCOM_TOKEN" -H "Content-Type: application/json" --data-binary @- 2>/dev/null
+  exit 0
+fi
+
 session="$CLAUDE_CODE_SESSION_ID"
 if [ -n "$session" ]; then
   cat >/dev/null 2>&1
@@ -46,6 +65,11 @@ if [ "$event" = "PostToolUse" ] && [ -z "$peek" ]; then
   last=$(cat "$stamp" 2>/dev/null || echo 0)
   [ $((now - last)) -lt "${INTERCOM_POLL_SECONDS:-20}" ] && exit 0
   echo "$now" > "$stamp"
+fi
+
+# Keep a copy of brief.sh where the /intercom command can find it, for plugin and script installs alike.
+if [ "$event" = "SessionStart" ] && [ -f "$(dirname "$0")/brief.sh" ]; then
+  cmp -s "$(dirname "$0")/brief.sh" "$D/brief.sh" 2>/dev/null || cp "$(dirname "$0")/brief.sh" "$D/brief.sh" 2>/dev/null
 fi
 
 # Project = git remote repo name (e.g. acme/billing -> billing), else the directory name. Cached per session.

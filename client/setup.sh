@@ -25,10 +25,16 @@ umask 077
 printf 'INTERCOM_URL=%s\nINTERCOM_TOKEN=%s\n' "$URL" "$TOKEN" > "$DIR/config"
 umask 022
 
-# Launcher for live push (Claude Code channels, research preview; some organisations block it).
+# Launcher for live push (Claude Code channels, research preview).
+# If your organisation allowlists the intercom plugin (allowedChannelPlugins), add INTERCOM_CHANNELS=allowlisted
+# to the config: the launcher then uses --channels and skips the development-channel prompt.
 cat > "$DIR/claude-ic" <<'SH'
 #!/bin/sh
 # Claude Code with the intercom channel: messages are pushed into the session live.
+[ -f "$HOME/.claude/intercom/config" ] && . "$HOME/.claude/intercom/config"
+if [ "$INTERCOM_CHANNELS" = "allowlisted" ]; then
+  INTERCOM_CHANNEL=1 exec claude --channels plugin:intercom@intercom "$@"
+fi
 INTERCOM_CHANNEL=1 exec claude --dangerously-load-development-channels plugin:intercom@intercom "$@"
 SH
 chmod +x "$DIR/claude-ic"

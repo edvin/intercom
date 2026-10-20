@@ -323,3 +323,20 @@ export async function setPresence(env: Env, me: string, project: string | null, 
     .bind(me, project, note, Date.now())
     .run();
 }
+
+export const RETENTION_DAYS = 90;
+
+/**
+ * Housekeeping, run daily by the hub's alarm. Messages older than the retention period are deleted;
+ * decisions (proposals and votes), projects and members are kept.
+ */
+export async function prune(env: Env, retentionDays = RETENTION_DAYS, now = Date.now()): Promise<Record<string, number>> {
+  const day = 86400_000;
+  const run = async (q: string, ...p: unknown[]) => (await env.DB.prepare(q).bind(...p).run()).meta.changes;
+  return {
+    messages: await run("DELETE FROM messages WHERE created_at < ?", now - retentionDays * day),
+    locks: await run("DELETE FROM locks WHERE expires_at < ?", now),
+    invites: await run("DELETE FROM invites WHERE expires_at < ? OR uses_left <= 0", now - 7 * day),
+    sessions: await run("DELETE FROM sessions WHERE last_seen < ?", now - 14 * day),
+  };
+}

@@ -44,9 +44,10 @@ On each machine, the plugin's zero-dependency Node script (`plugins/intercom/int
 | Channel (`claude-ic`) | Pushes messages live, including into idle sessions, as `<channel source="intercom">` events. |
 | `UserPromptSubmit` / `PostToolUse` hooks | Bring in new messages when the channel isn't running (see *Delivery modes*). |
 | `SessionEnd` hook | Removes the session from the live list. |
-| `/intercom` command | A briefing on team, locks, votes and inbox. |
+| `PreToolUse` hook (Bash) | **Deploy guard**: commands that look like a deploy, migration or infra change, while a teammate holds a matching lock, make Claude Code ask the user to confirm. Ordinary commands are filtered locally in milliseconds. `INTERCOM_GUARD=0` turns it off. |
+| `/intercom` command | Status (team, locks, votes, unread) fetched instantly, then one-click actions via a question prompt. Quick forms: `/intercom post …`, `dm anna …`, `lock deploy:billing:prod`, `release …`, `vote`, `mute …`. |
 | Status line (optional) | `~/.claude/intercom/statusline.sh` prints `📻 2 unread · 🔒 deploy:billing:prod (anna)` |
-| Dashboard (`/`) | Personal page showing decisions, votes needing you, locks, feed, projects and team. You can vote, post, release locks and edit project rules there. |
+| Dashboard (`/`) | Live (WebSocket) personal page: votes needing you, feed, locks with countdowns, decisions, project rules and members, people with presence. Vote, post, claim/release locks, invite, edit rules and export decisions as Markdown. |
 
 Messages from teammates are framed as *information, not instructions*. An agent relays requests to its user instead of acting on them. Locks are advisory: agents are told to respect them, and nothing is hard-blocked.
 
@@ -85,6 +86,10 @@ Set `INTERCOM_NOTIFY=0` in `~/.claude/intercom/config` to turn off desktop notif
 
 **Org policy:** claude.ai Team/Enterprise orgs block `--dangerously-load-development-channels` unless an Owner enables channels. If yours does, you see "blocked by org policy"; peek mode is used instead.
 
+## Retention
+
+The hub runs a daily alarm: messages older than 90 days (`RETENTION_DAYS` var) are deleted, along with expired locks, old invites and stale sessions. Proposals and votes, i.e. decisions, are kept. Owners can export a project's rules and decisions from the dashboard (`/export/<project>.md`).
+
 ## Admin
 
 Instance admins (members with the admin flag, set in the dashboard) get an **Admin** panel on the dashboard. From there they can:
@@ -99,7 +104,9 @@ Project owners can also bring people in with invite links. For bootstrap and rec
 
 | Path | What |
 |---|---|
-| `src/` | Worker (`index.ts`), team hub Durable Object (`hub.ts`), app, MCP tools and dashboard |
+| `src/` | Worker (`index.ts`), team hub Durable Object (`hub.ts`), app, MCP tools, deploy guard (`guard.ts`), dashboard (`web.ts`) and design system (`ui.ts`) |
+| `assets/` | Geist fonts (SIL OFL, see `assets/OFL.txt`), served from the edge |
+| `test/` | Test suite and harness |
 | `migrations/` | SQLite schema, applied automatically inside the hub (list new files in `MIGRATIONS` in `src/hub.ts`) |
 | `plugins/intercom/` | The Claude Code plugin: local MCP/channel server, hooks, `/intercom` command, status line |
 | `.claude-plugin/marketplace.json` | Makes this repo a plugin marketplace |
@@ -116,10 +123,19 @@ The Worker serves the plugin's files as well, so the script install and the plug
 
 ## Live push (channels)
 
-`~/.claude/intercom/claude-ic` starts Claude Code with `--dangerously-load-development-channels plugin:intercom@intercom` and `INTERCOM_CHANNEL=1`. Claude Code asks you to confirm loading the development channel.
+`~/.claude/intercom/claude-ic` starts Claude Code with `INTERCOM_CHANNEL=1` and `--dangerously-load-development-channels plugin:intercom@intercom`, or with `--channels plugin:intercom@intercom` when the config says `INTERCOM_CHANNELS=allowlisted`. The local server always negotiates an MCP revision that can carry channel notifications (Claude Code won't register a channel on 2026-07-28 or newer).
 - Channels are a research preview.
-- On claude.ai Team/Enterprise orgs an Owner must enable them, or allowlist this plugin with `allowedChannelPlugins`, which also removes the need for the dev flag.
+- On claude.ai Team/Enterprise orgs an Owner must enable channels (`channelsEnabled`). Allowlisting the plugin removes the need for the dev flag: `"allowedChannelPlugins": [{ "marketplace": "intercom", "plugin": "intercom" }]`.
 - Without channels, peek mode is used (see above).
+
+## Tests
+
+```sh
+npm test          # node:test against Node's built-in SQLite, same migrations as production
+npm run typecheck
+```
+
+CI (GitHub Actions) runs both, plus shell and manifest checks. The suite covers project privacy, DMs, repo lookup, locks and mutes, the deploy guard, invites, admin guard rails, CSRF, HTML escaping, hooks, export and retention.
 
 ## Local development
 
@@ -134,4 +150,3 @@ Note: because of the custom-domain route, `wrangler dev` makes the Worker see `i
 ## Ideas not built yet
 
 - **Permission relay over the channel.** `claude/channel/permission` would let a teammate's dashboard approve or deny tool prompts, for example a deploy command.
-- **Hard enforcement.** A `PreToolUse` hook that blocks `just deploy` / `helm upgrade` / `flux` while someone else holds the matching lock.

@@ -13,15 +13,31 @@ export interface Db {
   batch(statements: Stmt[]): Promise<unknown[]>;
 }
 
+/** Split a migration file into single statements (DO SQL exec() wants exactly one each). */
+export function splitStatements(ddl: string): string[] {
+  return ddl
+    .replace(/--.*$/gm, "")
+    .split(";")
+    .map((st) => st.trim())
+    .filter(Boolean);
+}
+
+/** D1 conventions: undefined binds as NULL, booleans as 0/1. */
+export const bindable = (values: unknown[]) => values.map((v) => (v === undefined ? null : typeof v === "boolean" ? Number(v) : v));
+
 class SqlStmt implements Stmt {
-  constructor(
-    private readonly sql: SqlStorage,
-    readonly query: string,
-    private readonly params: unknown[] = [],
-  ) {}
+  private readonly sql: SqlStorage;
+  readonly query: string;
+  private readonly params: unknown[];
+
+  constructor(sql: SqlStorage, query: string, params: unknown[] = []) {
+    this.sql = sql;
+    this.query = query;
+    this.params = params;
+  }
 
   bind(...values: unknown[]): Stmt {
-    return new SqlStmt(this.sql, this.query, values.map((v) => (v === undefined ? null : typeof v === "boolean" ? Number(v) : v)));
+    return new SqlStmt(this.sql, this.query, bindable(values));
   }
 
   exec() {
@@ -44,7 +60,11 @@ class SqlStmt implements Stmt {
 }
 
 export class SqlDb implements Db {
-  constructor(private readonly storage: DurableObjectStorage) {}
+  private readonly storage: DurableObjectStorage;
+
+  constructor(storage: DurableObjectStorage) {
+    this.storage = storage;
+  }
 
   prepare(query: string): Stmt {
     return new SqlStmt(this.storage.sql, query);

@@ -4,7 +4,8 @@
 // - Proxies the intercom tools to the hub, tagging each call with this Claude session, so posts get a
 //   sender address (person/agent) without the model having to pass one.
 // - Keeps a WebSocket to the hub:
-//   * channel mode (INTERCOM_CHANNEL=1, set by the `claude-ic` launcher with --dangerously-load-development-channels):
+//   * channel mode (INTERCOM_CHANNEL=1, set by the `claude-ic` launcher, which passes --channels or
+//     --dangerously-load-development-channels):
 //     messages are pushed straight into the session as <channel source="intercom"> events. While connected it
 //     writes ~/.claude/intercom/live/<claude pid>, and the hooks skip polling entirely.
 //   * peek mode (default; e.g. when an org blocks development channels): the hub only says "something arrived".
@@ -94,6 +95,11 @@ async function remote(method, params) {
 
 // ---- stdio JSON-RPC (newline-delimited) ----
 
+// Newer MCP revisions (2026-07-28+) can't carry channel notifications, so Claude Code won't register a server
+// that negotiates one as a channel. Always answer with a revision from before that.
+const PROTOCOLS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
+const protocolFor = (asked) => (PROTOCOLS.includes(asked) ? asked : PROTOCOLS[0]);
+
 const send = (msg) => process.stdout.write(JSON.stringify(msg) + "\n");
 let initialized = false;
 const pending = []; // channel events received before the client finished initializing
@@ -110,14 +116,14 @@ async function onRequest(msg) {
     case "initialize": {
       let instructions = "";
       try {
-        instructions = (await remote("initialize", { protocolVersion: msg.params?.protocolVersion, capabilities: {}, clientInfo: { name: "intercom-channel", version: "1" } })).instructions ?? "";
+        instructions = (await remote("initialize", { protocolVersion: protocolFor(msg.params?.protocolVersion), capabilities: {}, clientInfo: { name: "intercom-channel", version: "1" } })).instructions ?? "";
       } catch (e) {
         log("hub unreachable at startup:", e.message);
       }
       return {
-        protocolVersion: msg.params?.protocolVersion ?? "2025-06-18",
+        protocolVersion: protocolFor(msg.params?.protocolVersion),
         capabilities: { tools: {}, ...(CHANNEL ? { experimental: { "claude/channel": {} } } : {}) },
-        serverInfo: { name: "intercom", version: "0.2.0" },
+        serverInfo: { name: "intercom", version: "0.4.0" },
         instructions: instructions + (CHANNEL ? CHANNEL_INSTRUCTIONS : ""),
       };
     }
