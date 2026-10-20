@@ -92,6 +92,7 @@ describe("deploy guard", () => {
     }
     assert.equal(riskyCommand("helm upgrade billing ./chart --set env=production")?.env, "prod");
     assert.equal(riskyCommand("npm run migrate")?.action, "migrate");
+    assert.equal(riskyCommand("npx wrangler deploy 2>/dev/null")?.env, null);
   });
 
   test("only locks for the same project and environment conflict", () => {

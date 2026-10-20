@@ -54,7 +54,7 @@ export function normEnv(word: string): string | null {
 
 function detectEnv(command: string): string | null {
   // --env=prod, -e production, ENV=staging, deploy:prod, values-prod.yaml, prod-cluster …
-  for (const w of command.split(/[\s=:,"'/._-]+/)) {
+  for (const w of command.replace(/\/dev\/(null|stdout|stderr|tty)\b/g, " ").split(/[\s=:,"'/._-]+/)) {
     const e = normEnv(w);
     if (e) return e;
   }
