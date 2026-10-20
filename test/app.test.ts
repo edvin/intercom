@@ -185,8 +185,9 @@ describe("web security", () => {
 
   test("dashboard requires sign-in", async () => {
     const w = await standardWorld();
-    const res = await w.request("/", { redirect: "manual" });
+    const res = await w.request("/account", { redirect: "manual" });
     assert.equal(res.status, 303);
+    assert.match(await (await w.request("/")).text(), /finally talking/);
     assert.equal((await w.request("/mcp", { method: "POST", headers: { authorization: "Bearer nope" } })).status, 401);
   });
 });

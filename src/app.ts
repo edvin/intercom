@@ -1,6 +1,7 @@
 import { type Env, type Proposal, MEMBER_OF, RECEIVES, UserError, activeLocks, address, ago, cleanBranch, workingOn, authenticate, coMembers, fmtLock, fmtMessage, myProjects, resolveProject, setPresence, tally, touchSession, unread } from "./lib";
 import { INSTRUCTIONS, tools } from "./tools";
 import { guard } from "./guard";
+import { landingPage } from "./landing";
 import { accountPage, dashboard, exportProject, handleAction, handleAdminAction, handleJoin, handleLogin, handleLogout, loginPage } from "./web";
 
 const SUPPORTED_PROTOCOLS = ["2025-11-25", "2025-06-18", "2025-03-26"];
@@ -243,7 +244,10 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
   if (url.pathname === "/logout" && req.method === "POST") return handleLogout();
 
   const me = await authenticate(req, env);
-  if (!me) return url.pathname === "/" || url.pathname === "/account" ? Response.redirect(new URL("/login", url).toString(), 303) : json({ error: "unauthorized" }, 401);
+  if (!me) {
+    if (url.pathname === "/") return landingPage(url.origin);
+    return url.pathname === "/account" ? Response.redirect(new URL("/login", url).toString(), 303) : json({ error: "unauthorized" }, 401);
+  }
 
   // Requests proxied by the local channel server carry the Claude Code session, so posts get a sender address.
   const sid = req.headers.get("x-intercom-session");

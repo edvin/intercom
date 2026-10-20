@@ -71,6 +71,10 @@ PY
     fi
     ok "removed the older script install (the plugin replaces it)"
   fi
+  # The script install's /intercom command would shadow the plugin's.
+  if grep -qs "intercom" "$HOME/.claude/commands/intercom.md"; then
+    rm -f "$HOME/.claude/commands/intercom.md"
+  fi
   claude plugin marketplace add edvin/intercom >/dev/null 2>&1 || claude plugin marketplace update intercom >/dev/null 2>&1 || true
   if claude plugin list 2>/dev/null | grep -q "intercom@intercom"; then
     claude plugin update intercom@intercom >/dev/null 2>&1 || true
