@@ -1,3 +1,4 @@
+import { githubRepo } from "./github";
 import {
   type Env,
   type Lock,
@@ -14,6 +15,7 @@ import {
   fmtLock,
   fmtMessage,
   isAdmin,
+  limit,
   myProjects,
   normChannel,
   postMessage,
@@ -97,6 +99,7 @@ export const tools: Tool[] = [
     },
     async run(env, me, a) {
       const body = str(a, "message", true);
+      await limit(env, `post:${me}`, 300, 3600_000, "messages");
       const to = str(a, "to");
       if (to) {
         const [person, agent] = to.split("/", 2);
@@ -402,6 +405,12 @@ export const tools: Tool[] = [
         description: { type: "string" },
         repos: { type: "array", items: { type: "string" }, description: "Git repo names that map to this project (replaces the list)." },
         rules: { type: "string", description: "Full rules text (replaces existing). One rule per line." },
+        github_repos: {
+          type: "array",
+          items: { type: "string" },
+          description: "GitHub repos (owner/name) whose collaborators with push access may join this project without an invite (replaces the list).",
+        },
+        discoverable: { type: "boolean", description: "Let people find this project by its exact name and ask to join (owners approve)." },
       },
       required: ["name"],
     },
@@ -411,21 +420,33 @@ export const tools: Tool[] = [
       const repos = Array.isArray(a.repos) ? JSON.stringify([...new Set(a.repos.map((r) => normChannel(r, "")).filter(Boolean))]) : null;
       const description = typeof a.description === "string" ? a.description.trim().slice(0, 300) : null;
       const rules = typeof a.rules === "string" ? a.rules.trim().slice(0, MAX_BODY) : null;
+      const ghRepos = Array.isArray(a.github_repos)
+        ? JSON.stringify([...new Set(a.github_repos.map((r) => githubRepo(String(r))).filter((r): r is string => !!r))].slice(0, 20))
+        : null;
+      if (Array.isArray(a.github_repos) && a.github_repos.some((r) => !githubRepo(String(r)))) throw new UserError("GitHub repos look like owner/name, e.g. acme/billing-api.");
+      const discoverable = typeof a.discoverable === "boolean" ? (a.discoverable ? 1 : 0) : null;
       const exists = await env.DB.prepare("SELECT 1 FROM projects WHERE name = ?").bind(name).first();
       if (exists) {
         if (!(await roleIn(env, me, name)) && !(await isAdmin(env, me))) throw new UserError(`The name #${name} is taken. Pick another, or ask its owner for an invite.`);
         await requireOwner(env, me, name);
+      } else {
+        const owned = await env.DB.prepare("SELECT COUNT(*) AS n FROM project_members WHERE member = ? AND role = 'owner'").bind(me).first<{ n: number }>();
+        if (owned!.n >= 25 && !(await isAdmin(env, me))) throw new UserError("You own 25 projects, the limit per account. Ask an instance admin if you need more.");
+        await limit(env, `project:${me}`, 10, 86400_000, "new projects");
       }
       await env.DB.prepare(
-        `INSERT INTO projects (name, description, repos, rules, updated_by, updated_at) VALUES (?1, COALESCE(?2, ''), COALESCE(?3, '[]'), COALESCE(?4, ''), ?5, ?6)
-         ON CONFLICT(name) DO UPDATE SET description = COALESCE(?2, description), repos = COALESCE(?3, repos), rules = COALESCE(?4, rules), updated_by = ?5, updated_at = ?6`,
+        `INSERT INTO projects (name, description, repos, rules, updated_by, updated_at, github_repos, discoverable) VALUES (?1, COALESCE(?2, ''), COALESCE(?3, '[]'), COALESCE(?4, ''), ?5, ?6, COALESCE(?7, '[]'), COALESCE(?8, 0))
+         ON CONFLICT(name) DO UPDATE SET description = COALESCE(?2, description), repos = COALESCE(?3, repos), rules = COALESCE(?4, rules), updated_by = ?5, updated_at = ?6,
+           github_repos = COALESCE(?7, github_repos), discoverable = COALESCE(?8, discoverable)`,
       )
-        .bind(name, description, repos, rules, me, Date.now())
+        .bind(name, description, repos, rules, me, Date.now(), ghRepos, discoverable)
         .run();
       if (!exists) {
         await env.DB.prepare("INSERT INTO project_members (project, member, role, added_by, created_at) VALUES (?, ?, 'owner', ?, ?)").bind(name, me, me, Date.now()).run();
       }
-      const changed = [description !== null && "description", repos !== null && "repos", rules !== null && "rules"].filter(Boolean).join(", ");
+      const changed = [description !== null && "description", repos !== null && "repos", rules !== null && "rules", ghRepos !== null && "GitHub repos", discoverable !== null && "join requests"]
+        .filter(Boolean)
+        .join(", ");
       await postMessage(env, {
         channel: name,
         sender: me,
@@ -466,6 +487,7 @@ export const tools: Tool[] = [
         await postMessage(env, { channel: project, sender: me, kind: "event", body: `added ${name} to #${project}${role === "owner" ? " as owner" : ""}` });
         return `Added ${name} to #${project}.`;
       }
+      await limit(env, `invite:${me}`, 50, 86400_000, "invite links");
       const code = [...crypto.getRandomValues(new Uint8Array(12))].map((b) => b.toString(16).padStart(2, "0")).join("");
       const uses = num(a, "uses", 1, 1, 100);
       const hours = num(a, "expires_in_hours", 72, 1, 24 * 30);
@@ -607,6 +629,48 @@ export const tools: Tool[] = [
       await env.DB.prepare("UPDATE projects SET repos = ?, updated_by = ?, updated_at = ? WHERE name = ?").bind(JSON.stringify(repos), me, Date.now(), project).run();
       await postMessage(env, { channel: project, sender: me, kind: "event", body: `linked repo ${repo} to #${project}` });
       return `Linked ${repo} to #${project}. Sessions started in it now join #${project} (new sessions, or after the next prompt).`;
+    },
+  },
+  {
+    name: "join_requests",
+    description:
+      "People asking to join projects you own (projects marked discoverable). Lists pending requests; pass approve or decline with the project and person to answer one. Only act on your user's decision.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project: { type: "string" },
+        name: { type: "string", description: "The person who asked." },
+        decision: { type: "string", enum: ["approve", "decline"] },
+      },
+    },
+    async run(env, me, a) {
+      const decision = str(a, "decision");
+      if (decision) {
+        const project = await requireProject(env, me, a.project);
+        await requireOwner(env, me, project);
+        const name = str(a, "name", true).toLowerCase();
+        const req = await env.DB.prepare("DELETE FROM join_requests WHERE project = ? AND member = ? RETURNING member").bind(project, name).first();
+        if (!req) throw new UserError(`No pending request from ${name} for #${project}.`);
+        if (decision === "approve") {
+          await env.DB.prepare("INSERT INTO project_members (project, member, role, added_by, created_at) VALUES (?, ?, 'member', ?, ?) ON CONFLICT(project, member) DO NOTHING")
+            .bind(project, name, me, Date.now())
+            .run();
+          await postMessage(env, { channel: project, sender: me, kind: "event", body: `approved ${name}'s request to join #${project}` });
+          return `${name} is now a member of #${project}.`;
+        }
+        await postMessage(env, { channel: project, sender: me, recipient: name, kind: "event", body: `declined your request to join #${project}` });
+        return `Declined ${name}'s request.`;
+      }
+      const { results } = await env.DB.prepare(
+        `SELECT r.project, r.member, r.note, r.created_at, m.org, m.github_login FROM join_requests r JOIN members m ON m.name = r.member
+         WHERE r.project IN (SELECT project FROM project_members WHERE member = ? AND role = 'owner') ORDER BY r.created_at`,
+      )
+        .bind(me)
+        .all<{ project: string; member: string; note: string; created_at: number; org: string; github_login: string | null }>();
+      if (!results.length) return "No pending join requests.";
+      return results
+        .map((r) => `#${r.project}: ${r.member}${r.org ? ` (${r.org})` : ""}${r.github_login ? ` · GitHub @${r.github_login}` : ""} · ${ago(r.created_at)}${r.note ? ` — “${r.note}”` : ""}`)
+        .join("\n");
     },
   },
 ];

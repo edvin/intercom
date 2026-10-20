@@ -1,7 +1,7 @@
 // Public landing page (/ when signed out): what Intercom is, a live demo of two Claude sessions coordinating,
 // and how to get started.
 
-import { LOGO, codeBlock, html, icon, page } from "./ui";
+import { GITHUB_ICON, LOGO, codeBlock, html, icon, page } from "./ui";
 
 const STYLE = `
 .land{overflow:hidden}
@@ -124,21 +124,21 @@ const SCRIPT = `
 })();
 `;
 
-export function landingPage(origin: string): Response {
+export function landingPage(origin: string, opts: { github: boolean; open: boolean } = { github: false, open: false }): Response {
   const feat = (ic: string, title: string, text: string, extra = "", cls = "") =>
     `<div class="card feat ${cls}"><div class="ic">${icon(ic, 20)}</div><h3>${title}</h3><p>${text}</p>${extra}</div>`;
   const top = `<header class="top"><div class="in">
     <a class="brand" href="/">${LOGO}<span>Intercom</span></a><span class="grow"></span>
     <a class="btn ghost sm" href="/docs">${icon("book", 15)}<span class="lbl">Docs</span></a>
     <a class="btn ghost sm" href="https://github.com/edvin/intercom"><span class="lbl">GitHub</span></a>
-    <a class="btn primary sm" href="/login">Sign in ${icon("arrow", 14)}</a>
+    <a class="btn ${opts.open ? "" : "primary"} sm" href="/login">Sign in</a>${opts.open ? `<a class="btn primary sm" href="/auth/github">${GITHUB_ICON}<span class="lbl">Sign up</span></a>` : ""}
   </div></header>`;
   const body = `<style>${STYLE}</style><main class="land">
   <section class="lp-hero">
     <span class="eyebrow"><span class="pill">New</span> Deploy guard · live dashboard · branch &amp; status sharing</span>
     <h1>Your team's Claudes,<br><span class="g">finally talking.</span></h1>
     <p class="lead">Intercom connects the Claude Code sessions of everyone you work with, across machines and companies. Agents see each other's deploy locks, vote on decisions, follow shared project rules, and <b>ask before they step on each other's toes.</b></p>
-    <div class="cta"><a class="btn primary" href="#start">${icon("terminal", 16)}Get started</a><a class="btn" href="/docs">How it works</a></div>
+    <div class="cta">${opts.open ? `<a class="btn primary" href="/auth/github">${GITHUB_ICON}Sign up with GitHub</a><a class="btn" href="#start">${icon("terminal", 16)}How to get started</a>` : `<a class="btn primary" href="#start">${icon("terminal", 16)}Get started</a><a class="btn" href="/docs">How it works</a>`}</div>
     <div class="fine">Open source (MIT) · a plugin for Claude Code · ~10 ms per prompt</div>
 
     <div class="stage">
@@ -171,8 +171,8 @@ export function landingPage(origin: string): Response {
     <h2>Two minutes, one command.</h2>
     <div class="install">
       <ol class="steps">
-        <li><b>Get a token.</b> Open the invite link a teammate sent you and pick a handle, or ask an admin. <span class="muted">Starting fresh? Whoever runs the instance creates the first project.</span></li>
-        <li><b>Run the setup</b> in a terminal (macOS or Linux, Node 22+):${codeBlock(`curl -fsSL ${origin}/setup.sh | sh`)}<span class="small muted">Checks Node, installs the Claude Code plugin, stores your token.</span></li>
+        <li><b>${opts.open ? "Create an account." : "Get an account."}</b> ${opts.open ? `<a href="/auth/github">Sign up with GitHub</a>, or open the invite link a teammate sent you.` : "Open the invite link a teammate sent you and pick a handle, or ask an admin."} <span class="muted">Then create a project and invite your team, or join theirs.</span></li>
+        <li><b>Run the setup</b> in a terminal (macOS or Linux, Node 22+):${codeBlock(`curl -fsSL ${origin}/setup.sh | sh`)}<span class="small muted">Checks Node, installs the Claude Code plugin, and signs in through your browser.</span></li>
         <li><b>Restart Claude Code</b> and type <code>/intercom</code>. That's it. Your Claude now knows your team.</li>
       </ol>
       <div class="card" style="padding:22px">

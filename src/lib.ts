@@ -11,6 +11,10 @@ export interface Env {
   origin?: string;
   /** Repo name the calling session runs in, as reported by the client. */
   repo?: string;
+  /** GitHub OAuth app, when configured. */
+  github?: { client_id: string; client_secret: string };
+  /** Caller's IP (for rate limits). */
+  ip?: string;
 }
 
 export interface Message {
@@ -95,8 +99,9 @@ export async function authenticate(req: Request, env: Env): Promise<string | nul
   const cookie = (req.headers.get("cookie") ?? "").match(/(?:^|;\s*)intercom_token=([^;]+)/)?.[1];
   const token = bearer ?? (cookie ? decodeURIComponent(cookie) : undefined);
   if (!token) return null;
-  const row = await env.DB.prepare("SELECT name FROM members WHERE token_hash = ?")
-    .bind(await sha256(token))
+  const hash = await sha256(token);
+  const row = await env.DB.prepare("SELECT name FROM members WHERE token_hash = ?1 UNION ALL SELECT member FROM tokens WHERE token_hash = ?1 LIMIT 1")
+    .bind(hash)
     .first<{ name: string }>();
   return row?.name ?? null;
 }
@@ -350,5 +355,56 @@ export async function prune(env: Env, retentionDays = RETENTION_DAYS, now = Date
     locks: await run("DELETE FROM locks WHERE expires_at < ?", now),
     invites: await run("DELETE FROM invites WHERE expires_at < ? OR uses_left <= 0", now - 7 * day),
     sessions: await run("DELETE FROM sessions WHERE last_seen < ?", now - 14 * day),
+    states: await run("DELETE FROM oauth_states WHERE expires_at < ?", now),
+    devices: await run("DELETE FROM device_codes WHERE expires_at < ?", now),
+    access: await run("DELETE FROM repo_access WHERE expires_at < ?", now),
+    limits: await run("DELETE FROM rate_limits WHERE window_start < ?", now - 2 * day),
+    webTokens: await run("DELETE FROM tokens WHERE kind = 'web' AND created_at < ?", now - 365 * day),
   };
+}
+
+/** A fresh random token (48 hex chars). */
+export const newToken = () => [...crypto.getRandomValues(new Uint8Array(24))].map((b) => b.toString(16).padStart(2, "0")).join("");
+
+/** Issue an extra token for a member: a browser session ('web') or a device approved in the browser ('cli'). */
+export async function issueToken(env: Env, member: string, kind: "web" | "cli", label: string): Promise<string> {
+  const token = newToken();
+  await env.DB.prepare("INSERT INTO tokens (token_hash, member, kind, label, created_at) VALUES (?, ?, ?, ?, ?)").bind(await sha256(token), member, kind, label.slice(0, 80), Date.now()).run();
+  return token;
+}
+
+/**
+ * Fixed-window rate limit. Returns false once `key` has been used more than `limit` times in `windowMs`.
+ * Keys look like "signup:ip:1.2.3.4" or "post:anna".
+ */
+export async function rateLimit(env: Env, key: string, limit: number, windowMs: number): Promise<boolean> {
+  const now = Date.now();
+  const row = await env.DB.prepare(
+    `INSERT INTO rate_limits (key, window_start, count) VALUES (?1, ?2, 1)
+     ON CONFLICT(key) DO UPDATE SET
+       count = CASE WHEN rate_limits.window_start <= ?2 - ?3 THEN 1 ELSE rate_limits.count + 1 END,
+       window_start = CASE WHEN rate_limits.window_start <= ?2 - ?3 THEN ?2 ELSE rate_limits.window_start END
+     RETURNING count`,
+  )
+    .bind(key, now, windowMs)
+    .first<{ count: number }>();
+  return row!.count <= limit;
+}
+
+/** Throws a friendly error when a rate limit is hit. */
+export async function limit(env: Env, key: string, max: number, windowMs: number, what: string): Promise<void> {
+  if (!(await rateLimit(env, key, max, windowMs))) throw new UserError(`Slow down: too many ${what} in a short time. Try again later.`);
+}
+
+export const HANDLE = /^[a-z][a-z0-9_-]{1,31}$/;
+
+/** A free handle derived from a GitHub login ("Anna.Smith" → "anna-smith", or "anna-smith-2" if taken). */
+export async function freeHandle(env: Env, login: string): Promise<string> {
+  let base = login.toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^[^a-z]+/, "").slice(0, 28) || "user";
+  if (base.length < 2) base = `${base}x`;
+  for (let i = 1; i < 100; i++) {
+    const name = i === 1 ? base : `${base}-${i}`;
+    if (!(await env.DB.prepare("SELECT 1 FROM members WHERE name = ?").bind(name).first())) return name;
+  }
+  return `${base}-${newToken().slice(0, 6)}`;
 }

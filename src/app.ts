@@ -1,6 +1,8 @@
 import { type Env, type Proposal, MEMBER_OF, RECEIVES, UserError, activeLocks, address, ago, cleanBranch, workingOn, authenticate, coMembers, fmtLock, fmtMessage, myProjects, resolveProject, setPresence, tally, touchSession, unread } from "./lib";
 import { INSTRUCTIONS, tools } from "./tools";
+import { cliPoll, cliStart, connectPage, discoverJoin, discoverPage, discoverRequest, githubCallback, githubStart, signOut } from "./accounts";
 import { guard } from "./guard";
+import { getSetting, githubRepo, openSignup, setSetting } from "./github";
 import { landingPage } from "./landing";
 import { accountPage, dashboard, exportProject, handleAction, handleAdminAction, handleJoin, handleLogin, handleLogout, loginPage } from "./web";
 
@@ -117,11 +119,12 @@ async function handleHook(url: URL, env: Env, me: string): Promise<Response> {
           ? `\nThis session's address is ${address(me, session.label)}. Others reach all your sessions via "${me}", or only sessions in a project via "${me}/<project>".`
           : ""),
     );
+    const gh = githubRepo(url.searchParams.get("remote"));
     if (raw && !project) {
       sections.push(
         mine.length
-          ? `This repo ("${raw}") isn't linked to any of your user's intercom projects (${mine.map((p) => `#${p}`).join(", ")}). If it belongs to one of them, offer once to link it with the link_repo tool (any member can). Otherwise they can create a project with configure_project.`
-          : `This repo ("${raw}") isn't linked to an intercom project, and your user isn't in any project yet. They can create one (configure_project) or ask a project owner for an invite link.`,
+          ? `This repo ("${raw}") isn't linked to any of your user's intercom projects (${mine.map((p) => `#${p}`).join(", ")}). If it belongs to one of them, offer once to link it with the link_repo tool (any member can). Otherwise they can create a project with configure_project.${gh ? ` If teammates already coordinate on it in a project your user isn't in, they can join through repo access at ${url.origin}/discover?repo=${gh}` : ""}`
+          : `This repo ("${raw}") isn't linked to an intercom project, and your user isn't in any project yet. They can create one (configure_project), ask a project owner for an invite link${gh ? `, or check for a project open to this repo's collaborators at ${url.origin}/discover?repo=${gh}` : ""}.`,
       );
     }
     if (project && (project.rules || project.description)) {
@@ -239,14 +242,25 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
     return handleAdmin(req, url, env);
   }
   env.origin = url.origin;
-  if (url.pathname === "/login") return req.method === "POST" ? handleLogin(req, env) : loginPage("", url.searchParams.get("next") ?? "");
+  env.ip = req.headers.get("cf-connecting-ip") ?? undefined;
+  if (url.pathname === "/login") return req.method === "POST" ? handleLogin(req, env) : loginPage(url.searchParams.get("err") ?? "", url.searchParams.get("next") ?? "", !!env.github);
   if (url.pathname.startsWith("/join/")) return handleJoin(req, env, url.pathname.slice(6));
-  if (url.pathname === "/logout" && req.method === "POST") return handleLogout();
+  if (url.pathname === "/logout" && req.method === "POST") {
+    await signOut(req, env);
+    return handleLogout();
+  }
+  if (url.pathname === "/auth/github") return githubStart(req, env, url);
+  if (url.pathname === "/auth/github/callback") return githubCallback(req, env, url);
+  if (url.pathname === "/api/cli/start" && req.method === "POST") return cliStart(env, url.origin);
+  if (url.pathname === "/api/cli/poll") return cliPoll(env, url.searchParams.get("code") ?? "");
 
   const me = await authenticate(req, env);
   if (!me) {
-    if (url.pathname === "/") return landingPage(url.origin);
-    return url.pathname === "/account" ? Response.redirect(new URL("/login", url).toString(), 303) : json({ error: "unauthorized" }, 401);
+    if (url.pathname === "/") return landingPage(url.origin, { github: !!env.github, open: await openSignup(env) });
+    if (["/account", "/connect", "/discover"].includes(url.pathname) && req.method === "GET") {
+      return Response.redirect(new URL(`/login?next=${encodeURIComponent(url.pathname + url.search)}`, url).toString(), 303);
+    }
+    return json({ error: "unauthorized" }, 401);
   }
 
   // Requests proxied by the local channel server carry the Claude Code session, so posts get a sender address.
@@ -259,6 +273,10 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
 
   if (url.pathname === "/") return dashboard(url, env, me);
   if (url.pathname === "/account") return accountPage(req, env, me);
+  if (url.pathname === "/connect") return connectPage(req, env, me, url);
+  if (url.pathname === "/discover") return discoverPage(env, me, url);
+  if (url.pathname === "/discover/join" && req.method === "POST") return discoverJoin(req, env, me);
+  if (url.pathname === "/discover/request" && req.method === "POST") return discoverRequest(req, env, me);
   if (url.pathname.startsWith("/action/") && req.method === "POST") return handleAction(req, env, me, url.pathname.slice(8));
   if (url.pathname.startsWith("/admin-action/") && req.method === "POST") return handleAdminAction(req, env, me, url.pathname.slice(14));
   if (url.pathname === "/mcp") return handleMcp(req, env, me);

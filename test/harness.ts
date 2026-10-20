@@ -64,8 +64,10 @@ export class World {
   pushed: Message[] = [];
   tokens: Record<string, string> = {};
 
+  github?: { client_id: string; client_secret: string };
+
   env(): Env {
-    return { DB: this.db, onMessage: (m) => this.pushed.push(m) };
+    return { DB: this.db, onMessage: (m) => this.pushed.push(m), github: this.github };
   }
 
   async request(path: string, init: RequestInit & { as?: string; cookie?: boolean } = {}): Promise<Response> {

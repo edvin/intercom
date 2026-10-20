@@ -1,7 +1,8 @@
 #!/bin/sh
 # Intercom setup: one command does everything. Safe to re-run (also to switch tokens).
-#   curl -fsSL https://__INTERCOM_URL_HOST__/setup.sh | sh                 # asks for your token
-#   curl -fsSL https://__INTERCOM_URL_HOST__/setup.sh | sh -s -- <token>
+#   curl -fsSL https://__INTERCOM_URL_HOST__/setup.sh | sh                 # signs in through your browser
+#   curl -fsSL https://__INTERCOM_URL_HOST__/setup.sh | sh -s -- <token>   # or with a token
+#   curl -fsSL https://__INTERCOM_URL_HOST__/setup.sh | INTERCOM_PASTE_TOKEN=1 sh   # paste a token instead
 # It checks node, installs the Claude Code plugin (if the claude CLI is on PATH), and stores your token.
 set -e
 
@@ -22,9 +23,33 @@ NODE_MAJOR=$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0
 [ "$NODE_MAJOR" -ge 22 ] || fail "node $(node -v) is too old; Intercom needs 22 or newer. Upgrade (e.g. brew upgrade node), then run this again."
 ok "node $(node -v)"
 
-# 2. Token: verify it before writing anything.
+# 2. Sign in: approve this terminal in the browser (or pass a token: sh -s -- <token>).
+json() { printf '%s' "$1" | sed -n "s/.*\"$2\":\"\([^\"]*\)\".*/\1/p"; }
+if [ -z "$TOKEN" ] && [ -z "$INTERCOM_PASTE_TOKEN" ]; then
+  START=$(curl -sf --max-time 10 -X POST "$URL/api/cli/start" || true)
+  CODE=$(json "$START" code)
+  if [ -n "$CODE" ]; then
+    LINK=$(json "$START" url)
+    printf '  Approve this terminal in your browser (code \033[1m%s\033[0m):\n    %s\n' "$(json "$START" user_code)" "$LINK"
+    if command -v open >/dev/null 2>&1; then open "$LINK" >/dev/null 2>&1 || true; elif command -v xdg-open >/dev/null 2>&1; then xdg-open "$LINK" >/dev/null 2>&1 || true; fi
+    printf '  Waiting for approval'
+    i=0
+    while [ $i -lt 300 ]; do
+      sleep 2
+      R=$(curl -s --max-time 10 "$URL/api/cli/poll?code=$CODE" || true)
+      case "$R" in
+        *'"approved"'*) TOKEN=$(json "$R" token); break ;;
+        *'"expired"'*) break ;;
+      esac
+      printf '.'
+      i=$((i + 1))
+    done
+    echo
+    [ -n "$TOKEN" ] || warn "not approved in time."
+  fi
+fi
 if [ -z "$TOKEN" ]; then
-  printf "  Your intercom token: " >/dev/tty
+  printf "  Paste your intercom token: " >/dev/tty
   stty -echo </dev/tty 2>/dev/null || true
   read -r TOKEN </dev/tty
   stty echo </dev/tty 2>/dev/null || true
@@ -32,7 +57,7 @@ if [ -z "$TOKEN" ]; then
 fi
 [ -n "$TOKEN" ] || fail "No token given."
 NAME=$(curl -sf --max-time 10 "$URL/api/whoami" -H "Authorization: Bearer $TOKEN" || true)
-echo "$NAME" | grep -Eq '^[a-z][a-z0-9_-]{0,31}$' || fail "That token was rejected by $URL. Check it, or get a new one from the dashboard (Account) or an admin."
+echo "$NAME" | grep -Eq '^[a-z][a-z0-9_-]{0,31}$' || fail "Sign-in failed (token rejected by $URL). Run the setup again, or get a token from the dashboard (Account) or an admin."
 mkdir -p "$DIR"
 # Keep other settings in the config (INTERCOM_NOTIFY etc.), replace URL and token.
 OLD=$(grep -vE '^(INTERCOM_URL|INTERCOM_TOKEN)=' "$DIR/config" 2>/dev/null || true)

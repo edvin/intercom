@@ -11,5 +11,8 @@
   "durable_objects": {
     "bindings": [{ "name": "HUB", "class_name": "TeamHub" }]
   },
+  // GitHub OAuth app for "Sign in with GitHub" (callback: https://<host>/auth/github/callback).
+  // The client secret is a Worker secret: npx wrangler secret put GITHUB_CLIENT_SECRET
+  "vars": { "GITHUB_CLIENT_ID": "Ov23liesjt2Brx2QMPtY" },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["TeamHub"] }]
 }

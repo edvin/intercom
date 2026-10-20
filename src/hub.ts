@@ -8,6 +8,7 @@ import m0003 from "../migrations/0003_sessions.sql";
 import m0004 from "../migrations/0004_broadcast.sql";
 import m0005 from "../migrations/0005_membership.sql";
 import m0006 from "../migrations/0006_visibility.sql";
+import m0007 from "../migrations/0007_github.sql";
 
 const MIGRATIONS: [string, string][] = [
   ["0001_init", m0001],
@@ -16,6 +17,7 @@ const MIGRATIONS: [string, string][] = [
   ["0004_broadcast", m0004],
   ["0005_membership", m0005],
   ["0006_visibility", m0006],
+  ["0007_github", m0007],
 ];
 
 const DAY = 86400_000;
@@ -25,6 +27,9 @@ export interface WorkerEnv {
   ADMIN_TOKEN?: string;
   /** Days to keep messages (default 90). Decisions are kept forever. */
   RETENTION_DAYS?: string;
+  /** GitHub OAuth app for "Sign in with GitHub" (client id is a var, the secret a Worker secret). */
+  GITHUB_CLIENT_ID?: string;
+  GITHUB_CLIENT_SECRET?: string;
 }
 
 /**
@@ -83,7 +88,8 @@ export class TeamHub extends DurableObject<WorkerEnv> {
   }
 
   private appEnv(): Env {
-    return { DB: this.db, onMessage: (m) => this.fanout(m) };
+    const { GITHUB_CLIENT_ID: id, GITHUB_CLIENT_SECRET: secret } = this.env;
+    return { DB: this.db, onMessage: (m) => this.fanout(m), github: id && secret ? { client_id: id, client_secret: secret } : undefined };
   }
 
   async fetch(req: Request): Promise<Response> {

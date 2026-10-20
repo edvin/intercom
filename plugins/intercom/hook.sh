@@ -80,6 +80,8 @@ elif [ "$event" != "SessionStart" ] && [ -f "$pcache" ]; then
   project=$(cat "$pcache")
 else
   dir="${CLAUDE_PROJECT_DIR:-$PWD}"
+  # owner/repo of a GitHub origin, so unlinked sessions can be pointed at projects open to its collaborators.
+  remote=$(git -C "$dir" remote get-url origin 2>/dev/null | sed -n -e 's#\.git$##' -e 's#.*github\.com[:/]\([^/]*/[^/]*\)$#\1#p')
   project=$(git -C "$dir" remote get-url origin 2>/dev/null | sed -e 's#\.git$##' -e 's#.*[/:]##')
   [ -n "$project" ] || project=$(basename "$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null || echo "$dir")")
   [ -n "$session" ] && printf '%s' "$project" > "$pcache"
@@ -89,6 +91,6 @@ branch=""
 [ "$INTERCOM_SHARE_BRANCH" = "0" ] || branch=$(git -C "${CLAUDE_PROJECT_DIR:-$PWD}" branch --show-current 2>/dev/null)
 
 curl -sf --max-time 3 -G "$INTERCOM_URL/api/hook" \
-  --data-urlencode "event=$event" --data-urlencode "project=$project" --data-urlencode "session=$session" --data-urlencode "branch=$branch" \
+  --data-urlencode "event=$event" --data-urlencode "project=$project" --data-urlencode "session=$session" --data-urlencode "branch=$branch" --data-urlencode "remote=$remote" \
   -H "Authorization: Bearer $INTERCOM_TOKEN" 2>/dev/null
 exit 0

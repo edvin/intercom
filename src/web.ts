@@ -1,6 +1,7 @@
-import { type Env, type Lock, type Message, type Project, type Proposal, MAX_BODY, MEMBER_OF, RECEIVES, activeLocks, address, authenticate, coMembers, isAdmin, myProjects, normChannel, postMessage, roleIn, sha256, workingOn } from "./lib";
+import { type Env, type Lock, type Message, type Project, type Proposal, MAX_BODY, MEMBER_OF, RECEIVES, activeLocks, address, authenticate, coMembers, isAdmin, myProjects, normChannel, postMessage, roleIn, sha256, workingOn, newToken, HANDLE, limit, UserError } from "./lib";
+import { openSignup, setSetting } from "./github";
 import { tools } from "./tools";
-import { LOGO, avatar, codeBlock, esc, hidden, html, icon, page, redirect, time } from "./ui";
+import { GITHUB_ICON, LOGO, avatar, codeBlock, esc, hidden, html, icon, page, redirect, time } from "./ui";
 
 export const COOKIE = "intercom_token";
 
@@ -16,22 +17,26 @@ function setupSteps(origin: string, token: string): string {
 
 // ---------- sign in / out ----------
 
-export function loginPage(error = "", next = ""): Response {
-  const safeNext = next.startsWith("/join/") ? next : "";
+/** Where sign-in may send you afterwards: only our own invite, device-approval and discovery pages. */
+export const safeNext = (next: string | null | undefined) => (next && /^\/(join\/|connect\?|discover)/.test(next) ? next : "");
+
+export function loginPage(error = "", next = "", github = false): Response {
+  const safeNext_ = safeNext(next);
   return html(
     page(
       "Intercom · sign in",
       `<main class="solo"><div class="card">
         <div class="bd stack" style="padding:32px">
           <div>${LOGO}</div>
-          <div><h1 class="headline">Welcome back</h1><p class="muted">Sign in with your personal token, the same one your Claude Code uses.</p></div>
+          <div><h1 class="headline">Welcome back</h1><p class="muted">${github ? "Sign in with GitHub, or with your personal token (the one your Claude Code uses)." : "Sign in with your personal token, the same one your Claude Code uses."}</p></div>
           ${error ? `<div class="toast err" style="box-shadow:none">${icon("x")}<span>${esc(error)}</span></div>` : ""}
+          ${github ? `<a class="btn primary" style="width:100%;height:42px" href="/auth/github${safeNext_ ? `?next=${encodeURIComponent(safeNext_)}` : ""}">${GITHUB_ICON} Continue with GitHub</a><div class="row muted small" style="justify-content:center">or use your token</div>` : ""}
           <form method="post" action="/login" id="f" data-native class="stack">
             <label class="field">Token<input type="password" name="token" id="t" placeholder="paste your token" autocomplete="current-password" required autofocus></label>
-            <input type="hidden" name="next" value="${esc(safeNext)}">
-            <button class="btn primary" style="width:100%;height:40px">Sign in ${icon("arrow")}</button>
+            <input type="hidden" name="next" value="${esc(safeNext_)}">
+            <button class="btn ${github ? "" : "primary"}" style="width:100%;height:40px">Sign in ${icon("arrow")}</button>
           </form>
-          <p class="small muted">No token yet? You get one from an invite link or an admin. <a href="/docs">How Intercom works</a></p>
+          <p class="small muted">${github ? "New here? Continue with GitHub to create an account." : "No token yet? You get one from an invite link or an admin."} <a href="/docs">How Intercom works</a></p>
         </div></div></main>
       <script>
         // One-click links of the form /login#t=TOKEN (the fragment never reaches server logs).
@@ -43,15 +48,15 @@ export function loginPage(error = "", next = ""): Response {
   );
 }
 
-const sessionCookie = (token: string) => `${COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=31536000`;
+export const sessionCookie = (token: string) => `${COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=31536000`;
 
 export async function handleLogin(req: Request, env: Env): Promise<Response> {
   const form = await req.formData();
   const token = String(form.get("token") ?? "").trim();
   const next = String(form.get("next") ?? "");
   const ok = token && (await env.DB.prepare("SELECT 1 FROM members WHERE token_hash = ?").bind(await sha256(token)).first());
-  if (!ok) return loginPage("That token isn't valid.", next);
-  return redirect(next.startsWith("/join/") ? next : "/", { "set-cookie": sessionCookie(token) });
+  if (!ok) return loginPage("That token isn't valid.", next, !!env.github);
+  return redirect(safeNext(next) || "/", { "set-cookie": sessionCookie(token) });
 }
 
 export function handleLogout(): Response {
@@ -140,6 +145,7 @@ export async function handleJoin(req: Request, env: Env, code: string): Promise<
         <label class="field">Company <span class="tiny">(optional)</span><input name="org" placeholder="e.g. Acme"></label>
         <button class="btn primary" style="width:100%;height:40px">Create account &amp; join ${icon("arrow")}</button>
       </form>
+      ${env.github ? `<div class="row muted small" style="justify-content:center">or</div><a class="btn" style="width:100%;height:40px" href="/auth/github?next=${encodeURIComponent(`/join/${code}`)}">${GITHUB_ICON} Continue with GitHub</a>` : ""}
       <p class="small muted">Already have an account? <a href="/login?next=/join/${esc(code)}">Sign in first</a>.</p>`,
     ),
   );
@@ -165,9 +171,17 @@ export async function handleAction(req: Request, env: Env, me: string, action: s
     unmute: ["unmute", { project: f("project"), person: f("person") }],
     invite: ["invite", { project: f("project"), name: f("name"), role: f("role"), uses: f("uses") ? Number(f("uses")) : undefined, expires_in_hours: f("expires_in_hours") ? Number(f("expires_in_hours")) : undefined }],
     remove: ["remove_member", { project: f("project"), name: f("name") }],
+    approve: ["join_requests", { project: f("project"), name: f("name"), decision: "approve" }],
+    decline: ["join_requests", { project: f("project"), name: f("name"), decision: "decline" }],
     configure: [
       "configure_project",
-      { name: f("name"), description: f("description") ?? "", repos: (f("repos") ?? "").split(",").map((r) => r.trim()).filter(Boolean), rules: f("rules") ?? "" },
+      {
+        name: f("name"),
+        description: f("description") ?? "",
+        repos: (f("repos") ?? "").split(",").map((r) => r.trim()).filter(Boolean),
+        rules: f("rules") ?? "",
+        ...(f("advanced") ? { github_repos: (f("github_repos") ?? "").split(/[\s,]+/).filter(Boolean), discoverable: f("discoverable") === "on" } : {}),
+      },
     ],
     propose: [
       "propose",
@@ -311,9 +325,30 @@ function lockCard(l: Lock, me: string, back: string): string {
   </div>`;
 }
 
-function projectPanel(p: Project, members: PM[], me: string, owner: boolean, muted: boolean, back: string): string {
+interface JoinRequest {
+  project: string;
+  member: string;
+  note: string;
+  created_at: number;
+  org: string;
+  github_login: string | null;
+}
+
+function projectPanel(p: Project & { github_repos: string; discoverable: number }, members: PM[], me: string, owner: boolean, muted: boolean, back: string, requests: JoinRequest[]): string {
   const ms = members.filter((m) => m.project === p.name);
   const repos = JSON.parse(p.repos) as string[];
+  const ghRepos = JSON.parse(p.github_repos) as string[];
+  const reqs = requests.filter((r) => r.project === p.name);
+  const requestRows = owner && reqs.length
+    ? `<div class="card" style="padding:12px 14px;box-shadow:none;border-color:color-mix(in srgb,var(--accent) 40%,transparent)"><h3 class="small" style="color:var(--accent);margin-bottom:6px">${icon("userPlus", 14)} Asking to join · ${reqs.length}</h3>
+        ${reqs
+          .map(
+            (r) => `<div class="member">${avatar(r.member, "s")}<span class="grow"><b>${esc(r.member)}</b>${r.org ? ` <span class="muted small">· ${esc(r.org)}</span>` : ""}${r.github_login ? ` <span class="muted small">· @${esc(r.github_login)}</span>` : ""}${r.note ? `<div class="small muted">“${esc(r.note)}”</div>` : ""}</span>
+            <form method="post" action="/action/approve">${hidden({ project: p.name, name: r.member, back })}<button class="btn sm primary">Approve</button></form>
+            <form method="post" action="/action/decline">${hidden({ project: p.name, name: r.member, back })}<button class="btn sm ghost">Decline</button></form></div>`,
+          )
+          .join("")}</div>`
+    : "";
   const rules = p.rules
     .split("\n")
     .map((r) => r.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, "").trim())
@@ -335,7 +370,10 @@ function projectPanel(p: Project, members: PM[], me: string, owner: boolean, mut
       <div><h3 class="small muted" style="margin-bottom:6px">Rules agents follow</h3>
         ${rules.length ? `<ol class="rules">${rules.map((r) => `<li>${esc(r)}</li>`).join("")}</ol>` : `<p class="small muted" style="margin:0">None yet.${owner ? ' Add rules like "prod deploys only Tue/Thu" — every member\'s Claude is shown them.' : ""}</p>`}
       </div>
-      <dl class="kv"><dt>Repos</dt><dd class="mono">${esc((repos.length ? repos : [p.name]).join(", "))}</dd></dl>
+      ${requestRows}
+      <dl class="kv"><dt>Repos</dt><dd class="mono">${esc((repos.length ? repos : [p.name]).join(", "))}</dd>
+        ${ghRepos.length ? `<dt>Open to</dt><dd class="small">push access to ${ghRepos.map((r) => `<code>${esc(r)}</code>`).join(", ")}</dd>` : ""}
+        ${p.discoverable ? `<dt>Requests</dt><dd class="small">anyone can ask to join by name</dd>` : ""}</dl>
       <div><h3 class="small muted">Members · ${ms.length}</h3>${memberRows}</div>
       <div class="row">
         <form method="post" action="/action/${muted ? "unmute" : "mute"}">${hidden({ project: p.name, back })}<button class="btn sm ghost">${icon(muted ? "bell" : "bellOff", 14)}${muted ? "Unmute" : "Mute"}</button></form>
@@ -359,6 +397,9 @@ function projectPanel(p: Project, members: PM[], me: string, owner: boolean, mut
       <label class="field">Description<input name="description" value="${esc(p.description)}" placeholder="What this project is"></label>
       <label class="field">Git repos <span class="tiny">(comma separated; sessions in these repos join this project)</span><input name="repos" class="mono" value="${esc((repos.length ? repos : [p.name]).join(", "))}"></label>
       <label class="field">Rules <span class="tiny">(one per line; shown to every member's agent at session start)</span><textarea name="rules" rows="6" placeholder="Prod deploys only Tue/Thu&#10;anna owns releases">${esc(p.rules)}</textarea></label>
+      <input type="hidden" name="advanced" value="1">
+      <label class="field">Open to GitHub collaborators <span class="tiny">(owner/repo, space separated; anyone with push access can join without an invite)</span><input name="github_repos" class="mono" value="${esc(ghRepos.join(" "))}" placeholder="acme/billing-api"></label>
+      <label class="check"><input type="checkbox" name="discoverable" ${p.discoverable ? "checked" : ""}> Accept join requests: people who know the exact name can ask to join, and owners approve</label>
     </div><div class="ft"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary">${icon("check", 14)}Save</button></div></form></dialog>`
       : ""
   }`;
@@ -420,11 +461,18 @@ export async function dashboard(url: URL, env: Env, me: string): Promise<Respons
   const shownLocks = channel ? locks.filter((l) => l.channel === channel) : locks;
   const view = url.searchParams.get("view") === "admin" && admin ? "admin" : "feed";
 
+  const { results: requests } = await env.DB.prepare(
+    `SELECT r.project, r.member, r.note, r.created_at, m.org, m.github_login FROM join_requests r JOIN members m ON m.name = r.member
+     WHERE r.project IN (SELECT project FROM project_members WHERE member = ? AND role = 'owner') ORDER BY r.created_at`,
+  )
+    .bind(me)
+    .all<JoinRequest>();
+
   // Sidebar
   const allNeed = props.filter((p) => live(p) && !votesFor(p.id).some((v) => v.member === me));
   const navItem = (c: string) => {
     const nLocks = locks.filter((l) => l.channel === c).length;
-    const nVotes = allNeed.filter((p) => p.channel === c).length;
+    const nVotes = allNeed.filter((p) => p.channel === c).length + requests.filter((r) => r.project === c).length;
     return `<a href="/?channel=${encodeURIComponent(c)}" class="${c === channel ? "on" : ""}">${icon("hash", 15)}<span>${esc(c)}</span>${mutedProjects.has(c) ? icon("bellOff", 12) : ""}
       <span class="n">${nVotes ? `<span class="badge accent" title="Votes waiting for you">${nVotes}</span>` : ""}${nLocks ? `<span class="badge amber" title="Active locks">${icon("lock", 10)}${nLocks}</span>` : ""}</span></a>`;
   };
@@ -434,6 +482,7 @@ export async function dashboard(url: URL, env: Env, me: string): Promise<Respons
       <div class="label">Projects</div>
       ${mine.map(navItem).join("")}
       <a href="#" data-open="dlg-create" class="muted">${icon("plus", 15)}<span>New project</span></a>
+      <a href="/discover" class="muted">${icon("users", 15)}<span>Find projects</span></a>
       ${admin ? `<div class="label">Instance</div><a href="/?view=admin" class="${view === "admin" ? "on" : ""}">${icon("shield", 15)}<span>Admin</span></a>` : ""}
     </nav>
     <div class="people">
@@ -462,14 +511,23 @@ export async function dashboard(url: URL, env: Env, me: string): Promise<Respons
   const needs = needVote.length
     ? `<section class="card glow" id="needs" data-region><div class="hero">${icon("sparkles", 14)} Needs your vote · ${needVote.length}</div>${needVote.map((p) => proposalCard(p, votesFor(p.id), me, back, ownerOf(p.channel))).join("")}</section>`
     : `<div id="needs" data-region hidden></div>`;
-  const onboarding = mine.length
+  const connected = !!(await env.DB.prepare("SELECT 1 FROM presence WHERE member = ?").bind(me).first());
+  const connectCard = connected
     ? ""
-    : `<section class="card glow"><div class="bd stack" style="padding:28px">
-        <div class="hero" style="padding:0">${icon("sparkles", 14)} Get started</div>
-        <h1 class="headline" style="font-size:26px">Create your first project</h1>
-        <p class="muted">Projects are private spaces: only members see their messages, locks, votes and rules. You'll be the owner and can invite anyone, including people from other companies. Or ask a project owner for an invite link.</p>
-        <div class="row"><button class="btn primary" data-open="dlg-create">${icon("plus", 15)}New project</button><a class="btn ghost" href="/docs">${icon("book", 15)}Read the docs</a></div>
+    : `<section class="card"><div class="bd stack">
+        <div class="row">${icon("terminal", 18)}<h2>Connect Claude Code</h2><span class="badge amber">not connected yet</span></div>
+        <p class="muted" style="margin:0">Run this in a terminal (macOS or Linux, Node 22+). It installs the plugin and signs in through this browser; no token to copy.</p>
+        ${codeBlock(`curl -fsSL ${url.origin}/setup.sh | sh`)}
+        <p class="small muted" style="margin:0">Then restart Claude Code and type <code>/intercom</code>.</p>
       </div></section>`;
+  const onboarding = mine.length
+    ? connectCard
+    : `<section class="card glow"><div class="bd stack" style="padding:28px">
+        <div class="hero" style="padding:0">${icon("sparkles", 14)} ${url.searchParams.has("welcome") ? `Welcome, ${esc(me)}` : "Get started"}</div>
+        <h1 class="headline" style="font-size:26px">Start a project, or join your team's</h1>
+        <p class="muted">Projects are private spaces: only members see their messages, locks, votes and rules. Create one and invite anyone, including people at other companies. If your team already uses Intercom, ask for an invite link, or find their project through a GitHub repo you share.</p>
+        <div class="row"><button class="btn primary" data-open="dlg-create">${icon("plus", 15)}New project</button><a class="btn" href="/discover">${icon("users", 15)}Find my team's project</a><a class="btn ghost" href="/docs">${icon("book", 15)}Docs</a></div>
+      </div></section>${connectCard}`;
   const composer = mine.length
     ? `<section class="card composer"><form method="post" action="/action/post">${hidden({ back })}
         <textarea id="compose" name="message" data-enter placeholder="Message ${channel ? `#${esc(channel)}` : "a project"} — teammates' Claude sessions will see it" maxlength="${MAX_BODY}" required></textarea>
@@ -494,8 +552,8 @@ export async function dashboard(url: URL, env: Env, me: string): Promise<Respons
       ${openVoted.length ? `<div class="hero" style="padding-bottom:4px">Open · you've voted</div>${openVoted.map((p) => proposalCard(p, votesFor(p.id), me, back, ownerOf(p.channel))).join("")}` : ""}
       ${decided.length ? decided.map((p) => proposalCard(p, votesFor(p.id), me, back, ownerOf(p.channel))).join("") : openVoted.length ? "" : `<div class="empty">${icon("vote", 26)}<div class="small">No decisions yet. Ask the project, e.g. "Hold deploys until the migration is done?"</div></div>`}
     </section>`;
-  const project = channel ? projRes.results.find((p) => p.name === channel) : undefined;
-  const projectBox = project ? projectPanel(project, pmRes.results, me, ownerOf(project.name), mutedProjects.has(project.name), back) : "";
+  const project = channel ? (projRes.results.find((p) => p.name === channel) as (Project & { github_repos: string; discoverable: number }) | undefined) : undefined;
+  const projectBox = project ? projectPanel(project, pmRes.results, me, ownerOf(project.name), mutedProjects.has(project.name), back, requests) : "";
 
   const dialogs = `
   <dialog id="dlg-create"><div class="hd">${icon("plus", 18)}<h2>New project</h2></div>
@@ -504,6 +562,9 @@ export async function dashboard(url: URL, env: Env, me: string): Promise<Respons
       <label class="field">Git repos <span class="tiny">(comma separated; defaults to the name)</span><input name="repos" class="mono" placeholder="billing-api, billing-web"></label>
       <label class="field">Description<input name="description" placeholder="What this project is"></label>
       <label class="field">Rules <span class="tiny">(one per line)</span><textarea name="rules" rows="4" placeholder="Prod deploys only Tue/Thu&#10;Announce schema changes in the channel"></textarea></label>
+      <input type="hidden" name="advanced" value="1">
+      <label class="field">Open to GitHub collaborators <span class="tiny">(optional; owner/repo, space separated)</span><input name="github_repos" class="mono" placeholder="acme/billing-api"></label>
+      <label class="check"><input type="checkbox" name="discoverable"> Accept join requests by exact name</label>
     </div><div class="ft"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary">${icon("plus", 14)}Create project</button></div></form></dialog>
   ${
     mine.length
@@ -620,10 +681,10 @@ export function docsPage(origin: string): Response {
 
       <section>
         <h2>Get started</h2>
-        <p class="muted">You need a personal token, from an invite link or an admin. Then, on macOS or Linux, run one command in a terminal:</p>
         <ol class="steps">
-          <li><b>Run the setup</b> and paste your token when asked:${codeBlock(`curl -fsSL ${origin}/setup.sh | sh`)}
-            <span class="small muted">It checks for <code>node</code> 22 or newer, installs the Claude Code plugin, and stores your token in <code>~/.claude/intercom/config</code> (readable only by you). Safe to re-run.</span></li>
+          <li><b>Get an account.</b> Sign up with GitHub on the <a href="/">home page</a> (if this instance allows it), or open an invite link a teammate sent you.</li>
+          <li><b>Run the setup</b> in a terminal (macOS or Linux):${codeBlock(`curl -fsSL ${origin}/setup.sh | sh`)}
+            <span class="small muted">It checks for <code>node</code> 22 or newer, installs the Claude Code plugin, and opens your browser to approve the terminal; no token to copy. The token it receives lives in <code>~/.claude/intercom/config</code>, readable only by you. Safe to re-run. Prefer a token? <code>… | sh -s -- &lt;token&gt;</code>.</span></li>
           <li><b>Restart Claude Code</b> and type <code>/intercom</code> to see your team, locks and votes.</li>
         </ol>
         <p class="small muted">No <code>claude</code> command in your terminal? Install the plugin from inside Claude Code instead: <code>/plugin install intercom --marketplace edvin/intercom</code>. Without the plugin system at all, <code>curl -fsSL ${esc(origin)}/install.sh | sh</code> installs the same pieces into <code>~/.claude</code>. Windows isn't supported yet (WSL works).</p>
@@ -631,7 +692,7 @@ export function docsPage(origin: string): Response {
 
       <section>
         <h2>Signing in to the dashboard</h2>
-        <p>The dashboard uses the same personal token as Claude Code. The easiest way in: type <code>/intercom dashboard</code> in Claude Code, and your browser opens already signed in. You stay signed in for a year (sign out from the top bar).</p>
+        <p><b>Continue with GitHub</b> on the sign-in page (connect GitHub once under <a href="/account">Account</a> if your account was created with a token). Or type <code>/intercom dashboard</code> in Claude Code, and your browser opens already signed in. You stay signed in for a year; Account lists your signed-in browsers and terminals, and signs them out.</p>
         <p class="muted">Or from a terminal:</p>${codeBlock('. ~/.claude/intercom/config && open "$INTERCOM_URL/login#t=$INTERCOM_TOKEN"   # Linux: xdg-open')}
         <p class="small muted">On another device, open <a href="/login">${esc(origin)}/login</a> and paste the token; <code>grep TOKEN ~/.claude/intercom/config</code> shows it. One-click links put the token after <code>#</code>, which browsers never send to the server, and the page removes it from the address bar at once. It may still appear in browser history, so don't share such a link.</p>
         <p class="small muted"><b>Lost your token?</b> If you're still signed in somewhere, open <a href="/account">Account</a> and create a new one (then re-run the setup on your machines). Otherwise an admin can reset it.</p>
@@ -661,6 +722,7 @@ export function docsPage(origin: string): Response {
           <li><b>Projects are private.</b> Only members see a project's messages, locks, votes, rules and who's working on it. You can only DM people you share a project with.</li>
           <li><b>Creating a project makes you its owner.</b> Owners edit the description, repos and rules, add people by handle or with an <b>invite link</b> (works for people at other companies; single use and valid for 3 days unless you choose otherwise), and remove members. Anyone can leave.</li>
           <li><b>Repos → projects:</b> when you start Claude in a git repo, Intercom finds which of <i>your</i> projects lists that repo. Its rules are shown to your agent and the session joins its channel. If your clone isn't linked yet, Claude offers to link it (any member can: “link this repo to billing”).</li>
+          <li><b>Joining without an invite:</b> owners can open a project to collaborators of GitHub repos (<i>Edit → Open to GitHub collaborators</i>): anyone who can push to the repo joins from <a href="/discover">Find projects</a> after a quick GitHub check, and Claude points there when you start a session in such a repo. Owners can also accept join requests: people who know the exact name ask, owners approve on the dashboard or with their Claude. Other projects stay invisible.</li>
           <li><b>Mute</b> a person or a project. Lock activity always comes through.</li>
           <li><b>Export</b> a project's rules and decisions as Markdown from its panel on the dashboard.</li>
         </ul>
@@ -725,8 +787,6 @@ export function docsPage(origin: string): Response {
 
 // ---------- instance administration (members with is_admin) ----------
 
-const newToken = () => [...crypto.getRandomValues(new Uint8Array(24))].map((b) => b.toString(16).padStart(2, "0")).join("");
-const HANDLE = /^[a-z][a-z0-9_-]{1,31}$/;
 
 /** One-time page showing a freshly issued token, with everything the person needs to get going. */
 function tokenPage(origin: string, name: string, token: string, what: string, self = false): Response {
@@ -757,23 +817,51 @@ export async function accountPage(req: Request, env: Env, me: string): Promise<R
       await env.DB.prepare("UPDATE members SET token_hash = ? WHERE name = ?").bind(await sha256(token), me).run();
       return tokenPage(origin, me, token, "New token", true);
     }
+    if (form.get("action") === "revoke") {
+      await env.DB.prepare("DELETE FROM tokens WHERE member = ? AND token_hash = ?").bind(me, String(form.get("id") ?? "")).run();
+      return redirect("/account?ok=Device signed out");
+    }
+    if (form.get("action") === "unlink") {
+      await env.DB.prepare("UPDATE members SET github_id = NULL, github_login = NULL WHERE name = ?").bind(me).run();
+      return redirect("/account?ok=GitHub disconnected");
+    }
     if (form.get("action") === "org") {
       await env.DB.prepare("UPDATE members SET org = ? WHERE name = ?").bind(String(form.get("org") ?? "").trim().slice(0, 60), me).run();
       return redirect("/account?ok=Saved");
     }
     return new Response("Not found", { status: 404 });
   }
-  const row = await env.DB.prepare("SELECT org, is_admin, created_at FROM members WHERE name = ?").bind(me).first<{ org: string; is_admin: number; created_at: number }>();
+  const row = await env.DB.prepare("SELECT org, is_admin, created_at, github_login FROM members WHERE name = ?").bind(me).first<{ org: string; is_admin: number; created_at: number; github_login: string | null }>();
   const projects = await myProjects(env, me);
+  const { results: devices } = await env.DB.prepare("SELECT token_hash, kind, label, created_at FROM tokens WHERE member = ? ORDER BY created_at DESC").bind(me).all<{ token_hash: string; kind: string; label: string; created_at: number }>();
+  const flash = new URL(req.url).searchParams;
+  const github = env.github
+    ? `<div><h3>GitHub</h3>${
+        row?.github_login
+          ? `<div class="row"><span class="small">${GITHUB_ICON} Connected as <b>@${esc(row.github_login)}</b>: you can sign in with GitHub.</span><form method="post" data-native>${hidden({ action: "unlink" })}<button class="btn ghost sm">Disconnect</button></form></div>`
+          : `<p class="small muted">Connect GitHub to sign in without a token, and to join projects through repos you can push to.</p><a class="btn sm" href="/auth/github?purpose=link">${GITHUB_ICON} Connect GitHub</a>`
+      }</div>`
+    : "";
+  const deviceList = devices.length
+    ? `<div><h3>Signed-in browsers and terminals</h3>${devices
+        .map(
+          (d) => `<div class="member">${icon(d.kind === "web" ? "layers" : "terminal", 15)}<span class="grow small">${esc(d.kind === "web" ? "Browser" : d.label || "Terminal")} <span class="muted">· ${time(d.created_at)}</span></span>
+          <form method="post" data-native>${hidden({ action: "revoke", id: d.token_hash })}<button class="btn ghost xs">Sign out</button></form></div>`,
+        )
+        .join("")}</div>`
+    : "";
   return html(
     soloCard(
       "account",
       `<div class="row">${avatar(me, "l")}<div><p class="small muted" style="margin:0">${icon("users", 13)} Account${row?.is_admin ? ' · <span class="badge accent">admin</span>' : ""}</p><h1 class="headline">${esc(me)}</h1></div></div>
       <dl class="kv"><dt>Projects</dt><dd>${projects.length ? projects.map((p) => `<a href="/?channel=${encodeURIComponent(p)}">#${esc(p)}</a>`).join(", ") : "none yet"}</dd><dt>Member since</dt><dd>${new Date(row?.created_at ?? Date.now()).toISOString().slice(0, 10)}</dd></dl>
       <form method="post" class="row" data-native>${hidden({ action: "org" })}<label class="field grow">Company<input name="org" value="${esc(row?.org)}" placeholder="e.g. Acme"></label><button class="btn" style="align-self:flex-end">${icon("check", 14)}Save</button></form>
-      <div><h3>Connect another machine</h3><p class="small muted">Copy the token from <code>~/.claude/intercom/config</code> on a machine that's already set up, and run there:</p>${codeBlock(`curl -fsSL ${origin}/setup.sh | sh`)}</div>
-      <div><h3>Lost your token?</h3><p class="small muted">Create a new one. The old token stops working at once, so run the setup again on each machine where you use Intercom.</p>
-        <form method="post" data-native data-confirm="Create a new token? Your current one stops working on every machine until you run the setup again.">${hidden({ action: "token" })}<button class="btn">${icon("key", 14)}Create a new token</button></form></div>
+      ${flash.get("ok") || flash.get("err") ? `<div class="toast ${flash.get("err") ? "err" : ""}" style="box-shadow:none">${icon(flash.get("err") ? "x" : "check")}<span>${esc(flash.get("ok") ?? flash.get("err"))}</span></div>` : ""}
+      ${github}
+      <div><h3>Connect another machine</h3><p class="small muted">Run this there; it signs in through your browser:</p>${codeBlock(`curl -fsSL ${origin}/setup.sh | sh`)}</div>
+      ${deviceList}
+      <div><h3>Reset your original token</h3><p class="small muted">If your first token leaked or got lost: the old one stops working at once, so run the setup again where it was used.</p>
+        <form method="post" data-native data-confirm="Reset your original token? It stops working on every machine that uses it, until you run the setup again.">${hidden({ action: "token" })}<button class="btn sm">${icon("key", 14)}Reset token</button></form></div>
       <div class="row"><a class="btn primary" href="/">${icon("arrow", 15)}Dashboard</a><a class="btn ghost" href="/docs">Docs</a></div>`,
     ),
     200,
@@ -785,6 +873,10 @@ export async function handleAdminAction(req: Request, env: Env, me: string, acti
   if (!sameOrigin(req)) return new Response("Cross-origin request refused", { status: 403 });
   if (!(await isAdmin(env, me))) return new Response("Admins only", { status: 403 });
   const form = await req.formData();
+  if (action === "signup") {
+    await setSetting(env, "open_signup", form.get("open") === "on" ? "1" : "0");
+    return redirect(`/?view=admin&ok=${encodeURIComponent(form.get("open") === "on" ? "Anyone can now sign up with GitHub" : "Sign-up is invite-only")}`);
+  }
   const name = String(form.get("name") ?? "").trim().toLowerCase();
   const origin = new URL(req.url).origin;
   const back = (msg: string, err = false) => redirect(`/?view=admin&${err ? "err" : "ok"}=${encodeURIComponent(msg)}`);
@@ -822,6 +914,8 @@ export async function handleAdminAction(req: Request, env: Env, me: string, acti
         env.DB.prepare("DELETE FROM presence WHERE member = ?").bind(name),
         env.DB.prepare("DELETE FROM sessions WHERE member = ?").bind(name),
         env.DB.prepare("DELETE FROM mutes WHERE member = ? OR muted = ?").bind(name, name),
+        env.DB.prepare("DELETE FROM tokens WHERE member = ?").bind(name),
+        env.DB.prepare("DELETE FROM join_requests WHERE member = ?").bind(name),
       ]);
       return back(`Deleted ${name} (their past messages are kept).`);
     }
@@ -832,15 +926,15 @@ export async function handleAdminAction(req: Request, env: Env, me: string, acti
 /** Admin view of the dashboard. */
 async function adminSection(env: Env, me: string): Promise<string> {
   const { results } = await env.DB.prepare(
-    `SELECT m.name, m.org, m.is_admin, m.created_at, p.updated_at AS seen,
+    `SELECT m.name, m.org, m.is_admin, m.created_at, m.github_login, p.updated_at AS seen,
             (SELECT COUNT(*) FROM project_members pm WHERE pm.member = m.name) AS projects
      FROM members m LEFT JOIN presence p ON p.member = m.name ORDER BY m.name`,
-  ).all<{ name: string; org: string; is_admin: number; created_at: number; seen: number | null; projects: number }>();
+  ).all<{ name: string; org: string; is_admin: number; created_at: number; github_login: string | null; seen: number | null; projects: number }>();
   const rows = results
     .map(
       (r) => `<details class="prop" id="acct-${esc(r.name)}"><summary class="row">
           <span class="presence ${presenceClass(r.seen)}">${avatar(r.name, "s")}</span>
-          <b>${esc(r.name)}</b>${r.is_admin ? '<span class="badge accent">admin</span>' : ""}${r.name === me ? '<span class="small muted">(you)</span>' : ""}${r.org ? `<span class="small muted">· ${esc(r.org)}</span>` : ""}
+          <b>${esc(r.name)}</b>${r.is_admin ? '<span class="badge accent">admin</span>' : ""}${r.name === me ? '<span class="small muted">(you)</span>' : ""}${r.org ? `<span class="small muted">· ${esc(r.org)}</span>` : ""}${r.github_login ? `<span class="small muted">· @${esc(r.github_login)}</span>` : ""}
           <span class="grow"></span><span class="small muted">${r.projects} project${r.projects === 1 ? "" : "s"} · ${r.seen ? `seen ${time(r.seen)}` : "never seen"}</span>${icon("sliders", 14)}
         </summary>
         <div class="stack" style="padding:12px 0 0 32px">
@@ -862,7 +956,16 @@ async function adminSection(env: Env, me: string): Promise<string> {
       </details>`,
     )
     .join("");
-  return `<section class="card" id="admin" data-region>
+  const open = await openSignup(env);
+  const signup = `<section class="card"><div class="hd"><h2>${GITHUB_ICON}Registration</h2></div><div class="bd stack">
+    ${
+      env.github
+        ? `<form method="post" action="/admin-action/signup" class="row">
+            <label class="check grow"><input type="checkbox" name="open" ${open ? "checked" : ""}> Anyone can create an account with GitHub</label><button class="btn sm">${icon("check", 14)}Save</button></form>
+           <p class="small muted" style="margin:0">${open ? "Open: new people sign up from the landing page. New accounts can't see or message anyone until they're in a shared project." : "Invite-only: people need an invite link (they can still use GitHub to create the account from it)."} Limits: 5 sign-ups per IP per hour, 200 per day.</p>`
+        : `<p class="small muted" style="margin:0">GitHub sign-in isn't configured. Set <code>GITHUB_CLIENT_ID</code> and the <code>GITHUB_CLIENT_SECRET</code> secret on the Worker.</p>`
+    }</div></section>`;
+  return `${signup}<section class="card" id="admin" data-region>
     <div class="hd"><h2>${icon("shield", 16)}Accounts</h2><span class="badge">${results.length}</span></div>
     <div class="bd">
       <form method="post" action="/admin-action/create" class="row" data-native>

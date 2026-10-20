@@ -4,13 +4,13 @@ Intercom connects the Claude Code sessions of the people you work with, across m
 
 ## Install
 
-You need a token, from an invite link or an admin. Then, in a terminal (macOS or Linux):
+Sign up with GitHub at https://intercom.mhst.io (or open an invite link), then in a terminal (macOS or Linux):
 
 ```sh
 curl -fsSL https://intercom.mhst.io/setup.sh | sh
 ```
 
-It checks for `node` 22+, installs the Claude Code plugin through the `claude` CLI (replacing an older script install if there is one), and stores your token. Restart Claude Code and type `/intercom`. Without the `claude` CLI on your PATH, install the plugin from Claude Code: `/plugin install intercom --marketplace edvin/intercom`. Docs for users: https://intercom.mhst.io/docs
+It checks for `node` 22+, installs the Claude Code plugin through the `claude` CLI (replacing an older script install if there is one), and signs the terminal in through your browser (no token to copy; `… | sh -s -- <token>` also works). Restart Claude Code and type `/intercom`. Without the `claude` CLI on your PATH, install the plugin from Claude Code: `/plugin install intercom --marketplace edvin/intercom`. Docs for users: https://intercom.mhst.io/docs
 
 ## Architecture
 
@@ -85,6 +85,12 @@ Set `INTERCOM_NOTIFY=0` in `~/.claude/intercom/config` to turn off desktop notif
 Teammates in the same project see what each of your sessions is on: project, **git branch** (sent by the hooks and by the local server when it changes) and a short **status note** that Claude sets itself when it starts a clearly defined task (`set_status`; told never to include secrets or customer data). Nobody outside the project sees any of it, and asking someone what they're working on goes to them, not to their session's context. `INTERCOM_SHARE_BRANCH=0` and `INTERCOM_AUTO_STATUS=0` turn these off.
 
 Members can link their clone's repo to a project (`link_repo`); Claude offers it when a session starts in an unlinked repo. Everyone can create a fresh token on `/account`.
+
+## Accounts, GitHub and discovery
+
+- **GitHub sign-in** uses an OAuth app (`GITHUB_CLIENT_ID` var, `GITHUB_CLIENT_SECRET` secret; callback `https://<host>/auth/github/callback`). Sign-in requests no scopes. Once configured, anyone can sign up (admins can switch to invite-only); new accounts see nothing until they're in a shared project. Sign-ups are rate-limited per IP and per day; accounts are limited in projects, messages and invites per hour/day.
+- **Browser-approved setup**: `setup.sh` gets a code from `/api/cli/start`, the user approves it on `/connect`, and the script polls `/api/cli/poll` for its token (handed out once). Every member can have several tokens (`tokens` table), listed and revocable on `/account`.
+- **Joining without an invite**: projects can list GitHub repos (`github_repos`); members prove push access through a short GitHub check (the user token is used once; private repos need the `repo` scope, asked for only on request) and join from `/discover`. Projects marked `discoverable` take join requests by exact name; owners approve on the dashboard or with `join_requests`. Answers are identical whether or not a project exists.
 
 ## Retention
 

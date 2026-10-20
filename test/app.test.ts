@@ -292,3 +292,150 @@ describe("account", () => {
     assert.equal(Math.round((inv!.expires_at - inv!.created_at) / 3600_000), 24);
   });
 });
+
+describe("browser-approved setup", () => {
+  test("a terminal gets a token only after the user approves it", async () => {
+    const w = await standardWorld();
+    const start = (await (await w.request("/api/cli/start", { method: "POST" })).json()) as { code: string; user_code: string };
+    assert.equal(((await (await w.request(`/api/cli/poll?code=${start.code}`)).json()) as { status: string }).status, "pending");
+    const page = await (await w.request(`/connect?c=${start.user_code}`, { as: "bob", cookie: true })).text();
+    assert.match(page, new RegExp(start.user_code));
+    assert.equal((await w.form(`/connect?c=${start.user_code}`, "bob", { action: "approve" })).status, 200);
+    const done = (await (await w.request(`/api/cli/poll?code=${start.code}`)).json()) as { status: string; token: string; name: string };
+    assert.equal(done.status, "approved");
+    assert.equal(done.name, "bob");
+    assert.equal(await (await w.request("/api/whoami", { headers: { authorization: `Bearer ${done.token}` } })).text(), "bob");
+    // Handed out once only.
+    assert.equal((await w.request(`/api/cli/poll?code=${start.code}`)).status, 404);
+    // Cross-site approval is refused.
+    const again = (await (await w.request("/api/cli/start", { method: "POST" })).json()) as { user_code: string };
+    assert.equal((await w.form(`/connect?c=${again.user_code}`, "bob", { action: "approve" }, "https://evil.example")).status, 403);
+  });
+});
+
+describe("GitHub", () => {
+  const realFetch = globalThis.fetch;
+  function stubGitHub(user: { id: number; login: string }, repos: Record<string, { push: boolean }> = {}) {
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const u = String(input instanceof Request ? input.url : input);
+      if (u.startsWith("https://github.com/login/oauth/access_token")) return Response.json({ access_token: "gh-token" });
+      if (u === "https://api.github.com/user") return Response.json(user);
+      const m = u.match(/^https:\/\/api\.github\.com\/repos\/([^/]+\/[^/]+)$/);
+      if (m) return repos[m[1]] ? Response.json({ permissions: { push: repos[m[1]].push } }) : new Response("not found", { status: 404 });
+      throw new Error(`unexpected fetch ${u}`);
+    }) as typeof fetch;
+  }
+  const restore = () => (globalThis.fetch = realFetch);
+
+  async function oauth(w: World, query: string, cookie = "") {
+    const start = await w.request(`/auth/github${query}`, { headers: cookie ? { cookie } : {}, redirect: "manual" });
+    assert.equal(start.status, 303);
+    const state = new URL(start.headers.get("location")!).searchParams.get("state")!;
+    const stateCookie = start.headers.get("set-cookie")!.split(";")[0];
+    return w.request(`/auth/github/callback?code=c&state=${state}`, { headers: { cookie: [stateCookie, cookie].filter(Boolean).join("; ") }, redirect: "manual" });
+  }
+  const sessionFrom = (res: Response) => res.headers.getSetCookie().find((c) => c.startsWith("intercom_token=") && !c.includes("Max-Age=0"))!.split(";")[0];
+
+  test("sign-up with GitHub creates one account; signing in again reuses it", async () => {
+    const w = await standardWorld();
+    w.github = { client_id: "id", client_secret: "secret" };
+    stubGitHub({ id: 42, login: "Dominic.X" });
+    try {
+      const res = await oauth(w, "");
+      assert.equal(res.status, 303);
+      assert.equal(res.headers.get("location"), "/?welcome=1");
+      const who = await (await w.request("/api/whoami", { headers: { cookie: sessionFrom(res) } })).text();
+      assert.equal(who, "dominic-x");
+      const again = await oauth(w, "");
+      assert.equal(await (await w.request("/api/whoami", { headers: { cookie: sessionFrom(again) } })).text(), "dominic-x");
+      const n = await w.db.prepare("SELECT COUNT(*) AS n FROM members WHERE github_id = 42").first<{ n: number }>();
+      assert.equal(n!.n, 1);
+    } finally {
+      restore();
+    }
+  });
+
+  test("invite-only instances still let invited people sign up with GitHub", async () => {
+    const w = await standardWorld();
+    w.github = { client_id: "id", client_secret: "secret" };
+    await w.db.prepare("INSERT INTO settings (key, value) VALUES ('open_signup', '0')").run();
+    stubGitHub({ id: 7, login: "erin" });
+    try {
+      const closed = await oauth(w, "");
+      assert.match(await closed.text(), /invite-only/);
+      assert.equal((await w.db.prepare("SELECT COUNT(*) AS n FROM members WHERE github_id = 7").first<{ n: number }>())!.n, 0);
+      const code = (await w.ok("alice", "invite", { project: "billing" })).match(/\/join\/([0-9a-f]+)/)![1];
+      const invited = await oauth(w, `?next=${encodeURIComponent(`/join/${code}`)}`);
+      assert.equal(invited.headers.get("location"), `/join/${code}`);
+    } finally {
+      restore();
+    }
+  });
+
+  test("push access to a linked repo lets you join; others are refused", async () => {
+    const w = await standardWorld();
+    w.github = { client_id: "id", client_secret: "secret" };
+    await w.ok("alice", "configure_project", { name: "billing", github_repos: ["acme/billing-api"] });
+    const carol = `intercom_token=${w.tokens.carol}`;
+    stubGitHub({ id: 9, login: "carol" }, { "acme/billing-api": { push: true } });
+    try {
+      // Without a fresh access check, joining is refused.
+      const early = await w.form("/discover/join", "carol", { project: "billing", repo: "acme/billing-api" });
+      assert.match(decodeURIComponent(early.headers.get("location")!), /Check your repo access/);
+      const check = await oauth(w, "?purpose=discover&repo=acme/billing-api", carol);
+      assert.equal(check.headers.get("location"), "/discover?repo=acme/billing-api");
+      const page = await (await w.request("/discover?repo=acme/billing-api", { as: "carol", cookie: true })).text();
+      assert.match(page, /billing/);
+      const join = await w.form("/discover/join", "carol", { project: "billing", repo: "acme/billing-api" });
+      assert.match(join.headers.get("location")!, /channel=billing/);
+      assert.ok((await w.ok("carol", "projects")).includes("#billing"));
+    } finally {
+      restore();
+    }
+    stubGitHub({ id: 10, login: "mallory" }, { "acme/billing-api": { push: false } });
+    try {
+      await w.member("mallory");
+      const denied = await oauth(w, "?purpose=discover&repo=acme/billing-api", `intercom_token=${w.tokens.mallory}`);
+      assert.match(decodeURIComponent(denied.headers.get("location")!), /doesn't have push access/);
+    } finally {
+      restore();
+    }
+  });
+
+  test("a callback without the browser's state cookie is rejected", async () => {
+    const w = await standardWorld();
+    w.github = { client_id: "id", client_secret: "secret" };
+    stubGitHub({ id: 1, login: "x" });
+    try {
+      const start = await w.request("/auth/github", { redirect: "manual" });
+      const state = new URL(start.headers.get("location")!).searchParams.get("state")!;
+      const res = await w.request(`/auth/github/callback?code=c&state=${state}`, { redirect: "manual" });
+      assert.match(await res.text(), /expired/);
+    } finally {
+      restore();
+    }
+  });
+});
+
+describe("join requests", () => {
+  test("discoverable projects accept requests; private ones give the same answer", async () => {
+    const w = await standardWorld();
+    await w.ok("alice", "configure_project", { name: "billing", discoverable: true });
+    const asked = await w.form("/discover/request", "carol", { project: "billing", note: "carol from globex" });
+    const hidden_ = await w.form("/discover/request", "carol", { project: "shop-secret" });
+    const msg = (r: Response) => decodeURIComponent(r.headers.get("location")!).replace(/#[\w-]+/, "#x");
+    assert.equal(msg(asked), msg(hidden_));
+    assert.match(await w.ok("alice", "inbox"), /asked to join #billing — “carol from globex”/);
+    assert.match(await w.ok("alice", "join_requests"), /carol \(globex\)/);
+    assert.equal((await w.tool("bob", "join_requests", { project: "billing", name: "carol", decision: "approve" })).error, true);
+    assert.match(await w.ok("alice", "join_requests", { project: "billing", name: "carol", decision: "approve" }), /now a member/);
+    assert.ok((await w.ok("carol", "projects")).includes("#billing"));
+  });
+
+  test("rate limits stop floods", async () => {
+    const w = await standardWorld();
+    const { rateLimit } = await import("../src/lib.ts");
+    for (let i = 0; i < 3; i++) assert.equal(await rateLimit(w.env(), "t", 3, 60_000), true);
+    assert.equal(await rateLimit(w.env(), "t", 3, 60_000), false);
+  });
+});
