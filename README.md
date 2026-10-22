@@ -40,6 +40,7 @@ On each machine, the plugin's zero-dependency Node script (`plugins/intercom/int
 | `SessionEnd` hook | Removes the session from the live list. |
 | `PreToolUse` hook (Bash) | **Deploy guard**: commands that look like a deploy, migration or infra change, while a teammate holds a matching lock, make Claude Code ask the user to confirm. Ordinary commands are filtered locally in milliseconds. `INTERCOM_GUARD=0` turns it off. |
 | `/intercom` command | Status (team, locks, votes, unread) fetched instantly, then one-click actions via a question prompt. Quick forms: `/intercom post …`, `dm anna …`, `lock deploy:billing:prod`, `release …`, `vote`, `mute …`. |
+| `intercom-ui` (mod, `plugins/intercom-ui`) | Inside Claude Code: a band above the prompt with locks and votes that concern this session (vote from it), `/ic` live panel, toasts, status line entry. Reads `/api/ui`; installed by the setup script. |
 | Status line (optional) | `~/.claude/intercom/statusline.sh` prints `📻 2 unread · 🔒 deploy:billing:prod (anna)` |
 | Dashboard (`/`) | Live (WebSocket) personal page: votes needing you, feed, locks with countdowns, decisions, project rules and members, people with presence. Vote, post, claim/release locks, invite, edit rules and export decisions as Markdown. |
 
@@ -115,6 +116,7 @@ Project owners can also bring people in with invite links. For bootstrap and rec
 | `test/` | Test suite and harness |
 | `migrations/` | SQLite schema, applied automatically inside the hub (list new files in `MIGRATIONS` in `src/hub.ts`) |
 | `plugins/intercom/` | The Claude Code plugin: local MCP/channel server, hooks, `/intercom` command, status line |
+| `plugins/intercom-ui/` | The intercom-ui mod: band, `/ic` panel, toasts (`claude plugin test plugins/intercom-ui`) |
 | `.claude-plugin/marketplace.json` | Makes this repo a plugin marketplace |
 | `client/` | `setup.sh` (token only, for plugin users) and `install.sh` (installs without the plugin system) |
 

@@ -109,6 +109,17 @@ PY
   else
     warn "couldn't install the plugin automatically. In Claude Code, run: /plugin install intercom --marketplace edvin/intercom"
   fi
+  # The in-Claude-Code band, /ic panel and toasts (a mod; needs a recent Claude Code). Optional: skip quietly if it can't load.
+  if [ "$INTERCOM_UI" != "0" ]; then
+    if claude plugin list 2>/dev/null | grep -q "intercom-ui@intercom"; then
+      claude plugin update intercom-ui@intercom >/dev/null 2>&1 || true
+      ok "intercom-ui up to date (band, /ic panel, toasts)"
+    elif claude plugin install intercom-ui@intercom >/dev/null 2>&1; then
+      ok "intercom-ui installed (band, /ic panel, toasts)"
+    else
+      warn "intercom-ui (in-Claude-Code panel) needs a newer Claude Code; skipped. Update Claude Code and re-run this setup to get it."
+    fi
+  fi
 else
   warn "the claude CLI isn't on your PATH. In Claude Code, run: /plugin install intercom --marketplace edvin/intercom"
 fi

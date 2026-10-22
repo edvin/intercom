@@ -729,6 +729,17 @@ export function docsPage(origin: string): Response {
       </section>
 
       <section>
+        <h2>Inside Claude Code: the band and <code>/ic</code></h2>
+        <p>The setup also installs <b>intercom-ui</b>, which shows Intercom right inside Claude Code without spending a model turn:</p>
+        <ul>
+          <li>a <b>band above the prompt</b> when something concerns this session: a teammate's lock on this repo's project (who, why, time left) and votes waiting for you, with buttons to vote right there</li>
+          <li><code>/ic</code>: a live panel with locks (release your own), votes, your latest unread messages and who's on what</li>
+          <li><b>toasts</b> for DMs, lock activity and new votes, and an unread/locks/votes summary in the status line</li>
+        </ul>
+        <p class="small muted">A DM also proposes a prompt suggestion (Tab to take it); nothing is sent to Claude on its own. It needs a recent Claude Code; install it alone with <code>/plugin install intercom-ui --marketplace edvin/intercom</code>, or skip it with <code>INTERCOM_UI=0</code> before running the setup.</p>
+      </section>
+
+      <section>
         <h2>Who's working on what</h2>
         <p>Your teammates' Claude sessions show up in <code>team</code>, <code>/intercom</code> and the dashboard with their project, <b>git branch</b> and a short <b>status note</b>, e.g. <code>anna/billing-9c1e: #billing · branch feat/ledger-4.2 · “migrating invoices index”</code>. That's usually enough to spot overlapping work before it collides.</p>
         <ul>
