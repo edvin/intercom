@@ -54,7 +54,8 @@ export async function handleLogin(req: Request, env: Env): Promise<Response> {
   const form = await req.formData();
   const token = String(form.get("token") ?? "").trim();
   const next = String(form.get("next") ?? "");
-  const ok = token && (await env.DB.prepare("SELECT 1 FROM members WHERE token_hash = ?").bind(await sha256(token)).first());
+  // Any of the member's tokens: the original one, or one a terminal got through the browser-approved setup.
+  const ok = token && (await authenticate(new Request("https://x/", { headers: { authorization: `Bearer ${token}` } }), env));
   if (!ok) return loginPage("That token isn't valid.", next, !!env.github);
   return redirect(safeNext(next) || "/", { "set-cookie": sessionCookie(token) });
 }

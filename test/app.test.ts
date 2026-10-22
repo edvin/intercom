@@ -307,6 +307,9 @@ describe("browser-approved setup", () => {
     assert.equal(done.status, "approved");
     assert.equal(done.name, "bob");
     assert.equal(await (await w.request("/api/whoami", { headers: { authorization: `Bearer ${done.token}` } })).text(), "bob");
+    // The dashboard accepts it too (e.g. /intercom dashboard's one-click sign-in).
+    const login = await w.request("/login", { method: "POST", body: new URLSearchParams({ token: done.token }), redirect: "manual" });
+    assert.equal(login.status, 303);
     // Handed out once only.
     assert.equal((await w.request(`/api/cli/poll?code=${start.code}`)).status, 404);
     // Cross-site approval is refused.
