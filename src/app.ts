@@ -1,4 +1,4 @@
-import { type Env, type Proposal, MEMBER_OF, RECEIVES, UserError, activeLocks, address, ago, cleanBranch, workingOn, authenticate, coMembers, fmtLock, fmtMessage, myProjects, resolveProject, setPresence, tally, touchSession, unread } from "./lib";
+import { type Env, type Message, type Proposal, MEMBER_OF, RECEIVES, UserError, activeLocks, address, ago, cleanBranch, workingOn, authenticate, coMembers, fmtLock, fmtMessage, myProjects, resolveProject, setPresence, tally, touchSession, unread } from "./lib";
 import { INSTRUCTIONS, tools } from "./tools";
 import { cliPoll, cliStart, connectPage, discoverJoin, discoverPage, discoverRequest, githubCallback, githubCreate, githubStart, signOut } from "./accounts";
 import { guard } from "./guard";
@@ -191,6 +191,48 @@ async function handleBrief(url: URL, env: Env, me: string): Promise<Response> {
   return text(out.join("\n"));
 }
 
+/** JSON snapshot for the intercom-ui mod: what to show in the band, pane and status line. Read-only. */
+async function handleUi(url: URL, env: Env, me: string): Promise<Response> {
+  const raw = url.searchParams.get("project");
+  const project = raw ? await resolveProject(env, raw, me) : null;
+  const mine = await myProjects(env, me);
+  const visible = new Set(mine);
+  const people = (await coMembers(env, me)).filter((p) => p !== me);
+  const [locks, open, cursorRow, team] = await Promise.all([
+    activeLocks(env, me),
+    env.DB.prepare(`SELECT * FROM proposals WHERE status = 'open' AND ${MEMBER_OF} AND (closes_at IS NULL OR closes_at > ?1) ORDER BY id DESC LIMIT 20`)
+      .bind(Date.now(), me)
+      .all<Proposal>(),
+    env.DB.prepare("SELECT last_read_id FROM cursors WHERE member = ?").bind(me).first<{ last_read_id: number }>(),
+    people.length
+      ? env.DB.prepare(`SELECT member, project, note, branch, updated_at FROM presence WHERE member IN (${people.map(() => "?").join(",")}) ORDER BY updated_at DESC`)
+          .bind(...people)
+          .all<{ member: string; project: string; note: string; branch: string; updated_at: number }>()
+      : Promise.resolve({ results: [] as { member: string; project: string; note: string; branch: string; updated_at: number }[] }),
+  ]);
+  const { results: voted } = open.results.length
+    ? await env.DB.prepare(`SELECT proposal_id FROM votes WHERE member = ? AND proposal_id IN (${open.results.map(() => "?").join(",")})`)
+        .bind(me, ...open.results.map((p) => p.id))
+        .all<{ proposal_id: number }>()
+    : { results: [] };
+  const votedIds = new Set(voted.map((v) => v.proposal_id));
+  const cursor = cursorRow?.last_read_id ?? 0;
+  const { results: recent } = await env.DB.prepare(`SELECT * FROM messages WHERE id > ?1 AND sender != ?2 AND ${RECEIVES} ORDER BY id DESC LIMIT 8`).bind(cursor, me).all<Message>();
+  const unread = (await env.DB.prepare(`SELECT COUNT(*) AS n FROM messages WHERE id > ?1 AND sender != ?2 AND ${RECEIVES}`).bind(cursor, me).first<{ n: number }>())!.n;
+  const latest = (await env.DB.prepare(`SELECT COALESCE(MAX(id), 0) AS id FROM messages WHERE sender != ?2 AND ${RECEIVES} AND ?1 IS NULL`).bind(null, me).first<{ id: number }>())!.id;
+  return json({
+    me,
+    project: project?.name ?? null,
+    origin: url.origin,
+    unread,
+    latest,
+    recent: recent.map((m) => ({ id: m.id, from: address(m.sender, m.sender_agent), sender: m.sender, channel: m.channel, dm: m.recipient !== null, kind: m.kind, body: m.body, at: m.created_at })),
+    locks: locks.map((l) => ({ ...l, mine: l.holder === me, here: !!project && (l.channel === project.name || l.resource.split(":")[1] === project.name) })),
+    votes: open.results.filter((p) => !votedIds.has(p.id)).map((p) => ({ id: p.id, channel: p.channel, author: p.author, question: p.question, options: JSON.parse(p.options) as string[], closes_at: p.closes_at })),
+    team: team.results.filter((t) => Date.now() - t.updated_at < 6 * 3600_000).map((t) => (visible.has(t.project) ? t : { member: t.member, project: "", note: "", branch: "", updated_at: t.updated_at })),
+  });
+}
+
 /** One-line summary for a Claude Code status line. Does not mark anything read. */
 async function handleStatusline(env: Env, me: string): Promise<Response> {
   const cursor = await env.DB.prepare("SELECT last_read_id FROM cursors WHERE member = ?").bind(me).first<{ last_read_id: number }>();
@@ -286,6 +328,7 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
   if (url.pathname === "/api/statusline") return handleStatusline(env, me);
   if (url.pathname === "/api/guard" && req.method === "POST") return handleGuard(req, url, env, me);
   if (url.pathname === "/api/brief") return handleBrief(url, env, me);
+  if (url.pathname === "/api/ui") return handleUi(url, env, me);
   if (url.pathname.startsWith("/export/")) return exportProject(env, me, decodeURIComponent(url.pathname.slice(8)).replace(/\.md$/, ""));
   return json({ error: "not found" }, 404);
 }

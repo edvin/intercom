@@ -463,3 +463,22 @@ describe("join requests", () => {
     assert.equal(await rateLimit(w.env(), "t", 3, 60_000), false);
   });
 });
+
+describe("ui snapshot", () => {
+  test("shows locks, votes and unread for your projects only, without marking anything read", async () => {
+    const w = await standardWorld();
+    await w.ok("bob", "claim", { resource: "deploy:billing:prod", reason: "v2.14" });
+    await w.ok("bob", "propose", { channel: "billing", question: "Freeze Friday?" });
+    await w.ok("bob", "post", { to: "alice", message: "lunch?" });
+    const a = (await (await w.request("/api/ui?project=billing-api", { as: "alice" })).json()) as {
+      project: string; unread: number; locks: { resource: string; here: boolean; mine: boolean }[]; votes: { question: string }[]; recent: { dm: boolean; body: string }[];
+    };
+    assert.equal(a.project, "billing");
+    assert.deepEqual(a.locks.map((l) => [l.resource, l.here, l.mine]), [["deploy:billing:prod", true, false]]);
+    assert.deepEqual(a.votes.map((v) => v.question), ["Freeze Friday?"]);
+    assert.ok(a.recent.some((m) => m.dm && m.body === "lunch?"));
+    assert.match(await w.ok("alice", "inbox"), /lunch\?/); // still unread for the agent
+    const c = (await (await w.request("/api/ui", { as: "carol" })).json()) as { locks: unknown[]; votes: unknown[]; recent: unknown[] };
+    assert.equal(c.locks.length + c.votes.length + c.recent.length, 0);
+  });
+});
