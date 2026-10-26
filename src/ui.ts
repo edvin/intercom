@@ -76,6 +76,28 @@ export function hue(name: string): number {
   return h;
 }
 
+/** An agent's own hue, stable by its full address (edvin/alder and anna/alder differ). */
+export function agentHue(member: string, label: string): number {
+  let h = 0x811c9dc5;
+  for (const c of `${member}/${label}`) h = Math.imul(h ^ c.charCodeAt(0), 0x01000193) >>> 0;
+  return 30 + (h % 300); // never red: that's for warnings and errors
+}
+
+/** Two letters for an agent: loxodon-core → LC, alder → AL; generated id parts (b5d3, 336f) don't count. */
+export function initials(label: string): string {
+  const words = label.split(/[-_\s.]+/).filter((w) => w && !/\d/.test(w));
+  const pick = words.length >= 2 ? words[0]![0]! + words[1]![0]! : (words[0] ?? label).slice(0, 2);
+  return pick.toUpperCase();
+}
+
+/** An agent's avatar: its hue and initials, square-ish so agents read differently from people's round ones. */
+export const agentAvatar = (member: string, label: string, size: "s" | "m" | "l" = "m") =>
+  `<span class="av av-${size} av-agent" style="--h:${agentHue(member, label)}" title="${esc(`${member}/${label}`)}">${esc(initials(label))}</span>`;
+
+/** An agent's name in its own colour (the same everywhere: feed, chats, lists). */
+export const agentName = (member: string, label: string, text = `${member}/${label}`) =>
+  `<span class="an" style="--h:${agentHue(member, label)}">${esc(text)}</span>`;
+
 export const avatar = (name: string, size: "s" | "m" | "l" = "m") =>
   `<span class="av av-${size}" style="--h:${hue(name)}" title="${esc(name)}">${esc(name.slice(0, 1).toUpperCase())}</span>`;
 
@@ -114,7 +136,7 @@ const STYLE = `
 @font-face{font-family:"Geist Mono";src:url(/assets/geist-mono.woff2) format("woff2");font-weight:100 900;font-display:swap}
 @font-face{font-family:"JetBrains Mono";src:url(/assets/jetbrains-mono.woff2) format("woff2");font-weight:100 800;font-display:swap}
 :root{
-  --bg:#f6f6f8;--bg-glow:rgba(124,92,255,.10);--surface:#ffffff;--surface-2:#f2f2f6;--surface-3:#e9e9ef;
+  --an-l:40%;--bg:#f6f6f8;--bg-glow:rgba(124,92,255,.10);--surface:#ffffff;--surface-2:#f2f2f6;--surface-3:#e9e9ef;
   --line:rgba(16,18,30,.08);--line-strong:rgba(16,18,30,.14);--ink:#0d0f17;--ink-2:#3b3f4f;--mute:#6b7081;
   --accent:#6a4dff;--accent-2:#1f9dff;--accent-ink:#ffffff;--accent-soft:rgba(106,77,255,.10);
   --green:#0d9f66;--green-soft:rgba(13,159,102,.12);--amber:#c27400;--amber-soft:rgba(232,150,20,.14);
@@ -125,7 +147,7 @@ const STYLE = `
   --r:14px;--r-s:10px;color-scheme:light;
 }
 @media (prefers-color-scheme:dark){:root{
-  --bg:#09090d;--bg-glow:rgba(124,92,255,.16);--surface:#111117;--surface-2:#17171f;--surface-3:#1f1f29;
+  --an-l:68%;--bg:#09090d;--bg-glow:rgba(124,92,255,.16);--surface:#111117;--surface-2:#17171f;--surface-3:#1f1f29;
   --line:rgba(255,255,255,.07);--line-strong:rgba(255,255,255,.13);--ink:#ececf3;--ink-2:#c3c4d0;--mute:#8a8c9d;
   --accent:#8b72ff;--accent-2:#35b0ff;--accent-soft:rgba(139,114,255,.14);
   --green:#3ddc97;--green-soft:rgba(61,220,151,.12);--amber:#ffb547;--amber-soft:rgba(255,181,71,.12);
@@ -238,8 +260,8 @@ label.field>input,label.field>textarea,label.field>select{width:100%}
 .msg{display:flow-root;padding:7px 18px 7px 22px;font-family:"JetBrains Mono","Geist Mono",ui-monospace,monospace;font-size:12.5px;transition:background .2s}
 .msg:hover{background:color-mix(in srgb,var(--surface-2) 60%,transparent)}
 .msg .head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;font-size:12px}
-.msg .who{font-weight:700;color:var(--accent)}.msg.mine .who{color:var(--green)}
-.msg .to{color:var(--accent);opacity:.85}.msg .chan{color:var(--mute);text-decoration:none}.msg .chan:hover{color:var(--ink-2)}
+.msg .who .person{font-weight:700;color:var(--ink)}.msg.mine .who .person{color:var(--green)}
+.msg .to{color:var(--mute)}.msg .to .an{font-weight:600}.msg .chan{color:var(--mute);text-decoration:none}.msg .chan:hover{color:var(--ink-2)}
 .msg .meta{font-size:11px;color:var(--mute);margin-left:auto;white-space:nowrap}
 .msg .body{overflow-wrap:anywhere;color:var(--ink);margin-top:3px;line-height:1.55}
 .msg .body p{margin:0 0 4px}.msg .body p:last-child{margin-bottom:0}
@@ -304,7 +326,7 @@ label.field>input,label.field>textarea,label.field>select{width:100%}
 /* Terminal style (default): a full-width CLI transcript in JetBrains Mono */
 .thread.term{gap:0;padding:14px 22px;font-family:"JetBrains Mono","Geist Mono",ui-monospace,Menlo,monospace;font-size:13.2px;line-height:1.6}
 .thread.term .bubble{max-width:none;align-self:stretch;background:none;border:0;border-radius:0;padding:8px 0 10px;color:var(--ink)}
-.thread.term .bubble::before{content:"● " attr(data-who);display:block;font-weight:700;color:var(--accent);margin-bottom:2px}
+.thread.term .bubble::before{content:"● " attr(data-who);display:block;font-weight:700;color:hsl(var(--h,250) 62% var(--an-l));margin-bottom:2px}
 .thread.term .bubble.mine{color:var(--ink);background:none}
 .thread.term .bubble.mine::before{content:"› you";color:var(--green)}
 .thread.term .bubble.mine{border-left:2px solid var(--green);padding-left:12px;margin:6px 0;background:color-mix(in srgb,var(--green) 6%,transparent)}
@@ -376,6 +398,8 @@ label.field>input,label.field>textarea,label.field>select{width:100%}
 
 /* avatars */
 .av{display:inline-grid;place-items:center;flex:none;border-radius:50%;font-weight:650;color:#fff;background:linear-gradient(135deg,hsl(var(--h) 75% 62%),hsl(calc(var(--h) + 40) 70% 48%));box-shadow:inset 0 0 0 1px rgba(255,255,255,.15)}
+.av-agent{border-radius:30%;letter-spacing:-.02em}.av-s.av-agent{font-size:9.5px}.av-m.av-agent{font-size:13px}
+.an{color:hsl(var(--h) 62% var(--an-l));font-weight:700}
 .av-s{width:22px;height:22px;font-size:11px}.av-m{width:36px;height:36px;font-size:15px}.av-l{width:44px;height:44px;font-size:18px}
 .avs{display:flex}.avs .av{box-shadow:0 0 0 2px var(--surface)}.avs .av+.av{margin-left:-6px}
 

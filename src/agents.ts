@@ -6,7 +6,7 @@ import { awayState, pendingApprovals } from "./approvals";
 import { PLUGIN_VERSION, outdated } from "./version";
 import { activeLoops, describe, parseLoops } from "./loops";
 import { type Activity, type Env, type Message, address, ago, deliveryMarks, hostNames, myProjects } from "./lib";
-import { avatar, deliveryMark, esc, hidden, icon, md, plainSpaces, time } from "./ui";
+import { agentAvatar, agentHue, agentName, avatar, deliveryMark, esc, hidden, icon, md, plainSpaces, time } from "./ui";
 
 interface Agent {
   member: string;
@@ -95,7 +95,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   const card = (a: Agent) => `<a class="acard ${agent && key(a) === key(agent) ? "on" : ""}" href="/dashboard?view=agents&agent=${encodeURIComponent(key(a))}">
       <span class="dot ${isOn(a) ? "on" : ""}" style="margin-top:6px" title="${isOn(a) ? "connected" : `last seen ${ago(a.last_seen)}`}"></span>
       <span class="grow" style="min-width:0">
-        <span class="nm">${clientBadge(a.client)}${a.member === me ? esc(a.label) : `${esc(a.member)}/${esc(a.label)}`}${stateBadge(a)}${loopBadge(a)}${a.member === me && isOn(a) && outdated(a.version) ? `<span class="badge amber" title="Runs intercom ${esc(a.version || "an old version")}; ${PLUGIN_VERSION} is available">⬆ update</span>` : ""}</span>
+        <span class="nm">${clientBadge(a.client)}${agentName(a.member, a.label, a.member === me ? a.label : `${a.member}/${a.label}`)}${stateBadge(a)}${loopBadge(a)}${a.member === me && isOn(a) && outdated(a.version) ? `<span class="badge amber" title="Runs intercom ${esc(a.version || "an old version")}; ${PLUGIN_VERSION} is available">⬆ update</span>` : ""}</span>
         <span class="sub">${a.host ? `${icon("monitor", 11)} ${esc(hostOf(a))} · ` : ""}${a.project ? `#${esc(a.project)}` : "no project"}${a.branch ? ` · ${icon("branch", 11)} ${esc(a.branch)}` : ""}${isOn(a) ? "" : ` · seen ${ago(a.last_seen)}`}</span>
         ${a.note ? `<span class="st">${esc(a.note)}</span>` : ""}
       </span></a>`;
@@ -189,9 +189,10 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
         // Agent-to-agent (or a teammate writing to your agent): who to whom, shown apart from your own conversation.
         const from = address(m.sender, m.sender_agent);
         const to = address(m.recipient!, m.recipient_agent);
-        return `<div class="bubble md relay" data-mid="${m.id}"><span class="rhd">${esc(from)} → ${esc(to)}</span>${md(m.body)}<span class="when">${time(m.created_at)}${mark}</span></div>`;
+        const named = (member: string, agentLabel: string | null, text: string) => (agentLabel ? agentName(member, agentLabel, text) : esc(text));
+        return `<div class="bubble md relay" data-mid="${m.id}"><span class="rhd">${named(m.sender, m.sender_agent, from)} → ${named(m.recipient!, m.recipient_agent, to)}</span>${md(m.body)}<span class="when">${time(m.created_at)}${mark}</span></div>`;
       }
-      return `<div class="bubble md ${fromMe ? "mine" : ""}" data-mid="${m.id}" data-who="${esc(agent.label)}">${md(m.body)}<span class="when">${time(m.created_at)}${mark}</span></div>`;
+      return `<div class="bubble md ${fromMe ? "mine" : ""}" data-mid="${m.id}" data-who="${esc(agent.label)}" style="--h:${agentHue(agent.member, agent.label)}">${md(m.body)}<span class="when">${time(m.created_at)}${mark}</span></div>`;
     });
   rows.forEach((m, i) => items.push({ at: m.created_at, html: thread0[i]! }));
   // A dashboard message handed to the agent as a prompt (the mod's prompt.submit, codex queue) is also in its
@@ -230,7 +231,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   const back = `/dashboard?view=agents&agent=${encodeURIComponent(key(agent))}`;
   const chat = `<section class="card chat">
       <div class="hd">
-        <span class="presence ${on ? "on" : ""}">${avatar(agent.label, "m")}</span>
+        <span class="presence ${on ? "on" : ""}">${agentAvatar(agent.member, agent.label, "m")}</span>
         <div class="grow" style="min-width:0">
           <h2 style="display:flex;gap:8px;align-items:center"><span class="grow" style="display:flex;gap:8px;align-items:center">${esc(key(agent))}${ownAgent ? `<button type="button" class="btn ghost xs icon renamebtn" data-open="dlg-rename" title="Rename this agent">${icon("pencil", 12)}</button>` : ""}${clientBadge(agent.client, true)}</span>
             <button type="button" class="btn ghost xs icon ttog" data-relaytoggle title="Messages between agents: click to show or hide">${icon("messages", 14)}</button>${ownAgent ? `<button type="button" class="btn ghost xs icon ttog" data-acttoggle title="Follow what the agent is doing (commands, edits, its text; only you see this): click to turn on or off"><span class="when-on">${icon("eye", 14)}</span><span class="when-off">${icon("eyeOff", 14)}</span></button>` : ""}</h2>

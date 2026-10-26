@@ -914,11 +914,11 @@ describe("delivery marks", () => {
     const view = async (as: string, path: string) => (await w.request(path, { as, cookie: true })).text();
 
     let page = await view("bob", "/dashboard?view=agents&agent=bob/alder");
-    assert.match(page, /class="bubble md relay"[^>]*><span class="rhd">bob\/core → bob\/alder<\/span>/);
-    assert.match(page, /bob\/core → bob\/alder[\s\S]*?class="dlv wait"/);
-    assert.match(page, /alice → bob\/alder/);
-    assert.match(await view("bob", "/dashboard?view=agents&agent=bob/core"), /bob\/core → bob\/ghost[\s\S]*?⚠ not connected/);
-    const DM = /→ bob\/alder<\/span><span class="meta"><time[^>]*>[^<]*<\/time>(<span class="dlv[^"]*"[^>]*>[^<]*<\/span>)/;
+    assert.match(page, /class="bubble md relay"[^>]*><span class="rhd"><span class="an"[^>]*>bob\/core<\/span> → <span class="an"[^>]*>bob\/alder<\/span><\/span>/);
+    assert.match(page, /bob\/core<\/span> → <span class="an"[^>]*>bob\/alder[\s\S]*?class="dlv wait"/);
+    assert.match(page, /alice → <span class="an"[^>]*>bob\/alder/);
+    assert.match(await view("bob", "/dashboard?view=agents&agent=bob/core"), /bob\/core<\/span> → <span class="an"[^>]*>bob\/ghost[\s\S]*?⚠ not connected/);
+    const DM = /→ <span class="an"[^>]*>bob\/alder<\/span><\/span><span class="meta"><time[^>]*>[^<]*<\/time>(<span class="dlv[^"]*"[^>]*>[^<]*<\/span>)/;
     assert.match((await view("alice", "/dashboard")).match(DM)![1]!, /dlv wait/);
 
     // alder's next turn takes both messages into its context.
@@ -1184,5 +1184,17 @@ describe("loops", () => {
     const now = Date.now();
     assert.equal(activeLoops([{ kind: "wakeup", id: "wakeup", prompt: "x", next: now - 20 * 60_000, at: now - 40 * 60_000 }], now).length, 0);
     assert.equal(activeLoops([{ kind: "cron", id: "a", prompt: "x", cron: "*/5 * * * *", recurring: true, at: now - 8 * 86400_000 }], now).length, 0);
+  });
+});
+
+describe("agent identity", () => {
+  test("initials and hue are stable by full address", async () => {
+    const { initials, agentHue } = await import("../src/ui.ts");
+    assert.equal(initials("loxodon-core"), "LC");
+    assert.equal(initials("alder"), "AL");
+    assert.equal(initials("billing-core-336f"), "BC");
+    assert.equal(initials("session-b5d3"), "SE");
+    assert.equal(agentHue("edvin", "alder"), agentHue("edvin", "alder"));
+    assert.notEqual(agentHue("edvin", "alder"), agentHue("anna", "alder"));
   });
 });

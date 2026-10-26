@@ -4,7 +4,7 @@ import { type Decision, type Handoff, OPEN_HANDOFF, findDecisions, listHandoffs 
 import { pendingApprovals } from "./approvals";
 import { openSignup, setSetting } from "./github";
 import { tools } from "./tools";
-import { GITHUB_ICON, LOGO, avatar, codeBlock, deliveryMark, esc, hidden, html, icon, md, page, redirect, time } from "./ui";
+import { GITHUB_ICON, LOGO, agentAvatar, agentName, avatar, codeBlock, deliveryMark, esc, hidden, html, icon, md, page, redirect, time } from "./ui";
 
 export const COOKIE = "intercom_token";
 
@@ -305,18 +305,19 @@ const EVENT_ICON: [RegExp, string, string][] = [
 function messageRow(m: Message, me: string, showChannel: boolean, d?: Delivery, cont = false): string {
   const dm = m.recipient !== null;
   const where = dm
-    ? `<span class="to">→ ${esc(m.recipient === me && !m.recipient_agent ? "you" : address(m.recipient!, m.recipient_agent))}</span>`
+    ? `<span class="to">→ ${m.recipient_agent ? agentName(m.recipient!, m.recipient_agent) : esc(m.recipient === me ? "you" : m.recipient!)}</span>`
     : showChannel
       ? `<a class="chan" href="/dashboard?channel=${encodeURIComponent(m.channel)}">#${esc(m.channel)}</a>`
       : "";
   if (m.kind === "event" && !dm) {
     const [, ic, cls] = EVENT_ICON.find(([re]) => re.test(m.body)) ?? [null, "radio", ""];
     return `<div class="event ${cls}" data-day="${m.created_at}" data-mid="${m.id}"><span class="ico">${icon(ic as string, 12)}</span>
-      <span class="txt"><b>${esc(address(m.sender, m.sender_agent))}</b> ${esc(m.body.replace(/\s*Ask your user and vote with the vote tool\.?$/, ""))} ${where}</span>${time(m.created_at)}</div>`;
+      <span class="txt">${m.sender_agent ? agentName(m.sender, m.sender_agent) : `<b>${esc(m.sender)}</b>`} ${esc(m.body.replace(/\s*Ask your user and vote with the vote tool\.?$/, ""))} ${where}</span>${time(m.created_at)}</div>`;
   }
-  const who = m.sender === me && !m.sender_agent ? "you" : address(m.sender, m.sender_agent);
+  // Agents in their own colour; people (typing in the dashboard) plain.
+  const who = m.sender_agent ? agentName(m.sender, m.sender_agent) : `<span class="person">${esc(m.sender === me ? "you" : m.sender)}</span>`;
   return `<div class="msg${dm ? " dm" : ""}${m.sender === me ? " mine" : ""}${cont ? " cont" : ""}" data-day="${m.created_at}" data-mid="${m.id}">
-    <div class="head"><span class="who">${esc(who)}</span>${where}<span class="meta">${time(m.created_at)}${deliveryMark(d)}</span></div>
+    <div class="head"><span class="who">${who}</span>${where}<span class="meta">${time(m.created_at)}${deliveryMark(d)}</span></div>
     <div class="body md">${md(m.body)}</div>
   </div>`;
 }
@@ -348,7 +349,7 @@ function lockCard(l: Lock, me: string, back: string): string {
   const mine = l.holder === me;
   return `<div class="lockc ${mine ? "mine" : ""}">
     <div class="res">${icon("lock", 15)} ${esc(l.resource)}</div>
-    <div class="row small muted" style="margin-top:6px">${avatar(l.holder, "s")} <span>${mine ? `<b>You</b>${l.holder_agent ? ` <span class="mono">/${esc(l.holder_agent)}</span>` : ""}` : `<b style="color:var(--ink-2)">${esc(address(l.holder, l.holder_agent ?? null))}</b>`} · since ${time(l.created_at)}</span><span class="grow"></span><span data-until="${l.expires_at}"></span></div>
+    <div class="row small muted" style="margin-top:6px">${l.holder_agent ? agentAvatar(l.holder, l.holder_agent, "s") : avatar(l.holder, "s")} <span>${mine ? `<b>You</b>${l.holder_agent ? ` <span class="mono">/${esc(l.holder_agent)}</span>` : ""}` : `<b style="color:var(--ink-2)">${esc(address(l.holder, l.holder_agent ?? null))}</b>`} · since ${time(l.created_at)}</span><span class="grow"></span><span data-until="${l.expires_at}"></span></div>
     ${l.reason ? `<div style="margin-top:6px;font-size:13.5px">${esc(l.reason)}</div>` : ""}
     <div class="prog"><span data-from="${l.created_at}" data-to="${l.expires_at}"></span></div>
     <form method="post" action="/action/release" class="row" ${mine ? "" : `data-confirm="Break ${esc(l.holder)}'s lock on ${esc(l.resource)}? They'll be notified."`}>${hidden({ resource: l.resource, back, ...(mine ? {} : { force: "on" }) })}
