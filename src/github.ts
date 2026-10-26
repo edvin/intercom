@@ -24,8 +24,17 @@ export async function setSetting(env: Env, key: string, value: string): Promise<
 export const githubConfig = (env: Env): GitHubConfig | null => env.github ?? null;
 
 /** Anyone may create an account with GitHub. On by default once GitHub is configured; admins can turn it off. */
+/** Anyone with GitHub may create an account: only when an admin turned it on. The default is invite-only. */
 export async function openSignup(env: Env): Promise<boolean> {
-  return !!env.github && (await getSetting(env, "open_signup")) !== "0";
+  return !!env.github && (await getSetting(env, "open_signup")) === "1";
+}
+
+/**
+ * Invite-only (the default): only admins bring people in, whether to the intercom or to a project: invite links,
+ * adding by handle, approving join requests. Self-joining through GitHub repo access is off.
+ */
+export async function adminsInvite(env: Env): Promise<boolean> {
+  return (await getSetting(env, "open_signup")) !== "1";
 }
 
 /** Sign-in asks for no scopes (public profile only). Checking access to a private repo needs "repo"; asked only on request. */
@@ -68,4 +77,18 @@ export function githubRepo(raw: string | null | undefined): string | null {
   const s = String(raw ?? "").trim().replace(/\.git$/, "").replace(/^(https?:\/\/|git@|ssh:\/\/git@)?github\.com[/:]/i, "");
   const m = s.match(/^([A-Za-z0-9-]{1,39})\/([A-Za-z0-9._-]{1,100})$/);
   return m ? `${m[1]}/${m[2]}`.toLowerCase() : null;
+}
+
+/**
+ * An invite link that can still be used: unexpired, uses left, and (while invite-only) made by an admin. Links
+ * project owners made before invite-only stop working.
+ */
+export async function usableInvite<T = Record<string, unknown>>(env: Env, code: string): Promise<T | null> {
+  const adminsOnly = await adminsInvite(env);
+  return env.DB.prepare(
+    `SELECT i.* FROM invites i WHERE i.code = ?1 AND i.uses_left > 0 AND i.expires_at > ?2
+       AND (?3 = 0 OR EXISTS (SELECT 1 FROM members m WHERE m.name = i.created_by AND m.is_admin = 1))`,
+  )
+    .bind(code, Date.now(), adminsOnly ? 1 : 0)
+    .first<T>();
 }

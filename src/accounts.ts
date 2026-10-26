@@ -1,7 +1,7 @@
 // Sign-in with GitHub, open registration, browser-approved setup ("device" flow), and finding projects
 // without an invite: by GitHub repo access, or by asking a project's owners.
 
-import { authorizeUrl, exchangeCode, githubConfig, githubRepo, githubUser, openSignup, pushAccess } from "./github";
+import { adminsInvite, authorizeUrl, exchangeCode, githubConfig, githubRepo, githubUser, openSignup, pushAccess, usableInvite } from "./github";
 import { type Env, freeHandle, issueToken, limit, myProjects, newToken, normChannel, postMessage, rateLimit, sha256, authenticate } from "./lib";
 import { GITHUB_ICON, LOGO, avatar, codeBlock, esc, hidden, html, icon, page, redirect } from "./ui";
 import { loginPage, safeNext, sameOrigin, sessionCookie } from "./web";
@@ -112,8 +112,8 @@ export async function githubCallback(req: Request, env: Env, url: URL): Promise<
     const err = await link(me);
     return redirect(`${next || "/dashboard"}${(next || "/dashboard").includes("?") ? "&" : "?"}${err ? "err" : "ok"}=${encodeURIComponent(err ?? `Connected GitHub (@${gh.login})`)}`, clear);
   }
-  const invited = next.startsWith("/join/") && !!(await env.DB.prepare("SELECT 1 FROM invites WHERE code = ? AND uses_left > 0 AND expires_at > ?").bind(next.slice(6), Date.now()).first());
-  if (!invited && !(await openSignup(env))) return loginPage("Accounts on this instance are invite-only. Open the invite link you were sent and continue with GitHub from there.", next, true);
+  const invited = next.startsWith("/join/") && !!(await usableInvite(env, next.slice(6)));
+  if (!invited && !(await openSignup(env))) return loginPage("This intercom is invite-only. Open the invite link an admin sent you and continue with GitHub from there.", next, true);
   if (!(await rateLimit(env, `signup:ip:${env.ip ?? "?"}`, 5, 60 * MIN)) || !(await rateLimit(env, "signup:all", 200, 24 * 60 * MIN))) {
     return loginPage("Too many new accounts right now. Try again later.", next, true);
   }
@@ -145,6 +145,10 @@ export async function githubCreate(req: Request, env: Env): Promise<Response> {
   const { id, login, next } = JSON.parse(row.data) as { id: number; login: string; next: string };
   const taken = await env.DB.prepare("SELECT name FROM members WHERE github_id = ?").bind(id).first<{ name: string }>();
   if (taken) return signedIn(env, taken.name, next || "/dashboard", {});
+  // Checked again at creation: the invite may have been used up meanwhile.
+  if (!(await openSignup(env)) && !(next.startsWith("/join/") && (await usableInvite(env, next.slice(6))))) {
+    return loginPage("This intercom is invite-only. Open the invite link an admin sent you and continue with GitHub from there.", next, true);
+  }
   const name = await freeHandle(env, login);
   await env.DB.prepare("INSERT INTO members (name, token_hash, created_at, org, github_id, github_login) VALUES (?, ?, ?, '', ?, ?)")
     .bind(name, await sha256(newToken()), Date.now(), id, login)
@@ -229,7 +233,21 @@ export async function connectPage(req: Request, env: Env, me: string, url: URL):
 // ---------- discovery: join by repo access, or ask to join ----------
 
 /** GET /discover: find projects to join without an invite link. */
+/** /discover while invite-only: joining is through admins. */
+async function inviteOnlyPage(env: Env): Promise<Response> {
+  const { results: admins } = await env.DB.prepare("SELECT name FROM members WHERE is_admin = 1 ORDER BY name").all<{ name: string }>();
+  return html(
+    page(
+      "Intercom · find projects",
+      `<main class="solo"><div class="card"><div class="bd stack" style="padding:32px"><div>${LOGO}</div><h1 class="headline">Invite-only</h1>
+       <p class="muted">On this intercom, admins add people to projects${admins.length ? `: ask ${admins.map((a) => `<b>${esc(a.name)}</b>`).join(" or ")}` : ""}. Once they've added you, the project shows up on your dashboard.</p>
+       <a class="btn" href="/dashboard">Back to the dashboard</a></div></div></main>`,
+    ),
+  );
+}
+
 export async function discoverPage(env: Env, me: string, url: URL): Promise<Response> {
+  if (await adminsInvite(env)) return inviteOnlyPage(env);
   const repo = githubRepo(url.searchParams.get("repo"));
   const err = url.searchParams.get("err");
   const ok = url.searchParams.get("ok");
@@ -285,6 +303,7 @@ export async function discoverPage(env: Env, me: string, url: URL): Promise<Resp
 /** POST /discover/join: join a project linked to a repo you've just proven push access to. */
 export async function discoverJoin(req: Request, env: Env, me: string): Promise<Response> {
   if (!sameOrigin(req)) return new Response("Cross-origin request refused", { status: 403 });
+  if (await adminsInvite(env)) return redirect(`/discover`);
   const form = await req.formData();
   const project = normChannel(form.get("project"), "");
   const repo = githubRepo(String(form.get("repo") ?? ""));
@@ -304,6 +323,7 @@ export async function discoverJoin(req: Request, env: Env, me: string): Promise<
 /** POST /discover/request: ask a discoverable project's owners to let you in. */
 export async function discoverRequest(req: Request, env: Env, me: string): Promise<Response> {
   if (!sameOrigin(req)) return new Response("Cross-origin request refused", { status: 403 });
+  if (await adminsInvite(env)) return redirect(`/discover`);
   const form = await req.formData();
   const project = normChannel(form.get("project"), "");
   const note = String(form.get("note") ?? "").trim().slice(0, 200);

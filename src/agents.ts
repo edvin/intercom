@@ -172,7 +172,14 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   const ACT_ICON: Record<string, string> = { cmd: "$", edit: "✎", read: "·", tool: "⚙", text: "●", prompt: "›", loop: "↻" };
   const actRow = (a: Activity) =>
     `<div class="act act-${a.kind}" data-mid="a${a.id}"><span class="aic">${ACT_ICON[a.kind] ?? "·"}</span><span class="atx">${
-      a.kind === "text" ? md(a.text) : a.kind === "prompt" ? `<span class="muted">typed in the terminal:</span> ${esc(plainSpaces(a.text))}` : esc(plainSpaces(a.text))
+      a.kind === "text"
+        ? md(a.text)
+        : a.kind === "prompt"
+          ? `<span class="muted">typed in the terminal:</span> ${esc(plainSpaces(a.text))}`
+          : a.kind === "cmd" && a.text.includes("\n")
+            ? // "what it's doing" (the agent's description), then the command, dimmer
+              `<span class="adesc">${esc(plainSpaces(a.text.split("\n")[0]!))}</span><span class="acmd">${esc(plainSpaces(a.text.split("\n").slice(1).join(" ")))}</span>`
+            : esc(plainSpaces(a.text))
     }</span><span class="when">${time(a.at)}</span></div>`;
   type Item = { at: number; html: string; act?: Activity };
   const items: Item[] = [];

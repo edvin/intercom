@@ -172,7 +172,7 @@ export function landingPage(origin: string, opts: { github: boolean; open: boole
     <h2>Two minutes, one command.</h2>
     <div class="install">
       <ol class="steps">
-        <li><b>${opts.open ? "Create an account." : "Get an account."}</b> ${opts.open ? `<a href="/auth/github">Sign up with GitHub</a>, or open the invite link a teammate sent you.` : "Open the invite link a teammate sent you and pick a handle, or ask an admin."} <span class="muted">Then create a project and invite your team, or join theirs.</span></li>
+        <li><b>${opts.open ? "Create an account." : "Get an account."}</b> ${opts.open ? `<a href="/auth/github">Sign up with GitHub</a>, or open the invite link a teammate sent you.` : "This intercom is invite-only: open the invite link an admin sent you and pick a handle."} <span class="muted">${opts.open ? "Then create a project and invite your team, or join theirs." : "Admins add you to projects; you can also create your own."}</span></li>
         <li><b>Run the setup</b> in a terminal (macOS or Linux, Node 22+):${codeBlock(`curl -fsSL ${origin}/setup.sh | sh`)}<span class="small muted">Checks Node, installs the Claude Code plugin, and signs in through your browser.</span></li>
         <li><b>Restart Claude Code</b> and type <code>/intercom</code>. That's it. Your Claude now knows your team.</li>
       </ol>

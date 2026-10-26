@@ -3,7 +3,7 @@ import { agentsView } from "./agents";
 import { linkImages, marker, storeImages } from "./attachments";
 import { type Decision, type Handoff, OPEN_HANDOFF, findDecisions, listHandoffs } from "./records";
 import { pendingApprovals } from "./approvals";
-import { openSignup, setSetting } from "./github";
+import { adminsInvite, openSignup, setSetting, usableInvite } from "./github";
 import { tools } from "./tools";
 import { GITHUB_ICON, LOGO, agentAvatar, agentName, avatar, codeBlock, deliveryMark, esc, hidden, html, icon, md, page, redirect, time } from "./ui";
 
@@ -91,10 +91,10 @@ function soloCard(title: string, body: string, wide = false): string {
 
 /** /join/<code>: existing accounts join the project; new people pick a handle and get an account. */
 export async function handleJoin(req: Request, env: Env, code: string): Promise<Response> {
-  const inv = await env.DB.prepare("SELECT * FROM invites WHERE code = ? AND uses_left > 0 AND expires_at > ?").bind(code, Date.now()).first<Invite>();
+  const inv = await usableInvite<Invite>(env, code);
   const fail = (msg: string, status: number) =>
     html(soloCard("invite", `<div>${LOGO}</div><h1 class="headline">Hmm.</h1><p class="muted">${msg}</p><a class="btn" href="/docs">What is Intercom?</a>`), status);
-  if (!inv) return fail("This invite link is invalid, used up, or expired. Ask whoever sent it for a new one.", 404);
+  if (!inv) return fail("This invite link is invalid, used up, or expired. Ask an admin for a new one.", 404);
   const me = await authenticate(req, env);
 
   if (req.method === "POST") {
@@ -114,18 +114,22 @@ export async function handleJoin(req: Request, env: Env, code: string): Promise<
     }
     const claimed = await env.DB.prepare("UPDATE invites SET uses_left = uses_left - 1 WHERE code = ? AND uses_left > 0 AND expires_at > ?").bind(code, Date.now()).run();
     if (!claimed.meta.changes) return fail("This invite was just used up.", 410);
-    await env.DB.prepare("INSERT INTO project_members (project, member, role, added_by, created_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(project, member) DO NOTHING")
-      .bind(inv.project, name, inv.role, inv.created_by, Date.now())
-      .run();
-    await postMessage(env, { channel: inv.project, sender: name, kind: "event", body: `joined #${inv.project} (invited by ${inv.created_by})` });
-    if (!token) return redirect(`/dashboard?channel=${encodeURIComponent(inv.project)}&ok=${encodeURIComponent(`You joined #${inv.project}`)}`);
+    // An invite to the intercom only (an admin's, no project) just creates the account.
+    if (inv.project) {
+      await env.DB.prepare("INSERT INTO project_members (project, member, role, added_by, created_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(project, member) DO NOTHING")
+        .bind(inv.project, name, inv.role, inv.created_by, Date.now())
+        .run();
+      await postMessage(env, { channel: inv.project, sender: name, kind: "event", body: `joined #${inv.project} (invited by ${inv.created_by})` });
+    }
+    const home = inv.project ? `/dashboard?channel=${encodeURIComponent(inv.project)}` : "/dashboard";
+    if (!token) return redirect(`${home}&ok=${encodeURIComponent(inv.project ? `You joined #${inv.project}` : "You're already on the intercom")}`.replace("/dashboard&", "/dashboard?"));
     return html(
       soloCard(
         "welcome",
-        `<div class="row">${avatar(name, "l")}<div><h1 class="headline">Welcome, ${esc(name)}</h1><p class="muted" style="margin:0">You've joined <b>#${esc(inv.project)}</b>.</p></div></div>
+        `<div class="row">${avatar(name, "l")}<div><h1 class="headline">Welcome, ${esc(name)}</h1><p class="muted" style="margin:0">${inv.project ? `You've joined <b>#${esc(inv.project)}</b>.` : "Your account is ready."}</p></div></div>
         ${setupSteps(new URL(req.url).origin, token)}
         <div><h3>Your token</h3><p class="small muted">The setup stores it for you. Lost it later? This browser stays signed in, and <a href="/account">Account</a> can issue a new one.</p>${codeBlock(token)}</div>
-        <div class="row"><a class="btn primary" href="/dashboard?channel=${encodeURIComponent(inv.project)}">Open the dashboard ${icon("arrow")}</a><a class="btn ghost" href="/docs">How it works</a></div>`,
+        <div class="row"><a class="btn primary" href="${home}">Open the dashboard ${icon("arrow")}</a><a class="btn ghost" href="/docs">How it works</a></div>`,
         true,
       ),
       200,
@@ -135,8 +139,9 @@ export async function handleJoin(req: Request, env: Env, code: string): Promise<
 
   const intro = `<div>${LOGO}</div>
     <div><p class="small muted" style="margin:0">${icon("userPlus", 14)} Invitation</p>
-    <h1 class="headline">Join #${esc(inv.project)}</h1>
+    <h1 class="headline">${inv.project ? `Join #${esc(inv.project)}` : "Join Intercom"}</h1>
     <p class="muted"><b>${esc(inv.created_by)}</b> invited you${inv.role === "owner" ? " as an <b>owner</b>" : ""}. Intercom lets your Claude Code sessions coordinate with theirs: messages, deploy locks, votes and shared rules.</p></div>`;
+  if (me && !inv.project) return redirect("/dashboard"); // an intercom invite, and you already have an account
   if (me) {
     return html(soloCard("join", `${intro}<form method="post" data-native><button class="btn primary" style="width:100%;height:40px">Join as ${esc(me)} ${icon("arrow")}</button></form>`));
   }
@@ -376,7 +381,7 @@ interface JoinRequest {
   github_login: string | null;
 }
 
-function projectPanel(p: Project & { github_repos: string; discoverable: number }, members: PM[], me: string, owner: boolean, muted: boolean, back: string, requests: JoinRequest[]): string {
+function projectPanel(p: Project & { github_repos: string; discoverable: number }, members: PM[], me: string, owner: boolean, muted: boolean, back: string, requests: JoinRequest[], canInvite = owner): string {
   const ms = members.filter((m) => m.project === p.name);
   const repos = JSON.parse(p.repos) as string[];
   const ghRepos = JSON.parse(p.github_repos) as string[];
@@ -405,7 +410,7 @@ function projectPanel(p: Project & { github_repos: string; discoverable: number 
     .join("");
   return `<section class="card" id="project" data-region>
     <div class="hd"><h2>${icon("hash", 16)}${esc(p.name)}</h2><div class="act">
-      ${owner ? `<button class="btn sm" data-open="dlg-invite">${icon("userPlus", 14)}Invite</button><button class="btn ghost icon sm" data-open="dlg-edit" title="Edit project">${icon("sliders", 15)}</button>` : ""}
+      ${owner ? `${canInvite ? `<button class="btn sm" data-open="dlg-invite">${icon("userPlus", 14)}Invite</button>` : ""}<button class="btn ghost icon sm" data-open="dlg-edit" title="Edit project">${icon("sliders", 15)}</button>` : ""}
     </div></div>
     <div class="bd stack">
       ${p.description ? `<p style="margin:0">${esc(p.description)}</p>` : owner ? `<p class="muted small" style="margin:0">No description yet.</p>` : ""}
@@ -648,8 +653,9 @@ export async function dashboard(url: URL, env: Env, me: string, cookie = ""): Pr
       ${openVoted.length ? `<div class="hero" style="padding-bottom:4px">Open · you've voted</div>${openVoted.map((p) => proposalCard(p, votesFor(p.id), me, back, ownerOf(p.channel))).join("")}` : ""}
       ${decided.length ? decided.map((p) => proposalCard(p, votesFor(p.id), me, back, ownerOf(p.channel))).join("") : openVoted.length ? "" : `<div class="empty">${icon("vote", 26)}<div class="small">No decisions yet. Ask the project, e.g. "Hold deploys until the migration is done?"</div></div>`}
     </section>`;
+  const adminsOnly = await adminsInvite(env);
   const project = channel ? (projRes.results.find((p) => p.name === channel) as (Project & { github_repos: string; discoverable: number }) | undefined) : undefined;
-  const projectBox = project ? projectPanel(project, pmRes.results, me, ownerOf(project.name), mutedProjects.has(project.name), back, requests) : "";
+  const projectBox = project ? projectPanel(project, pmRes.results, me, ownerOf(project.name), mutedProjects.has(project.name), back, requests, admin || (ownerOf(project.name) && !adminsOnly)) : "";
 
   const dialogs = `
   <dialog id="dlg-create"><div class="hd">${icon("plus", 18)}<h2>New project</h2></div>
@@ -820,6 +826,7 @@ export function docsPage(origin: string): Response {
       <section>
         <h2>Projects, members and invites</h2>
         <ul>
+          <li><b>Invite-only by default.</b> Only admins bring people in: they create invite links (to a project, or just an account) and add people to projects, from the Admin page or the <code>invite</code> tool. An admin can open the instance up under <i>Admin → Who can join</i>; then anyone with GitHub can sign up, and the owner invites, join requests and repo access below apply.</li>
           <li><b>Projects are private.</b> Only members see a project's messages, locks, votes, rules and who's working on it. You can only DM people you share a project with.</li>
           <li><b>Creating a project makes you its owner.</b> Owners edit the description, repos and rules, add people by handle or with an <b>invite link</b> (works for people at other companies; single use and valid for 3 days unless you choose otherwise), and remove members. Anyone can leave.</li>
           <li><b>Repos → projects:</b> when you start Claude in a git repo, Intercom finds which of <i>your</i> projects lists that repo. Its rules are shown to your agent and the session joins its channel. If your clone isn't linked yet, Claude offers to link it (any member can: “link this repo to billing”).</li>
@@ -1127,14 +1134,22 @@ async function adminSection(env: Env, me: string): Promise<string> {
     )
     .join("");
   const open = await openSignup(env);
-  const signup = `<section class="card"><div class="hd"><h2>${GITHUB_ICON}Registration</h2></div><div class="bd stack">
-    ${
-      env.github
-        ? `<form method="post" action="/admin-action/signup" class="row">
-            <label class="check grow"><input type="checkbox" name="open" ${open ? "checked" : ""}> Anyone can create an account with GitHub</label><button class="btn sm">${icon("check", 14)}Save</button></form>
-           <p class="small muted" style="margin:0">${open ? "Open: new people sign up from the landing page. New accounts can't see or message anyone until they're in a shared project." : "Invite-only: people need an invite link (they can still use GitHub to create the account from it)."} Limits: 5 sign-ups per IP per hour, 200 per day.</p>`
-        : `<p class="small muted" style="margin:0">GitHub sign-in isn't configured. Set <code>GITHUB_CLIENT_ID</code> and the <code>GITHUB_CLIENT_SECRET</code> secret on the Worker.</p>`
-    }</div></section>`;
+  const { results: allProjects } = await env.DB.prepare("SELECT name FROM projects ORDER BY name").all<{ name: string }>();
+  const signup = `<section class="card"><div class="hd"><h2>${icon("userPlus", 16)}Who can join</h2></div><div class="bd stack">
+    <form method="post" action="/admin-action/signup" class="stack">
+      <label class="check"><input type="radio" name="open" value="" ${open ? "" : "checked"}> <span><b>Only people an admin invites</b> <span class="small muted">(default). Admins create every invite link and add people to projects; project owners can't, join requests and GitHub repo access are off.</span></span></label>
+      <label class="check"><input type="radio" name="open" value="on" ${open ? "checked" : ""} ${env.github ? "" : "disabled"}> <span><b>Anyone with GitHub</b> <span class="small muted">can create an account; project owners invite and approve people themselves.${env.github ? "" : " (Needs GitHub sign-in configured.)"}</span></span></label>
+      <div class="row"><span class="grow small muted">Limits: 5 sign-ups per IP per hour, 200 per day.</span><button class="btn sm">${icon("check", 14)}Save</button></div>
+    </form></div></section>
+    <section class="card"><div class="hd"><h2>${icon("link", 16)}Invite someone</h2></div>
+    <form method="post" action="/action/invite" class="bd stack">${hidden({ back: "/dashboard?view=admin" })}
+      <div class="row">
+        <label class="field grow">To<select name="project"><option value="">The intercom only (an account, no project)</option>${allProjects.map((p) => `<option value="${esc(p.name)}">#${esc(p.name)}</option>`).join("")}</select></label>
+        <label class="field">Uses<input name="uses" type="number" min="1" max="100" value="1" style="width:80px"></label>
+        <label class="field">Expires<select name="expires_in_hours"><option value="24">in 1 day</option><option value="72" selected>in 3 days</option><option value="168">in a week</option><option value="720">in 30 days</option></select></label>
+      </div>
+      <div class="row"><span class="grow small muted">They pick a handle (or use GitHub) from the link. Share it privately.</span><button class="btn primary sm">${icon("link", 14)}Create link</button></div>
+    </form></section>`;
   return `${signup}<section class="card" id="admin" data-region>
     <div class="hd"><h2>${icon("shield", 16)}Accounts</h2><span class="badge">${results.length}</span></div>
     <div class="bd">

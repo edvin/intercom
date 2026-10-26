@@ -260,7 +260,7 @@ describe("visibility", () => {
     // carol shares no project with bob: she can't even see him.
     assert.doesNotMatch(await w.ok("carol", "team"), /bob/);
     // A project alice isn't in stays hidden from her, even though she shares #billing with bob.
-    await w.ok("carol", "invite", { project: "shop", name: "bob" });
+    await w.ok("alice", "invite", { project: "shop", name: "bob" });
     await w.request("/api/hook?event=SessionStart&project=shop&session=bbbb2222&branch=secret-shop-branch", { as: "bob" });
     const later = await w.ok("alice", "team");
     assert.doesNotMatch(later, /secret-shop-branch/);
@@ -352,6 +352,7 @@ describe("GitHub", () => {
   test("sign-up with GitHub creates one account; signing in again reuses it", async () => {
     const w = await standardWorld();
     w.github = { client_id: "id", client_secret: "secret" };
+    await w.db.prepare("INSERT INTO settings (key, value) VALUES ('open_signup', '1')").run(); // anyone with GitHub
     stubGitHub({ id: 42, login: "Dominic.X" });
     try {
       const ask = await oauth(w, "");
@@ -394,6 +395,7 @@ describe("GitHub", () => {
 
   test("push access to a linked repo lets you join; others are refused", async () => {
     const w = await standardWorld();
+    await w.db.prepare("INSERT INTO settings (key, value) VALUES ('open_signup', '1')").run(); // open mode: owners and repo access let people in
     w.github = { client_id: "id", client_secret: "secret" };
     await w.ok("alice", "configure_project", { name: "billing", github_repos: ["acme/billing-api"] });
     const carol = `intercom_token=${w.tokens.carol}`;
@@ -455,6 +457,7 @@ describe("GitHub", () => {
 describe("join requests", () => {
   test("discoverable projects accept requests; private ones give the same answer", async () => {
     const w = await standardWorld();
+    await w.db.prepare("INSERT INTO settings (key, value) VALUES ('open_signup', '1')").run(); // open mode: owners and repo access let people in
     await w.ok("alice", "configure_project", { name: "billing", discoverable: true });
     const asked = await w.form("/discover/request", "carol", { project: "billing", note: "carol from globex" });
     const hidden_ = await w.form("/discover/request", "carol", { project: "shop-secret" });
@@ -571,7 +574,7 @@ describe("agent crews", () => {
     assert.match(await w.ok("alice", "team"), /bob\/alder \[Codex\]: .*“reviews migrations”/);
     // Claude Code sessions in billing and Codex elsewhere have crews of their own.
     assert.match(await start(w, "k1", "claude"), /^billing-/);
-    await w.ok("carol", "invite", { project: "shop", name: "bob" });
+    await w.ok("alice", "invite", { project: "shop", name: "bob" });
     assert.match(await start(w, "c6", "codex", "shop"), /^shop-/);
     // A resumed session keeps its name.
     assert.equal(await start(w, "c4", "codex"), "birch");
@@ -890,7 +893,7 @@ describe("plugin versions", () => {
 describe("locks per project", () => {
   test("a session sees its own project's locks; others only as a count", async () => {
     const w = await standardWorld();
-    await w.ok("carol", "invite", { project: "shop", name: "bob" });
+    await w.ok("alice", "invite", { project: "shop", name: "bob" });
     await w.ok("carol", "claim", { resource: "deploy:shop:prod", reason: "shop release" });
     await w.ok("alice", "claim", { resource: "deploy:billing:prod" });
     const ctx = ((await (await w.request("/api/hook?event=SessionStart&project=billing-api&session=lp1", { as: "bob" })).json()) as {
@@ -1057,6 +1060,8 @@ describe("folded tool steps", () => {
           { at: t + 3, kind: "tool", text: "ToolSearch" },
           { at: t + 4, kind: "text", text: "All green; now the docs." },
           { at: t + 5, kind: "edit", text: "src/web.ts" },
+          { at: t + 6, kind: "text", text: "Deploying now." },
+          { at: t + 7, kind: "cmd", text: "Deploy, commit, wait until live\nnpx wrangler deploy && git push" },
         ],
       }),
     });
@@ -1064,13 +1069,14 @@ describe("folded tool steps", () => {
     assert.match(page, /<details class="actgroup" data-gid="g\d+"><summary>.*Ran 2 commands, read 1 file, 1 tool call<span class="alast"> · ToolSearch/);
     assert.match(page, /<\/details><div class="act act-text"[^>]*>.*All green/);
     assert.match(page, /All green[\s\S]*<div class="act act-edit"/); // one step alone isn't folded
+    assert.match(page, /<span class="adesc">Deploy, commit, wait until live<\/span><span class="acmd">npx wrangler deploy &amp;&amp; git push<\/span>/);
   });
 });
 
 describe("per-session delivery", () => {
   test("a session gets its own project's posts and its DMs, not other projects' chatter", async () => {
     const w = await standardWorld();
-    await w.ok("carol", "invite", { project: "shop", name: "bob" });
+    await w.ok("alice", "invite", { project: "shop", name: "bob" });
     const hook = async (event: string, sid: string, repo: string) => {
       const t = await (await w.request(`/api/hook?event=${event}&project=${repo}&session=${sid}`, { as: "bob" })).text();
       return t.startsWith("{") ? ((JSON.parse(t) as { hookSpecificOutput?: { additionalContext?: string } }).hookSpecificOutput?.additionalContext ?? t) : t;
@@ -1100,7 +1106,7 @@ describe("per-session delivery", () => {
 describe("status line", () => {
   test("per session: its name, unread, and only its project's locks", async () => {
     const w = await standardWorld();
-    await w.ok("carol", "invite", { project: "shop", name: "bob" });
+    await w.ok("alice", "invite", { project: "shop", name: "bob" });
     await w.request("/api/hook?event=SessionStart&project=billing-api&session=sl1&name=alder", { as: "bob" });
     await w.ok("alice", "claim", { resource: "deploy:billing:prod" });
     await w.ok("carol", "claim", { resource: "deploy:shop:prod" });
@@ -1243,5 +1249,37 @@ describe("images with messages", () => {
     bad.append("image", new File(["<svg/>"], "x.svg", { type: "image/svg+xml" }));
     const r2 = await w.request("/action/post", { method: "POST", as: "alice", cookie: true, headers: { origin: ORIGIN }, body: bad, redirect: "manual" });
     assert.match(new URL(r2.headers.get("location")!, ORIGIN).searchParams.get("err")!, /x\.svg isn't an image/);
+  });
+});
+
+
+describe("invite-only (the default)", () => {
+  test("only admins invite; owners' old links stop working; admin links create accounts, with or without a project", async () => {
+    const w = await standardWorld(); // alice is admin, carol owns #shop
+    // A link carol made while owners could still invite.
+    await w.db.prepare("INSERT INTO settings (key, value) VALUES ('open_signup', '1')").run();
+    const ownerCode = (await w.ok("carol", "invite", { project: "shop" })).match(/\/join\/([0-9a-f]+)/)![1];
+    await w.db.prepare("DELETE FROM settings WHERE key = 'open_signup'").run(); // back to the default
+
+    assert.match((await w.tool("carol", "invite", { project: "shop" })).text, /invite-only: only admins invite people \(alice\)/);
+    assert.match((await w.tool("carol", "invite", { project: "shop", name: "bob" })).text, /invite-only/);
+    assert.equal((await w.request(`/join/${ownerCode}`)).status, 404);
+
+    // alice invites into a project she isn't in, and to the intercom only.
+    const shopCode = (await w.ok("alice", "invite", { project: "shop" })).match(/\/join\/([0-9a-f]+)/)![1];
+    const plain = await w.ok("alice", "invite", {});
+    assert.match(plain, /Invite link for the intercom \(an account, no project/);
+    const plainCode = plain.match(/\/join\/([0-9a-f]+)/)![1];
+
+    const join = (code: string, handle: string) =>
+      w.request(`/join/${code}`, { method: "POST", headers: { origin: ORIGIN }, body: new URLSearchParams({ handle }), redirect: "manual" });
+    assert.equal((await join(shopCode, "dana")).status, 200);
+    assert.ok(await w.db.prepare("SELECT 1 FROM project_members WHERE project = 'shop' AND member = 'dana'").first());
+    assert.equal((await join(plainCode, "eve")).status, 200);
+    assert.ok(await w.db.prepare("SELECT 1 FROM members WHERE name = 'eve'").first());
+    assert.equal((await w.db.prepare("SELECT COUNT(*) AS n FROM project_members WHERE member = 'eve'").first<{ n: number }>())!.n, 0);
+
+    // Discover is closed: no join requests, no repo-access joins.
+    assert.match(await (await w.request("/discover", { as: "carol", cookie: true })).text(), /Invite-only/);
   });
 });

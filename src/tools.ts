@@ -1,7 +1,7 @@
 import { setAway } from "./approvals";
 import { RETENTION_DAYS as ATTACHMENT_DAYS, getAttachment, readImage, toBase64 } from "./attachments";
 import { HANDOFF_STATES, OPEN_HANDOFF, VERDICTS, createHandoff, crewRoles, findDecisions, fmtCrew, fmtDecision, fmtHandoff, listHandoffs, logDecision, updateHandoff } from "./records";
-import { githubRepo } from "./github";
+import { adminsInvite, githubRepo } from "./github";
 import {
   type Env,
   type Lock,
@@ -651,23 +651,38 @@ export const tools: Tool[] = [
   {
     name: "invite",
     description:
-      "As a project owner: add someone who already has an intercom account (by handle), or create an invite link for anyone — including people from other companies, who pick a handle and get an account when they open it.",
+      "Admins (and, if the instance allows it, project owners): add someone who already has an intercom account (by handle), or create an invite link for anyone — including people from other companies, who pick a handle and get an account when they open it.",
     inputSchema: {
       type: "object",
       properties: {
-        project: { type: "string" },
+        project: { type: "string", description: "The project. Admins may omit it for an invite to the intercom only (an account, no project)." },
         name: { type: "string", description: "Handle of an existing account to add directly. Omit to create an invite link." },
         role: { type: "string", enum: ["member", "owner"], description: "Default member." },
         uses: { type: "number", description: "Invite link: how many people can use it (default 1)." },
         expires_in_hours: { type: "number", description: "Invite link lifetime (default 72)." },
       },
-      required: ["project"],
     },
     async run(env, me, a) {
-      const project = await requireProject(env, me, a.project);
-      await requireOwner(env, me, project);
+      // Invite-only (the default): admins bring people in, to any project or just to the intercom.
+      const admin = await isAdmin(env, me);
+      const adminsOnly = await adminsInvite(env);
+      if (adminsOnly && !admin) {
+        const { results: admins } = await env.DB.prepare("SELECT name FROM members WHERE is_admin = 1 ORDER BY name").all<{ name: string }>();
+        throw new UserError(`This intercom is invite-only: only admins invite people (${admins.map((x) => x.name).join(", ") || "none set"}). Ask one of them.`);
+      }
+      let project = "";
+      if (a.project) {
+        if (admin) {
+          project = normChannel(a.project, "");
+          if (!(await env.DB.prepare("SELECT 1 FROM projects WHERE name = ?").bind(project).first())) throw new UserError(`No project #${project}.`);
+        } else {
+          project = await requireProject(env, me, a.project);
+          await requireOwner(env, me, project);
+        }
+      } else if (!admin) throw new UserError("Which project? Pass project.");
       const role = a.role === "owner" ? "owner" : "member";
       const name = str(a, "name")?.replace(/^@/, "").toLowerCase();
+      if (name && !project) throw new UserError("Adding someone by handle needs a project.");
       if (name) {
         const exists = await env.DB.prepare("SELECT name FROM members WHERE name = ?").bind(name).first();
         if (!exists) throw new UserError(`No account "${name}". Create an invite link instead (omit name).`);
@@ -686,7 +701,8 @@ export const tools: Tool[] = [
       await env.DB.prepare("INSERT INTO invites (code, project, role, created_by, created_at, expires_at, uses_left) VALUES (?, ?, ?, ?, ?, ?, ?)")
         .bind(code, project, role, me, Date.now(), Date.now() + hours * 3600_000, uses)
         .run();
-      return `Invite link for #${project} (${role}, ${uses} use${uses > 1 ? "s" : ""}, expires in ${hours}h):\n${env.origin ?? ""}/join/${code}\nShare it privately; anyone with the link can join.`;
+      const what = project ? `#${project} (${role}` : "the intercom (an account, no project";
+      return `Invite link for ${what}, ${uses} use${uses > 1 ? "s" : ""}, expires in ${hours}h):\n${env.origin ?? ""}/join/${code}\nShare it privately; anyone with the link can join.`;
     },
   },
   {
@@ -905,7 +921,10 @@ export const tools: Tool[] = [
       const decision = str(a, "decision");
       if (decision) {
         const project = await requireProject(env, me, a.project);
-        await requireOwner(env, me, project);
+        if ((await adminsInvite(env)) && !(await isAdmin(env, me))) throw new UserError("This intercom is invite-only: only admins approve people joining.");
+        await requireOwner(env, me, project).catch(async (e) => {
+          if (!(await isAdmin(env, me))) throw e;
+        });
         const name = str(a, "name", true).toLowerCase();
         const req = await env.DB.prepare("DELETE FROM join_requests WHERE project = ? AND member = ? RETURNING member").bind(project, name).first();
         if (!req) throw new UserError(`No pending request from ${name} for #${project}.`);

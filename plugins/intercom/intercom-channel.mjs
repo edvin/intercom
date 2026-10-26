@@ -20,7 +20,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const VERSION = "0.12.6"; // kept in step with .claude-plugin/plugin.json (a test checks)
+const VERSION = "0.12.7"; // kept in step with .claude-plugin/plugin.json (a test checks)
 const DIR = path.join(os.homedir(), ".claude", "intercom");
 const CONFIG = path.join(DIR, "config");
 function readConf() {
@@ -267,7 +267,8 @@ function summarizeLine(line) {
           out.push({ at, kind: "loop", text: JSON.stringify(i.stop ? { op: "wakeup_stop" } : { op: "wakeup", delay: Number(i.delaySeconds) || 0, prompt: clip(i.prompt ?? "", 200) }) });
           continue;
         }
-        if (n === "Bash") out.push({ at, kind: "cmd", text: oneLine(i.command) });
+        // The agent's own one-line description, when it gave one, then the command itself.
+        if (n === "Bash") out.push({ at, kind: "cmd", text: i.description ? `${clip(oneLine(i.description), 160)}\n${oneLine(i.command)}` : oneLine(i.command) });
         else if (/^(Edit|Write|MultiEdit|NotebookEdit)$/.test(n)) out.push({ at, kind: "edit", text: `${n === "Write" ? "write" : "edit"} ${i.file_path ?? i.notebook_path ?? ""}` });
         else if (/^(Read|Grep|Glob|LS)$/.test(n)) out.push({ at, kind: "read", text: `${n.toLowerCase()} ${clip(i.file_path ?? i.pattern ?? i.path ?? "", 160)}` });
         else if (!/^mcp__.*intercom/.test(n)) out.push({ at, kind: "tool", text: `${n.replace(/^mcp__/, "")}${i.description ? `: ${clip(i.description, 120)}` : ""}` });
