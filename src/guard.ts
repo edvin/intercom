@@ -1,7 +1,7 @@
 // Deploy guard: a PreToolUse hook sends shell commands that look risky; if a teammate holds a matching lock,
 // Claude Code asks the user before running it. Warn-only by design: it never denies, it only makes the user confirm.
 
-import { type Env, type Lock, activeLocks, ago, myProjects, until } from "./lib";
+import { type Env, type Lock, activeLocks, address, ago, isMyLock, lockHolder, myProjects, until } from "./lib";
 
 export interface RiskyCommand {
   action: string; // deploy | migrate | release | infra
@@ -88,10 +88,10 @@ export function riskyCommand(command: string): RiskyCommand | null {
 const actionOf = (word: string) => (/migrat|db:/i.test(word) ? "migrate" : /release|publish|promote/i.test(word) ? "release" : "deploy");
 
 /** Locks held by someone else that this command could collide with. */
-export function conflicting(locks: Lock[], me: string, project: string | null, command: string, risky: RiskyCommand): Lock[] {
+export function conflicting(locks: Lock[], me: string, project: string | null, command: string, risky: RiskyCommand, label: string | null = null): Lock[] {
   const words = new Set(command.toLowerCase().split(/[^a-z0-9._-]+/));
   return locks.filter((l) => {
-    if (l.holder === me) return false;
+    if (isMyLock(l, me, label)) return false; // another of the same person's agents holding it counts
     const [, lockProject = l.channel, lockEnv] = l.resource.split(":");
     const sameProject = lockProject === project || l.channel === project || words.has(lockProject);
     if (!sameProject) return false;
@@ -104,25 +104,26 @@ export function conflicting(locks: Lock[], me: string, project: string | null, c
 /** Prefix a command with this to run it anyway after the user decided to (Codex can't ask; it can only refuse). */
 export const OVERRIDE = "INTERCOM_LOCK_OK=1";
 
-export async function guard(env: Env, me: string, project: string | null, command: string, client = "claude"): Promise<object | null> {
+export async function guard(env: Env, me: string, project: string | null, command: string, client = "claude", label: string | null = null): Promise<object | null> {
   const risky = riskyCommand(command);
   if (!risky) return null;
   if (client === "codex" && command.includes(OVERRIDE)) return null;
   const mine = await myProjects(env, me);
   const current = project && mine.includes(project) ? project : null;
   const locks = await activeLocks(env, me);
-  const hits = conflicting(locks, me, current, command, risky);
+  const hits = conflicting(locks, me, current, command, risky, label);
+  const who = (l: Lock) => lockHolder(l, me, label);
   if (hits.length) {
-    const lines = hits.map((l) => `🔒 ${l.resource} is held by ${l.holder} (since ${ago(l.created_at)}, ${until(l.expires_at)} left)${l.reason ? ` — "${l.reason}"` : ""}`);
+    const lines = hits.map((l) => `🔒 ${l.resource} is held by ${who(l)} (since ${ago(l.created_at)}, ${until(l.expires_at)} left)${l.reason ? ` — "${l.reason}"` : ""}`);
     if (client === "codex") {
       // Codex hooks can refuse but not ask: refuse with the reason, and let the user decide to go ahead.
       return {
-        systemMessage: `🔒 intercom stopped a ${risky.action}: ${hits.map((l) => `${l.resource} is held by ${l.holder}`).join(", ")}. Tell your agent to go ahead if you still want it.`,
+        systemMessage: `🔒 intercom stopped a ${risky.action}: ${hits.map((l) => `${l.resource} is held by ${address(l.holder, l.holder_agent ?? null)}`).join(", ")}. Tell your agent to go ahead if you still want it.`,
         hookSpecificOutput: {
           hookEventName: "PreToolUse",
           permissionDecision: "deny",
           permissionDecisionReason:
-            `Intercom: ${lines.join("; ")}. Don't retry on your own: tell your user who holds the lock and why, and offer to message ${hits[0].holder} on the intercom. ` +
+            `Intercom: ${lines.join("; ")}. Don't retry on your own: tell your user who holds the lock and why, and offer to message ${address(hits[0]!.holder, hits[0]!.holder_agent ?? null)} on the intercom. ` +
             `Only if your user explicitly says to go ahead anyway, run the same command prefixed with ${OVERRIDE} (e.g. \`${OVERRIDE} ${command.slice(0, 80)}\`).`,
         },
       };
@@ -133,13 +134,13 @@ export async function guard(env: Env, me: string, project: string | null, comman
         permissionDecision: "ask",
         permissionDecisionReason: `Intercom: ${lines.join("; ")}. Run this anyway?`,
         additionalContext:
-          `<intercom>This command looks like a ${risky.action}${risky.env ? ` to ${risky.env}` : ""} while a teammate holds a lock:\n${lines.join("\n")}\n` +
-          `Your user is being asked to confirm. If they decline, don't retry: offer to message ${hits[0].holder} via the intercom post tool instead.</intercom>`,
+          `<intercom>This command looks like a ${risky.action}${risky.env ? ` to ${risky.env}` : ""} while someone else holds a lock:\n${lines.join("\n")}\n` +
+          `Your user is being asked to confirm. If they decline, don't retry: offer to message ${address(hits[0]!.holder, hits[0]!.holder_agent ?? null)} via the intercom post tool instead.</intercom>`,
       },
     };
   }
   if (!current) return null;
-  const held = locks.some((l) => l.holder === me && (l.channel === current || l.resource.split(":")[1] === current));
+  const held = locks.some((l) => isMyLock(l, me, label) && (l.channel === current || l.resource.split(":")[1] === current));
   if (held) return null;
   const name = `${risky.action}:${current}:${risky.env ?? "<env>"}`;
   return {

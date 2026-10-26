@@ -344,7 +344,7 @@ function lockCard(l: Lock, me: string, back: string): string {
   const mine = l.holder === me;
   return `<div class="lockc ${mine ? "mine" : ""}">
     <div class="res">${icon("lock", 15)} ${esc(l.resource)}</div>
-    <div class="row small muted" style="margin-top:6px">${avatar(l.holder, "s")} <span>${mine ? "<b>You</b>" : `<b style="color:var(--ink-2)">${esc(l.holder)}</b>`} · since ${time(l.created_at)}</span><span class="grow"></span><span data-until="${l.expires_at}"></span></div>
+    <div class="row small muted" style="margin-top:6px">${avatar(l.holder, "s")} <span>${mine ? `<b>You</b>${l.holder_agent ? ` <span class="mono">/${esc(l.holder_agent)}</span>` : ""}` : `<b style="color:var(--ink-2)">${esc(address(l.holder, l.holder_agent ?? null))}</b>`} · since ${time(l.created_at)}</span><span class="grow"></span><span data-until="${l.expires_at}"></span></div>
     ${l.reason ? `<div style="margin-top:6px;font-size:13.5px">${esc(l.reason)}</div>` : ""}
     <div class="prog"><span data-from="${l.created_at}" data-to="${l.expires_at}"></span></div>
     <form method="post" action="/action/release" class="row" ${mine ? "" : `data-confirm="Break ${esc(l.holder)}'s lock on ${esc(l.resource)}? They'll be notified."`}>${hidden({ resource: l.resource, back, ...(mine ? {} : { force: "on" }) })}

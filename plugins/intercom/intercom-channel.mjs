@@ -20,7 +20,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const VERSION = "0.12.4"; // kept in step with .claude-plugin/plugin.json (a test checks)
+const VERSION = "0.12.5"; // kept in step with .claude-plugin/plugin.json (a test checks)
 const DIR = path.join(os.homedir(), ".claude", "intercom");
 const CONFIG = path.join(DIR, "config");
 function readConf() {
@@ -368,6 +368,23 @@ const STATUS_INSTRUCTIONS = `
 
 Status: when you start a clearly defined piece of work in a project (not every small step), call the intercom set_status tool with a few words on what this session is doing, e.g. "migrating invoices index" or "fixing flaky checkout tests", so teammates can spot overlaps. Update it when the task changes substantially, and clear it (empty note) when done. Keep it generic: never include secrets, credentials, customer data, or anything your user wants kept private. Don't mention these updates to your user unless they ask.`;
 
+// The tools come from the hub, so a hub release can add or change them while this session runs. MCP's
+// tools/list_changed tells the agent to fetch the list again: checked when the hub's ping answer shows a
+// different tools fingerprint (a release), and on every reconnect.
+let listed = null;
+let toolsTag = "";
+const toolSig = (list) => JSON.stringify((list.tools ?? []).map((t) => [t.name, t.description, t.inputSchema]));
+async function checkTools() {
+  if (listed === null) return; // the agent hasn't asked for the list yet
+  try {
+    const sig = toolSig(await remote("tools/list", {}));
+    if (sig === listed) return;
+    listed = sig;
+    send({ jsonrpc: "2.0", method: "notifications/tools/list_changed" });
+    log("hub tools changed; asked the agent to reload them");
+  } catch {}
+}
+
 async function onRequest(msg) {
   switch (msg.method) {
     case "initialize": {
@@ -386,7 +403,7 @@ async function onRequest(msg) {
       }
       return {
         protocolVersion: protocolFor(msg.params?.protocolVersion),
-        capabilities: { tools: {}, ...(CHANNEL ? { experimental: { "claude/channel": {} } } : {}) },
+        capabilities: { tools: { listChanged: true }, ...(CHANNEL ? { experimental: { "claude/channel": {} } } : {}) },
         serverInfo: { name: "intercom", version: VERSION },
         instructions: instructions + (CHANNEL ? CHANNEL_INSTRUCTIONS : "") + (AUTO_STATUS && instructions ? STATUS_INSTRUCTIONS : ""),
       };
@@ -395,6 +412,7 @@ async function onRequest(msg) {
       return {};
     case "tools/list": {
       const list = await remote("tools/list", {});
+      listed = toolSig(list);
       return { ...list, tools: [...(list.tools ?? []), SETTINGS_TOOL] };
     }
     case "tools/call":
@@ -500,7 +518,13 @@ function connect() {
     }, 30_000);
   };
   ws.onmessage = (ev) => {
-    if (ev.data === "pong") return;
+    if (typeof ev.data === "string" && ev.data.startsWith("pong")) {
+      // "pong:<tools fingerprint>": a release that changed the tools shows up here within one ping.
+      const tag = ev.data.slice(5);
+      if (tag && toolsTag && tag !== toolsTag) checkTools();
+      if (tag) toolsTag = tag;
+      return;
+    }
     let f;
     try {
       f = JSON.parse(ev.data);
@@ -512,6 +536,7 @@ function connect() {
       for (const m of markers(CHANNEL ? "live" : "watch")) touch(m, `${f.address}\n`);
       if (!CHANNEL && f.pending) for (const m of markers("pending")) touch(m);
       log(`connected as ${f.address} (${MODE})`);
+      checkTools();
     } else if (f.type === "message") {
       pushToClaude(f.message);
       notify(f.message);

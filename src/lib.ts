@@ -48,6 +48,7 @@ export const cleanBranch = (raw: unknown): string | null =>
 export interface Lock {
   resource: string;
   holder: string;
+  holder_agent?: string | null;
   reason: string;
   channel: string;
   created_at: number;
@@ -146,8 +147,27 @@ export function fmtMessage(m: Message, viewer?: string): string {
   return `[${m.id}] ${where} · ${ago(m.created_at)}: ${marker}${m.body}`;
 }
 
-export function fmtLock(l: Lock, me: string): string {
-  const who = l.holder === me ? "you" : l.holder;
+/**
+ * Whether a lock is the caller's: as a person (no session: the dashboard) any of their agents' locks; as a session
+ * only its own, or one its person took from the dashboard. Another agent of the same person is someone else here.
+ */
+export function isMyLock(l: Lock, me: string, label?: string | null): boolean {
+  if (l.holder !== me) return false;
+  if (!label || !l.holder_agent) return true;
+  return l.holder_agent === label;
+}
+
+/** Who holds a lock, spelled out so an agent can't mistake a sibling session's lock for its own. */
+export function lockHolder(l: Lock, me: string, label?: string | null): string {
+  const addr = address(l.holder, l.holder_agent ?? null);
+  if (l.holder !== me) return addr;
+  if (!l.holder_agent) return label ? `your user (${me}, from the dashboard)` : "you";
+  if (!label) return `your agent ${addr}`;
+  return l.holder_agent === label ? `this session (${addr})` : `${addr}, another of your user's sessions, NOT this one`;
+}
+
+export function fmtLock(l: Lock, me: string, label?: string | null): string {
+  const who = lockHolder(l, me, label);
   const reason = l.reason ? ` — ${l.reason}` : "";
   return `🔒 ${l.resource} held by ${who} (since ${ago(l.created_at)}, expires in ${until(l.expires_at)})${reason}`;
 }
@@ -633,10 +653,10 @@ export async function setVersion(env: Env, me: string, sessionId: string, raw: s
 export const lockIn = (l: Lock, project: string | null | undefined) => !!project && (l.channel === project || l.resource.split(":")[1] === project);
 
 /** Locks as shown to a session: its own project's in full, the rest only counted. */
-export function scopedLocks(locks: Lock[], me: string, project: string | null | undefined, indent = ""): string {
+export function scopedLocks(locks: Lock[], me: string, project: string | null | undefined, indent = "", label?: string | null): string {
   const here = locks.filter((l) => lockIn(l, project));
   const elsewhere = locks.length - here.length;
-  const lines = here.map((l) => `${indent}${fmtLock(l, me)}`);
+  const lines = here.map((l) => `${indent}${fmtLock(l, me, label)}`);
   if (!project) return locks.length ? `${locks.length} active lock${locks.length > 1 ? "s" : ""} in your projects (this repo isn't in one; the locks tool lists them).` : "No active locks.";
   return [
     here.length ? `Locks on #${project}:\n${lines.join("\n")}` : `No locks on #${project}.`,

@@ -1108,3 +1108,42 @@ describe("status line", () => {
     assert.match(line, /^📻 alder · \d+ unread · 🔒 deploy:billing:prod \(alice\)$/);
   });
 });
+
+describe("locks between one person's agents", () => {
+  test("a sibling agent's lock is not 'yours': named in full, not renewable, not releasable without force, and guarded", async () => {
+    const w = await standardWorld();
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=la&name=alder", { as: "bob" });
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=lb&name=browser", { as: "bob" });
+    const alder = { id: "la", project: "billing-api" };
+    const browser = { id: "lb", project: "billing-api" };
+    await w.ok("bob", "claim", { resource: "benchmark:billing:local", reason: "timings" }, alder);
+
+    assert.match(await w.ok("bob", "locks", {}, alder), /held by this session \(bob\/alder\)/);
+    const seen = await w.ok("bob", "locks", {}, browser);
+    assert.match(seen, /held by bob\/alder, another of your user's sessions, NOT this one/);
+    assert.doesNotMatch(seen, /held by you/);
+    assert.match(await w.ok("alice", "locks"), /held by bob\/alder/);
+
+    assert.match((await w.tool("bob", "claim", { resource: "benchmark:billing:local" }, browser)).text, /NOT claimed\. .*held by bob\/alder, another of your user's sessions/);
+    assert.match((await w.tool("bob", "release", { resource: "benchmark:billing:local" }, browser)).text, /held by bob\/alder, another of your user's sessions.*force=true/);
+    assert.match(await w.ok("bob", "claim", { resource: "benchmark:billing:local" }, alder), /^Extended/);
+
+    // The guard treats a sibling's deploy lock like anyone else's, and stays quiet for the holder.
+    await w.ok("bob", "claim", { resource: "deploy:billing:prod" }, alder);
+    const guard = (sid: string) =>
+      w.request("/api/guard?project=billing-api", { as: "bob", method: "POST", body: JSON.stringify({ session_id: sid, tool_input: { command: "helm upgrade billing chart -f values-prod.yaml" } }) }).then((r) => r.text());
+    assert.match(await guard("lb"), /"permissionDecision":"ask".*deploy:billing:prod is held by bob\/alder, another of your user's sessions, NOT this one/);
+    assert.doesNotMatch(await guard("la"), /permissionDecision/);
+    await w.ok("bob", "release", { resource: "deploy:billing:prod" }, alder);
+
+    // Status line and mod snapshot: only the holder session says "you hold".
+    const line = (sid: string) => w.request(`/api/statusline?session=${sid}&project=billing-api`, { as: "bob" }).then((r) => r.text());
+    assert.match(await line("la"), /🔐 you hold benchmark:billing:local/);
+    assert.match(await line("lb"), /🔒 benchmark:billing:local \(bob\/alder\)/);
+
+    // From the dashboard bob (the person) can still release his agent's lock without breaking it.
+    const res = await w.form("/action/release", "bob", { resource: "benchmark:billing:local", back: "/dashboard" });
+    assert.doesNotMatch(new URL(res.headers.get("location")!, ORIGIN).search, /err=/);
+    assert.match(await w.ok("alice", "locks"), /No active locks/);
+  });
+});

@@ -15,6 +15,8 @@ import {
   ago,
   coMembers,
   fmtLock,
+  isMyLock,
+  lockHolder,
   fmtMessage,
   isAdmin,
   cleanName,
@@ -213,22 +215,25 @@ export const tools: Tool[] = [
       const ttl = num(a, "ttl_minutes", 60, 1, 1440);
       const now = Date.now();
       const prev = await env.DB.prepare("SELECT * FROM locks WHERE resource = ? AND expires_at > ?").bind(resource, now).first<Lock>();
+      // Yours to renew: a lock this session took, or one your user took from the dashboard. Another of your
+      // user's agents holding it is someone else here, like a teammate.
+      const label = env.session?.label ?? null;
       const res = await env.DB.prepare(
-        `INSERT INTO locks (resource, holder, reason, channel, created_at, expires_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+        `INSERT INTO locks (resource, holder, holder_agent, reason, channel, created_at, expires_at) VALUES (?1, ?2, ?7, ?3, ?4, ?5, ?6)
          ON CONFLICT(resource) DO UPDATE SET
-           holder = excluded.holder, reason = excluded.reason, channel = excluded.channel, expires_at = excluded.expires_at,
+           holder = excluded.holder, holder_agent = excluded.holder_agent, reason = excluded.reason, channel = excluded.channel, expires_at = excluded.expires_at,
            created_at = CASE WHEN locks.holder = excluded.holder AND locks.expires_at > ?5 THEN locks.created_at ELSE excluded.created_at END
-         WHERE locks.holder = excluded.holder OR locks.expires_at <= ?5`,
+         WHERE (locks.holder = excluded.holder AND (?7 IS NULL OR locks.holder_agent IS NULL OR locks.holder_agent = ?7)) OR locks.expires_at <= ?5`,
       )
-        .bind(resource, me, reason, channel, now, now + ttl * 60000)
+        .bind(resource, me, reason, channel, now, now + ttl * 60000, label)
         .run();
       if (!res.meta.changes) {
         const held = await env.DB.prepare("SELECT * FROM locks WHERE resource = ?").bind(resource).first<Lock>();
         throw new UserError(
-          `NOT claimed. ${fmtLock(held!, me)}\nDo not proceed with the operation. Tell your user, and coordinate with ${held!.holder} (e.g. post/DM via this intercom).`,
+          `NOT claimed. ${fmtLock(held!, me, label)}\nDo not proceed with the operation. Tell your user, and coordinate with ${address(held!.holder, held!.holder_agent ?? null)} (e.g. post/DM via this intercom).`,
         );
       }
-      const renewed = prev?.holder === me;
+      const renewed = !!prev && isMyLock(prev, me, label);
       await postMessage(env, {
         channel,
         sender: me,
@@ -259,14 +264,17 @@ export const tools: Tool[] = [
         if (lock) await env.DB.prepare("DELETE FROM locks WHERE resource = ?").bind(resource).run();
         return `${resource} was not locked.`;
       }
-      if (lock.holder !== me && a.force !== true) {
-        throw new UserError(`${resource} is held by ${lock.holder}, not you. Pass force=true only if your user explicitly wants to break it.`);
+      const label = env.session?.label ?? null;
+      const mine = isMyLock(lock, me, label);
+      const holderAddr = address(lock.holder, lock.holder_agent ?? null);
+      if (!mine && a.force !== true) {
+        throw new UserError(`${resource} is held by ${lockHolder(lock, me, label)}. Pass force=true only if your user explicitly wants to break it.`);
       }
       await env.DB.prepare("DELETE FROM locks WHERE resource = ? AND holder = ?").bind(resource, lock.holder).run();
-      const forced = lock.holder !== me ? ` (FORCE-released; was held by ${lock.holder})` : "";
+      const forced = mine ? "" : ` (FORCE-released; was held by ${holderAddr})`;
       await postMessage(env, { channel: lock.channel, sender: me, kind: "event", broadcast: true, body: `released lock ${resource}${forced}${note ? ` — ${note}` : ""}` });
       if (forced) {
-        await postMessage(env, { channel: lock.channel, sender: me, recipient: lock.holder, kind: "event", body: `force-released your lock ${resource}${note ? ` — ${note}` : ""}` });
+        await postMessage(env, { channel: lock.channel, sender: me, recipient: lock.holder, recipient_agent: lock.holder_agent ?? null, kind: "event", body: `force-released your lock ${resource}${note ? ` — ${note}` : ""}` });
       }
       return `Released ${resource}${forced}.`;
     },
@@ -279,7 +287,7 @@ export const tools: Tool[] = [
     async run(env, me, a) {
       const f = str(a, "filter")?.toLowerCase();
       const locks = (await activeLocks(env, me)).filter((l) => !f || l.resource.includes(f));
-      return locks.length ? locks.map((l) => fmtLock(l, me)).join("\n") : "No active locks.";
+      return locks.length ? locks.map((l) => fmtLock(l, me, env.session?.label)).join("\n") : "No active locks.";
     },
   },
   {
