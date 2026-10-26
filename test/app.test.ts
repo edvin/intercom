@@ -1018,3 +1018,24 @@ describe("choosing an agent's project from the dashboard", () => {
     assert.match((await move("bob", { session: "p1", project: "ops" })).get("err")!, /not a member of a project named #ops/);
   });
 });
+
+describe("activity mirror", () => {
+  test("a dashboard message handed to the agent as a prompt isn't shown twice", async () => {
+    const w = await standardWorld();
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=e1&name=video", { as: "bob" });
+    const msg = "Andreas noted that the brand selector looks noisy. What does Gravity offer us here?";
+    await w.form("/action/post", "bob", { to: "bob/video", message: msg, back: "/dashboard?view=agents" });
+    const post = (items: unknown[]) =>
+      w.request("/api/activity?session=e1", { as: "bob", method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ items }) });
+    await post([
+      { at: Date.now(), kind: "prompt", text: `The intercom-ui plugin sent a message: ${msg.slice(0, 60)}…` },
+      { at: Date.now(), kind: "prompt", text: "yes, go ahead with the favicon variant" },
+      { at: Date.now(), kind: "cmd", text: "grep -rl brand web/src" },
+    ]);
+    const page = await (await w.request("/dashboard?view=agents&agent=bob/video", { as: "bob", cookie: true })).text();
+    assert.equal(page.split("Andreas noted that").length - 1, 1);
+    assert.match(page, /class="bubble md mine"[^>]*><p>Andreas noted that/);
+    assert.match(page, /typed in the terminal:<\/span> yes, go ahead/);
+    assert.match(page, /grep -rl brand web\/src/);
+  });
+});

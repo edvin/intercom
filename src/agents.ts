@@ -169,7 +169,16 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
       return `<div class="bubble md ${fromMe ? "mine" : ""}" data-mid="${m.id}" data-who="${esc(agent.label)}">${md(m.body)}<span class="when">${time(m.created_at)}${mark}</span></div>`;
     });
   rows.forEach((m, i) => items.push({ at: m.created_at, html: thread0[i]! }));
-  for (const a of [...acts].reverse()) items.push({ at: a.at, html: actRow(a) }); // oldest first; sort is stable
+  // A dashboard message handed to the agent as a prompt (the mod's prompt.submit, codex queue) is also in its
+  // transcript, so the mirror would show it twice. The "you" bubble already has it: skip the mirrored copy.
+  const flat = (t: string) => plainSpaces(t).replace(/^The intercom-ui plugin sent a message:\s*/i, "").replace(/…$/, "").replace(/\s+/g, " ").trim().toLowerCase();
+  const sentByYou = rows.filter((m) => m.sender === me && !m.sender_agent && m.recipient).map((m) => flat(m.body).slice(0, 80)).filter((b) => b.length >= 8);
+  const echo = (a: Activity) => {
+    if (a.kind !== "prompt") return false;
+    const t = flat(a.text);
+    return t.length >= 8 && sentByYou.some((b) => t.includes(b.slice(0, Math.min(b.length, t.length))));
+  };
+  for (const a of [...acts].reverse()) if (!echo(a)) items.push({ at: a.at, html: actRow(a) }); // oldest first; sort is stable
   const thread = items.sort((x, y) => x.at - y.at).map((x) => x.html).join("");
   const on = isOn(agent);
   const ownAgent = agent.member === me;
