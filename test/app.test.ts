@@ -886,3 +886,18 @@ describe("plugin versions", () => {
     assert.doesNotMatch(await msg(`version=${PLUGIN_VERSION}`), /⬆/);
   });
 });
+
+describe("locks per project", () => {
+  test("a session sees its own project's locks; others only as a count", async () => {
+    const w = await standardWorld();
+    await w.ok("carol", "invite", { project: "shop", name: "bob" });
+    await w.ok("carol", "claim", { resource: "deploy:shop:prod", reason: "shop release" });
+    await w.ok("alice", "claim", { resource: "deploy:billing:prod" });
+    const ctx = ((await (await w.request("/api/hook?event=SessionStart&project=billing-api&session=lp1", { as: "bob" })).json()) as {
+      hookSpecificOutput: { additionalContext: string };
+    }).hookSpecificOutput.additionalContext;
+    assert.match(ctx, /Locks on #billing:\n.*deploy:billing:prod held by alice/);
+    assert.doesNotMatch(ctx, /🔒 deploy:shop:prod/); // only the #shop feed line mentions it, not the lock list
+    assert.match(ctx, /1 more in your other projects/);
+  });
+});

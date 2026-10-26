@@ -594,3 +594,20 @@ export async function setVersion(env: Env, me: string, sessionId: string, raw: s
   const v = String(raw ?? "").match(/^\d+\.\d+\.\d+$/)?.[0];
   if (v) await env.DB.prepare("UPDATE sessions SET version = ? WHERE member = ? AND session_id = ? AND version != ?").bind(v, me, sessionId, v).run();
 }
+
+/** Is this lock about `project`? (its channel, or the project part of <action>:<project>:<env>) */
+export const lockIn = (l: Lock, project: string | null | undefined) => !!project && (l.channel === project || l.resource.split(":")[1] === project);
+
+/** Locks as shown to a session: its own project's in full, the rest only counted. */
+export function scopedLocks(locks: Lock[], me: string, project: string | null | undefined, indent = ""): string {
+  const here = locks.filter((l) => lockIn(l, project));
+  const elsewhere = locks.length - here.length;
+  const lines = here.map((l) => `${indent}${fmtLock(l, me)}`);
+  if (!project) return locks.length ? `${locks.length} active lock${locks.length > 1 ? "s" : ""} in your projects (this repo isn't in one; the locks tool lists them).` : "No active locks.";
+  return [
+    here.length ? `Locks on #${project}:\n${lines.join("\n")}` : `No locks on #${project}.`,
+    elsewhere ? `${elsewhere} more in your other projects (the locks tool lists them).` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}

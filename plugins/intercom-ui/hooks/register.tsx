@@ -99,8 +99,9 @@ async function refresh($: Engine): Promise<void> {
     await wake($, s)
     // Lead with this session's name on the intercom (e.g. "alder"), which is what others address it by.
     const parts = [`📻 ${s.label ?? s.me}`, `${s.unread} unread`]
-    const others = s.locks.filter(l => !l.mine)
-    const mine = s.locks.filter(l => l.mine)
+    // Only this session's project: locks elsewhere aren't this session's business (the dashboard lists them all).
+    const others = s.locks.filter(l => l.here && !l.mine)
+    const mine = s.locks.filter(l => l.here && l.mine)
     if (others.length) parts.push(`🔒 ${others.map(l => `${l.resource} (${l.holder})`).join(', ')}`)
     if (mine.length) parts.push(`🔐 you hold ${mine.map(l => l.resource).join(', ')}`)
     if (s.votes.length) parts.push(`🗳 ${s.votes.length} vote${s.votes.length > 1 ? 's' : ''} for you`)

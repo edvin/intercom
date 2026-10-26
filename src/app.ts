@@ -1,4 +1,4 @@
-import { type Env, type Message, type Proposal, type Session, MEMBER_OF, RECEIVES, UserError, activeLocks, address, ago, addActivity, cleanBranch, cleanClient, fromOwnUser, renameSession, setHost, setVersion, workingOn, authenticate, coMembers, fmtLock, fmtMessage, myProjects, resolveProject, setPresence, tally, touchSession, unread } from "./lib";
+import { type Env, type Message, type Proposal, type Session, MEMBER_OF, RECEIVES, UserError, activeLocks, address, ago, addActivity, lockIn, scopedLocks, cleanBranch, cleanClient, fromOwnUser, renameSession, setHost, setVersion, workingOn, authenticate, coMembers, fmtLock, fmtMessage, myProjects, resolveProject, setPresence, tally, touchSession, unread } from "./lib";
 import { INSTRUCTIONS, tools } from "./tools";
 import { cliPoll, cliStart, connectPage, discoverJoin, discoverPage, discoverRequest, githubCallback, githubCreate, githubStart, signOut } from "./accounts";
 import { approvalStatus, decide, requestApproval, setAway } from "./approvals";
@@ -196,9 +196,9 @@ async function handleHook(url: URL, env: Env, me: string): Promise<Response> {
     // Only say where someone is when it's a project this member can see.
     const visible = new Set(mine);
     if (active.length) sections.push(`Active in the last 2h: ${active.map((a) => `${a.member}${visible.has(a.project) ? ` (${workingOn(a.project, a.branch, a.note)})` : ""}`).join(", ")}`);
-    sections.push(locks.length ? `Active locks:\n${locks.map((l) => fmtLock(l, me)).join("\n")}` : "No active locks.");
+    sections.push(scopedLocks(locks, me, project?.name));
     if (open.length) sections.push(`Open proposals:\n${(await Promise.all(open.map((p) => tally(env, p, me)))).join("\n")}`);
-    const others = locks.filter((l) => l.holder !== me);
+    const others = locks.filter((l) => l.holder !== me && lockIn(l, project?.name));
     startLine = [
       `📻 ${session ? address(me, session.label) : me}${project ? ` in #${project.name}` : raw ? " (repo not linked)" : ""}`,
       others.length ? `🔒 ${others.map((l) => `${l.resource} (${l.holder})`).join(", ")}` : "",
@@ -285,7 +285,7 @@ async function handleBrief(url: URL, env: Env, me: string): Promise<Response> {
       ? `Your other sessions:\n${own.map((o) => `  ${address(me, o.label)} [${o.client === "codex" ? "Codex" : "Claude Code"}] (${workingOn(o.project || null, o.branch, o.note) || "no project"}, ${ago(o.last_seen)})`).join("\n")}`
       : "Your other sessions: none",
     `Others active (2h): ${active.length ? active.map((a) => `${a.member} (${visible.has(a.project) ? `${workingOn(a.project, a.branch, a.note)}, ` : ""}${ago(a.updated_at)})`).join(", ") : "nobody"}`,
-    locks.length ? `Locks:\n${locks.map((l) => `  ${fmtLock(l, me)}`).join("\n")}` : "Locks: none",
+    scopedLocks(locks, me, project?.name, "  "),
     open.length ? `Open votes:\n${(await Promise.all(open.map((p) => tally(env, p, me)))).map((t) => t.replace(/^/gm, "  ")).join("\n")}` : "Open votes: none",
     messages.length ? `Unread (${messages.length}${more ? "+" : ""}):\n${messages.map((m) => `  ${fmtMessage(m, me)}`).join("\n")}` : "Unread: none",
     `Dashboard: ${url.origin}/dashboard${project ? `?channel=${encodeURIComponent(project.name)}` : ""}`,
