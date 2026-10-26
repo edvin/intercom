@@ -18,6 +18,7 @@ import {
   isAdmin,
   cleanName,
   freeLabel,
+  renameSession,
   GONE_MS,
   inheritMailbox,
   liveIds,
@@ -642,54 +643,44 @@ export const tools: Tool[] = [
   {
     name: "set_name",
     description:
-      "Name this session when your user asks (\"call yourself alder\", \"you're alder, reviewing the migration\"). Others reach exactly this session as <person>/<name>. The name (and role) joins your user's crew for this agent type in this project: new sessions here take the first crew name not already in use, so two agents in one project get two names. remember=false names only this session; forget=true removes the name from the crew.",
+      "Name a session when your user asks (\"call yourself alder\", \"you're alder, reviewing the migration\", \"rename loxodon-ab12 to birch\"). Without `agent` it names this session; with `agent` (another of your user's sessions, by its current name) it renames that one. Others reach a session as <person>/<name>. The name (and role) joins your user's crew for that agent type in that project: new sessions there take the first free crew name. remember=false names only that session; forget=true removes a name from the crew.",
     inputSchema: {
       type: "object",
       properties: {
         name: { type: "string", description: "Short name: letters, digits and -, e.g. alder." },
-        role: { type: "string", description: "Optional: what this agent does here, shown to teammates (e.g. \"reviews migrations\")." },
-        remember: { type: "boolean", description: "Add to the crew for future sessions of this agent in this project (default true)." },
+        agent: { type: "string", description: "Rename this other session of your user's instead (its current name, e.g. loxodon-ab12)." },
+        role: { type: "string", description: "Optional: what this agent does, shown to teammates (e.g. \"reviews migrations\")." },
+        remember: { type: "boolean", description: "Add to the crew for future sessions of this agent type in this project (default true)." },
         forget: { type: "boolean", description: "Remove this name from the crew (the session keeps it until it ends)." },
       },
       required: ["name"],
     },
     async run(env, me, a) {
-      if (!env.session) throw new UserError("This session isn't connected through the local intercom server, so it can't be named.");
-      const name = cleanName(a.name);
-      if (!name) throw new UserError("Names are letters, digits and -, starting with a letter (max 24), e.g. alder.");
-      const s = env.session;
-      const row = await env.DB.prepare("SELECT client FROM sessions WHERE member = ? AND session_id = ?").bind(me, s.session_id).first<{ client: string }>();
-      const client = row?.client ?? "claude";
-      const agent = client === "codex" ? "Codex" : "Claude Code";
+      const target = str(a, "agent");
+      let sessionId = env.session?.session_id;
+      if (target) {
+        const row = await env.DB.prepare("SELECT session_id FROM sessions WHERE member = ? AND label = ? ORDER BY last_seen DESC LIMIT 1")
+          .bind(me, cleanName(target.split("/").pop()) ?? target)
+          .first<{ session_id: string }>();
+        if (!row) throw new UserError(`None of your sessions is called "${target}". The team tool lists them.`);
+        sessionId = row.session_id;
+      }
+      if (!sessionId) throw new UserError("This session isn't connected through the local intercom server, so it can't be named. Pass agent to rename another of your sessions.");
       if (a.forget === true) {
-        const gone = await env.DB.prepare("DELETE FROM agent_names WHERE member = ? AND project = ? AND client = ? AND name = ?").bind(me, s.project, client, name).run();
-        return gone.meta.changes ? `Forgot ${name}: new ${agent} sessions in #${s.project} won't use it.` : `${name} isn't in your ${agent} crew for #${s.project}.`;
+        const s = await env.DB.prepare("SELECT project, client FROM sessions WHERE member = ? AND session_id = ?").bind(me, sessionId).first<{ project: string; client: string }>();
+        const name = cleanName(a.name);
+        const gone = await env.DB.prepare("DELETE FROM agent_names WHERE member = ? AND project = ? AND client = ? AND name = ?").bind(me, s?.project ?? "", s?.client ?? "claude", name).run();
+        const agentName = s?.client === "codex" ? "Codex" : "Claude Code";
+        return gone.meta.changes ? `Forgot ${name}: new ${agentName} sessions in #${s?.project} won't use it.` : `${name} isn't in your ${agentName} crew for #${s?.project}.`;
       }
-      const label = await freeLabel(env, me, s.session_id, name);
-      await env.DB.prepare("UPDATE sessions SET label = ? WHERE member = ? AND session_id = ?").bind(label, me, s.session_id).run();
-      await inheritMailbox(env, me, s.session_id, label); // DMs sent to this name while no session had it
-      const role = str(a, "role")?.slice(0, 120) ?? "";
-      const remember = a.remember !== false && !!s.project;
-      if (remember) {
-        await env.DB.prepare(
-          `INSERT INTO agent_names (member, project, client, name, role, updated_at) VALUES (?, ?, ?, ?, ?, ?)
-           ON CONFLICT(member, project, client, name) DO UPDATE SET role = CASE WHEN excluded.role != '' THEN excluded.role ELSE agent_names.role END`,
-        )
-          .bind(me, s.project, client, name, role, Date.now())
-          .run();
-      }
-      if (role) {
-        await setPresence(env, me, s.project || null, role);
-        await env.DB.prepare("UPDATE sessions SET note = ?, note_at = ? WHERE member = ? AND session_id = ?").bind(role, Date.now(), me, s.session_id).run();
-      }
-      const { results: crew } = remember
-        ? await env.DB.prepare("SELECT name, role FROM agent_names WHERE member = ? AND project = ? AND client = ? ORDER BY updated_at").bind(me, s.project, client).all<{ name: string; role: string }>()
-        : { results: [] };
+      const wanted = cleanName(a.name);
+      const r = await renameSession(env, me, sessionId, a.name, { remember: a.remember !== false, role: str(a, "role") });
+      const agentName = r.client === "codex" ? "Codex" : "Claude Code";
       return [
-        `This session is now ${address(me, label)}${label !== name ? ` ("${name}" is taken by another of your live sessions)` : ""}. Messages to ${address(me, label)} reach only this session.`,
-        remember
-          ? `Your ${agent} crew in #${s.project}: ${crew.map((c) => `${c.name}${c.role ? ` (${c.role})` : ""}`).join(", ")}. New ${agent} sessions there take the first free name.`
-          : s.project ? "Just for this session." : "Just for this session (it isn't in a project).",
+        `${target ? "That session" : "This session"} is now ${address(me, r.label)}${r.label !== wanted ? ` ("${wanted}" is taken by another of your live sessions)` : ""}. Messages to ${address(me, r.label)} reach only that session.`,
+        r.crew.length
+          ? `Your ${agentName} crew in #${r.project}: ${r.crew.map((c) => `${c.name}${c.role ? ` (${c.role})` : ""}`).join(", ")}. New ${agentName} sessions there take the first free name.`
+          : r.project ? "Just for that session." : "Just for that session (it isn't in a project).",
       ].join(" ");
     },
   },

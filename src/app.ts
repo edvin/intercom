@@ -1,4 +1,4 @@
-import { type Env, type Message, type Proposal, type Session, MEMBER_OF, RECEIVES, UserError, activeLocks, address, ago, cleanBranch, cleanClient, fromOwnUser, setHost, workingOn, authenticate, coMembers, fmtLock, fmtMessage, myProjects, resolveProject, setPresence, tally, touchSession, unread } from "./lib";
+import { type Env, type Message, type Proposal, type Session, MEMBER_OF, RECEIVES, UserError, activeLocks, address, ago, cleanBranch, cleanClient, fromOwnUser, renameSession, setHost, workingOn, authenticate, coMembers, fmtLock, fmtMessage, myProjects, resolveProject, setPresence, tally, touchSession, unread } from "./lib";
 import { INSTRUCTIONS, tools } from "./tools";
 import { cliPoll, cliStart, connectPage, discoverJoin, discoverPage, discoverRequest, githubCallback, githubCreate, githubStart, signOut } from "./accounts";
 import { approvalStatus, decide, requestApproval, setAway } from "./approvals";
@@ -478,6 +478,27 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
       u.searchParams.set("err", (e as Error).message);
     }
     return redirect(u.pathname + u.search);
+  }
+  if ((url.pathname === "/agent/rename" || url.pathname === "/host/rename") && req.method === "POST") {
+    if (!sameOrigin(req)) return new Response("Cross-origin request refused", { status: 403 });
+    const form = await req.formData();
+    const back = new URL(String(form.get("back") ?? "/dashboard?view=agents"), url);
+    try {
+      if (url.pathname === "/agent/rename") {
+        const r = await renameSession(env, me, String(form.get("session") ?? ""), form.get("name"), { remember: form.get("remember") === "on", role: String(form.get("role") ?? "") });
+        back.searchParams.set("agent", `${me}/${r.label}`);
+        back.searchParams.set("ok", `Renamed to ${r.label}`);
+      } else {
+        const host = String(form.get("host") ?? "").slice(0, 48);
+        const name = String(form.get("name") ?? "").trim().slice(0, 40);
+        if (name) await env.DB.prepare("INSERT INTO host_names (member, host, name) VALUES (?, ?, ?) ON CONFLICT(member, host) DO UPDATE SET name = excluded.name").bind(me, host, name).run();
+        else await env.DB.prepare("DELETE FROM host_names WHERE member = ? AND host = ?").bind(me, host).run();
+        back.searchParams.set("ok", name ? `${host} is now shown as “${name}”` : `${host} shows its own name again`);
+      }
+    } catch (e) {
+      back.searchParams.set("err", (e as Error).message);
+    }
+    return redirect(back.pathname + back.search);
   }
   if (url.pathname === "/away" && req.method === "POST") {
     if (!sameOrigin(req)) return new Response("Cross-origin request refused", { status: 403 });

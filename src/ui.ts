@@ -23,6 +23,8 @@ export const redirect = (to: string, headers: Record<string, string> = {}) => ne
 const ICONS: Record<string, string> = {
   lock: '<rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
   monitor: '<rect width="20" height="14" x="2" y="3" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/>',
+  pencil: '<path d="M21.17 6.81a1 1 0 0 0-3.99-3.99L3.84 16.17a2 2 0 0 0-.5.83l-1.32 4.35a.5.5 0 0 0 .62.62l4.35-1.32a2 2 0 0 0 .83-.5z"/><path d="m15 5 4 4"/>',
+  sidebar: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/>',
   unlock: '<rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/>',
   check: '<path d="M20 6 9 17l-5-5"/>',
   x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
@@ -290,6 +292,18 @@ label.field>input,label.field>textarea,label.field>select{width:100%}
 .chips{display:flex;gap:6px;flex-wrap:wrap}
 .chip{font-size:12px;padding:3px 10px;border-radius:99px;border:1px solid var(--line-strong);background:var(--surface);color:var(--ink-2);cursor:pointer}
 .chip:hover{border-color:color-mix(in srgb,var(--accent) 50%,transparent);color:var(--accent)}
+/* the global menu as an icon rail in the Agents view (expandable, remembered per browser) */
+.shell.wide{grid-template-columns:auto minmax(0,1fr)}
+.shell.wide>.side{width:232px;transition:width .15s}
+.railtoggle{display:flex;align-items:center;justify-content:center;width:36px;height:28px;margin:0 0 6px 6px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--mute);cursor:pointer}
+.railtoggle:hover{color:var(--ink)}
+.side.rail{width:56px!important;overflow-x:hidden}
+.side.rail .nav a{justify-content:center;padding:8px 0;gap:0}
+.side.rail .nav a>span,.side.rail .nav a>.n,.side.rail .nav .label,.side.rail .people,.side.rail .nav a>.i+.i{display:none}
+.side.rail .nav a{position:relative}
+.side.rail .nav a .n{display:flex!important;position:absolute;top:0;right:2px}.side.rail .nav a .n .badge{padding:0 4px;font-size:9.5px}
+.side.rail .nav{display:flex;flex-direction:column;gap:2px}
+.side.rail .nav .label+a{margin-top:10px}
 .awaybar{padding:10px 16px;flex:none}
 .awaybar.on{border-color:transparent;background:linear-gradient(var(--surface),var(--surface)) padding-box,linear-gradient(135deg,#6a4dff,#ff6fb0) border-box;border:1px solid transparent}
 .awaybar .stack{max-height:40vh;overflow-y:auto}
@@ -418,6 +432,15 @@ const SCRIPT = `
   function bind(root = document) {
     $$("[data-copy]", root).forEach((b) => b.onclick = async () => { try { await navigator.clipboard.writeText(b.dataset.copy); const s = b.querySelector("span"); if (s) { const o = s.textContent; s.textContent = "Copied"; setTimeout(() => (s.textContent = o), 1400); } else toast("Copied"); } catch { toast("Couldn't copy", true); } });
     $$("[data-open]", root).forEach((b) => b.onclick = (e) => { e.preventDefault(); const d = document.getElementById(b.dataset.open); d && d.showModal(); const f = d && d.querySelector("input:not([type=hidden]),textarea"); f && f.focus(); });
+    $$("[data-railable]", root).forEach((side) => {
+      const open = (() => { try { return localStorage.getItem("ic-rail") === "open"; } catch { return false; } })();
+      side.classList.toggle("rail", !open);
+    });
+    $$("[data-railtoggle]", root).forEach((b) => b.onclick = () => {
+      const side = b.closest(".side"); const nowRail = !side.classList.contains("rail");
+      side.classList.toggle("rail", nowRail);
+      try { localStorage.setItem("ic-rail", nowRail ? "rail" : "open"); } catch {}
+    });
     $$("[data-dm]", root).forEach((b) => b.onclick = () => { const s = $("#compose-to"), c = $("#compose"); if (s && c) { s.value = b.dataset.dm; c.focus(); c.scrollIntoView({ block: "center", behavior: "smooth" }); } });
     $$("[data-close]", root).forEach((b) => b.onclick = () => b.closest("dialog").close());
     $$("form", root).forEach((f) => { if (!f.hasAttribute("data-native") || f.dataset.confirm) f.onsubmit = submit; });

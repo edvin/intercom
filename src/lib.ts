@@ -507,3 +507,47 @@ export async function setHost(env: Env, me: string, sessionId: string, raw: stri
   const host = raw.replace(/\.(local|lan|home|localdomain)$/i, "").replace(/[^\w.-]/g, "").slice(0, 48);
   await env.DB.prepare("UPDATE sessions SET host = ? WHERE member = ? AND session_id = ? AND host != ?").bind(host, me, sessionId, host).run();
 }
+
+/**
+ * Rename one of `me`'s sessions (by session id). The name is made unique among their live sessions, the session
+ * picks up mail sent to that name while nobody had it, and (remember) it joins that project's crew for its agent type.
+ */
+export async function renameSession(
+  env: Env,
+  me: string,
+  sessionId: string,
+  rawName: unknown,
+  opts: { remember?: boolean; role?: string } = {},
+): Promise<{ label: string; project: string; client: string; crew: { name: string; role: string }[] }> {
+  const name = cleanName(rawName);
+  if (!name) throw new UserError("Names are letters, digits and -, starting with a letter (max 24), e.g. alder.");
+  const s = await env.DB.prepare("SELECT project, client FROM sessions WHERE member = ? AND session_id = ?").bind(me, sessionId).first<{ project: string; client: string }>();
+  if (!s) throw new UserError("No such session of yours.");
+  const label = await freeLabel(env, me, sessionId, name);
+  await env.DB.prepare("UPDATE sessions SET label = ? WHERE member = ? AND session_id = ?").bind(label, me, sessionId).run();
+  await inheritMailbox(env, me, sessionId, label);
+  const role = (opts.role ?? "").trim().slice(0, 120);
+  const remember = opts.remember !== false && !!s.project;
+  if (remember) {
+    await env.DB.prepare(
+      `INSERT INTO agent_names (member, project, client, name, role, updated_at) VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(member, project, client, name) DO UPDATE SET role = CASE WHEN excluded.role != '' THEN excluded.role ELSE agent_names.role END`,
+    )
+      .bind(me, s.project, s.client, name, role, Date.now())
+      .run();
+  }
+  if (role) {
+    await setPresence(env, me, s.project || null, role);
+    await env.DB.prepare("UPDATE sessions SET note = ?, note_at = ? WHERE member = ? AND session_id = ?").bind(role, Date.now(), me, sessionId).run();
+  }
+  const { results: crew } = remember
+    ? await env.DB.prepare("SELECT name, role FROM agent_names WHERE member = ? AND project = ? AND client = ? ORDER BY updated_at").bind(me, s.project, s.client).all<{ name: string; role: string }>()
+    : { results: [] };
+  return { label, project: s.project, client: s.client, crew };
+}
+
+/** The member's nicknames for their machines (host → name). */
+export async function hostNames(env: Env, me: string): Promise<Map<string, string>> {
+  const { results } = await env.DB.prepare("SELECT host, name FROM host_names WHERE member = ?").bind(me).all<{ host: string; name: string }>();
+  return new Map(results.map((r) => [r.host, r.name]));
+}

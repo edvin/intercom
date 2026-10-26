@@ -817,3 +817,23 @@ describe("machines", () => {
     assert.match(page, /Edvins-MBP/);
   });
 });
+
+describe("renaming from the web", () => {
+  test("rename an agent and nickname a machine from the dashboard; set_name can rename another session", async () => {
+    const w = await standardWorld();
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=rn1&client=codex&host=edvins-mbp", { as: "bob" });
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=rn2&client=claude", { as: "bob" });
+    const res = await w.form("/agent/rename", "bob", { session: "rn1", name: "Alder", role: "perf work", remember: "on" });
+    const loc = new URL(res.headers.get("location")!, ORIGIN);
+    assert.equal(loc.searchParams.get("agent"), "bob/alder");
+    await w.form("/host/rename", "bob", { host: "edvins-mbp", name: "work mac" });
+    const page = await (await w.request("/dashboard?view=agents&agent=bob/alder", { as: "bob", cookie: true })).text();
+    assert.match(page, /work mac/);
+    assert.match(page, /perf work/);
+    // Another person can't rename bob's sessions.
+    const other = new URL((await w.form("/agent/rename", "alice", { session: "rn1", name: "evil" })).headers.get("location")!, ORIGIN);
+    assert.match(other.searchParams.get("err")!, /No such session/);
+    // From an agent: rename a sibling session by its current name.
+    assert.match(await w.ok("bob", "set_name", { name: "birch", agent: "billing-rn2" }, { id: "rn1", project: "billing-api" }), /That session is now bob\/birch/);
+  });
+});

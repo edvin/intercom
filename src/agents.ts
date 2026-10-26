@@ -3,7 +3,7 @@
 // what it answers comes back here. Its project posts show in the thread as activity.
 
 import { awayState, pendingApprovals } from "./approvals";
-import { type Env, type Message, ago, myProjects } from "./lib";
+import { type Env, type Message, ago, hostNames, myProjects } from "./lib";
 import { avatar, esc, hidden, icon, md, time } from "./ui";
 
 interface Agent {
@@ -48,6 +48,8 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
     .bind(...everyone, me, ...mine, Date.now() - 24 * 3600_000, me)
     .all<Agent>();
   const connected = env.live?.() ?? new Set<string>();
+  const nick = await hostNames(env, me);
+  const hostOf = (a: Agent) => (a.member === me ? nick.get(a.host) ?? a.host : a.host);
   const isOn = (a: Agent) => connected.has(`${a.member}/${a.session_id}`) || Date.now() - a.last_seen < 10 * 60_000;
   const key = (a: Agent) => `${a.member}/${a.label}`;
   /** Working / idle / needs you, from the session's own hooks; "gone" once it isn't connected. */
@@ -65,7 +67,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
       <span class="dot ${isOn(a) ? "on" : ""}" style="margin-top:6px" title="${isOn(a) ? "connected" : `last seen ${ago(a.last_seen)}`}"></span>
       <span class="grow" style="min-width:0">
         <span class="nm">${clientBadge(a.client)}${a.member === me ? esc(a.label) : `${esc(a.member)}/${esc(a.label)}`}${stateBadge(a)}</span>
-        <span class="sub">${a.host ? `${icon("monitor", 11)} ${esc(a.host)} · ` : ""}${a.project ? `#${esc(a.project)}` : "no project"}${a.branch ? ` · ⎇ ${esc(a.branch)}` : ""}${isOn(a) ? "" : ` · seen ${ago(a.last_seen)}`}</span>
+        <span class="sub">${a.host ? `${icon("monitor", 11)} ${esc(hostOf(a))} · ` : ""}${a.project ? `#${esc(a.project)}` : "no project"}${a.branch ? ` · ⎇ ${esc(a.branch)}` : ""}${isOn(a) ? "" : ` · seen ${ago(a.last_seen)}`}</span>
         ${a.note ? `<span class="st">${esc(a.note)}</span>` : ""}
       </span></a>`;
   // Connected agents first; the rest (ended, killed, laptop asleep) fold away unless one of them is open.
@@ -139,14 +141,14 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
       <div class="hd">
         <span class="presence ${on ? "on" : ""}">${avatar(agent.label, "m")}</span>
         <div class="grow" style="min-width:0">
-          <h2 style="display:flex;gap:8px;align-items:center"><span class="grow" style="display:flex;gap:8px;align-items:center">${esc(key(agent))}${clientBadge(agent.client, true)}</span>
+          <h2 style="display:flex;gap:8px;align-items:center"><span class="grow" style="display:flex;gap:8px;align-items:center">${esc(key(agent))}${ownAgent ? `<button type="button" class="btn ghost xs icon" data-open="dlg-rename" title="Rename this agent">${icon("pencil", 12)}</button>` : ""}${clientBadge(agent.client, true)}</span>
             <span class="viewtoggle" title="How messages are shown (remembered in this browser)"><button type="button" data-chatstyle="term">Terminal</button><button type="button" data-chatstyle="chat">Chat</button></span></h2>
-          <div class="small muted row" style="gap:6px">${stateBadge(agent)}<span>${agent.host ? `on <b style="color:var(--ink-2)">${esc(agent.host)}</b> · ` : ""}${agent.project ? `#${esc(agent.project)}` : "no project"}${agent.branch ? ` · ⎇ ${esc(agent.branch)}` : ""}${on ? "" : ` · last seen ${ago(agent.last_seen)}`}${agent.note ? ` · “${esc(agent.note)}”` : ""}</span></div>
+          <div class="small muted row" style="gap:6px">${stateBadge(agent)}<span>${agent.host ? `on <b style="color:var(--ink-2)">${esc(hostOf(agent))}</b>${ownAgent ? `<button type="button" class="btn ghost xs icon" data-open="dlg-host" title="Rename this machine">${icon("pencil", 11)}</button>` : ""} · ` : ""}${agent.project ? `#${esc(agent.project)}` : "no project"}${agent.branch ? ` · ⎇ ${esc(agent.branch)}` : ""}${on ? "" : ` · last seen ${ago(agent.last_seen)}`}${agent.note ? ` · “${esc(agent.note)}”` : ""}</span></div>
         </div>
       </div>
       ${on && agent.state === "waiting" ? `<div class="toast err" style="box-shadow:none;margin:10px 14px 0">${icon("x")}<span><b>${esc(agent.label)} is waiting:</b> ${esc(agent.state_detail || "for approval or input")}. That can only be answered in its terminal (or with Claude's Remote Control); for unattended runs, start agents in a mode that doesn't stop to ask.</span></div>` : ""}
       <div class="thread" id="thread" data-region>${thread || `<div class="empty" style="margin:auto">${icon("message", 28)}<div>No messages with ${esc(agent.label)} yet.</div><div class="small">${ownAgent ? "Ask a question or give it a new direction; it treats what you write here like a prompt you typed." : "Your message reaches this session; its owner's agent treats it as information from you."}</div></div>`}</div>
-      <form method="post" action="/action/post" class="chatbox" data-quiet>${hidden({ back, to: key(agent), channel: agent.project || "" })}
+      <form method="post" action="/action/post" class="chatbox" id="chatform" data-region data-quiet>${hidden({ back, to: key(agent), channel: agent.project || "" })}
         <div class="row" style="align-items:flex-end;flex-wrap:nowrap">
           <textarea id="chat-input" name="message" data-chat required maxlength="4000" class="grow" rows="2" placeholder="Message ${esc(agent.label)} — Enter to send, Shift+Enter for a new line"></textarea>
           <button class="btn primary" style="height:48px" title="${on ? (ownAgent ? "It picks this up right away if it's idle, or after its current step." : "It sees this on its next step.") : "Not connected: the next session with this name gets it."}">${icon("send", 15)}Send</button>
@@ -154,5 +156,18 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
         <div class="chips">${QUICK.map((q) => `<button type="button" class="chip" data-chip="${esc(q)}">${esc(q)}</button>`).join("")}${on ? "" : '<span class="tiny muted" style="align-self:center">· not connected: the next session with this name gets it</span>'}</div>
       </form>
     </section>`;
-  return `${awayBar}<div class="agents" id="agents">${list.replace('<aside class="alist">', '<aside class="alist" id="alist" data-region>')}${chat.replace('<div class="hd">', '<div class="hd" id="chathd" data-region>')}</div>`;
+  const dialogs = ownAgent
+    ? `<dialog id="dlg-rename"><div class="hd">${icon("pencil", 18)}<h2>Rename ${esc(agent.label)}</h2></div>
+        <form method="post" action="/agent/rename" data-native>${hidden({ session: agent.session_id, back: "/dashboard?view=agents" })}<div class="bd stack">
+          <label class="field">Name<input name="name" required value="${esc(agent.label)}" pattern="[A-Za-z][A-Za-z0-9-]{0,23}" autocomplete="off"></label>
+          <label class="field">Role <span class="tiny">(optional; shown as its status)</span><input name="role" value="${esc(agent.note)}" placeholder="e.g. reviews migrations"></label>
+          ${agent.project ? `<label class="check"><input type="checkbox" name="remember" checked> Remember: new ${agent.client === "codex" ? "Codex" : "Claude Code"} sessions in #${esc(agent.project)} take this name when it's free</label>` : ""}
+          <p class="tiny muted" style="margin:0">Messages to the new name reach this session; anything sent to the name while no session had it is delivered too.</p>
+        </div><div class="ft"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary">${icon("check", 14)}Rename</button></div></form></dialog>
+      ${agent.host ? `<dialog id="dlg-host"><div class="hd">${icon("monitor", 18)}<h2>Name this machine</h2></div>
+        <form method="post" action="/host/rename" data-native>${hidden({ host: agent.host, back: `/dashboard?view=agents&agent=${encodeURIComponent(key(agent))}` })}<div class="bd stack">
+          <label class="field">Shown as <span class="tiny">(only you see this nickname; empty = “${esc(agent.host)}”)</span><input name="name" value="${esc(nick.get(agent.host) ?? "")}" placeholder="${esc(agent.host)}" maxlength="40"></label>
+        </div><div class="ft"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary">${icon("check", 14)}Save</button></div></form></dialog>` : ""}`
+    : "";
+  return `${awayBar}${dialogs}<div class="agents" id="agents">${list.replace('<aside class="alist">', '<aside class="alist" id="alist" data-region>')}${chat.replace('<div class="hd">', '<div class="hd" id="chathd" data-region>')}</div>`;
 }

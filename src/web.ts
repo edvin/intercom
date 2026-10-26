@@ -477,18 +477,19 @@ export async function dashboard(url: URL, env: Env, me: string): Promise<Respons
   const navItem = (c: string) => {
     const nLocks = locks.filter((l) => l.channel === c).length;
     const nVotes = allNeed.filter((p) => p.channel === c).length + requests.filter((r) => r.project === c).length;
-    return `<a href="/dashboard?channel=${encodeURIComponent(c)}" class="${c === channel ? "on" : ""}">${icon("hash", 15)}<span>${esc(c)}</span>${mutedProjects.has(c) ? icon("bellOff", 12) : ""}
+    return `<a href="/dashboard?channel=${encodeURIComponent(c)}" class="${c === channel ? "on" : ""}" title="#${esc(c)}">${icon("hash", 15)}<span>${esc(c)}</span>${mutedProjects.has(c) ? icon("bellOff", 12) : ""}
       <span class="n">${nVotes ? `<span class="badge accent" title="Votes waiting for you">${nVotes}</span>` : ""}${nLocks ? `<span class="badge amber" title="Active locks">${icon("lock", 10)}${nLocks}</span>` : ""}</span></a>`;
   };
-  const sidebar = `<aside class="side" id="side" data-region>
+  const sidebar = `<aside class="side" id="side" data-region${view === "agents" ? " data-railable" : ""}>
+    ${view === "agents" ? `<button type="button" class="railtoggle" data-railtoggle title="Collapse or expand the menu">${icon("sidebar", 14)}</button>` : ""}
     <nav class="nav">
-      <a href="/dashboard?view=agents" class="${view === "agents" ? "on" : ""}">${icon("terminal", 15)}<span>Agents</span>${approvalsWaiting ? `<span class="n"><span class="badge red" title="Approvals waiting for you">${approvalsWaiting}</span></span>` : ""}</a>
-      <a href="/dashboard" class="${!channel && view === "feed" ? "on" : ""}">${icon("layers", 15)}<span>Everything</span>${allNeed.length ? `<span class="n"><span class="badge accent">${allNeed.length}</span></span>` : ""}</a>
+      <a href="/dashboard?view=agents" class="${view === "agents" ? "on" : ""}" title="Agents">${icon("terminal", 15)}<span>Agents</span>${approvalsWaiting ? `<span class="n"><span class="badge red" title="Approvals waiting for you">${approvalsWaiting}</span></span>` : ""}</a>
+      <a href="/dashboard" class="${!channel && view === "feed" ? "on" : ""}" title="Everything">${icon("layers", 15)}<span>Everything</span>${allNeed.length ? `<span class="n"><span class="badge accent">${allNeed.length}</span></span>` : ""}</a>
       <div class="label">Projects</div>
       ${mine.map(navItem).join("")}
-      <a href="#" data-open="dlg-create" class="muted">${icon("plus", 15)}<span>New project</span></a>
-      <a href="/discover" class="muted">${icon("users", 15)}<span>Find projects</span></a>
-      ${admin ? `<div class="label">Instance</div><a href="/dashboard?view=admin" class="${view === "admin" ? "on" : ""}">${icon("shield", 15)}<span>Admin</span></a>` : ""}
+      <a href="#" data-open="dlg-create" class="muted" title="New project">${icon("plus", 15)}<span>New project</span></a>
+      <a href="/discover" class="muted" title="Find projects">${icon("users", 15)}<span>Find projects</span></a>
+      ${admin ? `<div class="label">Instance</div><a href="/dashboard?view=admin" class="${view === "admin" ? "on" : ""}" title="Admin">${icon("shield", 15)}<span>Admin</span></a>` : ""}
     </nav>
     <div class="people">
       <div class="nav"><div class="label">People</div></div>
