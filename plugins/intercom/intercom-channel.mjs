@@ -20,7 +20,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const VERSION = "0.12.7"; // kept in step with .claude-plugin/plugin.json (a test checks)
+const VERSION = "0.12.8"; // kept in step with .claude-plugin/plugin.json (a test checks)
 const DIR = path.join(os.homedir(), ".claude", "intercom");
 const CONFIG = path.join(DIR, "config");
 function readConf() {
@@ -230,6 +230,8 @@ const isNoise = (t) => /^\s*(<|# AGENTS\.md|\[intercom|Caveat:)/.test(t);
 
 /** One transcript line (Claude Code or Codex) → zero or more {at, kind, text}. */
 const pendingCron = new Map(); // CronCreate tool_use id → job, until its result names the job id
+const bashCalls = new Map(); // Bash tool_use id → what it does, until its result says whether it went to the background
+const xmlTag = (text, name) => text.match(new RegExp(`<${name}>([\\s\\S]*?)</${name}>`))?.[1]?.trim() ?? "";
 function summarizeLine(line) {
   let d;
   try {
@@ -239,6 +241,12 @@ function summarizeLine(line) {
   }
   const at = Date.parse(d.timestamp ?? "") || Date.now();
   const out = [];
+  // A background job ended: Claude Code queues a <task-notification> for the agent.
+  if (d.type === "queue-operation" && d.operation === "enqueue" && typeof d.content === "string" && d.content.includes("<task-notification>")) {
+    const id = xmlTag(d.content, "task-id");
+    if (id) out.push({ at, kind: "job", text: JSON.stringify({ op: "end", id, status: xmlTag(d.content, "status"), summary: clip(xmlTag(d.content, "summary"), 200) }) });
+    return out;
+  }
   // Claude Code: {type: "assistant"|"user", message: {content: [...]}}
   if ((d.type === "assistant" || d.type === "user") && d.message && !d.isSidechain && !d.isMeta) {
     const c = d.message.content;
@@ -246,6 +254,14 @@ function summarizeLine(line) {
     for (const b of blocks) {
       if (b.type === "text" && b.text?.trim() && !isNoise(b.text)) out.push({ at, kind: d.type === "assistant" ? "text" : "prompt", text: clip(b.text, d.type === "assistant" ? 600 : 240) });
       // Loops: the dashboard shows what the agent scheduled. A cron job's id comes in its tool result.
+      // A command that runs in the background (asked for, or moved there after a while): a job until it ends.
+      if (b.type === "tool_result" && bashCalls.has(b.tool_use_id)) {
+        const call = bashCalls.get(b.tool_use_id);
+        bashCalls.delete(b.tool_use_id);
+        const res = typeof b.content === "string" ? b.content : Array.isArray(b.content) ? b.content.map((x) => x.text ?? "").join(" ") : "";
+        const id = res.match(/running in background with ID: ([\w-]+)|moved to the background \(ID: ([\w-]+)/);
+        if (id) out.push({ at, kind: "job", text: JSON.stringify({ op: "start", id: id[1] ?? id[2], description: call.description, command: call.command }) });
+      }
       if (b.type === "tool_result" && pendingCron.has(b.tool_use_id)) {
         const job = pendingCron.get(b.tool_use_id);
         pendingCron.delete(b.tool_use_id);
@@ -268,6 +284,10 @@ function summarizeLine(line) {
           continue;
         }
         // The agent's own one-line description, when it gave one, then the command itself.
+        if (n === "Bash") {
+          bashCalls.set(b.id, { description: clip(oneLine(i.description ?? ""), 160), command: clip(oneLine(i.command ?? ""), 200) });
+          if (bashCalls.size > 200) bashCalls.delete(bashCalls.keys().next().value);
+        }
         if (n === "Bash") out.push({ at, kind: "cmd", text: i.description ? `${clip(oneLine(i.description), 160)}\n${oneLine(i.command)}` : oneLine(i.command) });
         else if (/^(Edit|Write|MultiEdit|NotebookEdit)$/.test(n)) out.push({ at, kind: "edit", text: `${n === "Write" ? "write" : "edit"} ${i.file_path ?? i.notebook_path ?? ""}` });
         else if (/^(Read|Grep|Glob|LS)$/.test(n)) out.push({ at, kind: "read", text: `${n.toLowerCase()} ${clip(i.file_path ?? i.pattern ?? i.path ?? "", 160)}` });

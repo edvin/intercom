@@ -1,5 +1,6 @@
 import type { Db } from "./db";
 import { type LoopEvent, activeLoops, applyLoopEvents, parseLoops } from "./loops";
+import { type JobEvent, activeJobs, applyJobEvents, parseJobs } from "./jobs";
 
 /** Request-scoped context the app code runs with (inside the TeamHub Durable Object). */
 export interface Env {
@@ -618,7 +619,7 @@ export interface Activity {
   text: string;
 }
 
-const ACTIVITY_KINDS = new Set(["prompt", "text", "cmd", "edit", "read", "tool", "loop"]);
+const ACTIVITY_KINDS = new Set(["prompt", "text", "cmd", "edit", "read", "tool", "loop", "job"]);
 export const ACTIVITY_KEEP = 300;
 
 /** Store a batch of mirrored activity for one of `me`'s own sessions. */
@@ -649,19 +650,35 @@ export async function addActivity(env: Env, me: string, sessionId: string, items
     await env.DB.prepare("UPDATE sessions SET loops = ? WHERE member = ? AND session_id = ?").bind(JSON.stringify(loops), me, sessionId).run();
     loopLines.push(...lines.map((l) => ({ kind: "loop", text: l.text, at: l.at })));
   }
+  // Background jobs the same way: the running list on the session, a line when one ends.
+  const jobEvents = items.slice(-100).flatMap((it) => {
+    const i = it as { at?: unknown; kind?: unknown; text?: unknown };
+    if (i.kind !== "job") return [];
+    try {
+      return [{ at: when(i.at), ev: JSON.parse(String(i.text)) as JobEvent }];
+    } catch {
+      return [];
+    }
+  });
+  if (jobEvents.length) {
+    const cur = await env.DB.prepare("SELECT jobs FROM sessions WHERE member = ? AND session_id = ?").bind(me, sessionId).first<{ jobs: string }>();
+    const { jobs, lines } = applyJobEvents(activeJobs(parseJobs(cur?.jobs), now), jobEvents);
+    await env.DB.prepare("UPDATE sessions SET jobs = ? WHERE member = ? AND session_id = ?").bind(JSON.stringify(jobs), me, sessionId).run();
+    loopLines.push(...lines.map((l) => ({ kind: "job", text: l.text, at: l.at })));
+  }
   const rows = [
     ...items.slice(-100).flatMap((it) => {
       const i = it as { at?: unknown; kind?: unknown; text?: unknown };
       const kind = String(i.kind ?? "");
       const text = String(i.text ?? "").replace(/\s+$/g, "").slice(0, 600);
-      if (!ACTIVITY_KINDS.has(kind) || kind === "loop" || !text) return [];
+      if (!ACTIVITY_KINDS.has(kind) || kind === "loop" || kind === "job" || !text) return [];
       return [{ kind, text, at: when(i.at) }];
     }),
     ...loopLines,
   ];
   if (!rows.length) {
-    if (loopEvents.length) env.refreshWeb?.(me);
-    return loopEvents.length;
+    if (loopEvents.length || jobEvents.length) env.refreshWeb?.(me);
+    return loopEvents.length + jobEvents.length;
   }
   await env.DB.batch([
     ...rows.map((r) => env.DB.prepare("INSERT INTO activity (member, session_id, at, kind, text) VALUES (?, ?, ?, ?, ?)").bind(me, sessionId, r.at, r.kind, r.text)),

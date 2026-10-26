@@ -354,6 +354,7 @@ form.dropping{outline:2px dashed var(--accent);outline-offset:4px;border-radius:
 .att:hover img{border-color:var(--accent)}
 .act-loop .aic,.act-loop .atx{color:var(--accent)}
 .looprow{color:var(--accent);margin-top:2px}
+.jobrow{color:var(--ink-2);margin-top:2px}.act-job .aic{color:var(--amber)}.act-job .atx{color:var(--ink-2)}
 .thread.noact .act,.thread.noact .actgroup{display:none}
 .actgroup>summary{list-style:none;cursor:pointer;display:grid;grid-template-columns:18px minmax(0,1fr) auto;gap:8px;align-items:start;font-size:12.5px;color:var(--mute);padding:2px 0;font-family:"JetBrains Mono","Geist Mono",ui-monospace,monospace;border-radius:6px}
 .actgroup>summary::-webkit-details-marker{display:none}

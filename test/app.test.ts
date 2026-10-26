@@ -1283,3 +1283,30 @@ describe("invite-only (the default)", () => {
     assert.match(await (await w.request("/discover", { as: "carol", cookie: true })).text(), /Invite-only/);
   });
 });
+describe("background jobs", () => {
+  test("running jobs show for the owner; an ended one leaves a finished/failed line", async () => {
+    const w = await standardWorld();
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=bj&name=runner", { as: "bob" });
+    const post = (items: unknown[]) =>
+      w.request("/api/activity?session=bj", { as: "bob", method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ items }) });
+    const ev = (o: object) => ({ at: Date.now(), kind: "job", text: JSON.stringify(o) });
+    await post([
+      ev({ op: "start", id: "b1", description: "Run the dev server", command: "npx wrangler dev" }),
+      ev({ op: "start", id: "b2", description: "Deploy and wait until live", command: "npx wrangler deploy" }),
+    ]);
+    const view = (as: string) => w.request("/dashboard?view=agents&agent=bob/runner", { as, cookie: true }).then((r) => r.text());
+    let page = await view("bob");
+    assert.match(page, /⧗ Run the dev server <span class="muted">· running/);
+    assert.match(page, /class="badge" title="[^"]*">⧗ 2</);
+    assert.doesNotMatch(await view("alice"), /Run the dev server/);
+
+    await post([
+      ev({ op: "end", id: "b2", status: "completed", summary: 'Background command "Deploy and wait until live" completed (exit code 0)' }),
+      ev({ op: "end", id: "b1", status: "failed", summary: 'Background command "Run the dev server" failed with exit code 1' }),
+    ]);
+    page = await view("bob");
+    assert.doesNotMatch(page, /⧗ Run the dev server <span class="muted">· running/);
+    assert.match(page, /✓ finished: Deploy and wait until live after/);
+    assert.match(page, /✗ failed: Run the dev server \(exit 1\) after/);
+  });
+});
