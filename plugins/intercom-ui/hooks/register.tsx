@@ -33,7 +33,24 @@ const left = (ts: number, now: number) => {
 const short = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s)
 
 /** Module state; a reload starts it over (the snapshot itself lives in $.state). */
-const ctx = { conf: null as Conf | null, repo: '', sessionId: '', seen: -1, busy: false, turning: false, submitted: new Set<number>() }
+const ctx = { conf: null as Conf | null, repo: '', sessionId: '', seen: -1, busy: false, turning: false, submitted: new Set<number>(), ownLine: false }
+
+/** Claude Code's own status line already shows the intercom (the setup sets it): then the mod adds no line of its own. */
+async function hasOwnLine($: Engine): Promise<boolean> {
+  const home = await $.env.get('HOME')
+  if (!home) return false
+  try {
+    const settings = JSON.parse(await $.fs.read(`${home}/.claude/settings.json`)) as { statusLine?: { command?: string } }
+    return (settings.statusLine?.command ?? '').includes('intercom/statusline.sh')
+  } catch {
+    return false
+  }
+}
+
+/** This plugin's status entry, unless the status line has it. */
+function status($: Engine, text: string | undefined) {
+  $.ui.status(ctx.ownLine ? undefined : text)
+}
 
 async function loadConf($: Engine): Promise<Conf | null> {
   const home = await $.env.get('HOME')
@@ -89,7 +106,7 @@ async function refresh($: Engine): Promise<void> {
     })
     if (!res.ok) {
       await update($, error, () => (res.status === 401 ? 'token rejected: run the intercom setup again' : `hub returned ${res.status}`))
-      $.ui.status('📻 intercom: offline')
+      status($, '📻 intercom: offline')
       return
     }
     const s = JSON.parse(res.text) as Snapshot
@@ -105,10 +122,10 @@ async function refresh($: Engine): Promise<void> {
     if (others.length) parts.push(`🔒 ${others.map(l => `${l.resource} (${l.holder})`).join(', ')}`)
     if (mine.length) parts.push(`🔐 you hold ${mine.map(l => l.resource).join(', ')}`)
     if (s.votes.length) parts.push(`🗳 ${s.votes.length} vote${s.votes.length > 1 ? 's' : ''} for you`)
-    $.ui.status(parts.join(' · '))
+    status($, parts.join(' · '))
   } catch {
     await update($, error, () => "can't reach the intercom hub")
-    $.ui.status('📻 intercom: offline')
+    status($, '📻 intercom: offline')
   } finally {
     ctx.busy = false
   }
@@ -168,6 +185,7 @@ export const register: Register = on => {
       $.ui.status('📻 intercom: not set up (curl -fsSL https://intercom.mhst.io/setup.sh | sh)')
       return next(e)
     }
+    ctx.ownLine = await hasOwnLine($)
     ctx.sessionId = await $.session.id()
     ctx.repo = await detectRepo($)
     void refresh($)

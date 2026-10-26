@@ -132,6 +132,38 @@ else
   warn "the claude CLI isn't on your PATH. In Claude Code, run: /plugin install intercom --marketplace edvin/intercom"
 fi
 
+# 3b. Claude Code's status line: this session's name, unread, locks and votes (without a plugin label in front).
+# Only set when there's none yet; INTERCOM_STATUSLINE=0 skips it.
+if [ "$INTERCOM_STATUSLINE" != "0" ] && command -v claude >/dev/null 2>&1; then
+  curl -fsSL "$URL/client/statusline.sh" -o "$DIR/statusline.sh" 2>/dev/null && chmod +x "$DIR/statusline.sh"
+  if [ -f "$DIR/statusline.sh" ]; then
+    sl=$(python3 -I - "$HOME/.claude/settings.json" "$DIR/statusline.sh" <<'PY' 2>/dev/null
+import json, os, sys
+path, script = sys.argv[1], sys.argv[2]
+cfg = json.load(open(path)) if os.path.exists(path) else {}
+cur = (cfg.get("statusLine") or {}).get("command", "")
+if "intercom/statusline.sh" in cur:
+    print("ours")
+elif cur:
+    print("other")
+else:
+    cfg["statusLine"] = {"type": "command", "command": f'sh "{script}"', "padding": 0}
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path + ".tmp", "w") as f:
+        json.dump(cfg, f, indent=2)
+        f.write("\n")
+    os.replace(path + ".tmp", path)
+    print("set")
+PY
+)
+    case "$sl" in
+      set) ok "status line: this session's intercom name, unread, locks and votes (restart Claude Code to see it)" ;;
+      ours) ok "status line already shows the intercom" ;;
+      other) warn "you have your own status line; to add the intercom to it, print the output of: sh \"$DIR/statusline.sh\" (pass it the same stdin)" ;;
+    esac
+  fi
+fi
+
 # 4. Codex (OpenAI), if installed: the same MCP server, hooks (context, deploy guard) and an $intercom skill.
 if [ "$INTERCOM_CODEX" != "0" ] && command -v codex >/dev/null 2>&1; then
   CX="${CODEX_HOME:-$HOME/.codex}"

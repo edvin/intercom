@@ -1096,3 +1096,15 @@ describe("per-session delivery", () => {
     assert.match(feed, /shop freeze until Friday/);
   });
 });
+
+describe("status line", () => {
+  test("per session: its name, unread, and only its project's locks", async () => {
+    const w = await standardWorld();
+    await w.ok("carol", "invite", { project: "shop", name: "bob" });
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=sl1&name=alder", { as: "bob" });
+    await w.ok("alice", "claim", { resource: "deploy:billing:prod" });
+    await w.ok("carol", "claim", { resource: "deploy:shop:prod" });
+    const line = await (await w.request("/api/statusline?session=sl1&project=billing-api", { as: "bob" })).text();
+    assert.match(line, /^📻 alder · \d+ unread · 🔒 deploy:billing:prod \(alice\)$/);
+  });
+});

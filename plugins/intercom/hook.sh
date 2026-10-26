@@ -7,7 +7,7 @@
 # lets the user decide to go ahead. It never blocks on its own in Claude Code.
 # Never fails: any error just means no intercom context this time.
 
-VERSION=0.12.3 # kept in step with .claude-plugin/plugin.json (a test checks)
+VERSION=0.12.4 # kept in step with .claude-plugin/plugin.json (a test checks)
 D="$HOME/.claude/intercom"
 event="${1:-UserPromptSubmit}"
 client="${2:-claude}"
@@ -159,15 +159,19 @@ fi
 updated=""
 if [ "$event" = "SessionStart" ] && [ -f "$D/.updated-to" ]; then updated=$(cat "$D/.updated-to"); fi
 
-# Keep a copy of brief.sh where the /intercom command (and Codex's $intercom skill) can find it.
-if [ "$event" = "SessionStart" ] && [ -f "$(dirname "$0")/brief.sh" ]; then
-  cmp -s "$(dirname "$0")/brief.sh" "$D/brief.sh" 2>/dev/null || cp "$(dirname "$0")/brief.sh" "$D/brief.sh" 2>/dev/null
+# Keep copies of brief.sh and statusline.sh where the /intercom command, Codex's $intercom skill and the
+# statusLine setting can find them.
+if [ "$event" = "SessionStart" ]; then
+  for f in brief.sh statusline.sh; do
+    [ -f "$(dirname "$0")/$f" ] || continue
+    cmp -s "$(dirname "$0")/$f" "$D/$f" 2>/dev/null || cp "$(dirname "$0")/$f" "$D/$f" 2>/dev/null
+  done
 fi
 
 # Project = git remote repo name (e.g. acme/billing -> billing), else the directory name. Cached per session.
 pcache="$D/.project-${session:-default}"
 if [ "$event" = "SessionEnd" ]; then
-  rm -f "$D/.last-poll-${session:-default}" "$pcache"
+  rm -f "$D/.last-poll-${session:-default}" "$pcache" "$D/.statusline-${session:-default}"
 elif [ "$event" != "SessionStart" ] && [ -f "$pcache" ]; then
   project=$(cat "$pcache")
 else

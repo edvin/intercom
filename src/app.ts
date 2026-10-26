@@ -351,7 +351,20 @@ async function handleUi(url: URL, env: Env, me: string): Promise<Response> {
 }
 
 /** One-line summary for a Claude Code status line. Does not mark anything read. */
-async function handleStatusline(env: Env, me: string): Promise<Response> {
+async function handleStatusline(url: URL, env: Env, me: string): Promise<Response> {
+  const text = (t: string) => new Response(t, { headers: { "content-type": "text/plain; charset=utf-8" } });
+  if (url.searchParams.get("session")) {
+    // One session's line, the same as the intercom-ui mod shows: its name, its unread, this project's locks, votes.
+    type Snap = { label?: string; me: string; unread: number; locks: { resource: string; holder: string; here: boolean; mine: boolean }[]; votes: unknown[] };
+    const s = (await (await handleUi(url, env, me)).json()) as Snap;
+    const parts = [`📻 ${s.label ?? s.me}`, `${s.unread} unread`];
+    const others = s.locks.filter((l) => l.here && !l.mine);
+    const mine = s.locks.filter((l) => l.here && l.mine);
+    if (others.length) parts.push(`🔒 ${others.map((l) => `${l.resource} (${l.holder})`).join(", ")}`);
+    if (mine.length) parts.push(`🔐 you hold ${mine.map((l) => l.resource).join(", ")}`);
+    if (s.votes.length) parts.push(`🗳 ${s.votes.length} vote${s.votes.length > 1 ? "s" : ""} for you`);
+    return text(parts.join(" · "));
+  }
   const cursor = await env.DB.prepare("SELECT last_read_id FROM cursors WHERE member = ?").bind(me).first<{ last_read_id: number }>();
   const n = cursor
     ? (await env.DB.prepare(`SELECT COUNT(*) AS n FROM messages WHERE id > ?1 AND sender != ?2 AND ${RECEIVES}`)
@@ -457,7 +470,7 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
   if (url.pathname === "/mcp") return handleMcp(req, env, me);
   if (url.pathname === "/api/hook") return handleHook(url, env, me);
   if (url.pathname === "/api/whoami") return text(me);
-  if (url.pathname === "/api/statusline") return handleStatusline(env, me);
+  if (url.pathname === "/api/statusline") return handleStatusline(url, env, me);
   if (url.pathname === "/api/guard" && req.method === "POST") return handleGuard(req, url, env, me);
   if (url.pathname === "/api/brief") return handleBrief(url, env, me);
   if (url.pathname === "/api/ui") return handleUi(url, env, me);
