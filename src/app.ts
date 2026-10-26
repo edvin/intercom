@@ -1,5 +1,5 @@
 import { recordsBrief } from "./records";
-import { type Env, type Message, type Proposal, type Session, MEMBER_OF, RECEIVES, UserError, activeLocks, address, ago, addActivity, lockIn, scopedLocks, cleanBranch, cleanClient, fromOwnUser, renameSession, setHost, setVersion, workingOn, authenticate, coMembers, fmtLock, fmtMessage, myProjects, resolveProject, setPresence, tally, touchSession, unread } from "./lib";
+import { type Env, type Message, type Proposal, type Session, MEMBER_OF, RECEIVES, UserError, activeLocks, address, ago, addActivity, lockIn, scopedLocks, cleanBranch, cleanClient, fromOwnUser, renameSession, setHost, setVersion, workingOn, authenticate, coMembers, fmtLock, fmtMessage, myProjects, moveSession, projectFor, resolveProject, setPresence, setRepo, tally, touchSession, unread } from "./lib";
 import { INSTRUCTIONS, tools } from "./tools";
 import { cliPoll, cliStart, connectPage, discoverJoin, discoverPage, discoverRequest, githubCallback, githubCreate, githubStart, signOut } from "./accounts";
 import { approvalStatus, decide, requestApproval, setAway } from "./approvals";
@@ -109,13 +109,14 @@ async function handleHook(url: URL, env: Env, me: string): Promise<Response> {
     }
     return new Response("", { status: 200 });
   }
-  const project = raw ? await resolveProject(env, raw, me) : null;
+  const project = await projectFor(env, me, raw, sessionId);
   const branch = cleanBranch(url.searchParams.get("branch"));
   const client = cleanClient(url.searchParams.get("client"));
   await setPresence(env, me, project?.name ?? null, null, project ? branch : null);
   const session = sessionId ? await touchSession(env, me, sessionId, project?.name ?? "", branch, client, url.searchParams.get("name")) : undefined;
   if (session) {
     await setHost(env, me, session.session_id, url.searchParams.get("host"));
+    await setRepo(env, me, session.session_id, raw);
     await setVersion(env, me, session.session_id, url.searchParams.get("version"));
   }
 
@@ -133,7 +134,7 @@ async function handleHook(url: URL, env: Env, me: string): Promise<Response> {
     // Finishing a turn: if the user wrote to this session from the dashboard, keep going with that instead of stopping.
     if (session) {
       const { messages } = await unread(env, me, 20, false, session);
-      const forMe = messages.filter((m) => fromOwnUser(m, me) && m.recipient === me && (m.recipient_agent === session.label || m.recipient_agent === session.project));
+      const forMe = messages.filter((m) => fromOwnUser(m, me) && m.kind !== "event" && m.recipient === me && (m.recipient_agent === session.label || m.recipient_agent === session.project));
       if (forMe.length) {
         await unread(env, me, 20, true, session);
         await setState("working");
@@ -240,7 +241,7 @@ async function handleHook(url: URL, env: Env, me: string): Promise<Response> {
 
 /** PreToolUse deploy guard. Body: the hook's stdin JSON. Empty response = nothing to say. */
 async function handleGuard(req: Request, url: URL, env: Env, me: string): Promise<Response> {
-  let input: { tool_input?: { command?: unknown } };
+  let input: { tool_input?: { command?: unknown }; session_id?: unknown };
   try {
     input = await req.json();
   } catch {
@@ -248,7 +249,7 @@ async function handleGuard(req: Request, url: URL, env: Env, me: string): Promis
   }
   const command = typeof input.tool_input?.command === "string" ? input.tool_input.command : "";
   const raw = url.searchParams.get("project");
-  const project = raw ? await resolveProject(env, raw, me) : null;
+  const project = await projectFor(env, me, raw, typeof input.session_id === "string" ? input.session_id : null);
   const out = command ? ((await guard(env, me, project?.name ?? null, command, cleanClient(url.searchParams.get("client")) ?? "claude")) as Record<string, unknown> | null) : null;
   if (out && url.searchParams.get("show") === "0") delete out.systemMessage;
   return out ? json(out) : new Response("", { status: 200 });
@@ -257,7 +258,7 @@ async function handleGuard(req: Request, url: URL, env: Env, me: string): Promis
 /** Plain-text status for the /intercom command. Read-only: nothing is marked read. */
 async function handleBrief(url: URL, env: Env, me: string): Promise<Response> {
   const raw = url.searchParams.get("project");
-  const project = raw ? await resolveProject(env, raw, me) : null;
+  const project = await projectFor(env, me, raw, url.searchParams.get("session"));
   const mine = await myProjects(env, me);
   const people = (await coMembers(env, me)).filter((p) => p !== me);
   const visible = new Set(mine);
@@ -298,7 +299,7 @@ async function handleBrief(url: URL, env: Env, me: string): Promise<Response> {
 /** JSON snapshot for the intercom-ui mod: what to show in the band, pane and status line. Read-only. */
 async function handleUi(url: URL, env: Env, me: string): Promise<Response> {
   const raw = url.searchParams.get("project");
-  const project = raw ? await resolveProject(env, raw, me) : null;
+  const project = await projectFor(env, me, raw, url.searchParams.get("session"));
   const mine = await myProjects(env, me);
   const visible = new Set(mine);
   const people = (await coMembers(env, me)).filter((p) => p !== me);
@@ -331,7 +332,7 @@ async function handleUi(url: URL, env: Env, me: string): Promise<Response> {
   // What the user typed to this session in the dashboard and it hasn't read: the mod submits these when it's idle.
   const prompts = mySession
     ? (await unread(env, me, 20, false, mySession)).messages
-        .filter((m) => fromOwnUser(m, me) && m.recipient === me && (m.recipient_agent === mySession.label || m.recipient_agent === mySession.project))
+        .filter((m) => fromOwnUser(m, me) && m.kind !== "event" && m.recipient === me && (m.recipient_agent === mySession.label || m.recipient_agent === mySession.project))
         .map((m) => ({ id: m.id, body: m.body }))
     : [];
   return json({
@@ -435,12 +436,13 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
       env,
       me,
       sid,
-      raw ? ((await resolveProject(env, raw, me))?.name ?? "") : "",
+      (await projectFor(env, me, raw, sid))?.name ?? "",
       cleanBranch(req.headers.get("x-intercom-branch")),
       cleanClient(req.headers.get("x-intercom-client") ?? url.searchParams.get("client")),
       req.headers.get("x-intercom-name"),
     );
     await setHost(env, me, sid, req.headers.get("x-intercom-host"));
+    await setRepo(env, me, sid, raw);
     await setVersion(env, me, sid, req.headers.get("x-intercom-version"));
   }
 
@@ -515,6 +517,17 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
         else await env.DB.prepare("DELETE FROM host_names WHERE member = ? AND host = ?").bind(me, host).run();
         back.searchParams.set("ok", name ? `${host} is now shown as “${name}”` : `${host} shows its own name again`);
       }
+    } catch (e) {
+      back.searchParams.set("err", (e as Error).message);
+    }
+    return redirect(back.pathname + back.search);
+  }
+  if (url.pathname === "/agent/project" && req.method === "POST") {
+    if (!sameOrigin(req)) return new Response("Cross-origin request refused", { status: 403 });
+    const form = await req.formData();
+    const back = new URL(String(form.get("back") ?? "/dashboard?view=agents"), url);
+    try {
+      back.searchParams.set("ok", await moveSession(env, me, String(form.get("session") ?? ""), String(form.get("project") ?? ""), form.get("scope") === "repo" ? "repo" : "session"));
     } catch (e) {
       back.searchParams.set("err", (e as Error).message);
     }

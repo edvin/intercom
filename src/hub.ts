@@ -1,7 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import { handle, json } from "./app";
 import { SqlDb, splitStatements } from "./db";
-import { type Env, type Message, address, authenticate, cleanBranch, cleanClient, fmtMessage, prune, setHost, setVersion, resolveProject, setPresence, touchSession, unread } from "./lib";
+import { type Env, type Message, address, authenticate, cleanBranch, cleanClient, fmtMessage, prune, setHost, setVersion, projectFor, setPresence, setRepo, touchSession, unread } from "./lib";
 import m0001 from "../migrations/0001_init.sql";
 import m0002 from "../migrations/0002_projects.sql";
 import m0003 from "../migrations/0003_sessions.sql";
@@ -20,6 +20,7 @@ import m0015 from "../migrations/0015_activity.sql";
 import m0016 from "../migrations/0016_session_version.sql";
 import m0017 from "../migrations/0017_deliveries.sql";
 import m0018 from "../migrations/0018_records.sql";
+import m0019 from "../migrations/0019_session_project_pin.sql";
 
 const MIGRATIONS: [string, string][] = [
   ["0001_init", m0001],
@@ -40,6 +41,7 @@ const MIGRATIONS: [string, string][] = [
   ["0016_session_version", m0016],
   ["0017_deliveries", m0017],
   ["0018_records", m0018],
+  ["0019_session_project_pin", m0019],
 ];
 
 const DAY = 86400_000;
@@ -134,11 +136,12 @@ export class TeamHub extends DurableObject<WorkerEnv> {
     const sessionId = req.headers.get("x-intercom-session");
     if (!sessionId) return json({ error: "missing x-intercom-session" }, 400);
     const raw = req.headers.get("x-intercom-project");
-    const project = raw ? ((await resolveProject(env, raw, me))?.name ?? "") : "";
+    const project = (await projectFor(env, me, raw, sessionId))?.name ?? "";
     const branch = cleanBranch(req.headers.get("x-intercom-branch"));
     await setPresence(env, me, project || null, null, project ? branch : null);
     const session = await touchSession(env, me, sessionId, project, branch, cleanClient(req.headers.get("x-intercom-client")), req.headers.get("x-intercom-name"));
     await setHost(env, me, sessionId, req.headers.get("x-intercom-host"));
+    await setRepo(env, me, sessionId, raw);
     await setVersion(env, me, sessionId, req.headers.get("x-intercom-version"));
     const mode = req.headers.get("x-intercom-mode") === "peek" ? "peek" : "push";
 
@@ -176,13 +179,14 @@ export class TeamHub extends DurableObject<WorkerEnv> {
     const members = m.recipient ? undefined : names("SELECT member FROM project_members WHERE project = ?", m.channel);
     const mutedChannel = m.recipient ? undefined : names("SELECT member FROM follows WHERE channel = ? AND mode = 'mute'", m.channel);
     // Labels as they are now: a session renamed after connecting (set_name) must get DMs under its new name.
-    const rows = sql.exec("SELECT member || '/' || session_id AS k, label, state FROM sessions WHERE last_seen > ?", Date.now() - 86400_000).toArray();
+    const rows = sql.exec("SELECT member || '/' || session_id AS k, label, state, project FROM sessions WHERE last_seen > ?", Date.now() - 86400_000).toArray();
     const labels = new Map(rows.map((r) => [r.k as string, r.label as string]));
+    const projects = new Map(rows.map((r) => [r.k as string, r.project as string])); // moved from the dashboard after connecting
     const states = new Map(rows.map((r) => [r.k as string, r.state as string]));
     for (const ws of sockets) {
       const att = ws.deserializeAttachment() as SocketInfo | null;
       if (!att) continue;
-      const s = { ...att, label: labels.get(`${att.member}/${att.session_id}`) ?? att.label };
+      const s = { ...att, label: labels.get(`${att.member}/${att.session_id}`) ?? att.label, project: projects.get(`${att.member}/${att.session_id}`) ?? att.project };
       if (s.mode === "web") {
         // Dashboards also show your own activity, and muted things still appear in the feed.
         const sees = m.recipient ? m.recipient === s.member || m.sender === s.member : members!.has(s.member);

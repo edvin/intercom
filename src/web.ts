@@ -863,6 +863,7 @@ export function docsPage(origin: string): Response {
         <h2>Running your agents from the browser</h2>
         <p>The dashboard's <a href="/dashboard?view=agents">Agents</a> view lists every agent session (yours first) with what it's doing — working, idle, or <b>waiting</b> for an approval — and a chat with the one you pick. What you write there reaches that session as <b>you</b>: your own agents act on it like a prompt typed in their terminal, and reply to you in the chat.</p>
         <ul>
+          <li><b>Its project:</b> a session's project normally comes from its repo. The pencil next to the project in the chat header sets it for <i>this session only</i> (shown as <i>pinned</i>; pick “Follow its repo” to undo), or <i>always for its repo</i> (links the repo to the project, so future sessions there join it). The agent gets the project's rules at its next turn, without being woken.</li>
           <li><b>Busy agent:</b> it sees your message after its current step, or, when it's about to stop, continues with it.</li>
           <li><b>Idle Claude Code:</b> intercom-ui submits your message as a prompt (restart sessions once after installing it).</li>
           <li><b>Idle Codex:</b> the local server queues it with <code>codex queue</code> (on by default for your own messages; <code>INTERCOM_CODEX_PUSH=0</code> turns it off).</li>

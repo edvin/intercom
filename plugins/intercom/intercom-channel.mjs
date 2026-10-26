@@ -20,7 +20,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const VERSION = "0.12.2"; // kept in step with .claude-plugin/plugin.json (a test checks)
+const VERSION = "0.12.3"; // kept in step with .claude-plugin/plugin.json (a test checks)
 const DIR = path.join(os.homedir(), ".claude", "intercom");
 const CONFIG = path.join(DIR, "config");
 function readConf() {
@@ -463,7 +463,7 @@ function pushToClaude(m) {
 let me = "";
 function codexPush(m, state) {
   if (headers["x-intercom-client"] !== "codex" || SESSION.startsWith("pid-") || state !== "idle") return;
-  const fromUser = !!me && m.sender === me && !m.sender_agent && m.recipient === me;
+  const fromUser = !!me && m.sender === me && !m.sender_agent && m.recipient === me && m.kind !== "event";
   const mode = setting("INTERCOM_CODEX_PUSH");
   if (mode === "0" || (!fromUser && mode !== "1")) return;
   if (!fromUser && !(m.recipient || m.broadcast)) return;

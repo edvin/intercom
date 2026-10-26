@@ -140,7 +140,7 @@ export const fromOwnUser = (m: Message, viewer?: string) => !!viewer && m.sender
 
 export function fmtMessage(m: Message, viewer?: string): string {
   const own = fromOwnUser(m, viewer);
-  const from = own ? `${m.sender} (YOUR USER, from the dashboard)` : address(m.sender, m.sender_agent);
+  const from = own ? `${m.sender} (YOUR USER, ${m.kind === "event" ? "a dashboard notice; no reply needed" : "from the dashboard"})` : address(m.sender, m.sender_agent);
   const where = m.recipient ? `DM ${from} → ${address(m.recipient, m.recipient_agent)}` : `#${m.channel} · ${from}`;
   const marker = m.kind === "event" ? "• " : "";
   return `[${m.id}] ${where} · ${ago(m.created_at)}: ${marker}${m.body}`;
@@ -166,6 +166,29 @@ export async function resolveProject(env: Env, raw: string, me: string): Promise
   )
     .bind(p, me)
     .first<Project>();
+}
+
+/**
+ * The project a session works in: the one its user set for it from the dashboard (while they're still a member),
+ * else the one its repo maps to.
+ */
+export async function projectFor(env: Env, me: string, raw: string | null | undefined, sessionId?: string | null): Promise<Project | null> {
+  if (sessionId) {
+    const pinned = await env.DB.prepare(
+      `SELECT p.* FROM sessions s JOIN projects p ON p.name = s.project_pin JOIN project_members pm ON pm.project = p.name AND pm.member = s.member
+       WHERE s.member = ? AND s.session_id = ? AND s.project_pin != ''`,
+    )
+      .bind(me, sessionId)
+      .first<Project>();
+    if (pinned) return pinned;
+  }
+  return raw ? resolveProject(env, raw, me) : null;
+}
+
+/** Remember the repo a session runs in (what the dashboard can link to a project). */
+export async function setRepo(env: Env, me: string, sessionId: string, raw: string | null | undefined): Promise<void> {
+  const repo = normChannel(raw ?? "", "");
+  if (repo) await env.DB.prepare("UPDATE sessions SET repo = ? WHERE member = ? AND session_id = ? AND repo != ?").bind(repo, me, sessionId, repo).run();
 }
 
 export async function roleIn(env: Env, me: string, project: string): Promise<"owner" | "member" | null> {
@@ -666,4 +689,62 @@ export async function deliveryMarks(env: Env, me: string, msgs: Message[]): Prom
     out.set(m.id, { state: up ? "waiting" : "offline", detail });
   }
   return out;
+}
+
+/**
+ * Move one of `me`'s sessions to a project from the dashboard: for this session only (a pin that beats its repo's
+ * mapping), or for its repo (linked to the project, so future sessions there join it too). An empty project
+ * clears the pin. The agent is told at its next turn, with the project's rules; this isn't a prompt, so it doesn't wake it.
+ */
+export async function moveSession(env: Env, me: string, sessionId: string, project: string, scope: "session" | "repo"): Promise<string> {
+  const s = await env.DB.prepare("SELECT label, project, repo FROM sessions WHERE member = ? AND session_id = ?")
+    .bind(me, sessionId)
+    .first<{ label: string; project: string; repo: string }>();
+  if (!s) throw new UserError("No such session of yours.");
+  if (!project) {
+    const fromRepo = s.repo ? ((await resolveProject(env, s.repo, me))?.name ?? "") : "";
+    await env.DB.prepare("UPDATE sessions SET project_pin = '', project = ? WHERE member = ? AND session_id = ?").bind(fromRepo, me, sessionId).run();
+    await tellSession(env, me, s.label, fromRepo, `this session follows its repo again${fromRepo ? `, which belongs to #${fromRepo}` : ", which isn't in a project"}.`);
+    return `${s.label} follows its repo again${fromRepo ? ` (#${fromRepo})` : ""}`;
+  }
+  const target = await requireProject(env, me, project);
+  let linked = "";
+  if (scope === "repo") {
+    if (!s.repo) throw new UserError(`${s.label} hasn't reported its repo yet; set the project for this session only.`);
+    const other = await env.DB.prepare(
+      `SELECT p.name FROM projects p JOIN project_members pm ON pm.project = p.name AND pm.member = ?2
+       WHERE p.name != ?3 AND (p.name = ?1 OR EXISTS (SELECT 1 FROM json_each(p.repos) WHERE lower(value) = ?1)) LIMIT 1`,
+    )
+      .bind(s.repo, me, target)
+      .first<{ name: string }>();
+    if (other) throw new UserError(`${s.repo} already belongs to #${other.name}. Move ${s.label} for this session only, or unlink the repo there first.`);
+    const row = await env.DB.prepare("SELECT repos FROM projects WHERE name = ?").bind(target).first<{ repos: string }>();
+    const repos: string[] = JSON.parse(row?.repos ?? "[]");
+    if (s.repo !== target && !repos.includes(s.repo)) {
+      repos.push(s.repo);
+      await env.DB.prepare("UPDATE projects SET repos = ?, updated_by = ?, updated_at = ? WHERE name = ?").bind(JSON.stringify(repos), me, Date.now(), target).run();
+      await postMessage(env, { channel: target, sender: me, kind: "event", body: `linked repo ${s.repo} to #${target}` });
+    }
+    linked = s.repo;
+  }
+  await env.DB.prepare("UPDATE sessions SET project_pin = ?, project = ? WHERE member = ? AND session_id = ?")
+    .bind(scope === "repo" ? "" : target, target, me, sessionId)
+    .run();
+  const p = await env.DB.prepare("SELECT rules FROM projects WHERE name = ?").bind(target).first<{ rules: string }>();
+  await tellSession(
+    env,
+    me,
+    s.label,
+    target,
+    `moved this session to #${target}${linked ? ` and linked its repo ${linked} there, so future sessions in it join #${target} too` : ""}. From now on you work in #${target}: ${
+      p?.rules ? `follow its rules:\n${p.rules.slice(0, 1500)}` : "it has no rules yet"
+    }\nThe projects tool shows its members and crew roles; handoffs and decisions show its records.`,
+  );
+  return linked ? `${s.label} moved to #${target}; ${linked} now belongs to #${target}` : `${s.label} moved to #${target} (this session only)`;
+}
+
+/** A notice from the user to one of their sessions, delivered with its next turn (not a prompt). */
+async function tellSession(env: Env, me: string, label: string, project: string, body: string): Promise<void> {
+  await postMessage(env, { channel: project || "dm", sender: me, sender_agent: null, recipient: me, recipient_agent: label, kind: "event", body });
+  env.refreshWeb?.(me);
 }

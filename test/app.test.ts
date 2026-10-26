@@ -982,3 +982,39 @@ describe("decision log and handoffs", () => {
     assert.match(page, /id="decisionlog"[\s\S]*FnCell 1cb2e05/);
   });
 });
+
+describe("choosing an agent's project from the dashboard", () => {
+  test("pin for one session, follow the repo again, or link the repo; only your own sessions", async () => {
+    const w = await standardWorld();
+    const hook = async (as: string, event: string, sid: string, repo: string) => {
+      const t = await (await w.request(`/api/hook?event=${event}&project=${repo}&session=${sid}`, { as })).text();
+      return t.startsWith("{") ? ((JSON.parse(t) as { hookSpecificOutput?: { additionalContext?: string }; decision?: string; reason?: string }).hookSpecificOutput?.additionalContext ?? t) : t;
+    };
+    await hook("bob", "SessionStart", "p1", "scratch-tool");
+    await hook("bob", "SessionStart", "p2", "scratch-tool");
+    const move = async (as: string, fields: Record<string, string>) => new URL((await w.form("/agent/project", as, { back: "/dashboard?view=agents", ...fields })).headers.get("location")!, ORIGIN).searchParams;
+
+    assert.match((await move("bob", { session: "p1", project: "billing", scope: "session" })).get("ok")!, /moved to #billing \(this session only\)/);
+    const told = await hook("bob", "UserPromptSubmit", "p1", "scratch-tool");
+    assert.match(told, /YOUR USER, a dashboard notice; no reply needed\) → bob\/session-p1[^:]*: • moved this session to #billing\. From now on you work in #billing: follow its rules:\nProd deploys only Tue\/Thu/);
+    // The pin beats the repo, for this session only; a notice doesn't keep the agent going like a dashboard prompt does.
+    assert.match(await hook("bob", "SessionStart", "p1", "scratch-tool"), /Current project: #billing/);
+    assert.doesNotMatch(await hook("bob", "SessionStart", "p2", "scratch-tool"), /Current project/);
+    assert.doesNotMatch(await hook("bob", "Stop", "p1", "scratch-tool"), /"decision":"block"/);
+    assert.match(await (await w.request("/dashboard?view=agents&agent=bob/session-p1", { as: "bob", cookie: true })).text(), /#billing <span class="badge"[^>]*>pinned/);
+
+    assert.match((await move("bob", { session: "p1", project: "" })).get("ok")!, /follows its repo again/);
+    assert.doesNotMatch(await hook("bob", "SessionStart", "p1", "scratch-tool"), /Current project/);
+
+    // Always for the repo: future sessions there join too.
+    assert.match((await move("bob", { session: "p2", project: "billing", scope: "repo" })).get("ok")!, /scratch-tool now belongs to #billing/);
+    assert.match(await hook("bob", "SessionStart", "p3", "scratch-tool"), /Current project: #billing/);
+
+    // A repo that belongs to another project isn't taken over; someone else's session can't be moved.
+    await w.ok("alice", "configure_project", { name: "ops" });
+    await hook("alice", "SessionStart", "a1", "billing-api");
+    assert.match((await move("alice", { session: "a1", project: "ops", scope: "repo" })).get("err")!, /billing-api already belongs to #billing/);
+    assert.match((await move("alice", { session: "p1", project: "ops" })).get("err")!, /No such session/);
+    assert.match((await move("bob", { session: "p1", project: "ops" })).get("err")!, /not a member of a project named #ops/);
+  });
+});

@@ -12,6 +12,8 @@ interface Agent {
   session_id: string;
   label: string;
   project: string;
+  project_pin?: string;
+  repo?: string;
   branch: string;
   note: string;
   client: string;
@@ -43,7 +45,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   const ph = (n: number) => Array.from({ length: n }, () => "?").join(",") || "NULL";
   const everyone = people.includes(me) ? people : [...people, me];
   const { results: agents } = await env.DB.prepare(
-    `SELECT member, session_id, label, project, branch, note, client, host, version, last_seen, state, state_detail, state_at FROM sessions
+    `SELECT member, session_id, label, project, project_pin, repo, branch, note, client, host, version, last_seen, state, state_detail, state_at FROM sessions
      WHERE member IN (${ph(everyone.length)}) AND (member = ? OR project IN (${ph(mine.length)})) AND last_seen > ?
      ORDER BY member = ? DESC, last_seen DESC`,
   )
@@ -105,7 +107,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   const stale = agents.filter((a) => a.member === me && isOn(a) && outdated(a.version));
   const updateBar = stale.length
     ? `<section class="card updatebar" id="updatebar" data-region><div class="row" style="gap:10px;flex-wrap:nowrap">${icon("download", 16)}
-        <div class="grow" style="min-width:0"><b>intercom ${PLUGIN_VERSION} is available</b> <span class="small muted">· <span title="${esc(stale.map((a) => a.label).join(", "))}" style="text-decoration:underline dotted">${stale.length} of your running session${stale.length > 1 ? "s" : ""}</span> run${stale.length > 1 ? "" : "s"} an older version. They update automatically at their next start; restart them to load it, or update now with <code>/intercom update</code>.</span></div>
+        <div class="grow" style="min-width:0"><b>intercom ${PLUGIN_VERSION} is available</b> <span class="small muted">· <span title="${esc(stale.map((a) => a.label).join(", "))}" style="text-decoration:underline dotted">${stale.length} of your running sessions</span> run${stale.length > 1 ? "" : "s"} an older version. They update automatically at their next start; restart them to load it, or update now with <code>/intercom update</code>.</span></div>
       </div></section>`
     : "";
   const awayBar = `${updateBar}<section class="card awaybar ${away ? "on" : ""}" id="awaybar" data-region>
@@ -178,7 +180,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
         <div class="grow" style="min-width:0">
           <h2 style="display:flex;gap:8px;align-items:center"><span class="grow" style="display:flex;gap:8px;align-items:center">${esc(key(agent))}${ownAgent ? `<button type="button" class="btn ghost xs icon renamebtn" data-open="dlg-rename" title="Rename this agent">${icon("pencil", 12)}</button>` : ""}${clientBadge(agent.client, true)}</span>
             <button type="button" class="btn ghost xs icon ttog" data-relaytoggle title="Messages between agents: click to show or hide">${icon("messages", 14)}</button>${ownAgent ? `<button type="button" class="btn ghost xs icon ttog" data-acttoggle title="Follow what the agent is doing (commands, edits, its text; only you see this): click to turn on or off"><span class="when-on">${icon("eye", 14)}</span><span class="when-off">${icon("eyeOff", 14)}</span></button>` : ""}<span class="viewtoggle" title="How messages are shown (remembered in this browser)"><button type="button" data-chatstyle="term">Terminal</button><button type="button" data-chatstyle="chat">Chat</button></span></h2>
-          <div class="meta-row">${stateBadge(agent)}<span>${agent.host ? `on <b style="color:var(--ink-2)">${esc(hostOf(agent))}</b>${ownAgent ? `<button type="button" class="btn ghost xs icon renamebtn" data-open="dlg-host" title="Rename this machine">${icon("pencil", 11)}</button>` : ""} · ` : ""}${agent.project ? `#${esc(agent.project)}` : "no project"}${agent.branch ? ` · ${icon("branch", 12)} ${esc(agent.branch)}` : ""}${on ? "" : ` · last seen ${ago(agent.last_seen)}`}${agent.note ? ` · “${esc(plainSpaces(agent.note))}”` : ""}</span></div>
+          <div class="meta-row">${stateBadge(agent)}<span>${agent.host ? `on <b style="color:var(--ink-2)">${esc(hostOf(agent))}</b>${ownAgent ? `<button type="button" class="btn ghost xs icon renamebtn" data-open="dlg-host" title="Rename this machine">${icon("pencil", 11)}</button>` : ""} · ` : ""}${agent.project ? `#${esc(agent.project)}` : "no project"}${ownAgent && agent.project_pin ? ` <span class="badge" title="Set from the dashboard for this session; its repo would put it in ${esc(agent.repo ? `whatever ${agent.repo} maps to` : "no project")}">pinned</span>` : ""}${ownAgent ? `<button type="button" class="btn ghost xs icon renamebtn" data-open="dlg-project" title="Choose its project">${icon("pencil", 11)}</button>` : ""}${agent.branch ? ` · ${icon("branch", 12)} ${esc(agent.branch)}` : ""}${on ? "" : ` · last seen ${ago(agent.last_seen)}`}${agent.note ? ` · “${esc(plainSpaces(agent.note))}”` : ""}</span></div>
         </div>
       </div>
       ${on && agent.state === "waiting" ? `<div class="toast err" style="box-shadow:none;margin:10px 14px 0">${icon("x")}<span><b>${esc(agent.label)} is waiting:</b> ${esc(agent.state_detail || "for approval or input")}. That can only be answered in its terminal (or with Claude's Remote Control); for unattended runs, start agents in a mode that doesn't stop to ask.</span></div>` : ""}
@@ -199,6 +201,16 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
           ${agent.project ? `<label class="check"><input type="checkbox" name="remember" checked> Remember: new ${agent.client === "codex" ? "Codex" : "Claude Code"} sessions in #${esc(agent.project)} take this name when it's free</label>` : ""}
           <p class="tiny muted" style="margin:0">Messages to the new name reach this session; anything sent to the name while no session had it is delivered too.</p>
         </div><div class="ft"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary">${icon("check", 14)}Rename</button></div></form></dialog>
+      <dialog id="dlg-project"><div class="hd">${icon("hash", 18)}<h2>Project for ${esc(agent.label)}</h2></div>
+        <form method="post" action="/agent/project" data-native>${hidden({ session: agent.session_id, back: `/dashboard?view=agents&agent=${encodeURIComponent(key(agent))}` })}<div class="bd stack">
+          <label class="field">Project<select name="project">
+            <option value=""${agent.project_pin ? "" : " selected"}>Follow its repo${agent.repo ? ` (${esc(agent.repo)})` : ""}</option>
+            ${mine.map((p) => `<option value="${esc(p)}"${agent.project_pin === p ? " selected" : ""}>#${esc(p)}</option>`).join("")}
+          </select></label>
+          <label class="check"><input type="radio" name="scope" value="session" checked> This session only <span class="tiny muted">(until you change it back; other sessions in the repo are unaffected)</span></label>
+          <label class="check"><input type="radio" name="scope" value="repo"${agent.repo ? "" : " disabled"}> Always for ${agent.repo ? `repo <code>${esc(agent.repo)}</code>` : "its repo (not reported yet)"} <span class="tiny muted">(links it to the project; future sessions there join it)</span></label>
+          <p class="tiny muted" style="margin:0">The agent is told at its next turn, with the project's rules, crew and records. It isn't woken up for it.</p>
+        </div><div class="ft"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary">${icon("check", 14)}Save</button></div></form></dialog>
       ${agent.host ? `<dialog id="dlg-host"><div class="hd">${icon("monitor", 18)}<h2>Name this machine</h2></div>
         <form method="post" action="/host/rename" data-native>${hidden({ host: agent.host, back: `/dashboard?view=agents&agent=${encodeURIComponent(key(agent))}` })}<div class="bd stack">
           <label class="field">Shown as <span class="tiny">(only you see this nickname; empty = “${esc(agent.host)}”)</span><input name="name" value="${esc(nick.get(agent.host) ?? "")}" placeholder="${esc(agent.host)}" maxlength="40"></label>
