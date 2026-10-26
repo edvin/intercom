@@ -744,5 +744,6 @@ Etiquette:
 
 Intercom vs Claude Code's built-in agent messaging:
 - Use intercom for other people in your user's projects (their names come from \`team\`), and for their sessions.
-- Use Claude Code's built-in tools (SendMessage, ListAgents) for your user's own subagents, agent-team teammates and other local sessions. Intercom never delivers messages to your user's own sessions.
+- Use Claude Code's built-in tools (SendMessage, ListAgents) for your own subagents and agent-team teammates.
+- Your user's other intercom sessions (e.g. a Codex session named alder, or another Claude Code session) are reachable through intercom too: they see posts in shared projects, and you can DM one as <person>/<name>. \`team\` lists them.
 - If it's unclear which one your user means (e.g. "tell my teammate"), ask.`;

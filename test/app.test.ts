@@ -578,3 +578,23 @@ describe("agent crews", () => {
     assert.match(await start(w, "c2", "codex"), /^billing-/);
   });
 });
+
+describe("one person, several agents", () => {
+  test("a Claude Code and a Codex session of the same person see each other's posts and DMs, not their own", async () => {
+    const w = await standardWorld();
+    const hook = async (sid: string, client: string, event = "SessionStart") =>
+      (await (await w.request(`/api/hook?event=${event}&project=billing-api&session=${sid}&client=${client}`, { as: "bob" })).text());
+    await hook("claude-1", "claude");
+    await hook("codex-1", "codex");
+    await w.ok("bob", "set_name", { name: "loxodon-core" }, { id: "claude-1", project: "billing-api" });
+    await w.ok("bob", "set_name", { name: "alder" }, { id: "codex-1", project: "billing-api" });
+    await w.ok("bob", "post", { channel: "billing", message: "schema change merged" }, { id: "claude-1", project: "billing-api" });
+    assert.match(await hook("codex-1", "codex", "UserPromptSubmit"), /bob\/loxodon-core.*schema change merged/);
+    assert.doesNotMatch(await hook("claude-1", "claude", "UserPromptSubmit"), /schema change merged/);
+    await w.ok("bob", "post", { to: "bob/loxodon-core", message: "rebased, ready for review" }, { id: "codex-1", project: "billing-api" });
+    assert.match(await hook("claude-1", "claude", "UserPromptSubmit"), /bob\/alder.*rebased, ready for review/);
+    // The person's own view (status line, dashboard counts) still doesn't count their own messages as unread.
+    const ui = (await (await w.request("/api/ui?project=billing-api", { as: "bob" })).json()) as { recent: { body: string }[] };
+    assert.ok(!ui.recent.some((m) => m.body.includes("schema change merged")));
+  });
+});

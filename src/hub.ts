@@ -159,7 +159,8 @@ export class TeamHub extends DurableObject<WorkerEnv> {
         if (sees) this.safeSend(ws, '{"type":"refresh"}');
         continue;
       }
-      if (s.member === m.sender) continue;
+      // Don't echo a session's own message back to it; the member's other sessions do get it.
+      if (s.member === m.sender && (!m.sender_agent ? false : m.sender_agent === s.label)) continue;
       const receives = m.recipient
         ? m.recipient === s.member && !mutedSender.has(s.member) && (!m.recipient_agent || m.recipient_agent === s.label || m.recipient_agent === s.project)
         : members!.has(s.member) && (m.broadcast === 1 || (!mutedSender.has(s.member) && !mutedChannel!.has(s.member)));
