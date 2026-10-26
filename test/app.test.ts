@@ -623,3 +623,19 @@ describe("own agents through the tools", () => {
     assert.match(team, /Nobody else shares a project with you yet/);
   });
 });
+
+describe("status for an agent", () => {
+  test("counts the other sessions' messages and lists them", async () => {
+    const w = await standardWorld();
+    const lox = { id: "claude-7", project: "billing-api" };
+    const alder = { id: "codex-7", project: "billing-api" };
+    await w.ok("bob", "inbox", {}, lox);
+    await w.ok("bob", "inbox", {}, alder);
+    await w.ok("bob", "set_name", { name: "alder" }, alder);
+    await w.ok("bob", "post", { channel: "billing", message: "perf numbers are in" }, alder);
+    const brief = await (await w.request("/api/brief?project=billing-api&session=claude-7", { as: "bob" })).text();
+    assert.match(brief, /Unread \(1\)/);
+    assert.match(brief, /perf numbers are in/);
+    assert.match(brief, /Your other sessions:\n\s+bob\/alder/);
+  });
+});

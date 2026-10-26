@@ -45,5 +45,7 @@ fi
 dir="${CLAUDE_PROJECT_DIR:-$PWD}"
 project=$(git -C "$dir" remote get-url origin 2>/dev/null | sed -e 's#\.git$##' -e 's#.*[/:]##')
 [ -n "$project" ] || project=$(basename "$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null || echo "$dir")")
-curl -sf --max-time 5 -G "$INTERCOM_URL/api/brief" --data-urlencode "project=$project" -H "Authorization: Bearer $INTERCOM_TOKEN" 2>/dev/null \
+# The agent's session (Claude Code and Codex both pass it to the commands they run): its own unread view.
+session="${CLAUDE_CODE_SESSION_ID:-${CODEX_SESSION_ID:-$CODEX_THREAD_ID}}"
+curl -sf --max-time 5 -G "$INTERCOM_URL/api/brief" --data-urlencode "project=$project" --data-urlencode "session=$session" -H "Authorization: Bearer $INTERCOM_TOKEN" 2>/dev/null \
   || echo "INTERCOM UNREACHABLE at $INTERCOM_URL (check the network, or that your token still works)."

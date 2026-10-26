@@ -1,4 +1,4 @@
-import { type Env, type Message, type Proposal, MEMBER_OF, RECEIVES, UserError, activeLocks, address, ago, cleanBranch, cleanClient, workingOn, authenticate, coMembers, fmtLock, fmtMessage, myProjects, resolveProject, setPresence, tally, touchSession, unread } from "./lib";
+import { type Env, type Message, type Proposal, type Session, MEMBER_OF, RECEIVES, UserError, activeLocks, address, ago, cleanBranch, cleanClient, workingOn, authenticate, coMembers, fmtLock, fmtMessage, myProjects, resolveProject, setPresence, tally, touchSession, unread } from "./lib";
 import { INSTRUCTIONS, tools } from "./tools";
 import { cliPoll, cliStart, connectPage, discoverJoin, discoverPage, discoverRequest, githubCallback, githubCreate, githubStart, signOut } from "./accounts";
 import { guard } from "./guard";
@@ -181,17 +181,31 @@ async function handleBrief(url: URL, env: Env, me: string): Promise<Response> {
     : { results: [] };
   const locks = await activeLocks(env, me);
   const { results: open } = await env.DB.prepare(`SELECT * FROM proposals WHERE status = 'open' AND ${MEMBER_OF} ORDER BY id DESC LIMIT 10`).bind(null, me).all<Proposal>();
-  const { messages, more } = await unread(env, me, 8, false);
+  // From an agent's shell (brief.sh passes its session): that session's view, which includes the member's other sessions.
+  const sid = url.searchParams.get("session");
+  const session = sid
+    ? await env.DB.prepare("SELECT session_id, label, project, cursor FROM sessions WHERE member = ? AND session_id = ?").bind(me, sid).first<Session & { cursor: number }>()
+    : null;
+  const { messages, more } = await unread(env, me, 8, false, session ?? undefined);
+  const { results: own } = await env.DB.prepare(
+    "SELECT label, project, branch, note, client, last_seen FROM sessions WHERE member = ? AND last_seen > ? AND session_id != ? ORDER BY last_seen DESC",
+  )
+    .bind(me, Date.now() - 6 * 3600_000, sid ?? "")
+    .all<{ label: string; project: string; branch: string; note: string; client: string; last_seen: number }>();
   const out = [
     `INTERCOM STATUS for ${me}${project ? ` · current project #${project.name}` : raw ? ` · this repo ("${raw}") isn't linked to any of your projects` : ""}`,
     `Projects: ${mine.length ? mine.map((p) => `#${p}`).join(", ") : "none"}`,
-    `Active (2h): ${active.length ? active.map((a) => `${a.member} (${visible.has(a.project) ? `${workingOn(a.project, a.branch, a.note)}, ` : ""}${ago(a.updated_at)})`).join(", ") : "nobody"}`,
+    session ? `This session: ${address(me, session.label)}` : "",
+    own.length
+      ? `Your other sessions:\n${own.map((o) => `  ${address(me, o.label)}${o.client === "codex" ? " [Codex]" : ""} (${workingOn(o.project || null, o.branch, o.note) || "no project"}, ${ago(o.last_seen)})`).join("\n")}`
+      : "Your other sessions: none",
+    `Others active (2h): ${active.length ? active.map((a) => `${a.member} (${visible.has(a.project) ? `${workingOn(a.project, a.branch, a.note)}, ` : ""}${ago(a.updated_at)})`).join(", ") : "nobody"}`,
     locks.length ? `Locks:\n${locks.map((l) => `  ${fmtLock(l, me)}`).join("\n")}` : "Locks: none",
     open.length ? `Open votes:\n${(await Promise.all(open.map((p) => tally(env, p, me)))).map((t) => t.replace(/^/gm, "  ")).join("\n")}` : "Open votes: none",
     messages.length ? `Unread (${messages.length}${more ? "+" : ""}):\n${messages.map((m) => `  ${fmtMessage(m)}`).join("\n")}` : "Unread: none",
     `Dashboard: ${url.origin}/${project ? `?channel=${encodeURIComponent(project.name)}` : ""}`,
   ];
-  return text(out.join("\n"));
+  return text(out.filter(Boolean).join("\n"));
 }
 
 /** JSON snapshot for the intercom-ui mod: what to show in the band, pane and status line. Read-only. */
