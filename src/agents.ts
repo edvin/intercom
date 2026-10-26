@@ -20,7 +20,7 @@ interface Agent {
   state_at: number | null;
 }
 
-const QUICK = ["What's your status?", "Pause and check in with me before going further.", "Stop, summarize what you've done, and wait.", "Commit and push what you have."];
+const QUICK = ["What's your status?", "Pause and check in with me first.", "Stop, summarize, and wait.", "Commit and push what you have."];
 
 export async function agentsView(env: Env, me: string, url: URL, people: string[]): Promise<string> {
   const mine = await myProjects(env, me);
@@ -38,29 +38,37 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   const key = (a: Agent) => `${a.member}/${a.label}`;
   /** Working / idle / needs you, from the session's own hooks; "gone" once it isn't connected. */
   const stateBadge = (a: Agent) => {
-    if (!isOn(a)) return `<span class="badge">not connected</span>`;
+    if (!isOn(a)) return "";
     if (a.state === "waiting") return `<span class="badge red" title="${esc(a.state_detail)}">⚠ ${esc(a.state_detail || "needs you")}</span>`;
     if (a.state === "working") return `<span class="badge accent">⚙ working</span>`;
     if (a.state === "idle") return `<span class="badge green">idle</span>`;
     return "";
   };
   const picked = url.searchParams.get("agent");
-  const agent = agents.find((a) => key(a) === picked) ?? agents.find((a) => a.member === me && isOn(a)) ?? agents[0];
+  const agent = agents.find((a) => key(a) === picked) ?? agents.find((a) => a.member === me && isOn(a)) ?? agents.find(isOn) ?? agents[0];
 
   const card = (a: Agent) => `<a class="acard ${agent && key(a) === key(agent) ? "on" : ""}" href="/dashboard?view=agents&agent=${encodeURIComponent(key(a))}">
       <span class="dot ${isOn(a) ? "on" : ""}" style="margin-top:6px" title="${isOn(a) ? "connected" : `last seen ${ago(a.last_seen)}`}"></span>
       <span class="grow" style="min-width:0">
-        <span class="nm">${a.member === me ? esc(a.label) : `${esc(a.member)}/${esc(a.label)}`}${a.client === "codex" ? '<span class="badge">Codex</span>' : ""}</span>
+        <span class="nm">${a.member === me ? esc(a.label) : `${esc(a.member)}/${esc(a.label)}`}${a.client === "codex" ? '<span class="badge">Codex</span>' : ""}${stateBadge(a)}</span>
         <span class="sub">${a.project ? `#${esc(a.project)}` : "no project"}${a.branch ? ` · ⎇ ${esc(a.branch)}` : ""}${isOn(a) ? "" : ` · seen ${ago(a.last_seen)}`}</span>
-        <span style="display:block;margin-top:3px">${stateBadge(a)}</span>
         ${a.note ? `<span class="st">${esc(a.note)}</span>` : ""}
       </span></a>`;
+  // Connected agents first; the rest (ended, killed, laptop asleep) fold away unless one of them is open.
+  const sel = (a: Agent) => !!agent && key(a) === key(agent);
+  const group = (title: string, list: Agent[], id: string) => {
+    const live = list.filter(isOn);
+    const gone = list.filter((a) => !isOn(a));
+    if (!list.length) return "";
+    return `<div class="nav"><div class="label">${title} · ${live.length}${gone.length ? ` <span style="font-weight:500;text-transform:none;letter-spacing:0">(+${gone.length} not connected)</span>` : ""}</div></div>
+      ${live.map(card).join("")}
+      ${gone.length ? `<details id="gone-${id}" ${gone.some(sel) ? "open" : ""}><summary>Not connected · ${gone.length}</summary>${gone.map(card).join("")}</details>` : ""}`;
+  };
   const own = agents.filter((a) => a.member === me);
   const theirs = agents.filter((a) => a.member !== me);
   const list = `<aside class="alist">
-      <div class="nav"><div class="label" style="margin-top:0">Your agents · ${own.length}</div></div>
-      ${own.length ? own.map(card).join("") : `<p class="small muted" style="padding:0 10px">No agent sessions in the last day. Start Claude Code or Codex in a repo of one of your projects.</p>`}
-      ${theirs.length ? `<div class="nav"><div class="label">Teammates' agents · ${theirs.length}</div></div>${theirs.map(card).join("")}` : ""}
+      ${own.length ? group("Your agents", own, "own") : `<div class="nav"><div class="label">Your agents</div></div><p class="small muted" style="padding:0 10px">No agent sessions in the last day. Start Claude Code or Codex in a repo of one of your projects.</p>`}
+      ${group("Teammates' agents", theirs, "theirs")}
     </aside>`;
 
   // Away mode and the approval questions waiting for an answer.
@@ -78,9 +86,9 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
     </div>`;
   const awayBar = `<section class="card awaybar ${away ? "on" : ""}" id="awaybar" data-region>
       <div class="row" style="gap:10px">
-        <span style="font-size:20px">${away ? "🌙" : "🖥"}</span>
+        <span style="font-size:18px">${away ? "🌙" : "🖥"}</span>
         <div class="grow"><b>${away ? "Away mode is on" : "At your desk"}</b>
-          <div class="small muted">${away ? `Approval questions from your agents come here; unanswered ones are denied after ${waitMin} min so nobody hangs.` : "Approval questions show in each agent's terminal. Turn on away mode before you leave to answer them here."}</div></div>
+          <span class="small muted"> · ${away ? `approval questions come here; unanswered ones are denied after ${waitMin} min` : "approval questions show in each agent's terminal; turn on away mode to answer them here"}</span></div>
         <form method="post" action="/away" class="row" data-native>
           ${away ? "" : `<label class="small muted">deny after <input name="wait" type="number" min="1" max="60" value="${waitMin}" style="width:64px;height:28px"> min</label>`}
           <input type="hidden" name="away" value="${away ? "off" : "on"}"><button class="btn sm ${away ? "" : "primary"}">${away ? "I'm back" : "I'm leaving"}</button>
@@ -124,13 +132,11 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
       ${on && agent.state === "waiting" ? `<div class="toast err" style="box-shadow:none;margin:10px 14px 0">${icon("x")}<span><b>${esc(agent.label)} is waiting:</b> ${esc(agent.state_detail || "for approval or input")}. That can only be answered in its terminal (or with Claude's Remote Control); for unattended runs, start agents in a mode that doesn't stop to ask.</span></div>` : ""}
       <div class="thread" id="thread" data-region>${thread || `<div class="empty" style="margin:auto">${icon("message", 28)}<div>No messages with ${esc(agent.label)} yet.</div><div class="small">${ownAgent ? "Ask a question or give it a new direction; it treats what you write here like a prompt you typed." : "Your message reaches this session; its owner's agent treats it as information from you."}</div></div>`}</div>
       <form method="post" action="/action/post" class="chatbox" data-quiet>${hidden({ back, to: key(agent), channel: agent.project || "" })}
-        <textarea id="chat-input" name="message" data-chat required maxlength="4000" placeholder="Message ${esc(agent.label)} — Enter to send, Shift+Enter for a new line"></textarea>
-        <div class="row">
-          <div class="chips">${QUICK.map((q) => `<button type="button" class="chip" data-chip="${esc(q)}">${esc(q)}</button>`).join("")}</div>
-          <span class="grow"></span>
-          <span class="tiny muted">${on ? (ownAgent ? "It picks this up right away if it's idle, or after its current step." : "It sees this on its next step.") : "Not connected: the next session with this name gets it."}</span>
-          <button class="btn primary sm">${icon("send", 14)}Send</button>
+        <div class="row" style="align-items:flex-end;flex-wrap:nowrap">
+          <textarea id="chat-input" name="message" data-chat required maxlength="4000" class="grow" rows="2" placeholder="Message ${esc(agent.label)} — Enter to send, Shift+Enter for a new line"></textarea>
+          <button class="btn primary" style="height:48px" title="${on ? (ownAgent ? "It picks this up right away if it's idle, or after its current step." : "It sees this on its next step.") : "Not connected: the next session with this name gets it."}">${icon("send", 15)}Send</button>
         </div>
+        <div class="chips">${QUICK.map((q) => `<button type="button" class="chip" data-chip="${esc(q)}">${esc(q)}</button>`).join("")}${on ? "" : '<span class="tiny muted" style="align-self:center">· not connected: the next session with this name gets it</span>'}</div>
       </form>
     </section>`;
   return `${awayBar}<div class="agents" id="agents">${list.replace('<aside class="alist">', '<aside class="alist" id="alist" data-region>')}${chat.replace('<div class="hd">', '<div class="hd" id="chathd" data-region>')}</div>`;

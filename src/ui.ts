@@ -241,35 +241,48 @@ label.field>input,label.field>textarea,label.field>select{width:100%}
 .mdpre{margin:6px 0;background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:8px 10px;overflow-x:auto;white-space:pre;font-size:12.5px}
 .body code,.bubble code{font-size:.86em}
 
-/* agents: the management station */
-.shell.wide{grid-template-columns:232px minmax(0,1fr)}
-@media (max-width:820px){.shell.wide{grid-template-columns:1fr}}
-.agents{display:grid;grid-template-columns:300px minmax(0,1fr);gap:20px;align-items:start}
-@media (max-width:1100px){.agents{grid-template-columns:1fr}}
-.alist{display:flex;flex-direction:column;gap:6px;position:sticky;top:76px;max-height:calc(100vh - 96px);overflow:auto}
-.acard{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border-radius:12px;border:1px solid transparent;color:var(--ink);text-decoration:none!important}
+/* agents: the management station. An app-like screen: the page doesn't scroll; the list and the thread do. */
+.shell.wide{grid-template-columns:232px minmax(0,1fr);height:calc(100dvh - 58px);padding-top:16px;padding-bottom:16px;align-items:stretch;overflow:hidden}
+.shell.wide>.side{position:static;max-height:none;overflow:auto}
+.shell.wide>.main{min-height:0;height:100%;gap:12px}
+.agents{display:grid;grid-template-columns:320px minmax(0,1fr);gap:16px;flex:1;min-height:0}
+.alist{display:flex;flex-direction:column;gap:2px;overflow-y:auto;min-height:0;padding-right:4px}
+.alist .label{margin:6px 10px 6px!important}
+.acard{display:flex;gap:10px;align-items:flex-start;padding:9px 11px;border-radius:12px;border:1px solid transparent;color:var(--ink);text-decoration:none!important}
 .acard:hover{background:var(--surface-2)}
 .acard.on{background:var(--surface);border-color:var(--line);box-shadow:var(--shadow)}
-.acard .nm{font-weight:600;display:flex;gap:6px;align-items:center}.acard .sub{font-size:12px;color:var(--mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.acard .st{font-size:12.5px;color:var(--ink-2);margin-top:2px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.acard .nm{font-weight:600;display:flex;gap:6px;align-items:center;flex-wrap:wrap}.acard .sub{display:block;font-size:12px;color:var(--mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.acard .st{font-size:12.5px;color:var(--ink-2);margin-top:2px;display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden}
+.acard.on .st{-webkit-line-clamp:3}
+.alist details>summary{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--mute);font-weight:600;padding:10px}
+.alist details[open]>summary{padding-bottom:4px}
 .dot{width:8px;height:8px;border-radius:50%;background:var(--mute);flex:none}.dot.on{background:var(--green);box-shadow:0 0 0 3px var(--green-soft)}
-.chat{display:flex;flex-direction:column;height:calc(100vh - 120px);min-height:520px}
-.chat>.hd{flex-wrap:wrap}
-.thread{flex:1;overflow-y:auto;padding:18px;display:flex;flex-direction:column;gap:10px;scroll-behavior:smooth}
+.chat{display:flex;flex-direction:column;min-height:0;height:100%;overflow:hidden}
+.chat>.hd{flex-wrap:wrap;flex:none}
+.thread{flex:1;min-height:0;overflow-y:auto;padding:18px;display:flex;flex-direction:column;gap:10px;overscroll-behavior:contain}
+.thread>.empty{margin:auto}
 .bubble{max-width:min(78%,760px);padding:10px 14px;border-radius:16px;background:var(--surface-2);border:1px solid var(--line);white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.5;align-self:flex-start;border-bottom-left-radius:6px}
 .bubble.me{align-self:flex-end;background:var(--grad);color:#fff;border:0;border-bottom-left-radius:16px;border-bottom-right-radius:6px}
 .bubble.me a{color:#fff;text-decoration:underline}.bubble.me code{background:rgba(255,255,255,.18);border-color:transparent;color:#fff}
 .bubble .when{display:block;font-size:11px;opacity:.65;margin-top:4px}
 .activity{align-self:center;font-size:12.5px;color:var(--mute);text-align:center;max-width:80%;display:flex;gap:6px;align-items:center}
-.chatbox{border-top:1px solid var(--line);padding:12px 14px;display:flex;flex-direction:column;gap:8px}
-.chatbox textarea{min-height:52px;max-height:240px;font-size:14.5px}
+.chatbox{flex:none;border-top:1px solid var(--line);padding:12px 14px;display:flex;flex-direction:column;gap:8px;background:var(--surface)}
+.chatbox textarea{min-height:48px;max-height:30vh;font-size:14.5px;resize:none}
+.chatbox .chips{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}.chatbox .chip{white-space:nowrap}
 .chips{display:flex;gap:6px;flex-wrap:wrap}
 .chip{font-size:12px;padding:3px 10px;border-radius:99px;border:1px solid var(--line-strong);background:var(--surface);color:var(--ink-2);cursor:pointer}
 .chip:hover{border-color:color-mix(in srgb,var(--accent) 50%,transparent);color:var(--accent)}
-
-.awaybar{padding:14px 18px;margin-bottom:16px}
+.awaybar{padding:10px 16px;flex:none}
 .awaybar.on{border-color:transparent;background:linear-gradient(var(--surface),var(--surface)) padding-box,linear-gradient(135deg,#6a4dff,#ff6fb0) border-box;border:1px solid transparent}
+.awaybar .stack{max-height:40vh;overflow-y:auto}
 .approval{padding:12px 14px;border-radius:12px;border:1px solid color-mix(in srgb,var(--amber) 45%,transparent);background:var(--amber-soft)}
+@media (max-width:1100px){.agents{grid-template-columns:260px minmax(0,1fr)}}
+@media (max-width:820px){
+  .shell.wide{height:auto;overflow:visible}
+  .agents{grid-template-columns:1fr}
+  .alist{max-height:40vh}
+  .chat{height:75dvh}
+}
 
 /* avatars */
 .av{display:inline-grid;place-items:center;flex:none;border-radius:50%;font-weight:650;color:#fff;background:linear-gradient(135deg,hsl(var(--h) 75% 62%),hsl(calc(var(--h) + 40) 70% 48%));box-shadow:inset 0 0 0 1px rgba(255,255,255,.15)}
@@ -393,7 +406,7 @@ const SCRIPT = `
     $$("input[data-noenter]", root).forEach((i) => i.onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); toast("Pick an option to vote"); } });
     $$("textarea[data-chat]", root).forEach((t) => t.onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); if (t.value.trim()) t.form.requestSubmit(); } });
     $$("[data-chip]", root).forEach((b) => b.onclick = () => { const t = $("#chat-input"); if (t) { t.value = b.dataset.chip; t.form.requestSubmit(); } });
-    $$(".thread", root).forEach((th) => { th.scrollTop = th.scrollHeight; });
+    $$(".thread", root).forEach((th) => { th.style.scrollBehavior = "auto"; th.scrollTop = th.scrollHeight; });
     $$("textarea[data-enter]", root).forEach((t) => t.onkeydown = (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); t.form.requestSubmit(); } });
   }
   async function submit(e) {
@@ -416,11 +429,16 @@ const SCRIPT = `
     $$("[data-region]").forEach((el) => {
       const next = doc.getElementById(el.id); if (!next || el.contains(document.activeElement) && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) return;
       const open = new Set($$("details[open]", el).map((d) => d.id).filter(Boolean));
+      // A thread you've scrolled up in stays where you are; one at the bottom follows new messages.
+      const th = el.classList.contains("thread") ? el : null;
+      const stick = th ? th.scrollHeight - th.scrollTop - th.clientHeight < 80 : true;
+      const keep = th ? th.scrollTop : 0;
       const known = new Set($$("[data-mid]", el).map((m) => m.dataset.mid));
       el.replaceWith(next);
       $$("details", next).forEach((d) => d.id && open.has(d.id) && (d.open = true));
       if (known.size) $$("[data-mid]", next).forEach((m) => !known.has(m.dataset.mid) && m.classList.add("fresh"));
       bind(next); days(next);
+      if (th && !stick) next.scrollTop = keep;
     });
     tick();
   }
