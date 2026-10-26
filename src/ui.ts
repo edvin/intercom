@@ -53,6 +53,9 @@ const ICONS: Record<string, string> = {
   clock: '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
   trash: '<path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>',
   key: '<circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/>',
+  eye: '<path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/>',
+  eyeOff: '<path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49"/><path d="M14.084 14.158a3 3 0 0 1-4.242-4.242"/><path d="M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143"/><path d="m2 2 20 20"/>',
+  messages: '<path d="M14 9a2 2 0 0 1-2 2H6l-4 4V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z"/><path d="M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1"/>',
   terminal: '<path d="m4 17 6-6-6-6"/><path d="M12 19h8"/>',
   at: '<circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8"/>',
   sparkles: '<path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z"/>',
@@ -321,6 +324,7 @@ label.field>input,label.field>textarea,label.field>select{width:100%}
 .bubble.relay .rhd{display:block;font-size:12px;font-weight:600;color:var(--ink-2);margin-bottom:4px}
 .thread.term .bubble.relay{border-left:2px dashed var(--line);padding-left:12px;background:none}
 .thread.term .bubble.relay::before{content:none}
+.ttog{color:var(--ink-3)}.ttog .i{display:block}.ttog .when-off{display:none}.ttog:not(.on) .when-on{display:none}.ttog:not(.on) .when-off{display:block}.ttog:not(.on){opacity:.7}
 [data-acttoggle].on,[data-relaytoggle].on{background:var(--accent-soft);color:var(--accent)}
 .viewtoggle{display:inline-flex;border:1px solid var(--line-strong);border-radius:8px;overflow:hidden}
 .viewtoggle button{font:inherit;font-size:12px;padding:3px 10px;border:0;background:transparent;color:var(--mute);cursor:pointer}
@@ -341,7 +345,7 @@ label.field>input,label.field>textarea,label.field>select{width:100%}
 .side.rail .nav a{justify-content:center;padding:8px 0;gap:0}
 .side.rail .nav a>span,.side.rail .nav a>.n,.side.rail .nav .label,.side.rail .people,.side.rail .nav a>.i+.i{display:none}
 .side.rail .nav a{position:relative}
-.side.rail .nav a .n{display:flex!important;position:absolute;top:0;right:2px}.side.rail .nav a .n .badge{padding:0 4px;font-size:9.5px}
+.side.rail .nav a .n{display:flex!important;position:absolute;top:6px;left:calc(50% + 5px);gap:2px;margin:0}.side.rail .nav a .n .badge{width:8px;height:8px;min-width:0;padding:0;border-radius:50%;font-size:0;background:currentColor;box-shadow:0 0 0 2px var(--bg)}.side.rail .nav a .n .badge .i{display:none}
 .side.rail .nav{display:flex;flex-direction:column;gap:2px}
 .side.rail .nav .label+a{margin-top:10px}
 .awaybar{padding:10px 16px;flex:none}
