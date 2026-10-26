@@ -338,6 +338,7 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
   if (url.pathname === "/api/cli/poll") return cliPoll(env, url.searchParams.get("code") ?? "");
 
   const me = await authenticate(req, env);
+  if (url.pathname === "/welcome") return landingPage(url.origin, { github: !!env.github, open: await openSignup(env), signedIn: !!me });
   if (!me) {
     if (url.pathname === "/") return landingPage(url.origin, { github: !!env.github, open: await openSignup(env) });
     if (["/account", "/connect", "/discover"].includes(url.pathname) && req.method === "GET") {

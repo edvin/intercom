@@ -191,6 +191,10 @@ describe("web security", () => {
     const res = await w.request("/account", { redirect: "manual" });
     assert.equal(res.status, 303);
     assert.match(await (await w.request("/")).text(), /finally talking/);
+    // Signed in, the overview is still at /welcome, pointing to the dashboard.
+    const welcome = await (await w.request("/welcome", { as: "alice", cookie: true })).text();
+    assert.match(welcome, /finally talking/);
+    assert.match(welcome, /Open your dashboard/);
     assert.equal((await w.request("/mcp", { method: "POST", headers: { authorization: "Bearer nope" } })).status, 401);
   });
 });

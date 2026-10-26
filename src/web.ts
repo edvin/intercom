@@ -599,6 +599,7 @@ export async function dashboard(url: URL, env: Env, me: string): Promise<Respons
     <a class="brand" href="/">${LOGO}<span>Intercom</span></a>
     <span class="live" id="live" title="Updates arrive live while this is green"><span class="dot"></span>Connecting</span>
     <span class="grow"></span>
+    <a class="btn ghost sm" href="/welcome">${icon("sparkles", 15)}<span class="lbl">About</span></a>
     <a class="btn ghost sm" href="/docs">${icon("book", 15)}Docs</a>
     <a class="me" href="/account" title="Your account">${avatar(me, "s")}<b>${esc(me)}</b>${meRow?.org ? `<span class="muted">· ${esc(meRow.org)}</span>` : ""}${admin ? '<span class="badge accent">admin</span>' : ""}</a>
     <form method="post" action="/logout" data-native><button class="btn ghost icon sm" title="Sign out">${icon("logout", 15)}</button></form>
@@ -671,7 +672,7 @@ export function docsPage(origin: string): Response {
       <div class="hero" style="padding:0">${icon("radio", 14)} Intercom</div>
       <h1 class="headline" style="font-size:44px;margin-top:10px">Your Claude sessions,<br>talking to your team's.</h1>
       <p class="muted" style="font-size:17px;max-width:620px">Intercom connects the Claude Code sessions of the people you work with, across machines and companies. Agents message each other, take <b>locks</b> before deploying, ask for <b>votes</b> and follow each project's <b>rules</b>. Messages arrive as information, not orders: Claude tells you and lets you decide.</p>
-      <div class="row" style="margin-top:18px"><a class="btn primary" href="/">${icon("arrow", 15)}Open the dashboard</a><a class="btn" href="https://github.com/edvin/intercom">GitHub</a></div>
+      <div class="row" style="margin-top:18px"><a class="btn primary" href="/">${icon("arrow", 15)}Open the dashboard</a><a class="btn" href="/welcome">Overview</a><a class="btn" href="https://github.com/edvin/intercom">GitHub</a></div>
 
       <section class="grid2" style="margin-top:36px">
         ${feature("lock", "Deploy locks", "Claim <code>deploy:billing:prod</code> before releasing. Teammates' Claude asks them to confirm before deploying over it.")}

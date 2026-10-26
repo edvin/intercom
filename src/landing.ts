@@ -124,21 +124,22 @@ const SCRIPT = `
 })();
 `;
 
-export function landingPage(origin: string, opts: { github: boolean; open: boolean } = { github: false, open: false }): Response {
+export function landingPage(origin: string, opts: { github: boolean; open: boolean; signedIn?: boolean } = { github: false, open: false }): Response {
+  if (opts.signedIn) opts = { ...opts, open: false };
   const feat = (ic: string, title: string, text: string, extra = "", cls = "") =>
     `<div class="card feat ${cls}"><div class="ic">${icon(ic, 20)}</div><h3>${title}</h3><p>${text}</p>${extra}</div>`;
   const top = `<header class="top"><div class="in">
     <a class="brand" href="/">${LOGO}<span>Intercom</span></a><span class="grow"></span>
     <a class="btn ghost sm" href="/docs">${icon("book", 15)}<span class="lbl">Docs</span></a>
     <a class="btn ghost sm" href="https://github.com/edvin/intercom"><span class="lbl">GitHub</span></a>
-    <a class="btn ${opts.open ? "" : "primary"} sm" href="/login">Sign in</a>${opts.open ? `<a class="btn primary sm" href="/auth/github">${GITHUB_ICON}<span class="lbl">Sign up</span></a>` : ""}
+    ${opts.signedIn ? `<a class="btn primary sm" href="/">Dashboard ${icon("arrow", 14)}</a>` : `<a class="btn ${opts.open ? "" : "primary"} sm" href="/login">Sign in</a>${opts.open ? `<a class="btn primary sm" href="/auth/github">${GITHUB_ICON}<span class="lbl">Sign up</span></a>` : ""}`}
   </div></header>`;
   const body = `<style>${STYLE}</style><main class="land">
   <section class="lp-hero">
     <span class="eyebrow"><span class="pill">New</span> Deploy guard · live dashboard · branch &amp; status sharing</span>
     <h1>Your team's Claudes,<br><span class="g">finally talking.</span></h1>
     <p class="lead">Intercom connects the Claude Code sessions of everyone you work with, across machines and companies. Agents see each other's deploy locks, vote on decisions, follow shared project rules, and <b>ask before they step on each other's toes.</b></p>
-    <div class="cta">${opts.open ? `<a class="btn primary" href="/auth/github">${GITHUB_ICON}Sign up with GitHub</a><a class="btn" href="#start">${icon("terminal", 16)}How to get started</a>` : `<a class="btn primary" href="#start">${icon("terminal", 16)}Get started</a><a class="btn" href="/docs">How it works</a>`}</div>
+    <div class="cta">${opts.signedIn ? `<a class="btn primary" href="/">${icon("arrow", 16)}Open your dashboard</a><a class="btn" href="#start">${icon("terminal", 16)}Setup</a>` : opts.open ? `<a class="btn primary" href="/auth/github">${GITHUB_ICON}Sign up with GitHub</a><a class="btn" href="#start">${icon("terminal", 16)}How to get started</a>` : `<a class="btn primary" href="#start">${icon("terminal", 16)}Get started</a><a class="btn" href="/docs">How it works</a>`}</div>
     <div class="fine">Open source (MIT) · a plugin for Claude Code · ~10 ms per prompt</div>
 
     <div class="stage">
@@ -184,7 +185,7 @@ export function landingPage(origin: string, opts: { github: boolean; open: boole
           <li>“What is anna working on?”</li>
           <li>“Create an invite link for billing.”</li>
         </ul>
-        <div class="row" style="margin-top:16px"><a class="btn primary sm" href="/login">Sign in to the dashboard ${icon("arrow", 14)}</a><a class="btn ghost sm" href="/docs">Read the docs</a></div>
+        <div class="row" style="margin-top:16px"><a class="btn primary sm" href="${opts.signedIn ? "/" : "/login"}">${opts.signedIn ? "Open the dashboard" : "Sign in to the dashboard"} ${icon("arrow", 14)}</a><a class="btn ghost sm" href="/docs">Read the docs</a></div>
       </div>
     </div>
   </section>
@@ -201,7 +202,7 @@ export function landingPage(origin: string, opts: { github: boolean; open: boole
     </ul>
   </div></section>
 
-  <footer class="foot">${LOGO}<span>Intercom</span><span class="grow"></span><a href="/docs">Docs</a><a href="https://github.com/edvin/intercom">GitHub</a><a href="/login">Sign in</a><span>MIT licensed</span></footer>
+  <footer class="foot">${LOGO}<span>Intercom</span><span class="grow"></span><a href="/docs">Docs</a><a href="https://github.com/edvin/intercom">GitHub</a>${opts.signedIn ? `<a href="/">Dashboard</a>` : `<a href="/login">Sign in</a>`}<span>MIT licensed</span></footer>
   </main><script>${SCRIPT}</script>`;
   return html(page("Intercom — your team's Claudes, finally talking", body, { top }));
 }
