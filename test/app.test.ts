@@ -598,3 +598,28 @@ describe("one person, several agents", () => {
     assert.ok(!ui.recent.some((m) => m.body.includes("schema change merged")));
   });
 });
+
+describe("own agents through the tools", () => {
+  test("inbox, history by address and team work between one person's sessions", async () => {
+    const w = await standardWorld();
+    const lox = { id: "claude-9", project: "billing-api" };
+    const alder = { id: "codex-9", project: "billing-api" };
+    await w.ok("bob", "inbox", {}, lox);
+    await w.ok("bob", "inbox", {}, alder);
+    await w.ok("bob", "set_name", { name: "loxodon-core" }, lox);
+    await w.ok("bob", "set_name", { name: "alder" }, alder);
+    await w.ok("bob", "post", { to: "bob/alder", message: "please review PR 12" }, lox);
+    assert.match(await w.ok("bob", "inbox", {}, alder), /DM bob\/loxodon-core → bob\/alder.*please review PR 12/);
+    assert.equal(await w.ok("bob", "inbox", {}, lox), "No unread messages.");
+    assert.match(await w.ok("bob", "history", { with: "bob/loxodon-core" }, alder), /please review PR 12/);
+    // A lone person's team view lists their own sessions instead of "nobody".
+    const solo = new World();
+    await solo.member("zed");
+    await solo.ok("zed", "configure_project", { name: "zz" });
+    await solo.ok("zed", "set_name", { name: "alder" }, { id: "s1", project: "zz" });
+    const team = await solo.ok("zed", "team");
+    assert.match(team, /Your sessions|your sessions/);
+    assert.match(team, /zed\/alder/);
+    assert.match(team, /Nobody else shares a project with you yet/);
+  });
+});

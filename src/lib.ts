@@ -5,8 +5,8 @@ export interface Env {
   DB: Db;
   /** Called after every stored message, to push it to connected channel sessions. */
   onMessage?: (m: Message) => void;
-  /** The calling Claude Code session, when the request came through the local channel server. */
-  session?: Session;
+  /** The calling session (Claude Code or Codex), when the request came through the local intercom server. */
+  session?: Session & { cursor: number };
   /** Public origin, e.g. https://intercom.mhst.io (for invite links). */
   origin?: string;
   /** Repo name the calling session runs in, as reported by the client. */

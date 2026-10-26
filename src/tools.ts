@@ -61,12 +61,19 @@ function num(args: Args, key: string, def: number, min: number, max: number): nu
 }
 
 /** A person `me` shares a project with. Unknown and unrelated people get the same answer. */
+/**
+ * Someone `me` can message: a person they share a project with, or themselves (their other sessions).
+ * Accepts addresses: "anna", "@anna", "anna/shop", "anna/alder". Unknown and unrelated people get the same answer.
+ */
 async function requireCoMember(env: Env, me: string, name: string): Promise<string> {
-  const wanted = name.replace(/^@/, "").toLowerCase();
+  const wanted = name.replace(/^@/, "").split("/")[0].toLowerCase();
   const people = await coMembers(env, me);
-  const found = people.find((p) => p.toLowerCase() === wanted);
-  if (!found) throw new UserError(`No one named "${name}" in your projects. People you share projects with: ${people.filter((p) => p !== me).join(", ") || "none"}.`);
-  return found;
+  const found = wanted === me ? me : people.find((p) => p.toLowerCase() === wanted);
+  if (found) return found;
+  const others = people.filter((p) => p !== me);
+  throw new UserError(
+    `No one named "${wanted}" in your projects. You can reach: ${[...others, `${me} (your own other sessions, e.g. ${me}/<name>)`].join(", ")}. The team tool lists everyone's sessions.`,
+  );
 }
 
 /** The project a channel argument refers to; defaults to the calling session's project. */
@@ -127,7 +134,7 @@ export const tools: Tool[] = [
       },
     },
     async run(env, me, a) {
-      const { messages, more } = await unread(env, me, num(a, "limit", 30, 1, 200), a.mark_read !== false);
+      const { messages, more } = await unread(env, me, num(a, "limit", 30, 1, 200), a.mark_read !== false, env.session);
       if (!messages.length) return "No unread messages.";
       return [...messages.map(fmtMessage), more ? "(more unread — call inbox again)" : ""].filter(Boolean).join("\n");
     },
@@ -140,7 +147,7 @@ export const tools: Tool[] = [
       type: "object",
       properties: {
         channel: channelProp,
-        with: { type: "string", description: "Show the DM thread with this person instead of a project channel." },
+        with: { type: "string", description: "Show direct messages with a person (\"anna\") or one session (\"anna/alder\", or your own \"<you>/<name>\") instead of a project channel." },
         limit: { type: "number", description: "Number of messages (default 20)." },
       },
     },
@@ -149,10 +156,15 @@ export const tools: Tool[] = [
       const other = str(a, "with");
       let rows: Message[];
       if (other) {
+        // "anna" (all DMs with her), or an address "anna/alder" / "edvin/loxodon-core" (DMs with that session).
         const name = await requireCoMember(env, me, other);
+        const agent = other.includes("/") ? normChannel(other.split("/")[1]) : null;
         rows = (
-          await env.DB.prepare("SELECT * FROM messages WHERE (sender = ?1 AND recipient = ?2) OR (sender = ?2 AND recipient = ?1) ORDER BY id DESC LIMIT ?3")
-            .bind(me, name, limit)
+          await env.DB.prepare(
+            `SELECT * FROM messages WHERE ((sender = ?1 AND recipient = ?2) OR (sender = ?2 AND recipient = ?1))
+               AND (?4 IS NULL OR sender_agent = ?4 OR recipient_agent = ?4) ORDER BY id DESC LIMIT ?3`,
+          )
+            .bind(me, name, limit, agent)
             .all<Message>()
         ).results;
       } else {
@@ -560,7 +572,7 @@ export const tools: Tool[] = [
     inputSchema: { type: "object", properties: {} },
     async run(env, me) {
       const people = await coMembers(env, me);
-      if (people.length <= 1) return "You don't share a project with anyone yet.";
+      if (!people.includes(me)) people.push(me);
       const mine = new Set(await myProjects(env, me));
       const ph = people.map(() => "?").join(",");
       const [{ results }, { results: sessions }] = await Promise.all([
@@ -571,9 +583,10 @@ export const tools: Tool[] = [
           .bind(Date.now() - 6 * 3600_000, ...people)
           .all<{ member: string; label: string; project: string; branch: string; note: string; last_seen: number; client: string }>(),
       ]);
-      return results
+      const mineFirst = [...results.filter((r) => r.name === me), ...results.filter((r) => r.name !== me)];
+      const out = mineFirst
         .map((r) => {
-          const who = `${r.name}${r.org ? ` (${r.org})` : ""}${r.name === me ? " — you" : ""}`;
+          const who = r.name === me ? `You (${me}) — your sessions` : `${r.name}${r.org ? ` (${r.org})` : ""}`;
           if (!r.updated_at) return `${who}: never connected`;
           // Only reveal what someone is working on when it's a project you're in too.
           const live = sessions.filter((s) => s.member === r.name && s.project && mine.has(s.project));
@@ -581,9 +594,11 @@ export const tools: Tool[] = [
           const head = `${who}: active ${ago(r.updated_at)}${!live.length && r.project && mine.has(r.project) ? ` — ${workingOn(r.project, r.branch, r.note)}` : ""}`;
           const lines = live.map((s) => `    ${address(s.member, s.label)}${s.client === "codex" ? " [Codex]" : ""}: ${workingOn(s.project, s.branch, s.note)} (${ago(s.last_seen)})`);
           if (hidden) lines.push("    (also active in projects you're not in)");
-          return [head, ...lines].join("\n");
+          if (r.name === me && !lines.length) return `${who}: none connected through intercom right now`;
+          return [r.name === me ? who : head, ...lines].join("\n");
         })
         .join("\n");
+      return people.length > 1 ? out : `${out}\nNobody else shares a project with you yet.`;
     },
   },
   {
