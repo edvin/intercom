@@ -13,6 +13,7 @@ import m0008 from "../migrations/0008_client.sql";
 import m0009 from "../migrations/0009_agent_names.sql";
 import m0010 from "../migrations/0010_ended_sessions.sql";
 import m0011 from "../migrations/0011_session_state.sql";
+import m0012 from "../migrations/0012_approvals.sql";
 
 const MIGRATIONS: [string, string][] = [
   ["0001_init", m0001],
@@ -26,6 +27,7 @@ const MIGRATIONS: [string, string][] = [
   ["0009_agent_names", m0009],
   ["0010_ended_sessions", m0010],
   ["0011_session_state", m0011],
+  ["0012_approvals", m0012],
 ];
 
 const DAY = 86400_000;
@@ -101,6 +103,7 @@ export class TeamHub extends DurableObject<WorkerEnv> {
       DB: this.db,
       onMessage: (m) => this.fanout(m),
       live: () => this.liveSessions(),
+      refreshWeb: (member: string) => this.refreshWeb(member),
       github: id && secret ? { client_id: id, client_secret: secret } : undefined,
     };
   }
@@ -201,6 +204,14 @@ export class TeamHub extends DurableObject<WorkerEnv> {
       if (s && s.mode !== "web" && s.session_id) out.add(`${s.member}/${s.session_id}`);
     }
     return out;
+  }
+
+  /** Tell a member's open dashboards to redraw (approvals, away mode). */
+  private refreshWeb(member: string): void {
+    for (const ws of this.ctx.getWebSockets(member)) {
+      const s = ws.deserializeAttachment() as SocketInfo | null;
+      if (s?.mode === "web") this.safeSend(ws, '{"type":"refresh"}');
+    }
   }
 
   private safeSend(ws: WebSocket, data: string): void {

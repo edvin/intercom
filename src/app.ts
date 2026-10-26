@@ -1,11 +1,12 @@
 import { type Env, type Message, type Proposal, type Session, MEMBER_OF, RECEIVES, UserError, activeLocks, address, ago, cleanBranch, cleanClient, fromOwnUser, workingOn, authenticate, coMembers, fmtLock, fmtMessage, myProjects, resolveProject, setPresence, tally, touchSession, unread } from "./lib";
 import { INSTRUCTIONS, tools } from "./tools";
 import { cliPoll, cliStart, connectPage, discoverJoin, discoverPage, discoverRequest, githubCallback, githubCreate, githubStart, signOut } from "./accounts";
+import { approvalStatus, decide, requestApproval, setAway } from "./approvals";
 import { guard } from "./guard";
 import { getSetting, githubRepo, openSignup, setSetting } from "./github";
 import { landingPage } from "./landing";
 import { redirect } from "./ui";
-import { accountPage, dashboard, exportProject, handleAction, handleAdminAction, handleJoin, handleLogin, handleLogout, loginPage } from "./web";
+import { accountPage, dashboard, exportProject, sameOrigin, handleAction, handleAdminAction, handleJoin, handleLogin, handleLogout, loginPage } from "./web";
 
 const SUPPORTED_PROTOCOLS = ["2025-11-25", "2025-06-18", "2025-03-26"];
 const SERVER_INFO = { name: "intercom", version: "0.1.0" };
@@ -441,6 +442,47 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
   if (url.pathname === "/api/guard" && req.method === "POST") return handleGuard(req, url, env, me);
   if (url.pathname === "/api/brief") return handleBrief(url, env, me);
   if (url.pathname === "/api/ui") return handleUi(url, env, me);
+  if (url.pathname === "/api/approval" && req.method === "POST") {
+    const sid = url.searchParams.get("session") ?? "";
+    const session = await env.DB.prepare("SELECT session_id, label FROM sessions WHERE member = ? AND session_id = ?").bind(me, sid).first<{ session_id: string; label: string }>();
+    const a = await requestApproval(env, me, session, cleanClient(url.searchParams.get("client")) ?? "claude", (await req.json().catch(() => ({}))) as { tool_name?: string });
+    return a ? json({ id: a.id, expires_at: a.expires_at }) : new Response(null, { status: 204 });
+  }
+  if (url.pathname.startsWith("/api/approval/")) {
+    // The hook polls this; once decided it gets ready-made hook output (Claude Code and Codex share the shape).
+    const st = await approvalStatus(env, me, Number(url.pathname.slice(14)));
+    if (st.status === "pending") return json({ status: "pending" });
+    const allow = st.status === "allow";
+    const show = url.searchParams.get("show") !== "0";
+    const output = {
+      ...(show ? { systemMessage: `📻 ${allow ? "approved" : "denied"} from the intercom dashboard${st.note ? `: ${st.note}` : ""}` } : {}),
+      hookSpecificOutput: {
+        hookEventName: "PermissionRequest",
+        decision: allow ? { behavior: "allow" } : { behavior: "deny", message: st.note || "Your user denied this from the intercom dashboard." },
+      },
+      // An allow with a note: the agent also gets the note as context.
+      ...(allow && st.note ? { additionalContext: `Your user approved this from the intercom dashboard and added: ${st.note}` } : {}),
+    };
+    return json({ status: st.status, output: JSON.stringify(output) });
+  }
+  if (url.pathname.startsWith("/approval/") && req.method === "POST") {
+    if (!sameOrigin(req)) return new Response("Cross-origin request refused", { status: 403 });
+    const form = await req.formData();
+    const back = String(form.get("back") ?? "/dashboard?view=agents");
+    const u = new URL(back.startsWith("/") ? back : "/dashboard?view=agents", url);
+    try {
+      u.searchParams.set("ok", await decide(env, me, Number(url.pathname.slice(10)), form.get("decision") === "allow" ? "allow" : "deny", String(form.get("note") ?? "")));
+    } catch (e) {
+      u.searchParams.set("err", (e as Error).message);
+    }
+    return redirect(u.pathname + u.search);
+  }
+  if (url.pathname === "/away" && req.method === "POST") {
+    if (!sameOrigin(req)) return new Response("Cross-origin request refused", { status: 403 });
+    const form = await req.formData();
+    const msg = await setAway(env, me, form.get("away") === "on", form.get("wait") ? Number(form.get("wait")) : undefined);
+    return redirect(`/dashboard?view=agents&ok=${encodeURIComponent(msg.split(":")[0])}`);
+  }
   if (url.pathname.startsWith("/export/")) return exportProject(env, me, decodeURIComponent(url.pathname.slice(8)).replace(/\.md$/, ""));
   return json({ error: "not found" }, 404);
 }

@@ -17,6 +17,8 @@ export interface Env {
   ip?: string;
   /** Sessions with a live connection to the hub right now ("member/session_id"); undefined outside the hub. */
   live?: () => Set<string>;
+  /** Redraw a member's open dashboards; undefined outside the hub. */
+  refreshWeb?: (member: string) => void;
 }
 
 export interface Message {

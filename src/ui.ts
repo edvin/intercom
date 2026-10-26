@@ -267,6 +267,10 @@ label.field>input,label.field>textarea,label.field>select{width:100%}
 .chip{font-size:12px;padding:3px 10px;border-radius:99px;border:1px solid var(--line-strong);background:var(--surface);color:var(--ink-2);cursor:pointer}
 .chip:hover{border-color:color-mix(in srgb,var(--accent) 50%,transparent);color:var(--accent)}
 
+.awaybar{padding:14px 18px;margin-bottom:16px}
+.awaybar.on{border-color:transparent;background:linear-gradient(var(--surface),var(--surface)) padding-box,linear-gradient(135deg,#6a4dff,#ff6fb0) border-box;border:1px solid transparent}
+.approval{padding:12px 14px;border-radius:12px;border:1px solid color-mix(in srgb,var(--amber) 45%,transparent);background:var(--amber-soft)}
+
 /* avatars */
 .av{display:inline-grid;place-items:center;flex:none;border-radius:50%;font-weight:650;color:#fff;background:linear-gradient(135deg,hsl(var(--h) 75% 62%),hsl(calc(var(--h) + 40) 70% 48%));box-shadow:inset 0 0 0 1px rgba(255,255,255,.15)}
 .av-s{width:22px;height:22px;font-size:11px}.av-m{width:36px;height:36px;font-size:15px}.av-l{width:44px;height:44px;font-size:18px}

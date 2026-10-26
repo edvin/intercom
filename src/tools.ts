@@ -1,3 +1,4 @@
+import { setAway } from "./approvals";
 import { githubRepo } from "./github";
 import {
   type Env,
@@ -715,6 +716,22 @@ export const tools: Tool[] = [
       await env.DB.prepare("UPDATE projects SET repos = ?, updated_by = ?, updated_at = ? WHERE name = ?").bind(JSON.stringify(repos), me, Date.now(), project).run();
       await postMessage(env, { channel: project, sender: me, kind: "event", body: `linked repo ${repo} to #${project}` });
       return `Linked ${repo} to #${project}. Sessions started in it now join #${project} (new sessions, or after the next prompt).`;
+    },
+  },
+  {
+    name: "away",
+    description:
+      "Away mode for your user's agents: while on, permission/approval questions from all their Claude Code and Codex sessions go to the intercom dashboard (Agents view) instead of waiting in a terminal, and unanswered ones are denied after a while so agents move on. Use when your user says they're leaving / back.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        on: { type: "boolean", description: "true when they leave, false when they're back." },
+        wait_minutes: { type: "number", description: "How long an approval waits for an answer before it's denied (default 30, max 60)." },
+      },
+      required: ["on"],
+    },
+    async run(env, me, a) {
+      return setAway(env, me, a.on === true, a.wait_minutes === undefined ? undefined : num(a, "wait_minutes", 30, 1, 60));
     },
   },
   {

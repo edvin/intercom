@@ -1,5 +1,6 @@
 import { type Env, type Lock, type Message, type Project, type Proposal, MAX_BODY, MEMBER_OF, RECEIVES, activeLocks, address, authenticate, coMembers, isAdmin, myProjects, normChannel, postMessage, roleIn, sha256, workingOn, newToken, HANDLE, limit, UserError } from "./lib";
 import { agentsView } from "./agents";
+import { pendingApprovals } from "./approvals";
 import { openSignup, setSetting } from "./github";
 import { tools } from "./tools";
 import { GITHUB_ICON, LOGO, avatar, codeBlock, esc, hidden, html, icon, md, page, redirect, time } from "./ui";
@@ -470,6 +471,7 @@ export async function dashboard(url: URL, env: Env, me: string): Promise<Respons
     .bind(me)
     .all<JoinRequest>();
 
+  const approvalsWaiting = (await pendingApprovals(env, me)).length;
   // Sidebar
   const allNeed = props.filter((p) => live(p) && !votesFor(p.id).some((v) => v.member === me));
   const navItem = (c: string) => {
@@ -480,7 +482,7 @@ export async function dashboard(url: URL, env: Env, me: string): Promise<Respons
   };
   const sidebar = `<aside class="side" id="side" data-region>
     <nav class="nav">
-      <a href="/dashboard?view=agents" class="${view === "agents" ? "on" : ""}">${icon("terminal", 15)}<span>Agents</span></a>
+      <a href="/dashboard?view=agents" class="${view === "agents" ? "on" : ""}">${icon("terminal", 15)}<span>Agents</span>${approvalsWaiting ? `<span class="n"><span class="badge red" title="Approvals waiting for you">${approvalsWaiting}</span></span>` : ""}</a>
       <a href="/dashboard" class="${!channel && view === "feed" ? "on" : ""}">${icon("layers", 15)}<span>Everything</span>${allNeed.length ? `<span class="n"><span class="badge accent">${allNeed.length}</span></span>` : ""}</a>
       <div class="label">Projects</div>
       ${mine.map(navItem).join("")}
@@ -806,7 +808,8 @@ export function docsPage(origin: string): Response {
           <li><b>Idle Claude Code:</b> intercom-ui submits your message as a prompt (restart sessions once after installing it).</li>
           <li><b>Idle Codex:</b> the local server queues it with <code>codex queue</code> (on by default for your own messages; <code>INTERCOM_CODEX_PUSH=0</code> turns it off).</li>
         </ul>
-        <p><b>Leaving them running over a weekend?</b> Keep the Mac awake (<code>caffeinate -dims</code> in a terminal, or a sleep setting), and start agents so they don't stop for approvals you can't answer from the browser, e.g. <code>claude --permission-mode acceptEdits</code> with allowed commands, or <code>--dangerously-skip-permissions</code> in a sandbox. An agent that does get stuck shows as <i>waiting</i> in red.</p>
+        <p><b>Approvals from the browser.</b> Before you leave, press <b>I'm leaving</b> in the Agents view (or tell any agent “I'm leaving”). While away mode is on, every permission question from your Claude Code and Codex agents shows up in the Agents view with <b>Allow</b> / <b>Deny</b> and an optional note for the agent; the agent waits for your answer. Unanswered questions are denied after the time you pick (up to an hour), with a message telling the agent to move on, so nothing hangs. Back at your desk, press <b>I'm back</b> and questions show in the terminal again.</p>
+        <p><b>Leaving them running over a weekend?</b> Keep the Mac awake (<code>caffeinate -dims</code> in a terminal, or a sleep setting), turn on away mode, and check the Agents view now and then: anything stuck shows in red.</p>
       </section>
 
       <section>

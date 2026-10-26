@@ -29,7 +29,26 @@ mkdir -p "$D" 2>/dev/null && printf '%s %s %s\n' "$(date +%s)" "$event" "${sessi
 # State events: Claude Code's Notification (waiting for approval or input), Codex's PermissionRequest,
 # and Stop (the turn ends; the hub may hand back a message from the user to continue with).
 case "$event" in
-  Notification|PermissionRequest|Stop)
+  PermissionRequest)
+    # Away mode: ask in the dashboard and wait for the answer (else: nothing, and the terminal asks as usual).
+    [ -z "$input" ] && input=$(cat)
+    [ -n "$session" ] || session=$(printf '%s' "$input" | json_field session_id)
+    [ -f "$D/config" ] && . "$D/config"
+    [ -n "$INTERCOM_URL" ] && [ -n "$INTERCOM_TOKEN" ] && [ -n "$session" ] || exit 0
+    id=$(printf '%s' "$input" | curl -sf --max-time 5 -X POST "$INTERCOM_URL/api/approval?session=$session&client=$client" \
+      -H "Authorization: Bearer $INTERCOM_TOKEN" -H "Content-Type: application/json" --data-binary @- 2>/dev/null | sed -n 's/.*"id":\([0-9]*\).*/\1/p')
+    [ -n "$id" ] || exit 0
+    end=$(( $(date +%s) + 3600 ))
+    while [ "$(date +%s)" -lt "$end" ]; do
+      r=$(curl -sf --max-time 10 "$INTERCOM_URL/api/approval/$id?show=${INTERCOM_SHOW:-1}" -H "Authorization: Bearer $INTERCOM_TOKEN" 2>/dev/null)
+      case "$r" in
+        *'"output"'*) printf '%s' "$r" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>process.stdout.write(JSON.parse(s).output))'; exit 0 ;;
+      esac
+      sleep 3
+    done
+    exit 0
+    ;;
+  Notification|Stop)
     [ -z "$input" ] && input=$(cat)
     [ -n "$session" ] || session=$(printf '%s' "$input" | json_field session_id)
     [ -f "$D/config" ] && . "$D/config"

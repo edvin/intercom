@@ -97,6 +97,10 @@ If `codex` is on the PATH, `setup.sh` also wires Intercom into OpenAI's Codex CL
 - **Browser-approved setup**: `setup.sh` gets a code from `/api/cli/start`, the user approves it on `/connect`, and the script polls `/api/cli/poll` for its token (handed out once). Every member can have several tokens (`tokens` table), listed and revocable on `/account`.
 - **Joining without an invite**: projects can list GitHub repos (`github_repos`); members prove push access through a short GitHub check (the user token is used once; private repos need the `repo` scope, asked for only on request) and join from `/discover`. Projects marked `discoverable` take join requests by exact name; owners approve on the dashboard or with `join_requests`. Answers are identical whether or not a project exists.
 
+## Running agents from the browser
+
+The dashboard's Agents view (`/dashboard?view=agents`) lists every agent session with its state (from the Stop, Notification and PermissionRequest hooks) and a chat with one session. Dashboard messages from a person reach their own agents as YOUR USER (acted on like a typed prompt); a busy agent continues with them at Stop (`decision: block`), an idle Claude Code session gets them as a prompt from intercom-ui, an idle Codex session through `codex queue`. Away mode routes PermissionRequest hooks to the dashboard: the hook creates an approval (`/api/approval`), polls until it's answered or expires (deny), and returns the decision.
+
 ## Retention
 
 The hub runs a daily alarm: messages older than 90 days (`RETENTION_DAYS` var) are deleted, along with expired locks, old invites and stale sessions. Proposals and votes, i.e. decisions, are kept. Owners can export a project's rules and decisions from the dashboard (`/export/<project>.md`).

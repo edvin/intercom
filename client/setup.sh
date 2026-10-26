@@ -139,7 +139,7 @@ cfg = json.load(open(path)) if os.path.exists(path) else {}
 hooks = cfg.setdefault("hooks", {})
 for event in ("SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop", "PermissionRequest", "SessionEnd"):
     groups = [g for g in hooks.get(event, []) if not any("intercom/hook.sh" in h.get("command", "") for h in g.get("hooks", []))]
-    entry = {"hooks": [{"type": "command", "command": f'sh "{hook}" {event} codex', "timeout": 5}]}
+    entry = {"hooks": [{"type": "command", "command": f'sh "{hook}" {event} codex', "timeout": 3660 if event == "PermissionRequest" else 5}]}
     if event == "PreToolUse":
         entry["matcher"] = "^Bash$"
     groups.append(entry)

@@ -735,3 +735,34 @@ describe("managing your agents from the dashboard", () => {
     assert.equal((await state()).state, "idle");
   });
 });
+
+describe("approvals from the browser", () => {
+  test("only while away; the hook gets the dashboard's answer, or a deny when nobody answers", async () => {
+    const w = await standardWorld();
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=ap1&client=codex", { as: "bob" });
+    const ask = (tool_input: object) =>
+      w.request("/api/approval?session=ap1&client=codex", { method: "POST", as: "bob", body: JSON.stringify({ tool_name: "Bash", tool_input }) });
+    assert.equal((await ask({ command: "npm run migrate" })).status, 204); // at the desk: the terminal asks
+    assert.match(await w.ok("bob", "away", { on: true, wait_minutes: 20 }), /Away mode on/);
+    const { id } = (await (await ask({ command: "npm run migrate" })).json()) as { id: number };
+    const poll = async () => (await (await w.request(`/api/approval/${id}`, { as: "bob" })).json()) as { status: string; output?: string };
+    assert.equal((await poll()).status, "pending");
+    const dash = await (await w.request("/dashboard?view=agents", { as: "bob", cookie: true })).text();
+    assert.match(dash, /Bash: npm run migrate/);
+    const res = await w.form(`/approval/${id}`, "bob", { decision: "allow", note: "staging only" });
+    assert.match(new URL(res.headers.get("location")!, ORIGIN).searchParams.get("ok")!, /Allowed/);
+    const done = await poll();
+    const out = JSON.parse(done.output!);
+    assert.equal(out.hookSpecificOutput.decision.behavior, "allow");
+    assert.match(out.additionalContext, /staging only/);
+    // Someone else can't answer bob's approvals.
+    const { id: id2 } = (await (await ask({ command: "terraform apply" })).json()) as { id: number };
+    const other = new URL((await w.form(`/approval/${id2}`, "alice", { decision: "allow" })).headers.get("location")!, ORIGIN);
+    assert.match(other.searchParams.get("err")!, /already answered or has expired/);
+    // Unanswered past the wait: a deny that tells the agent to move on.
+    await w.db.prepare("UPDATE approvals SET expires_at = ? WHERE id = ?").bind(Date.now() - 1, id2).run();
+    const expired = JSON.parse((await (await w.request(`/api/approval/${id2}`, { as: "bob" })).json() as { output: string }).output);
+    assert.equal(expired.hookSpecificOutput.decision.behavior, "deny");
+    assert.match(expired.hookSpecificOutput.decision.message, /didn't answer/);
+  });
+});
