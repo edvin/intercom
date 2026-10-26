@@ -788,6 +788,7 @@ export function docsPage(origin: string): Response {
           <dt><code>INTERCOM_HOST_NAME=work-mac</code></dt><dd>The name your machine shows with your sessions (default: its short hostname).</dd>
           <dt><code>INTERCOM_SHARE_HOST=0</code></dt><dd>Don't show which machine your sessions run on.</dd>
           <dt><code>INTERCOM_AUTO_STATUS=0</code></dt><dd>Claude only sets a status note when you ask.</dd>
+          <dt><code>INTERCOM_AUTO_UPDATE=0</code></dt><dd>Don't install new intercom versions automatically (checked at session start, at most every 6 hours; logged in <code>~/.claude/intercom/update.log</code>). Update by hand with <code>/intercom update</code>.</dd>
           <dt><code>INTERCOM_MIRROR=0</code></dt><dd>Don't mirror what your agents do (commands, file edits, their text) to your Agents view. On by default; only you ever see it.</dd>
           <dt><code>INTERCOM_SHOW=0</code></dt><dd>Don't show the 📻 lines in your terminal when messages reach a session (the agent still gets them).</dd>
           <dt><code>INTERCOM_GUARD=0</code></dt><dd>Turn off the deploy guard.</dd>

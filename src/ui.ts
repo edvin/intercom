@@ -297,7 +297,8 @@ label.field>input,label.field>textarea,label.field>select{width:100%}
 .viewtoggle button{font:inherit;font-size:12px;padding:3px 10px;border:0;background:transparent;color:var(--mute);cursor:pointer}
 .viewtoggle button.on{background:var(--accent-soft);color:var(--accent);font-weight:600}
 .chatbox{flex:none;border-top:1px solid var(--line);padding:12px 14px;display:flex;flex-direction:column;gap:8px;background:var(--surface)}
-.chatbox textarea{min-height:48px;max-height:30vh;font-size:14.5px;resize:none}
+.chatbox textarea{min-height:48px;max-height:30vh;font:13.5px/1.55 "JetBrains Mono","Geist Mono",ui-monospace,Menlo,monospace;resize:none}
+.updatebar{padding:10px 16px;flex:none;border-color:color-mix(in srgb,var(--amber) 45%,transparent);background:var(--amber-soft)}
 .chatbox .chips{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}.chatbox .chip{white-space:nowrap}
 .chips{display:flex;gap:6px;flex-wrap:wrap}
 .chip{font-size:12px;padding:3px 10px;border-radius:99px;border:1px solid var(--line-strong);background:var(--surface);color:var(--ink-2);cursor:pointer}

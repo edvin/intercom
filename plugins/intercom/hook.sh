@@ -7,6 +7,7 @@
 # lets the user decide to go ahead. It never blocks on its own in Claude Code.
 # Never fails: any error just means no intercom context this time.
 
+VERSION=0.12.0 # kept in step with .claude-plugin/plugin.json (a test checks)
 D="$HOME/.claude/intercom"
 event="${1:-UserPromptSubmit}"
 client="${2:-claude}"
@@ -138,6 +139,26 @@ if [ "$event" = "PostToolUse" ] && [ -z "$peek" ]; then
   echo "$now" > "$stamp"
 fi
 
+# Auto-update (default on; INTERCOM_AUTO_UPDATE=0 turns it off): at session start, check the hub's newest version
+# in the background and, if this machine is behind, re-run the setup (it keeps the sign-in). At most every 6 hours;
+# logged to update.log. Running sessions keep their version until restarted.
+if [ "$event" = "SessionStart" ] && [ "$INTERCOM_AUTO_UPDATE" != "0" ]; then
+  stamp="$D/.update-check"
+  last=$(cat "$stamp" 2>/dev/null || echo 0)
+  if [ $(( $(date +%s) - last )) -ge 21600 ]; then
+    date +%s > "$stamp"
+    (
+      latest=$(curl -sf --max-time 5 "$INTERCOM_URL/api/version" | sed -n 's/.*"plugin":"\([^"]*\)".*/\1/p')
+      if [ -n "$latest" ] && [ "$latest" != "$VERSION" ] && [ "$(printf '%s\n%s\n' "$VERSION" "$latest" | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1)" = "$latest" ]; then
+        { echo "== $(date) updating intercom $VERSION -> $latest"; curl -fsSL "$INTERCOM_URL/setup.sh" | INTERCOM_FROM_UPDATE=1 sh; } >> "$D/update.log" 2>&1
+        printf '%s\n' "$latest" > "$D/.updated-to"
+      fi
+    ) </dev/null >/dev/null 2>&1 &
+  fi
+fi
+updated=""
+if [ "$event" = "SessionStart" ] && [ -f "$D/.updated-to" ]; then updated=$(cat "$D/.updated-to"); fi
+
 # Keep a copy of brief.sh where the /intercom command (and Codex's $intercom skill) can find it.
 if [ "$event" = "SessionStart" ] && [ -f "$(dirname "$0")/brief.sh" ]; then
   cmp -s "$(dirname "$0")/brief.sh" "$D/brief.sh" 2>/dev/null || cp "$(dirname "$0")/brief.sh" "$D/brief.sh" 2>/dev/null
@@ -167,6 +188,7 @@ if [ "$client" = "codex" ]; then name="${INTERCOM_CODEX_NAME:-$INTERCOM_NAME}"; 
 curl -sf --max-time 3 -G "$INTERCOM_URL/api/hook" \
   --data-urlencode "event=$event" --data-urlencode "project=$project" --data-urlencode "session=$session" \
   --data-urlencode "branch=$branch" --data-urlencode "remote=$remote" --data-urlencode "client=$client" --data-urlencode "name=$name" \
-  --data-urlencode "show=${INTERCOM_SHOW:-1}" --data-urlencode "host=$host" \
+  --data-urlencode "show=${INTERCOM_SHOW:-1}" --data-urlencode "host=$host" --data-urlencode "version=$VERSION" \
+  --data-urlencode "autoupdate=${INTERCOM_AUTO_UPDATE:-1}" --data-urlencode "updated=$updated" \
   -H "Authorization: Bearer $INTERCOM_TOKEN" 2>/dev/null
 exit 0

@@ -861,3 +861,28 @@ describe("activity mirroring", () => {
     assert.equal(n!.n, 300);
   });
 });
+
+describe("plugin versions", () => {
+  test("the plugin manifest, local server, hook and hub agree on the version", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { PLUGIN_VERSION } = await import("../src/version.ts");
+    const manifest = JSON.parse(readFileSync(new URL("../plugins/intercom/.claude-plugin/plugin.json", import.meta.url), "utf8")).version;
+    const market = JSON.parse(readFileSync(new URL("../.claude-plugin/marketplace.json", import.meta.url), "utf8")).plugins.find((p: { name: string }) => p.name === "intercom").version;
+    const mjs = readFileSync(new URL("../plugins/intercom/intercom-channel.mjs", import.meta.url), "utf8").match(/const VERSION = "([\d.]+)"/)![1];
+    const hook = readFileSync(new URL("../plugins/intercom/hook.sh", import.meta.url), "utf8").match(/^VERSION=([\d.]+)/m)![1];
+    assert.deepEqual([manifest, market, mjs, hook], [PLUGIN_VERSION, PLUGIN_VERSION, PLUGIN_VERSION, PLUGIN_VERSION]);
+  });
+
+  test("outdated sessions are told at start; auto-update says what it's doing", async () => {
+    const { outdated, PLUGIN_VERSION } = await import("../src/version.ts");
+    assert.equal(outdated("0.9.10"), true);
+    assert.equal(outdated(PLUGIN_VERSION), false);
+    assert.equal(outdated("99.0.0"), false);
+    const w = await standardWorld();
+    const msg = async (q: string) => ((await (await w.request(`/api/hook?event=SessionStart&project=billing-api&session=v1&${q}`, { as: "bob" })).json()) as { systemMessage: string }).systemMessage;
+    assert.match(await msg("version=0.1.0"), /updating intercom to .* in the background/);
+    assert.match(await msg("version=0.1.0&autoupdate=0"), /is available .* \/intercom update/);
+    assert.match(await msg(`version=0.1.0&updated=${PLUGIN_VERSION}`), /is installed; restart this session/);
+    assert.doesNotMatch(await msg(`version=${PLUGIN_VERSION}`), /⬆/);
+  });
+});

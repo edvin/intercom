@@ -1,8 +1,9 @@
-import { type Env, type Message, type Proposal, type Session, MEMBER_OF, RECEIVES, UserError, activeLocks, address, ago, addActivity, cleanBranch, cleanClient, fromOwnUser, renameSession, setHost, workingOn, authenticate, coMembers, fmtLock, fmtMessage, myProjects, resolveProject, setPresence, tally, touchSession, unread } from "./lib";
+import { type Env, type Message, type Proposal, type Session, MEMBER_OF, RECEIVES, UserError, activeLocks, address, ago, addActivity, cleanBranch, cleanClient, fromOwnUser, renameSession, setHost, setVersion, workingOn, authenticate, coMembers, fmtLock, fmtMessage, myProjects, resolveProject, setPresence, tally, touchSession, unread } from "./lib";
 import { INSTRUCTIONS, tools } from "./tools";
 import { cliPoll, cliStart, connectPage, discoverJoin, discoverPage, discoverRequest, githubCallback, githubCreate, githubStart, signOut } from "./accounts";
 import { approvalStatus, decide, requestApproval, setAway } from "./approvals";
 import { guard } from "./guard";
+import { PLUGIN_VERSION, outdated } from "./version";
 import { getSetting, githubRepo, openSignup, setSetting } from "./github";
 import { landingPage } from "./landing";
 import { redirect } from "./ui";
@@ -112,7 +113,10 @@ async function handleHook(url: URL, env: Env, me: string): Promise<Response> {
   const client = cleanClient(url.searchParams.get("client"));
   await setPresence(env, me, project?.name ?? null, null, project ? branch : null);
   const session = sessionId ? await touchSession(env, me, sessionId, project?.name ?? "", branch, client, url.searchParams.get("name")) : undefined;
-  if (session) await setHost(env, me, session.session_id, url.searchParams.get("host"));
+  if (session) {
+    await setHost(env, me, session.session_id, url.searchParams.get("host"));
+    await setVersion(env, me, session.session_id, url.searchParams.get("version"));
+  }
 
   // What the session is doing, for the dashboard: working / idle / waiting (needs approval or input).
   const setState = async (state: string, detail = "") => {
@@ -199,6 +203,13 @@ async function handleHook(url: URL, env: Env, me: string): Promise<Response> {
       `📻 ${session ? address(me, session.label) : me}${project ? ` in #${project.name}` : raw ? " (repo not linked)" : ""}`,
       others.length ? `🔒 ${others.map((l) => `${l.resource} (${l.holder})`).join(", ")}` : "",
       open.length ? `🗳 ${open.length} open vote${open.length > 1 ? "s" : ""}` : "",
+      url.searchParams.get("version") && outdated(url.searchParams.get("version"))
+        ? url.searchParams.get("updated") === PLUGIN_VERSION
+          ? `⬆ intercom ${PLUGIN_VERSION} is installed; restart this session to use it (claude --continue)`
+          : url.searchParams.get("autoupdate") !== "0"
+            ? `⬆ updating intercom to ${PLUGIN_VERSION} in the background; restart sessions afterwards to use it`
+            : `⬆ intercom ${PLUGIN_VERSION} is available (this session runs ${url.searchParams.get("version")}): /intercom update, then restart`
+        : "",
     ]
       .filter(Boolean)
       .join(" · ");
@@ -394,6 +405,7 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
     await signOut(req, env);
     return handleLogout();
   }
+  if (url.pathname === "/api/version") return json({ plugin: PLUGIN_VERSION });
   if (url.pathname === "/auth/github") return githubStart(req, env, url);
   if (url.pathname === "/auth/github/callback") return githubCallback(req, env, url);
   if (url.pathname === "/auth/github/create" && req.method === "POST") return githubCreate(req, env);
@@ -427,6 +439,7 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
       req.headers.get("x-intercom-name"),
     );
     await setHost(env, me, sid, req.headers.get("x-intercom-host"));
+    await setVersion(env, me, sid, req.headers.get("x-intercom-version"));
   }
 
   if (url.pathname === "/dashboard") return dashboard(url, env, me);

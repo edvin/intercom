@@ -1,7 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import { handle, json } from "./app";
 import { SqlDb, splitStatements } from "./db";
-import { type Env, type Message, address, authenticate, cleanBranch, cleanClient, fmtMessage, prune, setHost, resolveProject, setPresence, touchSession, unread } from "./lib";
+import { type Env, type Message, address, authenticate, cleanBranch, cleanClient, fmtMessage, prune, setHost, setVersion, resolveProject, setPresence, touchSession, unread } from "./lib";
 import m0001 from "../migrations/0001_init.sql";
 import m0002 from "../migrations/0002_projects.sql";
 import m0003 from "../migrations/0003_sessions.sql";
@@ -17,6 +17,7 @@ import m0012 from "../migrations/0012_approvals.sql";
 import m0013 from "../migrations/0013_session_host.sql";
 import m0014 from "../migrations/0014_host_names.sql";
 import m0015 from "../migrations/0015_activity.sql";
+import m0016 from "../migrations/0016_session_version.sql";
 
 const MIGRATIONS: [string, string][] = [
   ["0001_init", m0001],
@@ -34,6 +35,7 @@ const MIGRATIONS: [string, string][] = [
   ["0013_session_host", m0013],
   ["0014_host_names", m0014],
   ["0015_activity", m0015],
+  ["0016_session_version", m0016],
 ];
 
 const DAY = 86400_000;
@@ -133,6 +135,7 @@ export class TeamHub extends DurableObject<WorkerEnv> {
     await setPresence(env, me, project || null, null, project ? branch : null);
     const session = await touchSession(env, me, sessionId, project, branch, cleanClient(req.headers.get("x-intercom-client")), req.headers.get("x-intercom-name"));
     await setHost(env, me, sessionId, req.headers.get("x-intercom-host"));
+    await setVersion(env, me, sessionId, req.headers.get("x-intercom-version"));
     const mode = req.headers.get("x-intercom-mode") === "peek" ? "peek" : "push";
 
     const [client, server] = Object.values(new WebSocketPair());

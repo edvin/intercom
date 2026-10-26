@@ -3,6 +3,7 @@
 // what it answers comes back here. Its project posts show in the thread as activity.
 
 import { awayState, pendingApprovals } from "./approvals";
+import { PLUGIN_VERSION, outdated } from "./version";
 import { type Activity, type Env, type Message, ago, hostNames, myProjects } from "./lib";
 import { avatar, esc, hidden, icon, md, time } from "./ui";
 
@@ -15,6 +16,7 @@ interface Agent {
   note: string;
   client: string;
   host: string;
+  version: string;
   last_seen: number;
   state: string;
   state_detail: string;
@@ -41,7 +43,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   const ph = (n: number) => Array.from({ length: n }, () => "?").join(",") || "NULL";
   const everyone = people.includes(me) ? people : [...people, me];
   const { results: agents } = await env.DB.prepare(
-    `SELECT member, session_id, label, project, branch, note, client, host, last_seen, state, state_detail, state_at FROM sessions
+    `SELECT member, session_id, label, project, branch, note, client, host, version, last_seen, state, state_detail, state_at FROM sessions
      WHERE member IN (${ph(everyone.length)}) AND (member = ? OR project IN (${ph(mine.length)})) AND last_seen > ?
      ORDER BY member = ? DESC, last_seen DESC`,
   )
@@ -66,7 +68,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   const card = (a: Agent) => `<a class="acard ${agent && key(a) === key(agent) ? "on" : ""}" href="/dashboard?view=agents&agent=${encodeURIComponent(key(a))}">
       <span class="dot ${isOn(a) ? "on" : ""}" style="margin-top:6px" title="${isOn(a) ? "connected" : `last seen ${ago(a.last_seen)}`}"></span>
       <span class="grow" style="min-width:0">
-        <span class="nm">${clientBadge(a.client)}${a.member === me ? esc(a.label) : `${esc(a.member)}/${esc(a.label)}`}${stateBadge(a)}</span>
+        <span class="nm">${clientBadge(a.client)}${a.member === me ? esc(a.label) : `${esc(a.member)}/${esc(a.label)}`}${stateBadge(a)}${a.member === me && isOn(a) && outdated(a.version) ? `<span class="badge amber" title="Runs intercom ${esc(a.version || "an old version")}; ${PLUGIN_VERSION} is available">⬆ update</span>` : ""}</span>
         <span class="sub">${a.host ? `${icon("monitor", 11)} ${esc(hostOf(a))} · ` : ""}${a.project ? `#${esc(a.project)}` : "no project"}${a.branch ? ` · ⎇ ${esc(a.branch)}` : ""}${isOn(a) ? "" : ` · seen ${ago(a.last_seen)}`}</span>
         ${a.note ? `<span class="st">${esc(a.note)}</span>` : ""}
       </span></a>`;
@@ -100,7 +102,13 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
         <button name="decision" value="deny" class="btn sm danger">${icon("x", 14)}Deny</button>
       </form>
     </div>`;
-  const awayBar = `<section class="card awaybar ${away ? "on" : ""}" id="awaybar" data-region>
+  const stale = agents.filter((a) => a.member === me && isOn(a) && outdated(a.version));
+  const updateBar = stale.length
+    ? `<section class="card updatebar" id="updatebar" data-region><div class="row" style="gap:10px">${icon("download", 16)}
+        <div class="grow"><b>Update available: intercom ${PLUGIN_VERSION}</b> <span class="small muted">· ${stale.length} of your running session${stale.length > 1 ? "s run" : " runs"} an older version (${esc(stale.map((a) => a.label).slice(0, 4).join(", "))}${stale.length > 4 ? "…" : ""})</span></div>
+        <span class="small muted">Installed automatically at the next session start (unless auto-update is off); restart sessions to load it. Now: <code>/intercom update</code>.</span></div></section>`
+    : "";
+  const awayBar = `${updateBar}<section class="card awaybar ${away ? "on" : ""}" id="awaybar" data-region>
       <div class="row" style="gap:10px">
         <span style="font-size:18px">${away ? "🌙" : "🖥"}</span>
         <div class="grow"><b>${away ? "Away mode is on" : "At your desk"}</b>

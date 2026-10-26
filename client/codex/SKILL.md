@@ -28,6 +28,7 @@ If the user gave an instruction, do it with the intercom tools and confirm in on
 - read messages — `inbox` (marks them read); who is on what — `team`; rules — `projects`
 - open the web dashboard, signed in: `sh "$HOME/.claude/intercom/brief.sh" open`
 - show or change settings on this machine (push into Codex, terminal lines, notifications, guard) — tool `settings`
+- update intercom on this machine: `sh "$HOME/.claude/intercom/brief.sh" update`, then tell the user to restart Codex
 - something not arriving? `sh "$HOME/.claude/intercom/brief.sh" doctor` checks the setup
 
 Otherwise end the briefing with up to four numbered suggestions picked from what's relevant (e.g. "1. Vote on #12", "2. Reply to anna", "3. Release deploy:billing:prod"), and act on the one they pick.

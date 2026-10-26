@@ -16,6 +16,13 @@ if [ "$1" = "open" ]; then
   exit 0
 fi
 
+# "brief.sh update": re-run the setup (keeps the sign-in; updates the plugin, intercom-ui and the Codex pieces).
+if [ "$1" = "update" ]; then
+  curl -fsSL "$INTERCOM_URL/setup.sh" | sh
+  echo "Restart your Claude Code (and Codex) sessions to load the new version: claude --continue"
+  exit 0
+fi
+
 # "brief.sh doctor": what works on this machine, for Claude Code and Codex.
 if [ "$1" = "doctor" ]; then
   now=$(date +%s)
@@ -24,6 +31,10 @@ if [ "$1" = "doctor" ]; then
   me=$(curl -sf --max-time 5 "$INTERCOM_URL/api/whoami" -H "Authorization: Bearer $INTERCOM_TOKEN")
   [ -n "$me" ] && check ok "signed in to $INTERCOM_URL as $me" || check no "token rejected or hub unreachable ($INTERCOM_URL): run the setup again"
   command -v node >/dev/null 2>&1 && check ok "node $(node -v)" || check no "node missing (22+ needed)"
+  latest=$(curl -sf --max-time 5 "$INTERCOM_URL/api/version" | sed -n 's/.*"plugin":"\([^"]*\)".*/\1/p')
+  mine=$(sed -n 's/^VERSION=\([0-9.]*\).*/\1/p' "$(dirname "$0")/hook.sh" 2>/dev/null | head -n 1)
+  [ -n "$mine" ] || mine=$(sed -n 's/^VERSION=\([0-9.]*\).*/\1/p' "$D/hook.sh" 2>/dev/null | head -n 1)
+  if [ -n "$latest" ] && [ "$mine" = "$latest" ]; then check ok "intercom $mine (latest)"; elif [ -n "$latest" ]; then check no "intercom ${mine:-?} installed here, $latest available: run brief.sh update (or /intercom update), then restart sessions"; fi
   for client in claude codex; do
     if [ -f "$D/.hook-$client" ]; then
       set -- $(cat "$D/.hook-$client")

@@ -20,6 +20,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+const VERSION = "0.12.0"; // kept in step with .claude-plugin/plugin.json (a test checks)
 const DIR = path.join(os.homedir(), ".claude", "intercom");
 const CONFIG = path.join(DIR, "config");
 function readConf() {
@@ -87,6 +88,7 @@ const headers = {
   "x-intercom-project": PROJECT,
   "x-intercom-mode": MODE,
   "x-intercom-host": HOST,
+  "x-intercom-version": VERSION,
   ...(SHARE_BRANCH ? { "x-intercom-branch": branch } : {}),
 };
 
@@ -161,6 +163,7 @@ const SETTINGS = {
   show: { key: "INTERCOM_SHOW", on: "1", off: "0", def: true, what: "show 📻 lines in the terminal when messages reach a session", live: true },
   notify: { key: "INTERCOM_NOTIFY", on: "1", off: "0", def: true, what: "desktop notifications for DMs, locks and votes", live: true },
   guard: { key: "INTERCOM_GUARD", on: "1", off: "0", def: true, what: "the deploy guard on shell commands", live: true },
+  auto_update: { key: "INTERCOM_AUTO_UPDATE", on: "1", off: "0", def: true, what: "install new intercom versions automatically in the background (checked at session start, at most every 6 hours)", live: true },
   mirror: { key: "INTERCOM_MIRROR", on: "1", off: "0", def: true, what: "mirror what your agents do (commands, edits, their text) to your own Agents view; only you can see it", live: true },
   share_host: { key: "INTERCOM_SHARE_HOST", on: "1", off: "0", def: true, what: "show which machine your sessions run on (INTERCOM_HOST_NAME=… sets a nickname)", live: false },
   share_branch: { key: "INTERCOM_SHARE_BRANCH", on: "1", off: "0", def: true, what: "share this machine's git branch with project members", live: false },
@@ -380,7 +383,7 @@ async function onRequest(msg) {
       return {
         protocolVersion: protocolFor(msg.params?.protocolVersion),
         capabilities: { tools: {}, ...(CHANNEL ? { experimental: { "claude/channel": {} } } : {}) },
-        serverInfo: { name: "intercom", version: "0.7.0" },
+        serverInfo: { name: "intercom", version: VERSION },
         instructions: instructions + (CHANNEL ? CHANNEL_INSTRUCTIONS : "") + (AUTO_STATUS && instructions ? STATUS_INSTRUCTIONS : ""),
       };
     }

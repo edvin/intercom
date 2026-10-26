@@ -1,6 +1,6 @@
 ---
 description: Intercom status and quick actions — locks, votes, unread messages, who's working on what
-argument-hint: "[dashboard | post <msg> | dm <who> <msg> | lock <name> [reason] | release <name> | vote | mute <who>]"
+argument-hint: "[update | doctor | dashboard | post <msg> | dm <who> <msg> | lock <name> [reason] | release <name> | vote | mute <who>]"
 allowed-tools: Bash(sh:*), AskUserQuestion, mcp__plugin_intercom_intercom, mcp__intercom
 ---
 
@@ -19,6 +19,7 @@ You are running the `/intercom` command. Use the `intercom` MCP tools for any ac
 - `vote`: walk me through open votes I haven't answered (ask for each choice; never vote without my answer)
 - `mute <person|#project>` / `unmute …`
 - `dashboard`: open the web dashboard, signed in: run `sh "$HOME/.claude/intercom/brief.sh" open`
+- `update`: update intercom on this machine: run `sh "$HOME/.claude/intercom/brief.sh" update`, show the result, and remind me to restart sessions
 - `doctor`: check what works on this machine: run `sh "$HOME/.claude/intercom/brief.sh" doctor` and explain the result
 - `inbox`: read unread messages (marks them read), `team`, `locks`, `projects`
 - anything else: interpret it sensibly as an intercom request

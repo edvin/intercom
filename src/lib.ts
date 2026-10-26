@@ -588,3 +588,9 @@ export async function addActivity(env: Env, me: string, sessionId: string, items
   env.refreshWeb?.(me);
   return rows.length;
 }
+
+/** The plugin version a session runs, as its client reports it. */
+export async function setVersion(env: Env, me: string, sessionId: string, raw: string | null | undefined): Promise<void> {
+  const v = String(raw ?? "").match(/^\d+\.\d+\.\d+$/)?.[0];
+  if (v) await env.DB.prepare("UPDATE sessions SET version = ? WHERE member = ? AND session_id = ? AND version != ?").bind(v, me, sessionId, v).run();
+}
