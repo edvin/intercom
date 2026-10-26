@@ -1,4 +1,4 @@
-import { type Env, type Message, type Proposal, type Session, MEMBER_OF, RECEIVES, UserError, activeLocks, address, ago, cleanBranch, cleanClient, fromOwnUser, workingOn, authenticate, coMembers, fmtLock, fmtMessage, myProjects, resolveProject, setPresence, tally, touchSession, unread } from "./lib";
+import { type Env, type Message, type Proposal, type Session, MEMBER_OF, RECEIVES, UserError, activeLocks, address, ago, cleanBranch, cleanClient, fromOwnUser, setHost, workingOn, authenticate, coMembers, fmtLock, fmtMessage, myProjects, resolveProject, setPresence, tally, touchSession, unread } from "./lib";
 import { INSTRUCTIONS, tools } from "./tools";
 import { cliPoll, cliStart, connectPage, discoverJoin, discoverPage, discoverRequest, githubCallback, githubCreate, githubStart, signOut } from "./accounts";
 import { approvalStatus, decide, requestApproval, setAway } from "./approvals";
@@ -112,6 +112,7 @@ async function handleHook(url: URL, env: Env, me: string): Promise<Response> {
   const client = cleanClient(url.searchParams.get("client"));
   await setPresence(env, me, project?.name ?? null, null, project ? branch : null);
   const session = sessionId ? await touchSession(env, me, sessionId, project?.name ?? "", branch, client, url.searchParams.get("name")) : undefined;
+  if (session) await setHost(env, me, session.session_id, url.searchParams.get("host"));
 
   // What the session is doing, for the dashboard: working / idle / waiting (needs approval or input).
   const setState = async (state: string, detail = "") => {
@@ -425,6 +426,7 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
       cleanClient(req.headers.get("x-intercom-client") ?? url.searchParams.get("client")),
       req.headers.get("x-intercom-name"),
     );
+    await setHost(env, me, sid, req.headers.get("x-intercom-host"));
   }
 
   if (url.pathname === "/dashboard") return dashboard(url, env, me);

@@ -77,12 +77,16 @@ function gitBranch() {
 }
 let branch = gitBranch();
 
+// The machine, as teammates see it: a nickname, or the short hostname (INTERCOM_SHARE_HOST=0: none).
+const HOST = (process.env.INTERCOM_SHARE_HOST ?? conf.INTERCOM_SHARE_HOST) === "0" ? "" : (process.env.INTERCOM_HOST_NAME || conf.INTERCOM_HOST_NAME || os.hostname().split(".")[0]);
+
 const headers = {
   authorization: `Bearer ${TOKEN}`,
   "content-type": "application/json",
   "x-intercom-session": SESSION,
   "x-intercom-project": PROJECT,
   "x-intercom-mode": MODE,
+  "x-intercom-host": HOST,
   ...(SHARE_BRANCH ? { "x-intercom-branch": branch } : {}),
 };
 
@@ -157,6 +161,7 @@ const SETTINGS = {
   show: { key: "INTERCOM_SHOW", on: "1", off: "0", def: true, what: "show 📻 lines in the terminal when messages reach a session", live: true },
   notify: { key: "INTERCOM_NOTIFY", on: "1", off: "0", def: true, what: "desktop notifications for DMs, locks and votes", live: true },
   guard: { key: "INTERCOM_GUARD", on: "1", off: "0", def: true, what: "the deploy guard on shell commands", live: true },
+  share_host: { key: "INTERCOM_SHARE_HOST", on: "1", off: "0", def: true, what: "show which machine your sessions run on (INTERCOM_HOST_NAME=… sets a nickname)", live: false },
   share_branch: { key: "INTERCOM_SHARE_BRANCH", on: "1", off: "0", def: true, what: "share this machine's git branch with project members", live: false },
   auto_status: { key: "INTERCOM_AUTO_STATUS", on: "1", off: "0", def: true, what: "let agents set their own status notes", live: false },
 };

@@ -784,6 +784,8 @@ export function docsPage(origin: string): Response {
         <p class="muted">Easiest: ask your agent, in Claude Code or Codex (“turn on intercom push”, “stop showing intercom messages”, “show my intercom settings”). Or add the lines to <code>~/.claude/intercom/config</code> yourself.</p>
         <dl class="kv">
           <dt><code>INTERCOM_SHARE_BRANCH=0</code></dt><dd>Don't share your git branch.</dd>
+          <dt><code>INTERCOM_HOST_NAME=work-mac</code></dt><dd>The name your machine shows with your sessions (default: its short hostname).</dd>
+          <dt><code>INTERCOM_SHARE_HOST=0</code></dt><dd>Don't show which machine your sessions run on.</dd>
           <dt><code>INTERCOM_AUTO_STATUS=0</code></dt><dd>Claude only sets a status note when you ask.</dd>
           <dt><code>INTERCOM_SHOW=0</code></dt><dd>Don't show the 📻 lines in your terminal when messages reach a session (the agent still gets them).</dd>
           <dt><code>INTERCOM_GUARD=0</code></dt><dd>Turn off the deploy guard.</dd>

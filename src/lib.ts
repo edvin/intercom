@@ -500,3 +500,10 @@ export async function inheritMailbox(env: Env, me: string, sessionId: string, la
   const from = Math.min(prev?.cursor ?? Infinity, ended?.cursor ?? Infinity);
   if (Number.isFinite(from)) await env.DB.prepare("UPDATE sessions SET cursor = MIN(cursor, ?) WHERE member = ? AND session_id = ?").bind(from, me, sessionId).run();
 }
+
+/** The machine a session runs on, as its client reports it (a short hostname or a nickname). */
+export async function setHost(env: Env, me: string, sessionId: string, raw: string | null | undefined): Promise<void> {
+  if (raw === null || raw === undefined) return;
+  const host = raw.replace(/\.(local|lan|home|localdomain)$/i, "").replace(/[^\w.-]/g, "").slice(0, 48);
+  await env.DB.prepare("UPDATE sessions SET host = ? WHERE member = ? AND session_id = ? AND host != ?").bind(host, me, sessionId, host).run();
+}

@@ -147,12 +147,15 @@ fi
 
 branch=""
 [ "$INTERCOM_SHARE_BRANCH" = "0" ] || branch=$(git -C "$workdir" branch --show-current 2>/dev/null)
+# The machine, as teammates see it (INTERCOM_HOST_NAME nickname, or the short hostname; INTERCOM_SHARE_HOST=0: none).
+host=""
+[ "$INTERCOM_SHARE_HOST" = "0" ] || host="${INTERCOM_HOST_NAME:-$(hostname -s 2>/dev/null || hostname)}"
 # A standing name for this agent's sessions (INTERCOM_CODEX_NAME / INTERCOM_CLAUDE_NAME / INTERCOM_NAME).
 if [ "$client" = "codex" ]; then name="${INTERCOM_CODEX_NAME:-$INTERCOM_NAME}"; else name="${INTERCOM_CLAUDE_NAME:-$INTERCOM_NAME}"; fi
 
 curl -sf --max-time 3 -G "$INTERCOM_URL/api/hook" \
   --data-urlencode "event=$event" --data-urlencode "project=$project" --data-urlencode "session=$session" \
   --data-urlencode "branch=$branch" --data-urlencode "remote=$remote" --data-urlencode "client=$client" --data-urlencode "name=$name" \
-  --data-urlencode "show=${INTERCOM_SHOW:-1}" \
+  --data-urlencode "show=${INTERCOM_SHOW:-1}" --data-urlencode "host=$host" \
   -H "Authorization: Bearer $INTERCOM_TOKEN" 2>/dev/null
 exit 0

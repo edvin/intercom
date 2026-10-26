@@ -592,9 +592,9 @@ export const tools: Tool[] = [
         env.DB.prepare(`SELECT m.name, m.org, p.project, p.note, p.branch, p.updated_at FROM members m LEFT JOIN presence p ON p.member = m.name WHERE m.name IN (${ph}) ORDER BY p.updated_at DESC NULLS LAST, m.name`)
           .bind(...people)
           .all<{ name: string; org: string; project: string | null; note: string | null; branch: string | null; updated_at: number | null }>(),
-        env.DB.prepare(`SELECT member, session_id, label, project, branch, note, last_seen, client FROM sessions WHERE last_seen > ? AND member IN (${ph}) ORDER BY last_seen DESC`)
+        env.DB.prepare(`SELECT member, session_id, label, project, branch, note, last_seen, client, host FROM sessions WHERE last_seen > ? AND member IN (${ph}) ORDER BY last_seen DESC`)
           .bind(Date.now() - 6 * 3600_000, ...people)
-          .all<{ member: string; session_id: string; label: string; project: string; branch: string; note: string; last_seen: number; client: string }>(),
+          .all<{ member: string; session_id: string; label: string; project: string; branch: string; note: string; last_seen: number; client: string; host: string }>(),
       ]);
       const connected = env.live?.() ?? new Set<string>();
       const state = (s: { member: string; session_id: string; last_seen: number }) =>
@@ -608,7 +608,7 @@ export const tools: Tool[] = [
           const live = sessions.filter((s) => s.member === r.name && s.project && mine.has(s.project));
           const hidden = r.name !== me && sessions.some((s) => s.member === r.name && s.project && !mine.has(s.project));
           const head = `${who}: active ${ago(r.updated_at)}${!live.length && r.project && mine.has(r.project) ? ` — ${workingOn(r.project, r.branch, r.note)}` : ""}`;
-          const lines = live.map((s) => `    ${address(s.member, s.label)} [${s.client === "codex" ? "Codex" : "Claude Code"}]: ${workingOn(s.project, s.branch, s.note)} (${state(s)})`);
+          const lines = live.map((s) => `    ${address(s.member, s.label)} [${s.client === "codex" ? "Codex" : "Claude Code"}${s.host ? ` on ${s.host}` : ""}]: ${workingOn(s.project, s.branch, s.note)} (${state(s)})`);
           if (hidden) lines.push("    (also active in projects you're not in)");
           if (r.name === me && !lines.length) return `${who}: none connected through intercom right now`;
           return [r.name === me ? who : head, ...lines].join("\n");

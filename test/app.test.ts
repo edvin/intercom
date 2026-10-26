@@ -807,3 +807,13 @@ describe("message rendering", () => {
     assert.match(html, /<a href="https:\/\/example\.com\/a\?b=1"/);
   });
 });
+
+describe("machines", () => {
+  test("a session shows the machine it runs on", async () => {
+    const w = await standardWorld();
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=h1&client=codex&host=Edvins-MBP.local", { as: "bob" });
+    assert.match(await w.ok("alice", "team"), /bob\/billing-h1 \[Codex on Edvins-MBP\]/);
+    const page = await (await w.request("/dashboard?view=agents", { as: "bob", cookie: true })).text();
+    assert.match(page, /Edvins-MBP/);
+  });
+});
