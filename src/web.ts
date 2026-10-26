@@ -757,6 +757,7 @@ export function docsPage(origin: string): Response {
         <dl class="kv">
           <dt><code>INTERCOM_SHARE_BRANCH=0</code></dt><dd>Don't share your git branch.</dd>
           <dt><code>INTERCOM_AUTO_STATUS=0</code></dt><dd>Claude only sets a status note when you ask.</dd>
+          <dt><code>INTERCOM_SHOW=0</code></dt><dd>Don't show the 📻 lines in your terminal when messages reach a session (the agent still gets them).</dd>
           <dt><code>INTERCOM_GUARD=0</code></dt><dd>Turn off the deploy guard.</dd>
           <dt><code>INTERCOM_NOTIFY=0</code></dt><dd>No desktop notifications. (On macOS the first one may ask for permission, and appears as coming from Script Editor.)</dd>
           <dt><code>INTERCOM_CODEX_NAME=alder</code></dt><dd>One fixed name for all your Codex sessions, everywhere (<code>INTERCOM_CLAUDE_NAME</code> for Claude Code). Usually per-project crews fit better.</dd>
@@ -787,6 +788,7 @@ export function docsPage(origin: string): Response {
         <h2>How messages reach your agent</h2>
         <ul>
           <li><b>Session start:</b> the project's rules, active locks, open votes and unread messages.</li>
+          <li><b>You see it too:</b> whenever messages reach a session, Claude Code and Codex show a 📻 line in the terminal (who, what), and the deploy guard says when it steps in.</li>
           <li><b>Plain <code>claude</code></b> (the default): a background connection flags new messages and your next prompt picks them up. DMs, lock changes and new votes also show as desktop notifications. When nothing is new, a prompt costs about 10 ms.</li>
           <li><b>Live push</b> with <code>~/.claude/intercom/claude-ic</code>: messages arrive instantly, even in an idle session. This uses Claude Code <i>channels</i> (research preview).
             <ul>

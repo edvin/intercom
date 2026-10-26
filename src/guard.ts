@@ -117,6 +117,7 @@ export async function guard(env: Env, me: string, project: string | null, comman
     if (client === "codex") {
       // Codex hooks can refuse but not ask: refuse with the reason, and let the user decide to go ahead.
       return {
+        systemMessage: `🔒 intercom stopped a ${risky.action}: ${hits.map((l) => `${l.resource} is held by ${l.holder}`).join(", ")}. Tell your agent to go ahead if you still want it.`,
         hookSpecificOutput: {
           hookEventName: "PreToolUse",
           permissionDecision: "deny",
@@ -142,6 +143,7 @@ export async function guard(env: Env, me: string, project: string | null, comman
   if (held) return null;
   const name = `${risky.action}:${current}:${risky.env ?? "<env>"}`;
   return {
+    systemMessage: `📻 intercom: no lock held for this ${risky.action} of #${current}${risky.env ? ` (${risky.env})` : ""}; reminded the agent to claim one.`,
     hookSpecificOutput: {
       hookEventName: "PreToolUse",
       additionalContext: `<intercom>This looks like a ${risky.action} for #${current}${risky.env ? ` (${risky.env})` : ""} and nobody holds a lock for it. If it affects shared or production systems, claim \`${name}\` with the intercom claim tool first, and release it afterwards.</intercom>`,

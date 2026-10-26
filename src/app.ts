@@ -99,6 +99,9 @@ async function handleHook(url: URL, env: Env, me: string): Promise<Response> {
   const session = sessionId ? await touchSession(env, me, sessionId, project?.name ?? "", branch, client, url.searchParams.get("name")) : undefined;
 
   const sections: string[] = [];
+  // A line for the person at the keyboard (hook "systemMessage"), next to the context the agent reads.
+  const show = url.searchParams.get("show") !== "0";
+  let startLine = "";
   if (event === "SessionStart") {
     const mine = await myProjects(env, me);
     const locks = await activeLocks(env, me);
@@ -140,6 +143,14 @@ async function handleHook(url: URL, env: Env, me: string): Promise<Response> {
     if (active.length) sections.push(`Active in the last 2h: ${active.map((a) => `${a.member}${visible.has(a.project) ? ` (${workingOn(a.project, a.branch, a.note)})` : ""}`).join(", ")}`);
     sections.push(locks.length ? `Active locks:\n${locks.map((l) => fmtLock(l, me)).join("\n")}` : "No active locks.");
     if (open.length) sections.push(`Open proposals:\n${(await Promise.all(open.map((p) => tally(env, p, me)))).join("\n")}`);
+    const others = locks.filter((l) => l.holder !== me);
+    startLine = [
+      `📻 intercom · ${session ? address(me, session.label) : me}${project ? ` in #${project.name}` : raw ? " (repo not linked)" : ""}`,
+      others.length ? `🔒 ${others.map((l) => `${l.resource} (${l.holder})`).join(", ")}` : "",
+      open.length ? `🗳 ${open.length} open vote${open.length > 1 ? "s" : ""}` : "",
+    ]
+      .filter(Boolean)
+      .join(" · ");
   }
   const { messages, more } = await unread(env, me, event === "SessionStart" ? 20 : 10, true, session);
   if (messages.length) {
@@ -147,7 +158,18 @@ async function handleHook(url: URL, env: Env, me: string): Promise<Response> {
   }
   if (event !== "SessionStart" && !messages.length) return new Response("", { status: 200 });
 
+  const preview = (m: Message) => {
+    const from = address(m.sender, m.sender_agent);
+    const body = m.body.replace(/\s+/g, " ");
+    return `${m.recipient ? `${from} (DM)` : `#${m.channel} ${from}`}: ${body.length > 90 ? `${body.slice(0, 89)}…` : body}`;
+  };
+  const newLine = messages.length
+    ? `📻 intercom · ${messages.length}${more ? "+" : ""} new — ${messages.slice(-3).map(preview).join(" · ")}${messages.length > 3 ? ` · …and ${messages.length - 3} more` : ""}`
+    : "";
+  const systemMessage = show ? [startLine, event === "SessionStart" && messages.length ? `${messages.length}${more ? "+" : ""} unread` : newLine].filter(Boolean).join(" · ") : "";
+
   return json({
+    ...(systemMessage ? { systemMessage } : {}),
     hookSpecificOutput: { hookEventName: event, additionalContext: `<intercom>\n${PREAMBLE}\n\n${sections.join("\n\n")}\n</intercom>` },
   });
 }
@@ -163,7 +185,8 @@ async function handleGuard(req: Request, url: URL, env: Env, me: string): Promis
   const command = typeof input.tool_input?.command === "string" ? input.tool_input.command : "";
   const raw = url.searchParams.get("project");
   const project = raw ? await resolveProject(env, raw, me) : null;
-  const out = command ? await guard(env, me, project?.name ?? null, command, cleanClient(url.searchParams.get("client")) ?? "claude") : null;
+  const out = command ? ((await guard(env, me, project?.name ?? null, command, cleanClient(url.searchParams.get("client")) ?? "claude")) as Record<string, unknown> | null) : null;
+  if (out && url.searchParams.get("show") === "0") delete out.systemMessage;
   return out ? json(out) : new Response("", { status: 200 });
 }
 

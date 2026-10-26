@@ -63,7 +63,7 @@ if [ "$event" = "PreToolUse" ]; then
   [ -n "$session" ] || session=$(printf '%s' "$input" | json_field session_id)
   project=$(cat "$D/.project-${session:-default}" 2>/dev/null)
   [ -n "$project" ] || project=$(repo_name)
-  printf '%s' "$input" | curl -sf --max-time 3 -X POST "$INTERCOM_URL/api/guard?client=$client&project=$(printf '%s' "$project" | sed 's/[^A-Za-z0-9._-]/-/g')" \
+  printf '%s' "$input" | curl -sf --max-time 3 -X POST "$INTERCOM_URL/api/guard?client=$client&show=${INTERCOM_SHOW:-1}&project=$(printf '%s' "$project" | sed 's/[^A-Za-z0-9._-]/-/g')" \
     -H "Authorization: Bearer $INTERCOM_TOKEN" -H "Content-Type: application/json" --data-binary @- 2>/dev/null
   exit 0
 fi
@@ -116,5 +116,6 @@ if [ "$client" = "codex" ]; then name="${INTERCOM_CODEX_NAME:-$INTERCOM_NAME}"; 
 curl -sf --max-time 3 -G "$INTERCOM_URL/api/hook" \
   --data-urlencode "event=$event" --data-urlencode "project=$project" --data-urlencode "session=$session" \
   --data-urlencode "branch=$branch" --data-urlencode "remote=$remote" --data-urlencode "client=$client" --data-urlencode "name=$name" \
+  --data-urlencode "show=${INTERCOM_SHOW:-1}" \
   -H "Authorization: Bearer $INTERCOM_TOKEN" 2>/dev/null
 exit 0

@@ -639,3 +639,18 @@ describe("status for an agent", () => {
     assert.match(brief, /Your other sessions:\n\s+bob\/alder/);
   });
 });
+
+describe("what the person sees", () => {
+  test("hook deliveries carry a one-line summary for the terminal, unless switched off", async () => {
+    const w = await standardWorld();
+    const get = async (q: string) => (await (await w.request(`/api/hook?${q}`, { as: "bob" })).json()) as { systemMessage?: string };
+    const start = await get("event=SessionStart&project=billing-api&session=s1");
+    assert.match(start.systemMessage!, /📻 intercom · bob\/billing-s1 in #billing/);
+    await w.ok("alice", "post", { to: "bob", message: "can you hold the deploy?" });
+    const next = await get("event=UserPromptSubmit&project=billing-api&session=s1");
+    assert.match(next.systemMessage!, /1 new — alice \(DM\): can you hold the deploy\?/);
+    await w.ok("alice", "post", { to: "bob", message: "thanks" });
+    const quiet = await get("event=UserPromptSubmit&project=billing-api&session=s1&show=0");
+    assert.equal(quiet.systemMessage, undefined);
+  });
+});
