@@ -4,8 +4,8 @@
 
 import { awayState, pendingApprovals } from "./approvals";
 import { PLUGIN_VERSION, outdated } from "./version";
-import { type Activity, type Env, type Message, ago, hostNames, myProjects } from "./lib";
-import { avatar, esc, hidden, icon, md, plainSpaces, time } from "./ui";
+import { type Activity, type Env, type Message, address, ago, deliveryMarks, hostNames, myProjects } from "./lib";
+import { avatar, deliveryMark, esc, hidden, icon, md, plainSpaces, time } from "./ui";
 
 interface Agent {
   member: string;
@@ -124,19 +124,24 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   if (!agent) return `${awayBar}<div class="agents" id="agents" data-region>${list}<section class="card chat"><div class="empty" style="margin:auto">${icon("radio", 30)}<div>No agents to talk to yet.</div></div></section></div>`;
 
   const { results: rows } = await env.DB.prepare(
+    // You (or your agents) → it, it → you (or your agents); for your own agents also every DM it sent or got,
+    // so agent-to-agent conversations can be followed. A teammate's agent only ever shows what involves you.
     `SELECT * FROM messages WHERE
-       (sender = ?1 AND sender_agent IS NULL AND recipient = ?2 AND recipient_agent = ?3)
+       (sender = ?1 AND recipient = ?2 AND recipient_agent = ?3)
        OR (sender = ?2 AND sender_agent = ?3 AND recipient = ?1 AND (recipient_agent IS NULL OR ?1 != ?2))
+       OR (?1 = ?2 AND sender = ?2 AND sender_agent = ?3 AND recipient IS NOT NULL)
+       OR (?1 = ?2 AND recipient = ?2 AND recipient_agent IN (?3, ?4))
        OR (sender = ?2 AND sender_agent = ?3 AND recipient IS NULL AND kind != 'event' AND channel IN (${ph(mine.length)}))
      ORDER BY id DESC LIMIT 150`,
   )
-    .bind(me, agent.member, agent.label, ...mine)
+    .bind(me, agent.member, agent.label, agent.project || "\u0000", ...mine)
     .all<Message>();
   // What the agent is doing, mirrored from its transcript: only ever for your own agents.
   const { results: acts } =
     agent.member === me
       ? await env.DB.prepare("SELECT * FROM activity WHERE member = ? AND session_id = ? ORDER BY id DESC LIMIT 200").bind(me, agent.session_id).all<Activity>()
       : { results: [] as Activity[] };
+  const marks = await deliveryMarks(env, me, rows);
   const ACT_ICON: Record<string, string> = { cmd: "$", edit: "✎", read: "·", tool: "⚙", text: "●", prompt: "›" };
   const actRow = (a: Activity) =>
     `<div class="act act-${a.kind}" data-mid="a${a.id}"><span class="aic">${ACT_ICON[a.kind] ?? "·"}</span><span class="atx">${
@@ -151,7 +156,15 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
         return `<div class="activity" data-mid="${m.id}">${icon("hash", 12)}<span>#${esc(m.channel)} · ${esc(plainSpaces(m.body).split("\n")[0]!.slice(0, 240))}</span><span class="when">${time(m.created_at)}</span></div>`;
       }
       const fromMe = m.sender === me && !m.sender_agent;
-      return `<div class="bubble md ${fromMe ? "mine" : ""}" data-mid="${m.id}" data-who="${esc(agent.label)}">${md(m.body)}<span class="when">${time(m.created_at)}</span></div>`;
+      const mark = deliveryMark(marks.get(m.id));
+      const replyToYou = m.sender === agent.member && m.sender_agent === agent.label && m.recipient === me && (!m.recipient_agent || agent.member !== me);
+      if (!fromMe && !replyToYou) {
+        // Agent-to-agent (or a teammate writing to your agent): who to whom, shown apart from your own conversation.
+        const from = address(m.sender, m.sender_agent);
+        const to = address(m.recipient!, m.recipient_agent);
+        return `<div class="bubble md relay" data-mid="${m.id}"><span class="rhd">${esc(from)} → ${esc(to)}</span>${md(m.body)}<span class="when">${time(m.created_at)}${mark}</span></div>`;
+      }
+      return `<div class="bubble md ${fromMe ? "mine" : ""}" data-mid="${m.id}" data-who="${esc(agent.label)}">${md(m.body)}<span class="when">${time(m.created_at)}${mark}</span></div>`;
     });
   rows.forEach((m, i) => items.push({ at: m.created_at, html: thread0[i]! }));
   for (const a of [...acts].reverse()) items.push({ at: a.at, html: actRow(a) }); // oldest first; sort is stable
@@ -164,12 +177,12 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
         <span class="presence ${on ? "on" : ""}">${avatar(agent.label, "m")}</span>
         <div class="grow" style="min-width:0">
           <h2 style="display:flex;gap:8px;align-items:center"><span class="grow" style="display:flex;gap:8px;align-items:center">${esc(key(agent))}${ownAgent ? `<button type="button" class="btn ghost xs icon renamebtn" data-open="dlg-rename" title="Rename this agent">${icon("pencil", 12)}</button>` : ""}${clientBadge(agent.client, true)}</span>
-            ${ownAgent ? '<button type="button" class="btn ghost xs" data-acttoggle title="Show or hide what the agent is doing (commands, edits, its text); only you see this">Activity</button>' : ""}<span class="viewtoggle" title="How messages are shown (remembered in this browser)"><button type="button" data-chatstyle="term">Terminal</button><button type="button" data-chatstyle="chat">Chat</button></span></h2>
+            <button type="button" class="btn ghost xs" data-relaytoggle title="Show or hide messages between agents (remembered in this browser)">Agent DMs</button>${ownAgent ? '<button type="button" class="btn ghost xs" data-acttoggle title="Show or hide what the agent is doing (commands, edits, its text); only you see this">Activity</button>' : ""}<span class="viewtoggle" title="How messages are shown (remembered in this browser)"><button type="button" data-chatstyle="term">Terminal</button><button type="button" data-chatstyle="chat">Chat</button></span></h2>
           <div class="meta-row">${stateBadge(agent)}<span>${agent.host ? `on <b style="color:var(--ink-2)">${esc(hostOf(agent))}</b>${ownAgent ? `<button type="button" class="btn ghost xs icon renamebtn" data-open="dlg-host" title="Rename this machine">${icon("pencil", 11)}</button>` : ""} · ` : ""}${agent.project ? `#${esc(agent.project)}` : "no project"}${agent.branch ? ` · ${icon("branch", 12)} ${esc(agent.branch)}` : ""}${on ? "" : ` · last seen ${ago(agent.last_seen)}`}${agent.note ? ` · “${esc(plainSpaces(agent.note))}”` : ""}</span></div>
         </div>
       </div>
       ${on && agent.state === "waiting" ? `<div class="toast err" style="box-shadow:none;margin:10px 14px 0">${icon("x")}<span><b>${esc(agent.label)} is waiting:</b> ${esc(agent.state_detail || "for approval or input")}. That can only be answered in its terminal (or with Claude's Remote Control); for unattended runs, start agents in a mode that doesn't stop to ask.</span></div>` : ""}
-      <div class="thread${/(?:^|;\s*)ic_chat=chat/.test(cookie) ? "" : " term"}${/(?:^|;\s*)ic_activity=off/.test(cookie) ? " noact" : ""}" id="thread" data-region>${thread || `<div class="empty" style="margin:auto">${icon("message", 28)}<div>No messages with ${esc(agent.label)} yet.</div><div class="small">${ownAgent ? "Ask a question or give it a new direction; it treats what you write here like a prompt you typed." : "Your message reaches this session; its owner's agent treats it as information from you."}</div></div>`}</div>
+      <div class="thread${/(?:^|;\s*)ic_chat=chat/.test(cookie) ? "" : " term"}${/(?:^|;\s*)ic_activity=off/.test(cookie) ? " noact" : ""}${/(?:^|;\s*)ic_relay=off/.test(cookie) ? " norelay" : ""}" id="thread" data-region>${thread || `<div class="empty" style="margin:auto">${icon("message", 28)}<div>No messages with ${esc(agent.label)} yet.</div><div class="small">${ownAgent ? "Ask a question or give it a new direction; it treats what you write here like a prompt you typed." : "Your message reaches this session; its owner's agent treats it as information from you."}</div></div>`}</div>
       <form method="post" action="/action/post" class="chatbox" id="chatform" data-region data-quiet>${hidden({ back, to: key(agent), channel: agent.project || "" })}
         <div class="row" style="align-items:flex-end;flex-wrap:nowrap">
           <textarea id="chat-input" name="message" data-chat required maxlength="4000" class="grow" rows="2" placeholder="Message ${esc(agent.label)} — Enter to send, Shift+Enter for a new line"></textarea>

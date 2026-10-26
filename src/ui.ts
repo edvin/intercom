@@ -1,3 +1,4 @@
+import type { Delivery } from "./lib";
 // Design system for the web pages: tokens, components and the page shell. No framework, no build step:
 // one stylesheet and a small script, served inline with every page (fonts are served from the edge).
 
@@ -74,6 +75,18 @@ export function hue(name: string): number {
 
 export const avatar = (name: string, size: "s" | "m" | "l" = "m") =>
   `<span class="av av-${size}" style="--h:${hue(name)}" title="${esc(name)}">${esc(name.slice(0, 1).toUpperCase())}</span>`;
+
+/** A direct message's delivery mark: ✓ taken into an agent's context, ⏳ not picked up yet, ⚠ nobody connected to take it. */
+export function deliveryMark(d: Delivery | undefined): string {
+  if (!d) return "";
+  if (d.state === "delivered") {
+    const title = d.detail && d.at ? `Delivered to ${d.label || "an agent"} ${relative(d.at)}` : "Delivered to an agent";
+    return `<span class="dlv ok" title="${esc(title)}">✓${d.detail && d.label ? ` ${esc(d.label)}` : ""}</span>`;
+  }
+  if (d.state === "waiting")
+    return `<span class="dlv wait" title="${d.detail ? "A session that takes it is connected; it lands at its next turn or check-in" : "Not delivered yet"}">⏳</span>`;
+  return `<span class="dlv off" title="No session with that name is connected; it's delivered when one starts">⚠ not connected</span>`;
+}
 
 export const time = (ts: number) => `<time data-ts="${ts}" title="${new Date(ts).toISOString()}">${relative(ts)}</time>`;
 
@@ -301,7 +314,14 @@ label.field>input,label.field>textarea,label.field>select{width:100%}
 .act-prompt .aic{color:var(--green)}
 .act-read{opacity:.75}
 .thread.noact .act{display:none}
-[data-acttoggle].on{background:var(--accent-soft);color:var(--accent)}
+.thread.norelay .relay{display:none}
+.dlv{font-size:11px;margin-left:6px;white-space:nowrap}.dlv.ok{color:var(--green)}.dlv.wait{opacity:.7}.dlv.off{color:var(--amber)}
+.bubble.mine .dlv.ok{color:#fff;opacity:.9}.thread.term .bubble.mine .dlv.ok{color:var(--green)}
+.bubble.relay{align-self:stretch;max-width:none;background:color-mix(in srgb,var(--accent) 5%,transparent);border-style:dashed}
+.bubble.relay .rhd{display:block;font-size:12px;font-weight:600;color:var(--ink-2);margin-bottom:4px}
+.thread.term .bubble.relay{border-left:2px dashed var(--line);padding-left:12px;background:none}
+.thread.term .bubble.relay::before{content:none}
+[data-acttoggle].on,[data-relaytoggle].on{background:var(--accent-soft);color:var(--accent)}
 .viewtoggle{display:inline-flex;border:1px solid var(--line-strong);border-radius:8px;overflow:hidden}
 .viewtoggle button{font:inherit;font-size:12px;padding:3px 10px;border:0;background:transparent;color:var(--mute);cursor:pointer}
 .viewtoggle button.on{background:var(--accent-soft);color:var(--accent);font-weight:600}
@@ -469,7 +489,9 @@ const SCRIPT = `
     const within = (sel) => [...(root.matches && root.matches(sel) ? [root] : []), ...$$(sel, root)];
     const style = cookie("ic_chat") || "term";
     const acts = cookie("ic_activity") !== "off";
-    within(".thread").forEach((th) => { th.classList.toggle("term", style === "term"); th.classList.toggle("noact", !acts); th.style.scrollBehavior = "auto"; if (th.dataset.stuck !== "no") th.scrollTop = th.scrollHeight; });
+    const relay = cookie("ic_relay") !== "off";
+    within(".thread").forEach((th) => { th.classList.toggle("term", style === "term"); th.classList.toggle("noact", !acts); th.classList.toggle("norelay", !relay); th.style.scrollBehavior = "auto"; if (th.dataset.stuck !== "no") th.scrollTop = th.scrollHeight; });
+    $$("[data-relaytoggle]").forEach((b) => { b.classList.toggle("on", relay); b.onclick = () => { setCookie("ic_relay", relay ? "off" : "on"); bind(document); }; });
     $$("[data-acttoggle]").forEach((b) => { b.classList.toggle("on", acts); b.onclick = () => { setCookie("ic_activity", acts ? "off" : "on"); bind(document); }; });
     $$("[data-chatstyle]").forEach((b) => { b.classList.toggle("on", b.dataset.chatstyle === style); b.onclick = () => { setCookie("ic_chat", b.dataset.chatstyle); bind(document); }; });
     $$("textarea[data-enter]", root).forEach((t) => t.onkeydown = (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); t.form.requestSubmit(); } });

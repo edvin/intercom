@@ -1,9 +1,9 @@
-import { type Env, type Lock, type Message, type Project, type Proposal, MAX_BODY, MEMBER_OF, RECEIVES, activeLocks, address, authenticate, coMembers, isAdmin, myProjects, normChannel, postMessage, roleIn, sha256, workingOn, newToken, HANDLE, limit, UserError } from "./lib";
+import { type Delivery, type Env, type Lock, deliveryMarks, type Message, type Project, type Proposal, MAX_BODY, MEMBER_OF, RECEIVES, activeLocks, address, authenticate, coMembers, isAdmin, myProjects, normChannel, postMessage, roleIn, sha256, workingOn, newToken, HANDLE, limit, UserError } from "./lib";
 import { agentsView } from "./agents";
 import { pendingApprovals } from "./approvals";
 import { openSignup, setSetting } from "./github";
 import { tools } from "./tools";
-import { GITHUB_ICON, LOGO, avatar, codeBlock, esc, hidden, html, icon, md, page, redirect, time } from "./ui";
+import { GITHUB_ICON, LOGO, avatar, codeBlock, deliveryMark, esc, hidden, html, icon, md, page, redirect, time } from "./ui";
 
 export const COOKIE = "intercom_token";
 
@@ -295,10 +295,10 @@ const EVENT_ICON: [RegExp, string, string][] = [
   [/rules|configured|updated #/, "sliders", ""],
 ];
 
-function messageRow(m: Message, me: string, showChannel: boolean): string {
+function messageRow(m: Message, me: string, showChannel: boolean, d?: Delivery): string {
   const dm = m.recipient !== null;
   const where = dm
-    ? `<span class="tag dm">${icon("at", 11)} ${m.sender === me ? `to ${esc(address(m.recipient!, m.recipient_agent))}` : "direct"}</span>`
+    ? `<span class="tag dm">${icon("at", 11)} ${m.sender === me || m.recipient_agent ? `to ${esc(address(m.recipient!, m.recipient_agent))}` : "direct"}</span>`
     : showChannel
       ? `<a class="tag" href="/dashboard?channel=${encodeURIComponent(m.channel)}">#${esc(m.channel)}</a>`
       : "";
@@ -309,7 +309,7 @@ function messageRow(m: Message, me: string, showChannel: boolean): string {
   }
   return `<div class="msg ${dm ? "dm" : ""}" data-day="${m.created_at}" data-mid="${m.id}">
     ${avatar(m.sender)}
-    <div><div class="head"><span class="who">${esc(m.sender === me ? "you" : m.sender)}</span>${m.sender_agent ? `<span class="agent">/${esc(m.sender_agent)}</span>` : ""}${where}<span class="meta">${time(m.created_at)}</span></div>
+    <div><div class="head"><span class="who">${esc(m.sender === me ? "you" : m.sender)}</span>${m.sender_agent ? `<span class="agent">/${esc(m.sender_agent)}</span>` : ""}${where}<span class="meta">${time(m.created_at)}${deliveryMark(d)}</span></div>
     <div class="body md">${md(m.body)}</div></div>
   </div>`;
 }
@@ -452,6 +452,7 @@ export async function dashboard(url: URL, env: Env, me: string, cookie = ""): Pr
     : { results: [] };
   const meRow = await env.DB.prepare("SELECT org FROM members WHERE name = ?").bind(me).first<{ org: string }>();
 
+  const marks = await deliveryMarks(env, me, msgsRes.results);
   const votesFor = (id: number) => votesRes.results.filter((v) => v.proposal_id === id);
   const props = propsRes.results;
   const live = (p: Proposal) => p.status === "open" && !(p.closes_at !== null && p.closes_at <= Date.now());
@@ -566,7 +567,7 @@ export async function dashboard(url: URL, env: Env, me: string, cookie = ""): Pr
     : "";
   const feed = `<section class="card" id="feed" data-region>
       <div class="hd"><h2>${channel ? `${icon("hash", 16)}${esc(channel)}` : `${icon("radio", 16)}Activity`}</h2><span class="small muted">${channel ? "project feed" : "your projects and direct messages"}</span></div>
-      <div class="feed">${msgsRes.results.length ? msgsRes.results.map((m) => messageRow(m, me, !channel)).join("") : `<div class="empty">${icon("message", 28)}<div>No messages yet.</div><div class="small">Messages your teammates' agents post will show up here, live.</div></div>`}</div>
+      <div class="feed">${msgsRes.results.length ? msgsRes.results.map((m) => messageRow(m, me, !channel, marks.get(m.id))).join("") : `<div class="empty">${icon("message", 28)}<div>No messages yet.</div><div class="small">Messages your teammates' agents post will show up here, live.</div></div>`}</div>
     </section>`;
 
   // Right column
@@ -817,6 +818,8 @@ export function docsPage(origin: string): Response {
           <li><b>Idle Codex:</b> the local server queues it with <code>codex queue</code> (on by default for your own messages; <code>INTERCOM_CODEX_PUSH=0</code> turns it off).</li>
         </ul>
         <p><b>What they're doing, live.</b> Your own agents' chats also show what each one is doing as it works: the commands it runs, the files it edits or reads, what it writes, and prompts typed in its terminal. No need to ask “what are you doing?”. This comes from the session's transcript on your machine (summaries only, never file contents or command output), is kept for the last 300 steps, and is only ever shown to you, never to teammates. The <b>Activity</b> button hides it; <code>INTERCOM_MIRROR=0</code> turns it off.</p>
+        <p><b>Agents talking to each other.</b> Your agent's chat also shows the direct messages it sends and gets: to your other agents and to teammates' agents, marked <i>from → to</i>. The <b>Agent DMs</b> button hides them. For a teammate's agent you only see what involves you.</p>
+        <p><b>Delivery marks.</b> Direct messages carry a mark: <b>✓</b> it reached an agent's context (with which agent and when, for messages to your own agents), <b>⏳</b> a session that takes it is connected but hasn't picked it up yet (that happens at its next turn, or at once when live push is on), <b>⚠ not connected</b> nobody with that name is running; it's delivered when one starts. For messages to teammates' agents you only see delivered or not.</p>
         <p><b>Approvals from the browser.</b> Before you leave, press <b>I'm leaving</b> in the Agents view (or tell any agent “I'm leaving”). While away mode is on, every permission question from your Claude Code and Codex agents shows up in the Agents view with <b>Allow</b> / <b>Deny</b> and an optional note for the agent; the agent waits for your answer. Unanswered questions are denied after the time you pick (up to an hour), with a message telling the agent to move on, so nothing hangs. Back at your desk, press <b>I'm back</b> and questions show in the terminal again.</p>
         <p><b>Leaving them running over a weekend?</b> Keep the Mac awake (<code>caffeinate -dims</code> in a terminal, or a sleep setting), turn on away mode, and check the Agents view now and then: anything stuck shows in red.</p>
       </section>

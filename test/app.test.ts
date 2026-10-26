@@ -901,3 +901,34 @@ describe("locks per project", () => {
     assert.match(ctx, /1 more in your other projects/);
   });
 });
+
+describe("delivery marks", () => {
+  test("agent-to-agent DMs show in the agent's thread with ✓ / ⏳ / ⚠; teammates see only delivered or not", async () => {
+    const w = await standardWorld();
+    const hook = (event: string, sid: string, as = "bob", extra = "") => w.request(`/api/hook?event=${event}&project=billing-api&session=${sid}${extra}`, { as });
+    await hook("SessionStart", "d1", "bob", "&client=codex&name=alder");
+    await hook("SessionStart", "d2", "bob", "&name=core");
+    await w.ok("bob", "post", { to: "bob/alder", message: "handoff: abc123, gates green" }, { id: "d2", project: "billing-api" });
+    await w.ok("bob", "post", { to: "bob/ghost", message: "anyone?" }, { id: "d2", project: "billing-api" });
+    await w.ok("alice", "post", { to: "bob/alder", message: "please hold the deploy" });
+    const view = async (as: string, path: string) => (await w.request(path, { as, cookie: true })).text();
+
+    let page = await view("bob", "/dashboard?view=agents&agent=bob/alder");
+    assert.match(page, /class="bubble md relay"[^>]*><span class="rhd">bob\/core → bob\/alder<\/span>/);
+    assert.match(page, /bob\/core → bob\/alder[\s\S]*?class="dlv wait"/);
+    assert.match(page, /alice → bob\/alder/);
+    assert.match(await view("bob", "/dashboard?view=agents&agent=bob/core"), /bob\/core → bob\/ghost[\s\S]*?⚠ not connected/);
+    const DM = /to bob\/alder<\/span><span class="meta"><time[^>]*>[^<]*<\/time>(<span class="dlv[^"]*"[^>]*>[^<]*<\/span>)/;
+    assert.match((await view("alice", "/dashboard")).match(DM)![1]!, /dlv wait/);
+
+    // alder's next turn takes both messages into its context.
+    await hook("UserPromptSubmit", "d1");
+    page = await view("bob", "/dashboard?view=agents&agent=bob/alder");
+    assert.match(page, /handoff: abc123[\s\S]*?class="dlv ok" title="Delivered to alder[^"]*">✓ alder/);
+    const alice = await view("alice", "/dashboard");
+    assert.equal(alice.match(DM)![1], '<span class="dlv ok" title="Delivered to an agent">✓</span>');
+    assert.doesNotMatch(alice, /✓ alder/);
+    // alice doesn't see bob's agents talking to each other.
+    assert.doesNotMatch(await view("alice", "/dashboard?view=agents&agent=bob/alder"), /handoff: abc123/);
+  });
+});

@@ -18,6 +18,7 @@ import m0013 from "../migrations/0013_session_host.sql";
 import m0014 from "../migrations/0014_host_names.sql";
 import m0015 from "../migrations/0015_activity.sql";
 import m0016 from "../migrations/0016_session_version.sql";
+import m0017 from "../migrations/0017_deliveries.sql";
 
 const MIGRATIONS: [string, string][] = [
   ["0001_init", m0001],
@@ -36,6 +37,7 @@ const MIGRATIONS: [string, string][] = [
   ["0014_host_names", m0014],
   ["0015_activity", m0015],
   ["0016_session_version", m0016],
+  ["0017_deliveries", m0017],
 ];
 
 const DAY = 86400_000;
@@ -200,6 +202,7 @@ export class TeamHub extends DurableObject<WorkerEnv> {
         ws.send(JSON.stringify({ type: "message", message: m, text: fmtMessage(m, s.member) }));
         sql.exec("UPDATE sessions SET cursor = MAX(cursor, ?), last_seen = ? WHERE member = ? AND session_id = ?", m.id, Date.now(), s.member, s.session_id);
         sql.exec("UPDATE cursors SET last_read_id = MAX(last_read_id, ?) WHERE member = ?", m.id, s.member);
+        if (m.recipient) sql.exec("INSERT OR IGNORE INTO deliveries (message_id, member, session_id, label, at) VALUES (?, ?, ?, ?, ?)", m.id, s.member, s.session_id, s.label, Date.now());
       } catch {
         // Socket is closing; the session catches up from its cursor on reconnect.
       }

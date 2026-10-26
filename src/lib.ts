@@ -349,8 +349,14 @@ export async function unread(
   if (markRead && messages.length) {
     const last = messages[messages.length - 1].id;
     const stmts = [env.DB.prepare("UPDATE cursors SET last_read_id = MAX(last_read_id, ?) WHERE member = ?").bind(last, me)];
-    if (session) stmts.push(env.DB.prepare("UPDATE sessions SET cursor = MAX(cursor, ?) WHERE member = ? AND session_id = ?").bind(last, me, session.session_id));
+    if (session) {
+      stmts.push(env.DB.prepare("UPDATE sessions SET cursor = MAX(cursor, ?) WHERE member = ? AND session_id = ?").bind(last, me, session.session_id));
+      const now = Date.now();
+      for (const m of messages.filter((m) => m.recipient)) stmts.push(recordDelivery(env, m.id, me, session.session_id, session.label, now));
+    }
     await env.DB.batch(stmts);
+    // Senders watching the dashboard see their ✓ appear.
+    if (session) for (const who of new Set(messages.filter((m) => m.recipient).map((m) => m.sender))) env.refreshWeb?.(who);
   }
   return { messages, more };
 }
@@ -431,6 +437,7 @@ export async function prune(env: Env, retentionDays = RETENTION_DAYS, now = Date
     limits: await run("DELETE FROM rate_limits WHERE window_start < ?", now - 2 * day),
     webTokens: await run("DELETE FROM tokens WHERE kind = 'web' AND created_at < ?", now - 365 * day),
     activity: await run("DELETE FROM activity WHERE at < ?", now - 14 * day),
+    deliveries: await run("DELETE FROM deliveries WHERE at < ?", now - retentionDays * day),
   };
 }
 
@@ -610,4 +617,53 @@ export function scopedLocks(locks: Lock[], me: string, project: string | null | 
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+/** A direct message entering a session's context (hook, inbox, channel push): what the dashboard's delivery marks read. */
+export const recordDelivery = (env: Env, messageId: number, member: string, sessionId: string, label: string, at = Date.now()) =>
+  env.DB.prepare("INSERT OR IGNORE INTO deliveries (message_id, member, session_id, label, at) VALUES (?, ?, ?, ?, ?)").bind(messageId, member, sessionId, label, at);
+
+/**
+ * Where a direct message stands: taken into an agent's context, waiting for a connected one to pick it up, or with
+ * nobody connected to take it. Senders see only delivered or not for teammates' agents; details are for the recipient.
+ */
+export type Delivery = { state: "delivered" | "waiting" | "offline"; at?: number; label?: string; detail: boolean };
+
+export async function deliveryMarks(env: Env, me: string, msgs: Message[]): Promise<Map<number, Delivery>> {
+  const out = new Map<number, Delivery>();
+  const since = Number((await env.DB.prepare("SELECT value FROM settings WHERE key = 'deliveries_since'").first<{ value: string }>())?.value ?? 0);
+  // An agent answering its own person in the dashboard isn't delivered to an agent; neither is anything the viewer didn't send or receive.
+  const dms = msgs.filter(
+    (m) => m.recipient && m.id > since && (m.sender === me || m.recipient === me) && !(m.sender === m.recipient && m.sender_agent && !m.recipient_agent),
+  );
+  if (!dms.length) return out;
+  const { results } = await env.DB.prepare(
+    `SELECT message_id, label, MIN(at) AS at FROM deliveries WHERE message_id IN (SELECT value FROM json_each(?)) GROUP BY message_id`,
+  )
+    .bind(JSON.stringify(dms.map((m) => m.id)))
+    .all<{ message_id: number; label: string; at: number }>();
+  const got = new Map(results.map((r) => [r.message_id, r]));
+  // Who of the viewer's own sessions is around to take a message that hasn't landed yet.
+  const pendingMine = dms.some((m) => m.recipient === me && !got.has(m.id));
+  const { results: mine } = pendingMine
+    ? await env.DB.prepare("SELECT session_id, label, project, last_seen FROM sessions WHERE member = ?").bind(me).all<{ session_id: string; label: string; project: string; last_seen: number }>()
+    : { results: [] };
+  const live = new Set(liveIds(env, me));
+  const recent = Date.now() - GONE_MS;
+  for (const m of dms) {
+    const detail = m.recipient === me;
+    const d = got.get(m.id);
+    if (d) {
+      out.set(m.id, detail ? { state: "delivered", at: d.at, label: d.label, detail } : { state: "delivered", detail });
+      continue;
+    }
+    if (!detail) {
+      out.set(m.id, { state: "waiting", detail });
+      continue;
+    }
+    const takers = mine.filter((s) => !m.recipient_agent || s.label === m.recipient_agent || s.project === m.recipient_agent);
+    const up = takers.some((s) => live.has(s.session_id) || s.last_seen > recent);
+    out.set(m.id, { state: up ? "waiting" : "offline", detail });
+  }
+  return out;
 }
