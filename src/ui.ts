@@ -155,6 +155,10 @@ p{margin:.5em 0}
 .nav a.on{background:var(--surface);color:var(--ink);box-shadow:var(--shadow);border:1px solid var(--line)}
 .nav a .n{margin-left:auto;display:flex;gap:4px}
 .badge{display:inline-flex;align-items:center;gap:3px;font-size:11px;font-weight:600;padding:1px 7px;border-radius:99px;background:var(--surface-3);color:var(--ink-2)}
+.client{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;color:var(--ink-2);flex:none}
+.client svg{flex:none}.client.cl{color:#c9643f}.client.cx{color:var(--ink)}
+@media (prefers-color-scheme:dark){.client.cl{color:#e08a6a}}
+.hd .client{padding:1px 8px 1px 5px;border-radius:99px;background:var(--surface-2);border:1px solid var(--line)}
 .badge.accent{background:var(--accent-soft);color:var(--accent)}.badge.amber{background:var(--amber-soft);color:var(--amber)}.badge.green{background:var(--green-soft);color:var(--green)}.badge.red{background:var(--red-soft);color:var(--red)}
 .person{display:flex;align-items:center;gap:9px;padding:6px 10px;border-radius:9px}
 .person .where{font-size:12px;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}

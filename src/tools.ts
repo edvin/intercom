@@ -608,7 +608,7 @@ export const tools: Tool[] = [
           const live = sessions.filter((s) => s.member === r.name && s.project && mine.has(s.project));
           const hidden = r.name !== me && sessions.some((s) => s.member === r.name && s.project && !mine.has(s.project));
           const head = `${who}: active ${ago(r.updated_at)}${!live.length && r.project && mine.has(r.project) ? ` — ${workingOn(r.project, r.branch, r.note)}` : ""}`;
-          const lines = live.map((s) => `    ${address(s.member, s.label)}${s.client === "codex" ? " [Codex]" : ""}: ${workingOn(s.project, s.branch, s.note)} (${state(s)})`);
+          const lines = live.map((s) => `    ${address(s.member, s.label)} [${s.client === "codex" ? "Codex" : "Claude Code"}]: ${workingOn(s.project, s.branch, s.note)} (${state(s)})`);
           if (hidden) lines.push("    (also active in projects you're not in)");
           if (r.name === me && !lines.length) return `${who}: none connected through intercom right now`;
           return [r.name === me ? who : head, ...lines].join("\n");

@@ -20,6 +20,19 @@ interface Agent {
   state_at: number | null;
 }
 
+/** Which agent runs the session, in each tool's own colours. */
+// Simple marks, not the companies' logos: Claude's spark (an orange starburst) and Codex's terminal prompt.
+const CLAUDE_MARK = `<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><g stroke="#d97757" stroke-width="2.6" stroke-linecap="round">${[0, 30, 60, 90, 120, 150]
+  .map((deg) => `<line x1="12" y1="3.2" x2="12" y2="20.8" transform="rotate(${deg} 12 12)"/>`)
+  .join("")}</g></svg>`;
+const CODEX_MARK = `<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><rect x="1.5" y="1.5" width="21" height="21" rx="6" fill="currentColor"/><path d="M7 8.5l3.5 3.5L7 15.5M12.5 15.5h4.5" fill="none" stroke="var(--surface)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+
+/** Which agent runs the session: an icon, with the name on hover (and next to it when `named`). */
+export const clientBadge = (client: string, named = false) =>
+  client === "codex"
+    ? `<span class="client cx" title="OpenAI Codex">${CODEX_MARK}${named ? "Codex" : ""}</span>`
+    : `<span class="client cl" title="Claude Code">${CLAUDE_MARK}${named ? "Claude Code" : ""}</span>`;
+
 const QUICK = ["What's your status?", "Pause and check in with me first.", "Stop, summarize, and wait.", "Commit and push what you have."];
 
 export async function agentsView(env: Env, me: string, url: URL, people: string[]): Promise<string> {
@@ -50,7 +63,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   const card = (a: Agent) => `<a class="acard ${agent && key(a) === key(agent) ? "on" : ""}" href="/dashboard?view=agents&agent=${encodeURIComponent(key(a))}">
       <span class="dot ${isOn(a) ? "on" : ""}" style="margin-top:6px" title="${isOn(a) ? "connected" : `last seen ${ago(a.last_seen)}`}"></span>
       <span class="grow" style="min-width:0">
-        <span class="nm">${a.member === me ? esc(a.label) : `${esc(a.member)}/${esc(a.label)}`}${a.client === "codex" ? '<span class="badge">Codex</span>' : ""}${stateBadge(a)}</span>
+        <span class="nm">${clientBadge(a.client)}${a.member === me ? esc(a.label) : `${esc(a.member)}/${esc(a.label)}`}${stateBadge(a)}</span>
         <span class="sub">${a.project ? `#${esc(a.project)}` : "no project"}${a.branch ? ` · ⎇ ${esc(a.branch)}` : ""}${isOn(a) ? "" : ` · seen ${ago(a.last_seen)}`}</span>
         ${a.note ? `<span class="st">${esc(a.note)}</span>` : ""}
       </span></a>`;
@@ -76,7 +89,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   const pending = await pendingApprovals(env, me);
   const now = Date.now();
   const approvalCard = (p: (typeof pending)[number]) => `<div class="approval">
-      <div class="row" style="gap:8px">${icon("shield", 15)}<b>${esc(p.label)}</b>${p.client === "codex" ? '<span class="badge">Codex</span>' : ""}<span class="small muted">wants to use ${esc(p.tool)} · ${time(p.created_at)} · denied in ${Math.max(0, Math.round((p.expires_at - now) / 60000))} min if unanswered</span></div>
+      <div class="row" style="gap:8px">${icon("shield", 15)}<b>${esc(p.label)}</b>${clientBadge(p.client)}<span class="small muted">wants to use ${esc(p.tool)} · ${time(p.created_at)} · denied in ${Math.max(0, Math.round((p.expires_at - now) / 60000))} min if unanswered</span></div>
       <pre class="mdpre" style="margin:8px 0">${esc(p.summary)}</pre>
       <form method="post" action="/approval/${p.id}" class="row" data-quiet>${hidden({ back: url.pathname + url.search })}
         <input name="note" placeholder="Note for the agent (optional), e.g. “use the staging DB instead”" class="grow" style="height:32px;font-size:13px">
@@ -125,7 +138,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
       <div class="hd">
         <span class="presence ${on ? "on" : ""}">${avatar(agent.label, "m")}</span>
         <div class="grow" style="min-width:0">
-          <h2 style="display:flex;gap:8px;align-items:center"><span class="grow" style="display:flex;gap:8px;align-items:center">${esc(key(agent))}${agent.client === "codex" ? '<span class="badge">Codex</span>' : '<span class="badge">Claude Code</span>'}</span>
+          <h2 style="display:flex;gap:8px;align-items:center"><span class="grow" style="display:flex;gap:8px;align-items:center">${esc(key(agent))}${clientBadge(agent.client, true)}</span>
             <span class="viewtoggle" title="How messages are shown (remembered in this browser)"><button type="button" data-chatstyle="term">Terminal</button><button type="button" data-chatstyle="chat">Chat</button></span></h2>
           <div class="small muted row" style="gap:6px">${stateBadge(agent)}<span>${agent.project ? `#${esc(agent.project)}` : "no project"}${agent.branch ? ` · ⎇ ${esc(agent.branch)}` : ""}${on ? "" : ` · last seen ${ago(agent.last_seen)}`}${agent.note ? ` · “${esc(agent.note)}”` : ""}</span></div>
         </div>

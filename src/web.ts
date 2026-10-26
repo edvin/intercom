@@ -521,7 +521,7 @@ export async function dashboard(url: URL, env: Env, me: string): Promise<Respons
   const connectedNow = env.live?.() ?? new Set<string>();
   const agentOption = (a: (typeof agentRows)[number]) => {
     const on = connectedNow.has(`${a.member}/${a.session_id}`) || Date.now() - a.last_seen < 10 * 60_000;
-    const label = `${a.member === me ? "your agent " : ""}${a.member}/${a.label}${a.client === "codex" ? " (Codex)" : ""} · #${a.project}${a.note ? ` · ${a.note.slice(0, 40)}` : ""}${on ? "" : " · not connected"}`;
+    const label = `${a.member === me ? "your agent " : ""}${a.member}/${a.label} (${a.client === "codex" ? "Codex" : "Claude"}) · #${a.project}${a.note ? ` · ${a.note.slice(0, 40)}` : ""}${on ? "" : " · not connected"}`;
     return `<option value="${esc(`${a.member}/${a.label}`)}">${esc(label)}</option>`;
   };
   const recipients = [

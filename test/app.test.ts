@@ -256,7 +256,7 @@ describe("visibility", () => {
     await w.request("/api/hook?event=SessionStart&project=billing-api&session=aaaa1111&branch=feat/ledger-4.2", { as: "bob" });
     await w.ok("bob", "set_status", { note: "migrating invoices index" }, { id: "aaaa1111", project: "billing-api" });
     const team = await w.ok("alice", "team");
-    assert.match(team, /bob\/billing-aaaa: #billing · branch feat\/ledger-4\.2 · “migrating invoices index”/);
+    assert.match(team, /bob\/billing-aaaa \[Claude Code\]: #billing · branch feat\/ledger-4\.2 · “migrating invoices index”/);
     // carol shares no project with bob: she can't even see him.
     assert.doesNotMatch(await w.ok("carol", "team"), /bob/);
     // A project alice isn't in stays hidden from her, even though she shares #billing with bob.

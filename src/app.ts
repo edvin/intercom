@@ -270,7 +270,7 @@ async function handleBrief(url: URL, env: Env, me: string): Promise<Response> {
     `Projects: ${mine.length ? mine.map((p) => `#${p}`).join(", ") : "none"}`,
     session ? `This session: ${address(me, session.label)}` : "",
     own.length
-      ? `Your other sessions:\n${own.map((o) => `  ${address(me, o.label)}${o.client === "codex" ? " [Codex]" : ""} (${workingOn(o.project || null, o.branch, o.note) || "no project"}, ${ago(o.last_seen)})`).join("\n")}`
+      ? `Your other sessions:\n${own.map((o) => `  ${address(me, o.label)} [${o.client === "codex" ? "Codex" : "Claude Code"}] (${workingOn(o.project || null, o.branch, o.note) || "no project"}, ${ago(o.last_seen)})`).join("\n")}`
       : "Your other sessions: none",
     `Others active (2h): ${active.length ? active.map((a) => `${a.member} (${visible.has(a.project) ? `${workingOn(a.project, a.branch, a.note)}, ` : ""}${ago(a.updated_at)})`).join(", ") : "nobody"}`,
     locks.length ? `Locks:\n${locks.map((l) => `  ${fmtLock(l, me)}`).join("\n")}` : "Locks: none",
