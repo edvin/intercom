@@ -759,7 +759,7 @@ export function docsPage(origin: string): Response {
           <dt><code>INTERCOM_AUTO_STATUS=0</code></dt><dd>Claude only sets a status note when you ask.</dd>
           <dt><code>INTERCOM_GUARD=0</code></dt><dd>Turn off the deploy guard.</dd>
           <dt><code>INTERCOM_NOTIFY=0</code></dt><dd>No desktop notifications. (On macOS the first one may ask for permission, and appears as coming from Script Editor.)</dd>
-          <dt><code>INTERCOM_CODEX_NAME=alder</code></dt><dd>A standing name for your Codex sessions (<code>INTERCOM_CLAUDE_NAME</code> for Claude Code).</dd>
+          <dt><code>INTERCOM_CODEX_NAME=alder</code></dt><dd>One fixed name for all your Codex sessions, everywhere (<code>INTERCOM_CLAUDE_NAME</code> for Claude Code). Usually per-project crews fit better.</dd>
           <dt><code>INTERCOM_CODEX_PUSH=1</code></dt><dd>Push DMs and lock activity into running Codex sessions (experimental).</dd>
           <dt><code>INTERCOM_CHANNELS=allowlisted</code></dt><dd>Your org allowlists Intercom as a channel: <code>claude-ic</code> then uses <code>--channels</code>.</dd>
         </dl>
@@ -768,7 +768,7 @@ export function docsPage(origin: string): Response {
       <section>
         <h2>Addresses and names</h2>
         <p>Every session has an address <code>person/agent</code>, e.g. <code>anna/shop-9c1e</code>: the project plus the start of the session id. <code>anna</code> reaches all of Anna's sessions, <code>anna/shop</code> her sessions in shop, <code>anna/shop-9c1e</code> exactly one.</p>
-        <p><b>Name your agents</b> to make that friendlier: tell one “call yourself alder” and it becomes <code>anna/alder</code>. To give every session of an agent a standing name, add <code>INTERCOM_CODEX_NAME=alder</code> (or <code>INTERCOM_CLAUDE_NAME=…</code>) to <code>~/.claude/intercom/config</code>. Names are unique among your live sessions; a second “alder” becomes <code>alder-2</code>.</p>
+        <p><b>Name your agents.</b> Tell one “you're alder, reviewing the migrations” and it becomes <code>anna/alder</code>, with that role as its status. Names are remembered as a <b>crew per project and agent type</b>: name two Codex sessions in billing alder and birch, and the next Codex sessions you start in billing are alder and birch again, while Claude Code in billing, or Codex in another project, have crews of their own. A resumed session keeps its name; “forget the name alder” removes it from the crew; “just for now” names only the current session.</p>
       </section>
 
       <section>

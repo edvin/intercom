@@ -274,17 +274,37 @@ export async function touchSession(
   client: string | null = null,
   name: string | null = null,
 ): Promise<Session & { cursor: number }> {
-  const named = cleanName(name);
-  const label = named ? await freeLabel(env, me, sessionId, named) : `${project || "session"}-${sessionId.replace(/[^a-z0-9]/gi, "").slice(0, 4).toLowerCase()}`;
+  // Naming happens once, when the session first appears; after that only set_name renames it.
+  const known = await env.DB.prepare("SELECT 1 FROM sessions WHERE member = ? AND session_id = ?").bind(me, sessionId).first();
+  let label = `${project || "session"}-${sessionId.replace(/[^a-z0-9]/gi, "").slice(0, 4).toLowerCase()}`;
+  let role = "";
+  if (!known) {
+    const named = cleanName(name);
+    if (named) label = await freeLabel(env, me, sessionId, named);
+    else if (project) {
+      // The member's crew for this agent in this project: take the first name no live session is using.
+      const { results: crew } = await env.DB.prepare(
+        `SELECT a.name, a.role FROM agent_names a WHERE a.member = ?1 AND a.project = ?2 AND a.client = ?3
+           AND NOT EXISTS (SELECT 1 FROM sessions s WHERE s.member = ?1 AND s.label = a.name AND s.last_seen > ?4)
+         ORDER BY a.updated_at`,
+      )
+        .bind(me, project, client ?? "claude", Date.now() - 6 * 3600_000)
+        .all<{ name: string; role: string }>();
+      if (crew[0]) {
+        label = crew[0].name;
+        role = crew[0].role;
+      }
+    }
+  }
   const base = await getCursor(env, me);
   const now = Date.now();
   const row = await env.DB.prepare(
-    `INSERT INTO sessions (member, session_id, label, project, cursor, started_at, last_seen, branch, client) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6, COALESCE(?7, ''), COALESCE(?8, 'claude'))
-     ON CONFLICT(member, session_id) DO UPDATE SET project = ?4, last_seen = ?6, branch = COALESCE(?7, sessions.branch), client = COALESCE(?8, sessions.client),
-       label = CASE WHEN ?9 IS NOT NULL AND sessions.label NOT LIKE ?9 || '%' THEN ?3 ELSE sessions.label END
+    `INSERT INTO sessions (member, session_id, label, project, cursor, started_at, last_seen, branch, client, note, note_at)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6, COALESCE(?7, ''), COALESCE(?8, 'claude'), ?9, CASE WHEN ?9 != '' THEN ?6 END)
+     ON CONFLICT(member, session_id) DO UPDATE SET project = ?4, last_seen = ?6, branch = COALESCE(?7, sessions.branch), client = COALESCE(?8, sessions.client)
      RETURNING label, cursor`,
   )
-    .bind(me, sessionId, label, project, base, now, branch, client, named)
+    .bind(me, sessionId, label, project, base, now, branch, client, role)
     .first<{ label: string; cursor: number }>();
   return { session_id: sessionId, project, ...row! };
 }

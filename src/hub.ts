@@ -10,6 +10,7 @@ import m0005 from "../migrations/0005_membership.sql";
 import m0006 from "../migrations/0006_visibility.sql";
 import m0007 from "../migrations/0007_github.sql";
 import m0008 from "../migrations/0008_client.sql";
+import m0009 from "../migrations/0009_agent_names.sql";
 
 const MIGRATIONS: [string, string][] = [
   ["0001_init", m0001],
@@ -20,6 +21,7 @@ const MIGRATIONS: [string, string][] = [
   ["0006_visibility", m0006],
   ["0007_github", m0007],
   ["0008_client", m0008],
+  ["0009_agent_names", m0009],
 ];
 
 const DAY = 86400_000;

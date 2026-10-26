@@ -539,3 +539,42 @@ describe("named sessions", () => {
     assert.equal((await w.tool("bob", "set_name", { name: "!!" }, { id: "cccc3333", project: "billing-api" })).error, true);
   });
 });
+
+describe("agent crews", () => {
+  const start = async (w: World, sid: string, client: string, project = "billing-api") =>
+    ((await (await w.request(`/api/hook?event=SessionStart&project=${project}&session=${sid}&client=${client}`, { as: "bob" })).json()) as {
+      hookSpecificOutput: { additionalContext: string };
+    }).hookSpecificOutput.additionalContext.match(/address is bob\/([\w-]+)/)![1];
+
+  test("names are remembered per project and agent type, one per concurrent session", async () => {
+    const w = await standardWorld();
+    // Name two Codex sessions in billing.
+    await start(w, "c1", "codex");
+    await w.ok("bob", "set_name", { name: "alder", role: "reviews migrations" }, { id: "c1", project: "billing-api" });
+    await start(w, "c2", "codex");
+    await w.ok("bob", "set_name", { name: "birch" }, { id: "c2", project: "billing-api" });
+    // Both end; new Codex sessions in billing take alder, then birch, then nothing.
+    await w.request("/api/hook?event=SessionEnd&session=c1", { as: "bob" });
+    await w.request("/api/hook?event=SessionEnd&session=c2", { as: "bob" });
+    assert.equal(await start(w, "c3", "codex"), "alder");
+    assert.equal(await start(w, "c4", "codex"), "birch");
+    assert.match(await start(w, "c5", "codex"), /^billing-/);
+    // Remembered roles come back as the status note.
+    assert.match(await w.ok("alice", "team"), /bob\/alder \[Codex\]: .*“reviews migrations”/);
+    // Claude Code sessions in billing and Codex elsewhere have crews of their own.
+    assert.match(await start(w, "k1", "claude"), /^billing-/);
+    await w.ok("carol", "invite", { project: "shop", name: "bob" });
+    assert.match(await start(w, "c6", "codex", "shop"), /^shop-/);
+    // A resumed session keeps its name.
+    assert.equal(await start(w, "c4", "codex"), "birch");
+  });
+
+  test("forget removes a name from the crew", async () => {
+    const w = await standardWorld();
+    await start(w, "c1", "codex");
+    await w.ok("bob", "set_name", { name: "alder" }, { id: "c1", project: "billing-api" });
+    assert.match(await w.ok("bob", "set_name", { name: "alder", forget: true }, { id: "c1", project: "billing-api" }), /Forgot alder/);
+    await w.request("/api/hook?event=SessionEnd&session=c1", { as: "bob" });
+    assert.match(await start(w, "c2", "codex"), /^billing-/);
+  });
+});

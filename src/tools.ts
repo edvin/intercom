@@ -611,15 +611,54 @@ export const tools: Tool[] = [
   {
     name: "set_name",
     description:
-      "Give this session a name, e.g. \"alder\", when your user asks you to (\"call yourself alder\"). Teammates and your user's other sessions can then reach exactly this session as <person>/<name>. Names are unique among the user's live sessions. To keep a name for every session, the user can set INTERCOM_CLAUDE_NAME or INTERCOM_CODEX_NAME in ~/.claude/intercom/config.",
-    inputSchema: { type: "object", properties: { name: { type: "string", description: "Short name: letters, digits and -, e.g. alder." } }, required: ["name"] },
+      "Name this session when your user asks (\"call yourself alder\", \"you're alder, reviewing the migration\"). Others reach exactly this session as <person>/<name>. The name (and role) joins your user's crew for this agent type in this project: new sessions here take the first crew name not already in use, so two agents in one project get two names. remember=false names only this session; forget=true removes the name from the crew.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Short name: letters, digits and -, e.g. alder." },
+        role: { type: "string", description: "Optional: what this agent does here, shown to teammates (e.g. \"reviews migrations\")." },
+        remember: { type: "boolean", description: "Add to the crew for future sessions of this agent in this project (default true)." },
+        forget: { type: "boolean", description: "Remove this name from the crew (the session keeps it until it ends)." },
+      },
+      required: ["name"],
+    },
     async run(env, me, a) {
       if (!env.session) throw new UserError("This session isn't connected through the local intercom server, so it can't be named.");
       const name = cleanName(a.name);
       if (!name) throw new UserError("Names are letters, digits and -, starting with a letter (max 24), e.g. alder.");
-      const label = await freeLabel(env, me, env.session.session_id, name);
-      await env.DB.prepare("UPDATE sessions SET label = ? WHERE member = ? AND session_id = ?").bind(label, me, env.session.session_id).run();
-      return `This session is now ${address(me, label)}${label !== name ? ` ("${name}" is taken by another of your sessions)` : ""}. Messages to ${address(me, label)} reach only this session.`;
+      const s = env.session;
+      const row = await env.DB.prepare("SELECT client FROM sessions WHERE member = ? AND session_id = ?").bind(me, s.session_id).first<{ client: string }>();
+      const client = row?.client ?? "claude";
+      const agent = client === "codex" ? "Codex" : "Claude Code";
+      if (a.forget === true) {
+        const gone = await env.DB.prepare("DELETE FROM agent_names WHERE member = ? AND project = ? AND client = ? AND name = ?").bind(me, s.project, client, name).run();
+        return gone.meta.changes ? `Forgot ${name}: new ${agent} sessions in #${s.project} won't use it.` : `${name} isn't in your ${agent} crew for #${s.project}.`;
+      }
+      const label = await freeLabel(env, me, s.session_id, name);
+      await env.DB.prepare("UPDATE sessions SET label = ? WHERE member = ? AND session_id = ?").bind(label, me, s.session_id).run();
+      const role = str(a, "role")?.slice(0, 120) ?? "";
+      const remember = a.remember !== false && !!s.project;
+      if (remember) {
+        await env.DB.prepare(
+          `INSERT INTO agent_names (member, project, client, name, role, updated_at) VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT(member, project, client, name) DO UPDATE SET role = CASE WHEN excluded.role != '' THEN excluded.role ELSE agent_names.role END`,
+        )
+          .bind(me, s.project, client, name, role, Date.now())
+          .run();
+      }
+      if (role) {
+        await setPresence(env, me, s.project || null, role);
+        await env.DB.prepare("UPDATE sessions SET note = ?, note_at = ? WHERE member = ? AND session_id = ?").bind(role, Date.now(), me, s.session_id).run();
+      }
+      const { results: crew } = remember
+        ? await env.DB.prepare("SELECT name, role FROM agent_names WHERE member = ? AND project = ? AND client = ? ORDER BY updated_at").bind(me, s.project, client).all<{ name: string; role: string }>()
+        : { results: [] };
+      return [
+        `This session is now ${address(me, label)}${label !== name ? ` ("${name}" is taken by another of your live sessions)` : ""}. Messages to ${address(me, label)} reach only this session.`,
+        remember
+          ? `Your ${agent} crew in #${s.project}: ${crew.map((c) => `${c.name}${c.role ? ` (${c.role})` : ""}`).join(", ")}. New ${agent} sessions there take the first free name.`
+          : s.project ? "Just for this session." : "Just for this session (it isn't in a project).",
+      ].join(" ");
     },
   },
   {
