@@ -63,7 +63,24 @@ function foldSteps(steps: Activity[], open: boolean, row: (a: Activity) => strin
   return `<details class="actgroup" data-gid="g${steps[0]!.id}"${open ? " open data-live" : ""}><summary><span class="aic">▸</span><span class="atx">${summary}<span class="alast"> · ${esc(plainSpaces(last.text).split("\n")[0]!.slice(0, 90))}</span></span><span class="when">${time(last.at)}</span></summary>${steps.map(row).join("")}</details>`;
 }
 
-export async function agentsView(env: Env, me: string, url: URL, people: string[], cookie = ""): Promise<string> {
+/** What the tree needs from the page: where you are, and the per-project counts the dashboard already has. */
+export interface Nav {
+  view: string;
+  channel: string | null;
+  mine: string[];
+  locksBy: Map<string, number>;
+  votesBy: Map<string, number>;
+  votesTotal: number;
+  admin: boolean;
+  /** Build the chat too (the Agents view); otherwise only the tree. */
+  withChat: boolean;
+}
+
+/**
+ * The workspace: a tree on the left (everything, projects with their agents nested, your agents outside projects)
+ * and, in the Agents view, the chosen agent's chat at full width.
+ */
+export async function agentsView(env: Env, me: string, url: URL, people: string[], cookie: string, nav: Nav): Promise<{ tree: string; main: string }> {
   const mine = await myProjects(env, me);
   const ph = (n: number) => Array.from({ length: n }, () => "?").join(",") || "NULL";
   const everyone = people.includes(me) ? people : [...people, me];
@@ -82,14 +99,6 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   const loopsOf = (a: Agent) => (a.member === me && isOn(a) ? activeLoops(parseLoops(a.loops)) : []);
   // Background jobs (shell commands running in the background) of your own connected agents.
   const jobsOf = (a: Agent) => (a.member === me && isOn(a) ? activeJobs(parseJobs(a.jobs)) : []);
-  const jobBadge = (a: Agent) => {
-    const js = jobsOf(a);
-    return js.length ? `<span class="badge" title="${esc(js.map((j) => `${jobName(j)} · ${duration(Date.now() - j.at)}`).join("\n"))}">⧗${js.length > 1 ? ` ${js.length}` : ""}</span>` : "";
-  };
-  const loopBadge = (a: Agent) => {
-    const ls = loopsOf(a);
-    return ls.length ? `<span class="badge accent" title="${esc(ls.map((l) => describe(l)).join("\n"))}">🔁${ls.length > 1 ? ` ${ls.length}` : ""}</span>` : "";
-  };
   const key = (a: Agent) => `${a.member}/${a.label}`;
   /** Working / idle / needs you, from the session's own hooks; "gone" once it isn't connected. */
   const stateBadge = (a: Agent) => {
@@ -102,33 +111,67 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   const picked = url.searchParams.get("agent");
   const agent = agents.find((a) => key(a) === picked) ?? agents.find((a) => a.member === me && isOn(a)) ?? agents.find(isOn) ?? agents[0];
 
-  const card = (a: Agent) => `<a class="acard ${agent && key(a) === key(agent) ? "on" : ""}" href="/dashboard?view=agents&agent=${encodeURIComponent(key(a))}">
-      <span class="dot ${isOn(a) ? "on" : ""}" style="margin-top:6px" title="${isOn(a) ? "connected" : `last seen ${ago(a.last_seen)}`}"></span>
-      <span class="grow" style="min-width:0">
-        <span class="nm">${clientBadge(a.client)}${agentName(a.member, a.label, a.member === me ? a.label : `${a.member}/${a.label}`)}${stateBadge(a)}${loopBadge(a)}${jobBadge(a)}${a.member === me && isOn(a) && outdated(a.version) ? `<span class="badge amber" title="Runs intercom ${esc(a.version || "an old version")}; ${PLUGIN_VERSION} is available">⬆ update</span>` : ""}</span>
-        <span class="sub">${a.host ? `${icon("monitor", 11)} ${esc(hostOf(a))} · ` : ""}${a.project ? `#${esc(a.project)}` : "no project"}${a.branch ? ` · ${icon("branch", 11)} ${esc(a.branch)}` : ""}${isOn(a) ? "" : ` · seen ${ago(a.last_seen)}`}</span>
-        ${a.note ? `<span class="st">${esc(a.note)}</span>` : ""}
-      </span></a>`;
-  // Connected agents first; the rest (ended, killed, laptop asleep) fold away unless one of them is open.
-  const sel = (a: Agent) => !!agent && key(a) === key(agent);
-  const group = (title: string, list: Agent[], id: string) => {
-    const live = list.filter(isOn);
-    const gone = list.filter((a) => !isOn(a));
-    if (!list.length) return "";
-    return `<div class="nav"><div class="label">${title} · ${live.length}${gone.length ? ` <span style="font-weight:500;text-transform:none;letter-spacing:0">(+${gone.length} not connected)</span>` : ""}</div></div>
-      ${live.map(card).join("")}
-      ${gone.length ? `<details id="gone-${id}" ${gone.some(sel) ? "open" : ""}><summary>Not connected · ${gone.length}</summary>${gone.map(card).join("")}</details>` : ""}`;
-  };
-  const own = agents.filter((a) => a.member === me);
-  const theirs = agents.filter((a) => a.member !== me);
-  const list = `<aside class="alist">
-      ${own.length ? group("Your agents", own, "own") : `<div class="nav"><div class="label">Your agents</div></div><p class="small muted" style="padding:0 10px">No agent sessions in the last day. Start Claude Code or Codex in a repo of one of your projects.</p>`}
-      ${group("Teammates' agents", theirs, "theirs")}
-    </aside>`;
 
-  // Away mode and the approval questions waiting for an answer.
+  // The tree: projects with their agents nested (yours first, then teammates'), connected ones on top and the
+  // rest folded; your agents outside any project at the end. Folded projects are remembered (cookie).
+  const sel = (a: Agent) => nav.view === "agents" && !!agent && key(a) === key(agent);
+  const closed = new Set(
+    (cookie.match(/(?:^|;\s*)ic_tc=([^;]*)/)?.[1] ?? "")
+      .split(",")
+      .map((x) => decodeURIComponent(x))
+      .filter(Boolean),
+  );
+  const dot = (a: Agent) => (!isOn(a) ? "off" : a.state === "waiting" ? "wait" : a.state === "working" ? "work" : "idle");
+  const tip = (a: Agent) =>
+    [key(a), !isOn(a) ? `last seen ${ago(a.last_seen)}` : a.state === "waiting" ? `needs you: ${a.state_detail || "waiting"}` : a.state || "connected", a.host ? `on ${hostOf(a)}` : "", a.branch ? `⎇ ${a.branch}` : "", a.note]
+      .filter(Boolean)
+      .join(" · ");
+  const tRow = (a: Agent) => `<a class="ta${sel(a) ? " on" : ""}${isOn(a) ? "" : " gone"}" href="/dashboard?view=agents&agent=${encodeURIComponent(key(a))}" title="${esc(tip(a))}">
+      <span class="tdot ${dot(a)}"></span>${agentAvatar(a.member, a.label, "s")}<span class="tn">${agentName(a.member, a.label, a.member === me ? a.label : `${a.member}/${a.label}`)}</span>
+      <span class="tb">${isOn(a) && a.state === "waiting" ? '<span class="tw" title="needs you">!</span>' : ""}${loopsOf(a).length ? '<span title="running a loop">🔁</span>' : ""}${jobsOf(a).length ? '<span title="background jobs">⧗</span>' : ""}${a.member === me && isOn(a) && outdated(a.version) ? '<span title="update available">⬆</span>' : ""}${a.client === "codex" ? '<span class="tcx" title="Codex">cx</span>' : ""}</span></a>`;
+  const branch = (id: string, title: string, href: string | null, list: Agent[], badges: string, on: boolean) => {
+    const ordered = [...list].sort((x, y) => Number(y.member === me) - Number(x.member === me));
+    const live = ordered.filter(isOn);
+    const gone = ordered.filter((a) => !isOn(a));
+    const open = !closed.has(id) || list.some(sel) || on;
+    return `<details class="tp" id="tp-${esc(id)}" data-tp="${esc(id)}"${open ? " open" : ""}>
+      <summary><span class="tcaret">${icon("chevron", 11)}</span>${href ? `<a class="tpn${on ? " on" : ""}" href="${href}">${title}</a>` : `<span class="tpn">${title}</span>`}<span class="tbadges">${badges}</span></summary>
+      ${live.map(tRow).join("")}
+      ${gone.length ? `<details class="toff" id="toff-${esc(id)}"${gone.some(sel) ? " open" : ""}><summary>${gone.length} not connected</summary>${gone.map(tRow).join("")}</details>` : ""}
+      ${list.length ? "" : '<div class="tempty">no agents yet</div>'}
+    </details>`;
+  };
+  const projectNodes = nav.mine
+    .map((p) => {
+      const votes = nav.votesBy.get(p) ?? 0;
+      const locks = nav.locksBy.get(p) ?? 0;
+      const badges = `${votes ? `<span class="badge accent" title="Votes waiting for you">${votes}</span>` : ""}${locks ? `<span class="badge amber" title="Active locks">${icon("lock", 9)}${locks}</span>` : ""}`;
+      return branch(p, `<span class="th">#</span>${esc(p)}`, `/dashboard?channel=${encodeURIComponent(p)}`, agents.filter((a) => a.project === p), badges, nav.view === "feed" && nav.channel === p);
+    })
+    .join("");
+  const loose = agents.filter((a) => a.member === me && (!a.project || !nav.mine.includes(a.project)));
   const { away, waitMin } = await awayState(env, me);
   const pending = await pendingApprovals(env, me);
+  const tree = `<aside class="tree" id="tree" data-region>
+    <nav class="ttop">
+      <a class="tl${nav.view === "feed" && !nav.channel ? " on" : ""}" href="/dashboard">${icon("layers", 14)}<span>Everything</span>${nav.votesTotal ? `<span class="badge accent">${nav.votesTotal}</span>` : ""}</a>
+      ${pending.length ? `<a class="tl warn" href="/dashboard?view=agents#approvals">${icon("shield", 14)}<span>Approvals</span><span class="badge red">${pending.length}</span></a>` : ""}
+    </nav>
+    <div class="tsec"><span>Projects</span><button type="button" class="btn ghost xs icon" data-open="dlg-create" title="New project">${icon("plus", 13)}</button></div>
+    <div class="tbody">${projectNodes || '<p class="tempty">No projects yet.</p>'}${loose.length ? branch("~none", '<span class="th">∅</span>No project', null, loose, "", false) : ""}</div>
+    <div class="tfoot">
+      <button type="button" class="tl away${away ? " on" : ""}" data-open="dlg-away" title="${away ? `Away: approval questions come to the dashboard; unanswered ones are denied after ${waitMin} min` : "At your desk: approval questions show in each agent's terminal"}">${away ? "🌙" : "🖥"}<span>${away ? `Away · deny after ${waitMin}m` : "At your desk"}</span></button>
+      <div class="row tlinks"><a href="/discover" title="Find projects">${icon("users", 13)}</a>${nav.admin ? `<a href="/dashboard?view=admin" class="${nav.view === "admin" ? "on" : ""}" title="Admin">${icon("shield", 13)}</a>` : ""}<a href="/docs" title="Docs">${icon("book", 13)}</a><span class="grow"></span><button type="button" class="btn ghost xs icon" data-treetoggle title="Hide the tree (⌘B)">${icon("sidebar", 13)}</button></div>
+    </div>
+  </aside>
+  <dialog id="dlg-away"><div class="hd"><span style="font-size:18px">${away ? "🌙" : "🖥"}</span><h2>${away ? "Away mode is on" : "Going away?"}</h2></div>
+    <form method="post" action="/away" data-native><div class="bd stack">
+      <p class="small muted" style="margin:0">${away ? `Approval questions from your agents come to the dashboard; unanswered ones are denied after ${waitMin} min so agents move on.` : "In away mode, approval questions from your agents come here instead of waiting in a terminal, and unanswered ones are denied after a while so agents keep moving."}</p>
+      ${away ? "" : `<label class="field">Deny unanswered questions after<input name="wait" type="number" min="1" max="60" value="${waitMin}" style="width:90px"> minutes</label>`}
+      <input type="hidden" name="away" value="${away ? "off" : "on"}">
+    </div><div class="ft"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary">${away ? "I'm back" : "I'm leaving"}</button></div></form></dialog>`;
+
+  // Away mode and the approval questions waiting for an answer.
   const now = Date.now();
   const approvalCard = (p: (typeof pending)[number]) => `<div class="approval">
       <div class="row" style="gap:8px">${icon("shield", 15)}<b>${esc(p.label)}</b>${clientBadge(p.client)}<span class="small muted">wants to use ${esc(p.tool)} · ${time(p.created_at)} · denied in ${Math.max(0, Math.round((p.expires_at - now) / 60000))} min if unanswered</span></div>
@@ -145,20 +188,12 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
         <div class="grow" style="min-width:0"><b>intercom ${PLUGIN_VERSION} is available</b> <span class="small muted">· <span title="${esc(stale.map((a) => a.label).join(", "))}" style="text-decoration:underline dotted">${stale.length} of your running sessions</span> run${stale.length > 1 ? "" : "s"} an older version. They update automatically at their next start; restart them to load it, or update now with <code>/intercom update</code>.</span></div>
       </div></section>`
     : "";
-  const awayBar = `${updateBar}<section class="card awaybar ${away ? "on" : ""}" id="awaybar" data-region>
-      <div class="row" style="gap:10px">
-        <span style="font-size:18px">${away ? "🌙" : "🖥"}</span>
-        <div class="grow"><b>${away ? "Away mode is on" : "At your desk"}</b>
-          <span class="small muted"> · ${away ? `approval questions come here; unanswered ones are denied after ${waitMin} min` : "approval questions show in each agent's terminal; turn on away mode to answer them here"}</span></div>
-        <form method="post" action="/away" class="row" data-native>
-          ${away ? "" : `<label class="small muted">deny after <input name="wait" type="number" min="1" max="60" value="${waitMin}" style="width:64px;height:28px"> min</label>`}
-          <input type="hidden" name="away" value="${away ? "off" : "on"}"><button class="btn sm ${away ? "" : "primary"}">${away ? "I'm back" : "I'm leaving"}</button>
-        </form>
-      </div>
-      ${pending.length ? `<div class="stack" style="margin-top:12px">${pending.map(approvalCard).join("")}</div>` : ""}
-    </section>`;
-
-  if (!agent) return `${awayBar}<div class="agents" id="agents" data-region>${list}<section class="card chat"><div class="empty" style="margin:auto">${icon("radio", 30)}<div>No agents to talk to yet.</div></div></section></div>`;
+  // Approval questions waiting for you: on top of the chat, only while there are any.
+  const approvals = pending.length
+    ? `<section class="card approvals" id="approvals" data-region><div class="hd"><h2>${icon("shield", 15)}Approvals · ${pending.length}</h2><span class="small muted">${away ? `denied after ${waitMin} min unless you answer` : "also asked in each agent's terminal"}</span></div><div class="stack" style="padding:0 14px 14px">${pending.map(approvalCard).join("")}</div></section>`
+    : `<div id="approvals" data-region hidden></div>`;
+  if (!nav.withChat) return { tree, main: "" };
+  if (!agent) return { tree, main: `${updateBar}${approvals}<section class="card chat"><div class="empty" style="margin:auto">${icon("radio", 30)}<div>No agents to talk to yet.</div><div class="small">Start Claude Code or Codex in a repo; its session shows up in the tree.</div></div></section>` };
 
   const { results: rows } = await env.DB.prepare(
     // You (or your agents) → it, it → you (or your agents); for your own agents also every DM it sent or got,
@@ -309,5 +344,5 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
           <label class="field">Shown as <span class="tiny">(only you see this nickname; empty = “${esc(agent.host)}”)</span><input name="name" value="${esc(nick.get(agent.host) ?? "")}" placeholder="${esc(agent.host)}" maxlength="40"></label>
         </div><div class="ft"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary">${icon("check", 14)}Save</button></div></form></dialog>` : ""}`
     : "";
-  return `${awayBar}${dialogs}<div class="agents" id="agents">${list.replace('<aside class="alist">', '<aside class="alist" id="alist" data-region>')}${chat.replace('<div class="hd">', '<div class="hd" id="chathd" data-region>')}</div>`;
+  return { tree, main: `${updateBar}${approvals}${dialogs}<div class="agents" id="agents">${chat.replace('<div class="hd">', '<div class="hd" id="chathd" data-region>')}</div>` };
 }

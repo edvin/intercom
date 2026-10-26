@@ -1168,7 +1168,7 @@ describe("loops", () => {
     let page = await view("bob");
     assert.match(page, /🔁 loop every 20m: \/babysit-prs/);
     assert.match(page, /🔁 self-paced loop, next in 20m: check the deploy/);
-    assert.match(page, /class="badge accent" title="[^"]*">🔁 2</);
+    assert.match(page, /<span title="running a loop">🔁<\/span>/); // marked in the tree
     assert.match(page, /data-chip="Stop your loop\."/);
     assert.equal((page.match(/started a self-paced loop: check the deploy/g) ?? []).length, 1); // re-arming isn't news
     assert.doesNotMatch(await view("alice"), /babysit-prs/); // only the owner
@@ -1297,7 +1297,7 @@ describe("background jobs", () => {
     const view = (as: string) => w.request("/dashboard?view=agents&agent=bob/runner", { as, cookie: true }).then((r) => r.text());
     let page = await view("bob");
     assert.match(page, /⧗ Run the dev server <span class="muted">· running/);
-    assert.match(page, /class="badge" title="[^"]*">⧗ 2</);
+    assert.match(page, /<span title="background jobs">⧗<\/span>/); // marked in the tree
     assert.doesNotMatch(await view("alice"), /Run the dev server/);
 
     await post([

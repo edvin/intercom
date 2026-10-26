@@ -538,48 +538,10 @@ export async function dashboard(url: URL, env: Env, me: string, cookie = ""): Pr
     .bind(me)
     .all<JoinRequest>();
 
-  const approvalsWaiting = (await pendingApprovals(env, me)).length;
-  // Sidebar
+  // Per-project counts for the tree: votes waiting for you (and join requests), active locks.
   const allNeed = props.filter((p) => live(p) && !votesFor(p.id).some((v) => v.member === me));
-  const navItem = (c: string) => {
-    const nLocks = locks.filter((l) => l.channel === c).length;
-    const nVotes = allNeed.filter((p) => p.channel === c).length + requests.filter((r) => r.project === c).length;
-    return `<a href="/dashboard?channel=${encodeURIComponent(c)}" class="${c === channel ? "on" : ""}" title="#${esc(c)}">${icon("hash", 15)}<span>${esc(c)}</span>${mutedProjects.has(c) ? icon("bellOff", 12) : ""}
-      <span class="n">${nVotes ? `<span class="badge accent" title="Votes waiting for you">${nVotes}</span>` : ""}${nLocks ? `<span class="badge amber" title="Active locks">${icon("lock", 10)}${nLocks}</span>` : ""}</span></a>`;
-  };
-  // The Agents view shows the menu as an icon rail unless you expanded it (a cookie, so live redraws keep it).
-  const rail = view === "agents" && !/(?:^|;\s*)ic_rail=open/.test(cookie);
-  const sidebar = `<aside class="side${rail ? " rail" : ""}" id="side" data-region${view === "agents" ? " data-railable" : ""}>
-    ${view === "agents" ? `<button type="button" class="railtoggle" data-railtoggle title="Collapse or expand the menu">${icon("sidebar", 14)}</button>` : ""}
-    <nav class="nav">
-      <a href="/dashboard?view=agents" class="${view === "agents" ? "on" : ""}" title="Agents">${icon("terminal", 15)}<span>Agents</span>${approvalsWaiting ? `<span class="n"><span class="badge red" title="Approvals waiting for you">${approvalsWaiting}</span></span>` : ""}</a>
-      <a href="/dashboard" class="${!channel && view === "feed" ? "on" : ""}" title="Everything">${icon("layers", 15)}<span>Everything</span>${allNeed.length ? `<span class="n"><span class="badge accent">${allNeed.length}</span></span>` : ""}</a>
-      <div class="label">Projects</div>
-      ${mine.map(navItem).join("")}
-      <a href="#" data-open="dlg-create" class="muted" title="New project">${icon("plus", 15)}<span>New project</span></a>
-      <a href="/discover" class="muted" title="Find projects">${icon("users", 15)}<span>Find projects</span></a>
-      ${admin ? `<div class="label">Instance</div><a href="/dashboard?view=admin" class="${view === "admin" ? "on" : ""}" title="Admin">${icon("shield", 15)}<span>Admin</span></a>` : ""}
-    </nav>
-    <div class="people">
-      <div class="nav"><div class="label">People</div></div>
-      ${
-        team.length
-          ? team
-              .map((r) => {
-                const visible = !!r.project && mine.includes(r.project);
-                const where = !r.updated_at ? "not connected yet" : r.project ? (visible ? workingOn(r.project, r.branch, null).replace("branch ", "⎇ ") : "in another project") : "online";
-                const note = visible && r.note ? `<div class="note">${esc(r.note)}</div>` : "";
-                return `<details class="person-d" id="person-${esc(r.name)}"><summary class="person"><span class="presence ${presenceClass(r.updated_at)}">${avatar(r.name, "s")}</span>
-                  <span class="grow" style="min-width:0"><div style="font-weight:550;font-size:13.5px">${esc(r.name)}${mutedPeople.has(r.name) ? ` ${icon("bellOff", 11)}` : ""}</div><div class="where" title="${esc(where)}">${esc(where)}${r.updated_at ? ` · ${time(r.updated_at)}` : ""}</div>${note}</span></summary>
-                  <div class="row" style="padding:2px 10px 8px 41px">${r.org ? `<span class="tiny muted">${esc(r.org)}</span>` : ""}
-                    <button class="btn xs" type="button" data-dm="${esc(r.name)}">${icon("at", 12)}Message</button>
-                    <form method="post" action="/action/${mutedPeople.has(r.name) ? "unmute" : "mute"}">${hidden({ person: r.name, back })}<button class="btn xs ghost">${mutedPeople.has(r.name) ? "Unmute" : "Mute"}</button></form></div></details>`;
-              })
-              .join("")
-          : `<p class="small muted" style="padding:0 10px">You don't share a project with anyone yet. Invite people from a project.</p>`
-      }
-    </div>
-  </aside>`;
+  const votesBy = new Map(mine.map((c) => [c, allNeed.filter((p) => p.channel === c).length + requests.filter((r) => r.project === c).length]));
+  const locksBy = new Map(mine.map((c) => [c, locks.filter((l) => l.channel === c).length]));
 
   // Who the composer can address: each person, and each of their agent sessions (yours too) in your projects.
   const { results: agentRows } = await env.DB.prepare(
@@ -713,24 +675,31 @@ export async function dashboard(url: URL, env: Env, me: string, cookie = ""): Pr
   </div><div class="ft"><button type="button" class="btn primary" data-close>Done</button></div></dialog>
 `;
 
+  // The workspace: the tree everywhere; the main pane is the chosen agent's chat, a feed, or admin. A feed's
+  // panels (project, locks, handoffs, decisions, votes) sit in a drawer on the right that can be put away.
+  const ws = await agentsView(env, me, url, people, cookie, { view, channel, mine, locksBy, votesBy, votesTotal: allNeed.length, admin, withChat: view === "agents" });
   const main =
     view === "admin"
-      ? `<div class="main">${await adminSection(env, me)}</div><div class="aside"></div>`
+      ? `<main class="pane"><div class="pane-in">${await adminSection(env, me)}</div></main>`
       : view === "agents"
-        ? `<div class="main">${await agentsView(env, me, url, people, cookie)}</div>`
-        : `<div class="main">${onboarding}${needs}${composer}${feed}</div><div class="aside">${projectBox}${lockPanel}${handoffPanel}${logPanel}${decisions}</div>`;
+        ? `<main class="pane chatpane">${ws.main}</main>`
+        : `<main class="pane"><div class="pane-in">${onboarding}${needs}${composer}${feed}</div></main><aside class="drawer" id="drawer">${projectBox}${lockPanel}${handoffPanel}${logPanel}${decisions}</aside>`;
+  const treeHidden = /(?:^|;\s*)ic_tree=hidden/.test(cookie);
+  const drawerOff = /(?:^|;\s*)ic_drawer=off/.test(cookie);
 
   const top = `<header class="top"><div class="in">
+    <button type="button" class="btn ghost icon sm treebtn" data-treetoggle title="Show or hide the tree (⌘B)">${icon("sidebar", 15)}</button>
     <a class="brand" href="/">${LOGO}<span>Intercom</span></a>
     <span class="live" id="live" title="Updates arrive live while this is green"><span class="dot"></span>Connecting</span>
     <span class="grow"></span>
+    ${view === "feed" ? `<button type="button" class="btn ghost sm" data-drawertoggle title="Show or hide the panels: project, locks, handoffs, decisions, votes">${icon("layers", 15)}<span class="lbl">Panels</span></button>` : ""}
     <a class="btn ghost sm" href="/">${icon("sparkles", 15)}<span class="lbl">About</span></a>
     <a class="btn ghost sm" href="/docs">${icon("book", 15)}Docs</a>
     <a class="me" href="/account" title="Your account">${avatar(me, "s")}<b>${esc(me)}</b>${meRow?.org ? `<span class="muted">· ${esc(meRow.org)}</span>` : ""}${admin ? '<span class="badge accent">admin</span>' : ""}</a>
     <form method="post" action="/logout" data-native><button class="btn ghost icon sm" title="Sign out">${icon("logout", 15)}</button></form>
   </div></header>`;
 
-  return html(page(view === "agents" ? "Agents · Intercom" : channel ? `#${channel} · Intercom` : "Intercom", `<div class="shell${view === "agents" ? " wide" : ""}">${sidebar}${main}</div>${dialogs}`, { top }), 200, {
+  return html(page(view === "agents" ? "Agents · Intercom" : channel ? `#${channel} · Intercom` : "Intercom", `<div class="ide${treeHidden ? " notree" : ""}${drawerOff ? " nodrawer" : ""}${view === "agents" ? " chatmode" : view === "feed" ? " feedmode" : ""}" id="ide">${ws.tree}${main}</div>${dialogs}`, { top }), 200, {
     "cache-control": "no-store",
   });
 }
@@ -915,7 +884,7 @@ export function docsPage(origin: string): Response {
 
       <section>
         <h2>Running your agents from the browser</h2>
-        <p>The dashboard's <a href="/dashboard?view=agents">Agents</a> view lists every agent session (yours first) with what it's doing — working, idle, or <b>waiting</b> for an approval — and a chat with the one you pick. What you write there reaches that session as <b>you</b>: your own agents act on it like a prompt typed in their terminal, and reply to you in the chat.</p>
+        <p>The <b>tree</b> on the left of the dashboard lists your projects with their agents nested underneath (yours first), each with a dot for what it's doing: working (pulsing), idle (green) or <b>waiting</b> for you (red “!”); 🔁 marks a loop and ⧗ background jobs. Click a project for its feed, an agent for its chat, which gets the full width. <kbd>⌘B</kbd> hides the tree; on a feed, <b>Panels</b> shows or hides the project, locks, handoffs and decisions on the right. Folded projects stay folded. What you write there reaches that session as <b>you</b>: your own agents act on it like a prompt typed in their terminal, and reply to you in the chat.</p>
         <ul>
           <li><b>Images:</b> paste (⌘V), drop or pick images in a message: text and up to 4 images go together, like in the terminal. The agent sees <code>[📎 image #12: name]</code> in the message and opens the image itself with the <code>attachment</code> tool. Images are scaled down before upload, visible only to those who can read the message, and kept 30 days.</li>
           <li><b>Side questions (btw):</b> switch the chat to <b>btw</b> (or start with <code>/btw</code>) to ask your own Claude Code agent something without touching its work, e.g. “what's your plan?”. The intercom-ui mod in that session answers from a read-only copy of its current context; nothing is added to the agent's history. Follow-ups continue the side thread; “start a new side thread” begins fresh. Needs intercom-ui 0.2.4+ and at least one finished turn; not available for Codex.</li>

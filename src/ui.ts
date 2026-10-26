@@ -53,6 +53,7 @@ const ICONS: Record<string, string> = {
   clock: '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
   trash: '<path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>',
   key: '<circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/>',
+  chevron: '<path d="m9 18 6-6-6-6"/>',
   eye: '<path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/>',
   eyeOff: '<path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49"/><path d="M14.084 14.158a3 3 0 0 1-4.242-4.242"/><path d="M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143"/><path d="m2 2 20 20"/>',
   messages: '<path d="M14 9a2 2 0 0 1-2 2H6l-4 4V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z"/><path d="M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1"/>',
@@ -488,6 +489,54 @@ details>summary{cursor:pointer;list-style:none}details>summary::-webkit-details-
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
 @media (max-width:640px){.top .in{padding:10px 14px;gap:8px}.me b,.me .muted,.me .badge,.top .btn.ghost.sm:not(.icon) .lbl{display:none}.brand span{display:none}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+/* ---- IDE layout: tree | pane | drawer ---- */
+body:has(.ide) .top .in{max-width:none;padding:8px 14px}
+.ide{--tw:272px;--dw:372px;display:grid;grid-template-columns:var(--tw) minmax(0,1fr) var(--dw);height:calc(100dvh - 53px);overflow:hidden}
+.ide:not(.feedmode),.ide.nodrawer{--dw:0px}.ide.notree{--tw:0px}
+.ide.notree>.tree,.ide.nodrawer>.drawer{display:none}
+.tree{grid-column:1;min-height:0;display:flex;flex-direction:column;border-right:1px solid var(--line);background:color-mix(in srgb,var(--surface) 55%,transparent);font-size:13px}
+.ttop{padding:10px 8px 2px;display:flex;flex-direction:column;gap:1px}
+.tl{display:flex;align-items:center;gap:9px;width:100%;padding:6px 10px;border:0;border-radius:8px;background:none;color:var(--ink-2);font:inherit;font-weight:560;text-align:left;text-decoration:none;cursor:pointer}
+.tl:hover{background:var(--surface-2);color:var(--ink)}.tl.on{background:var(--accent-soft);color:var(--accent)}.tl .badge{margin-left:auto}
+.tl.warn{color:var(--red)}.tl.away{font-size:12.5px;color:var(--mute)}.tl.away.on{color:var(--amber)}
+.tsec{display:flex;align-items:center;justify-content:space-between;padding:12px 8px 4px 18px;font-size:10.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--mute)}
+.tbody{flex:1;min-height:0;overflow:auto;padding:0 8px 10px}
+.tp{margin:1px 0}.tp>summary{list-style:none;display:flex;align-items:center;gap:6px;padding:5px 8px;border-radius:8px;cursor:pointer;user-select:none}
+.tp>summary::-webkit-details-marker,.toff>summary::-webkit-details-marker{display:none}
+.tp>summary:hover{background:var(--surface-2)}
+.tcaret{display:inline-grid;place-items:center;width:12px;color:var(--mute);transition:transform .15s}.tp[open]>summary .tcaret{transform:rotate(90deg)}
+.tpn{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:650;color:var(--ink);text-decoration:none}.tpn:hover{color:var(--accent)}.tpn.on{color:var(--accent)}
+.th{color:var(--mute);font-weight:500;margin-right:3px}.tbadges{display:flex;gap:4px}.tbadges .badge{font-size:10px;padding:0 5px}
+.ta{position:relative;display:flex;align-items:center;gap:7px;padding:4px 8px 4px 24px;border-radius:7px;color:var(--ink-2);text-decoration:none}
+.ta:hover{background:var(--surface-2)}.ta.on{background:var(--surface-2);box-shadow:inset 2px 0 0 var(--accent)}.ta.gone{opacity:.5}
+.ta .av{width:19px;height:19px;font-size:8.5px}
+.tn{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:"JetBrains Mono","Geist Mono",ui-monospace,monospace;font-size:12.5px}.tn .an{font-weight:600}
+.tb{display:flex;align-items:center;gap:3px;font-size:11px}
+.tw{display:grid;place-items:center;width:15px;height:15px;border-radius:50%;background:var(--red);color:#fff;font-size:10px;font-weight:800}
+.tcx{font-size:9px;font-weight:700;color:var(--mute);border:1px solid var(--line);border-radius:4px;padding:0 3px}
+.tdot{position:absolute;left:11px;width:6px;height:6px;border-radius:50%;background:var(--mute)}
+.tdot.idle{background:var(--green)}.tdot.work{background:var(--accent);animation:pulse 1.8s infinite}.tdot.wait{background:var(--red)}.tdot.off{background:transparent;box-shadow:inset 0 0 0 1px var(--mute)}
+.toff>summary{list-style:none;padding:3px 8px 3px 24px;font-size:11.5px;color:var(--mute);cursor:pointer}.toff>summary:hover{color:var(--ink-2)}
+.tempty{padding:3px 8px 6px 26px;margin:0;color:var(--mute);font-size:12px}
+.tfoot{border-top:1px solid var(--line);padding:6px 8px 8px;display:flex;flex-direction:column;gap:4px}
+.tlinks{gap:2px}.tlinks a{display:inline-grid;place-items:center;width:28px;height:28px;border-radius:7px;color:var(--mute)}.tlinks a:hover,.tlinks a.on{background:var(--surface-2);color:var(--ink)}
+.pane{grid-column:2;min-width:0;min-height:0;overflow:auto}
+.pane-in{max-width:1180px;margin:0 auto;padding:18px 24px 40px;display:flex;flex-direction:column;gap:16px}
+.chatpane{display:flex;flex-direction:column;gap:10px;padding:12px 16px 14px;overflow:hidden}
+.chatpane .agents{display:flex;flex:1;min-height:0}.chatpane .chat{flex:1;min-width:0;height:auto}
+.chatpane>.card{flex:none}
+.drawer{grid-column:3;min-height:0;overflow:auto;border-left:1px solid var(--line);padding:14px;display:flex;flex-direction:column;gap:14px;background:color-mix(in srgb,var(--surface) 35%,transparent)}
+.treebtn{margin-left:-4px}
+.approvals .hd{display:flex;align-items:baseline;gap:10px;padding:12px 14px}
+@media (max-width:1180px){.ide.feedmode:not(.nodrawer){--dw:320px}}
+.chatbox .chips{flex:none;align-items:center}.chatbox .chip{flex:none;height:auto}
+@media (max-width:640px){.chatpane{padding:8px}.chatbox .chips{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}.chatbox .chips::-webkit-scrollbar{display:none}.chatbox .chip{flex:none;white-space:nowrap}.chatbox textarea{min-width:0}}
+@media (max-width:900px){
+  .ide{grid-template-columns:minmax(0,1fr)}.pane{grid-column:1}.drawer{display:none}
+  .tree{position:fixed;z-index:30;top:53px;bottom:0;left:0;width:284px;transform:translateX(-104%);transition:transform .2s;background:var(--surface);box-shadow:var(--shadow-lg,0 10px 40px rgba(0,0,0,.35))}
+  .ide.treeopen>.tree,.ide.notree.treeopen>.tree{display:flex;transform:none}.ide.notree>.tree{display:flex}
+}
 `;
 
 // Client behaviour: relative times, day separators, copy buttons, dialogs, toasts, progressive form submits
@@ -594,9 +643,26 @@ const SCRIPT = `
     apply();
   }
 
+  function toggleTree() {
+    const ide = document.getElementById("ide"); if (!ide) return;
+    if (matchMedia("(max-width: 900px)").matches) { ide.classList.toggle("treeopen"); return; }
+    const hide = !ide.classList.contains("notree"); ide.classList.toggle("notree", hide);
+    document.cookie = "ic_tree=" + (hide ? "hidden" : "shown") + "; path=/; max-age=31536000; samesite=lax";
+  }
+  document.addEventListener("keydown", (e) => { if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "b") { e.preventDefault(); toggleTree(); } });
+
   // Folded tool steps you opened or closed stay that way when the thread redraws live.
   const folds = {};
   function bind(root = document) {
+    // The tree: hide/show (⌘B; on phones it slides over), folded projects remembered, the drawer on feeds.
+    const ide = document.getElementById("ide");
+    $$("[data-treetoggle]", root).forEach((b) => b.onclick = () => toggleTree());
+    $$("[data-drawertoggle]", root).forEach((b) => b.onclick = () => { if (!ide) return; const off = !ide.classList.contains("nodrawer"); ide.classList.toggle("nodrawer", off); document.cookie = "ic_drawer=" + (off ? "off" : "on") + "; path=/; max-age=31536000; samesite=lax"; });
+    $$("details.tp", root).forEach((d) => d.ontoggle = () => {
+      const closed = new Set((cookie("ic_tc") || "").split(",").map(decodeURIComponent).filter(Boolean));
+      if (d.open) closed.delete(d.dataset.tp); else closed.add(d.dataset.tp);
+      document.cookie = "ic_tc=" + [...closed].map(encodeURIComponent).join(",") + "; path=/; max-age=31536000; samesite=lax";
+    });
     // The composer's recipients follow the chosen project: its people and agents only.
     const proj = $("#compose-project"), to = $("#compose-to");
     if (proj && to && !to.dataset.all) {
@@ -671,7 +737,9 @@ const SCRIPT = `
       const stick = th ? th.scrollHeight - th.scrollTop - th.clientHeight < 80 : true;
       const keep = th ? th.scrollTop : 0;
       const known = new Set($$("[data-mid]", el).map((m) => m.dataset.mid));
+      const tb = el.querySelector(".tbody"), tbTop = tb ? tb.scrollTop : 0; // the tree keeps its place
       el.replaceWith(next);
+      if (tb) { const nb = next.querySelector(".tbody"); if (nb) nb.scrollTop = tbTop; }
       $$("details", next).forEach((d) => d.id && open.has(d.id) && (d.open = true));
       if (known.size) $$("[data-mid]", next).forEach((m) => !known.has(m.dataset.mid) && m.classList.add("fresh"));
       if (th && !stick) next.dataset.stuck = "no";
