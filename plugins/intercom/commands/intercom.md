@@ -19,6 +19,7 @@ You are running the `/intercom` command. Use the `intercom` MCP tools for any ac
 - `vote`: walk me through open votes I haven't answered (ask for each choice; never vote without my answer)
 - `mute <person|#project>` / `unmute …`
 - `dashboard`: open the web dashboard, signed in: run `sh "$HOME/.claude/intercom/brief.sh" open`
+- `doctor`: check what works on this machine: run `sh "$HOME/.claude/intercom/brief.sh" doctor` and explain the result
 - `inbox`: read unread messages (marks them read), `team`, `locks`, `projects`
 - anything else: interpret it sensibly as an intercom request
 

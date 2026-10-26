@@ -23,6 +23,8 @@ else
   key="$CLAUDE_PID"
 fi
 workdir="${workdir:-${CLAUDE_PROJECT_DIR:-$PWD}}"
+# Heartbeat for `brief.sh doctor`: proves the agent runs this hook at all.
+mkdir -p "$D" 2>/dev/null && printf '%s %s %s\n' "$(date +%s)" "$event" "${session:-?}" > "$D/.hook-$client" 2>/dev/null
 
 # Fast paths (a few milliseconds, no network), using marker files kept by the local intercom server:
 #  live/<key>    channel mode: messages are pushed into the session already, never poll.

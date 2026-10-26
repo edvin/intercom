@@ -150,9 +150,17 @@ export class TeamHub extends DurableObject<WorkerEnv> {
     const members = m.recipient ? undefined : names("SELECT member FROM project_members WHERE project = ?", m.channel);
     const mutedChannel = m.recipient ? undefined : names("SELECT member FROM follows WHERE channel = ? AND mode = 'mute'", m.channel);
     const text = fmtMessage(m);
+    // Labels as they are now: a session renamed after connecting (set_name) must get DMs under its new name.
+    const labels = new Map(
+      sql
+        .exec("SELECT member || '/' || session_id AS k, label FROM sessions WHERE last_seen > ?", Date.now() - 86400_000)
+        .toArray()
+        .map((r) => [r.k as string, r.label as string]),
+    );
     for (const ws of sockets) {
-      const s = ws.deserializeAttachment() as SocketInfo | null;
-      if (!s) continue;
+      const att = ws.deserializeAttachment() as SocketInfo | null;
+      if (!att) continue;
+      const s = { ...att, label: labels.get(`${att.member}/${att.session_id}`) ?? att.label };
       if (s.mode === "web") {
         // Dashboards also show your own activity, and muted things still appear in the feed.
         const sees = m.recipient ? m.recipient === s.member || m.sender === s.member : members!.has(s.member);

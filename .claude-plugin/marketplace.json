@@ -11,7 +11,7 @@
       "name": "intercom",
       "source": "./plugins/intercom",
       "description": "Messages, deploy locks, votes and project rules shared between teammates' Claude Code sessions, across machines and companies.",
-      "version": "0.7.0"
+      "version": "0.7.1"
     },
     {
       "name": "intercom-ui",
