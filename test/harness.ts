@@ -66,8 +66,21 @@ export class World {
 
   github?: { client_id: string; client_secret: string };
 
+  /** An in-memory stand-in for the R2 bucket. */
+  objects = new Map<string, { body: ArrayBuffer; type: string }>();
+  files = {
+    put: async (key: string, body: ArrayBuffer, opts?: { httpMetadata?: { contentType?: string } }) => {
+      this.objects.set(key, { body, type: opts?.httpMetadata?.contentType ?? "" });
+    },
+    get: async (key: string) => {
+      const o = this.objects.get(key);
+      return o ? { arrayBuffer: async () => o.body, httpMetadata: { contentType: o.type } } : null;
+    },
+    delete: async (key: string) => void this.objects.delete(key),
+  } as unknown as R2Bucket;
+
   env(): Env {
-    return { DB: this.db, onMessage: (m) => this.pushed.push(m), github: this.github };
+    return { DB: this.db, onMessage: (m) => this.pushed.push(m), github: this.github, files: this.files };
   }
 
   async request(path: string, init: RequestInit & { as?: string; cookie?: boolean } = {}): Promise<Response> {

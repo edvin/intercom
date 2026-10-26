@@ -160,5 +160,8 @@ export function md(text: string): string {
     para.push(line);
   }
   flush();
-  return out.join("");
+  // Images attached to a message ([📎 image #12: shot.png]) show as thumbnails; a click opens the full image.
+  return out.join("").replace(/\[📎 image #(\d+)(?::\s?([^\]<]*))?\]/g, (_, id: string, name = "") =>
+    `<a class="att" href="/attachment/${id}" target="_blank" rel="noopener" title="${name || `image #${id}`}"><img src="/attachment/${id}" alt="${name || `image #${id}`}" loading="lazy"></a>`,
+  );
 }

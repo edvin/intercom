@@ -1,6 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import { handle, json } from "./app";
 import { tools } from "./tools";
+import { pruneAttachments } from "./attachments";
 import { SqlDb, splitStatements } from "./db";
 import { type Env, type Message, address, authenticate, cleanBranch, cleanClient, fmtMessage, prune, setHost, setVersion, projectFor, setPresence, setRepo, touchSession, unread } from "./lib";
 import m0001 from "../migrations/0001_init.sql";
@@ -24,6 +25,7 @@ import m0018 from "../migrations/0018_records.sql";
 import m0019 from "../migrations/0019_session_project_pin.sql";
 import m0020 from "../migrations/0020_lock_agent.sql";
 import m0021 from "../migrations/0021_session_loops.sql";
+import m0022 from "../migrations/0022_attachments.sql";
 
 /** A short fingerprint of the MCP tools (names, descriptions, schemas) this code offers. */
 const TOOLS_TAG = (() => {
@@ -54,6 +56,7 @@ const MIGRATIONS: [string, string][] = [
   ["0019_session_project_pin", m0019],
   ["0020_lock_agent", m0020],
   ["0021_session_loops", m0021],
+  ["0022_attachments", m0022],
 ];
 
 const DAY = 86400_000;
@@ -66,6 +69,8 @@ export interface WorkerEnv {
   /** GitHub OAuth app for "Sign in with GitHub" (client id is a var, the secret a Worker secret). */
   GITHUB_CLIENT_ID?: string;
   GITHUB_CLIENT_SECRET?: string;
+  /** Images attached to messages. */
+  FILES?: R2Bucket;
 }
 
 /**
@@ -105,7 +110,7 @@ export class TeamHub extends DurableObject<WorkerEnv> {
   /** Daily housekeeping: message retention, expired locks, invites and stale sessions. */
   async alarm(): Promise<void> {
     const days = Number(this.env.RETENTION_DAYS) || undefined;
-    const removed = await prune(this.appEnv(), days);
+    const removed = { ...(await prune(this.appEnv(), days)), attachments: await pruneAttachments(this.appEnv()) };
     console.log("prune", JSON.stringify(removed));
     await this.ctx.storage.setAlarm(Date.now() + DAY);
   }
@@ -131,6 +136,7 @@ export class TeamHub extends DurableObject<WorkerEnv> {
       onMessage: (m) => this.fanout(m),
       live: () => this.liveSessions(),
       refreshWeb: (member: string) => this.refreshWeb(member),
+      files: this.env.FILES,
       github: id && secret ? { client_id: id, client_secret: secret } : undefined,
     };
   }

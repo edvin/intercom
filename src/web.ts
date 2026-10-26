@@ -1,5 +1,6 @@
 import { type Delivery, type Env, type Lock, deliveryMarks, type Message, type Project, type Proposal, MAX_BODY, MEMBER_OF, RECEIVES, activeLocks, address, authenticate, coMembers, isAdmin, myProjects, normChannel, postMessage, roleIn, sha256, workingOn, newToken, HANDLE, limit, UserError } from "./lib";
 import { agentsView } from "./agents";
+import { linkImages, marker, storeImages } from "./attachments";
 import { type Decision, type Handoff, OPEN_HANDOFF, findDecisions, listHandoffs } from "./records";
 import { pendingApprovals } from "./approvals";
 import { openSignup, setSetting } from "./github";
@@ -202,7 +203,14 @@ export async function handleAction(req: Request, env: Env, me: string, action: s
   if (!tool) return new Response("Not found", { status: 404 });
   const u = new URL(back, req.url);
   try {
-    const out = await tool.run(env, me, call[1]);
+    // Images pasted or picked in a composer: stored first, then named in the message as [📎 image #N: name].
+    const images = action === "post" ? form.getAll("image").filter((v): v is File => typeof v !== "string" && v.size > 0) : [];
+    const stored = await storeImages(env, me, images);
+    if (stored.length) call[1].message = [call[1].message, ...stored.map(marker)].filter(Boolean).join("\n");
+    const result = await tool.run(env, me, call[1]);
+    const out = typeof result === "string" ? result : result.map((c) => (c.type === "text" ? c.text : "")).join("\n");
+    const posted = out.match(/\[(\d+)\]/);
+    if (stored.length && posted) await linkImages(env, me, stored.map((a) => a.id), Number(posted[1]));
     const link = out.match(/https?:\/\/\S+\/join\/[0-9a-f]+/)?.[0];
     if (link) u.searchParams.set("link", link);
     u.searchParams.set("ok", link ? out.split("\n")[0].replace(/:$/, "") : out.split("\n")[0]);
@@ -593,9 +601,10 @@ export async function dashboard(url: URL, env: Env, me: string, cookie = ""): Pr
         <div class="row"><button class="btn primary" data-open="dlg-create">${icon("plus", 15)}New project</button><a class="btn" href="/discover">${icon("users", 15)}Find my team's project</a><a class="btn ghost" href="/docs">${icon("book", 15)}Docs</a></div>
       </div></section>${connectCard}`;
   const composer = mine.length
-    ? `<section class="card composer"><form method="post" action="/action/post">${hidden({ back })}
+    ? `<section class="card composer"><form method="post" action="/action/post" data-images>${hidden({ back })}
         <textarea id="compose" name="message" data-enter placeholder="Message ${channel ? `#${esc(channel)}` : "a project"} — teammates' Claude sessions will see it" maxlength="${MAX_BODY}" required></textarea>
-        <div class="bar"><select name="channel" id="compose-project" aria-label="Project">${projectOptions}</select>
+        <div class="imgtray" hidden></div>
+        <div class="bar"><button type="button" class="btn ghost sm icon" data-imgbtn title="Attach images (or paste / drop them here)">${icon("image", 15)}</button><input type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden data-imgpick><select name="channel" id="compose-project" aria-label="Project">${projectOptions}</select>
           <select name="to" id="compose-to" aria-label="Recipient" data-byproject><option value="">Everyone in the project</option>${recipients}</select>
           <span class="grow"></span><span class="small muted"><span class="kbd">⌘</span> <span class="kbd">↩</span></span>
           <button class="btn primary sm">${icon("send", 14)}Send</button></div>
@@ -879,6 +888,7 @@ export function docsPage(origin: string): Response {
         <h2>Running your agents from the browser</h2>
         <p>The dashboard's <a href="/dashboard?view=agents">Agents</a> view lists every agent session (yours first) with what it's doing — working, idle, or <b>waiting</b> for an approval — and a chat with the one you pick. What you write there reaches that session as <b>you</b>: your own agents act on it like a prompt typed in their terminal, and reply to you in the chat.</p>
         <ul>
+          <li><b>Images:</b> paste (⌘V), drop or pick images in a message: text and up to 4 images go together, like in the terminal. The agent sees <code>[📎 image #12: name]</code> in the message and opens the image itself with the <code>attachment</code> tool. Images are scaled down before upload, visible only to those who can read the message, and kept 30 days.</li>
           <li><b>Loops:</b> when one of your agents runs a loop (<code>/loop</code>, or a prompt it scheduled), its chat header and the agent list show it with a 🔁, e.g. “loop every 20m: /babysit-prs” or “self-paced loop, next in 14m”. This comes from the activity mirror (only you see it), so it costs nothing. To stop or change a loop, ask the agent (the chips have a shortcut); the dashboard never edits its schedule itself.</li>
           <li><b>Its project:</b> a session's project normally comes from its repo. The pencil next to the project in the chat header sets it for <i>this session only</i> (shown as <i>pinned</i>; pick “Follow its repo” to undo), or <i>always for its repo</i> (links the repo to the project, so future sessions there join it). The agent gets the project's rules at its next turn, without being woken.</li>
           <li><b>Busy agent:</b> it sees your message after its current step, or, when it's about to stop, continues with it.</li>

@@ -1198,3 +1198,50 @@ describe("agent identity", () => {
     assert.notEqual(agentHue("edvin", "alder"), agentHue("anna", "alder"));
   });
 });
+
+describe("images with messages", () => {
+  test("text and images in one message: stored, named for agents, viewable by those who can read the message", async () => {
+    const w = await standardWorld();
+    const hook = async (event: string, sid: string) => {
+      const t = await (await w.request(`/api/hook?event=${event}&project=billing-api&session=${sid}`, { as: "bob" })).text();
+      return t.startsWith("{") ? ((JSON.parse(t) as { hookSpecificOutput?: { additionalContext?: string } }).hookSpecificOutput?.additionalContext ?? t) : t;
+    };
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=im1&name=core", { as: "bob" });
+    await hook("UserPromptSubmit", "im1");
+
+    // alice pastes a screenshot into a DM to bob's agent, with text.
+    const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);
+    const form = new FormData();
+    form.set("message", "The brand selector looks noisy, see:");
+    form.set("to", "bob/core");
+    form.set("back", "/dashboard");
+    form.append("image", new File([png], "selector.png", { type: "image/png" }));
+    const res = await w.request("/action/post", { method: "POST", as: "alice", cookie: true, headers: { origin: ORIGIN }, body: form, redirect: "manual" });
+    assert.doesNotMatch(res.headers.get("location") ?? "", /err=/);
+
+    // The agent gets text and the marker in one message, and can open the image.
+    assert.match(await hook("UserPromptSubmit", "im1"), /The brand selector looks noisy, see:\n\[📎 image #1: selector\.png\]/);
+    const r = (await (await w.request("/mcp", {
+      method: "POST", as: "bob",
+      headers: { "content-type": "application/json", "x-intercom-session": "im1", "x-intercom-project": "billing-api" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "attachment", arguments: { id: 1 } } }),
+    })).json()) as { result: { content: { type: string; data?: string; mimeType?: string; text?: string }[] } };
+    const img = r.result.content.find((c) => c.type === "image")!;
+    assert.equal(img.mimeType, "image/png");
+    assert.deepEqual([...Buffer.from(img.data!, "base64")], [...png]);
+
+    // The dashboard shows a thumbnail; the image is served to the sender and recipient only.
+    assert.match(await (await w.request("/dashboard", { as: "bob", cookie: true })).text(), /<a class="att" href="\/attachment\/1"[^>]*><img src="\/attachment\/1"/);
+    assert.equal((await w.request("/attachment/1", { as: "alice", cookie: true })).status, 200);
+    assert.equal((await w.request("/attachment/1", { as: "bob", cookie: true })).headers.get("content-type"), "image/png");
+    assert.equal((await w.request("/attachment/1", { as: "carol", cookie: true })).status, 404);
+    assert.match((await w.tool("carol", "attachment", { id: 1 })).text, /No image #1/);
+
+    // Only images are accepted.
+    const bad = new FormData();
+    bad.set("message", "x"); bad.set("channel", "billing"); bad.set("back", "/dashboard");
+    bad.append("image", new File(["<svg/>"], "x.svg", { type: "image/svg+xml" }));
+    const r2 = await w.request("/action/post", { method: "POST", as: "alice", cookie: true, headers: { origin: ORIGIN }, body: bad, redirect: "manual" });
+    assert.match(new URL(r2.headers.get("location")!, ORIGIN).searchParams.get("err")!, /x\.svg isn't an image/);
+  });
+});

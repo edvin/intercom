@@ -1,4 +1,5 @@
 import { recordsBrief } from "./records";
+import { getAttachment, readImage } from "./attachments";
 import { type Env, type Message, type Proposal, type Session, MEMBER_OF, RECEIVES, UserError, activeLocks, address, isMyLock, ago, addActivity, lockIn, scopedLocks, cleanBranch, cleanClient, fromOwnUser, renameSession, setHost, setVersion, workingOn, authenticate, coMembers, fmtLock, fmtMessage, myProjects, moveSession, projectFor, resolveProject, setPresence, setRepo, tally, touchSession, unread } from "./lib";
 import { INSTRUCTIONS, tools } from "./tools";
 import { cliPoll, cliStart, connectPage, discoverJoin, discoverPage, discoverRequest, githubCallback, githubCreate, githubStart, signOut } from "./accounts";
@@ -52,8 +53,9 @@ async function handleRpc(msg: RpcRequest, env: Env, me: string) {
       if (!tool) return rpcError(msg.id, -32602, `Unknown tool: ${msg.params?.name}`);
       await setPresence(env, me, null, null);
       try {
-        const text = await tool.run(env, me, msg.params?.arguments ?? {});
-        return rpcResult(msg.id, { content: [{ type: "text", text }] });
+        const out = await tool.run(env, me, msg.params?.arguments ?? {});
+        // Most tools answer in text; some (attachment) return content blocks, e.g. an image.
+        return rpcResult(msg.id, { content: typeof out === "string" ? [{ type: "text", text: out }] : out });
       } catch (e) {
         const text = e instanceof UserError ? e.message : `Internal error: ${(e as Error).message}`;
         if (!(e instanceof UserError)) console.error(e);
@@ -544,6 +546,16 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
       back.searchParams.set("err", (e as Error).message);
     }
     return redirect(back.pathname + back.search);
+  }
+  if (url.pathname.startsWith("/attachment/") && req.method === "GET") {
+    // An image attached to a message, for whoever may read that message.
+    const a = await getAttachment(env, me, Number(url.pathname.slice(12)));
+    if (!a) return new Response("Not found", { status: 404 });
+    const buf = await readImage(env, a);
+    if (!buf) return new Response("This image has expired", { status: 410 });
+    return new Response(buf, {
+      headers: { "content-type": a.mime, "cache-control": "private, max-age=86400", "x-content-type-options": "nosniff", "content-security-policy": "default-src 'none'" },
+    });
   }
   if (url.pathname === "/agent/project" && req.method === "POST") {
     if (!sameOrigin(req)) return new Response("Cross-origin request refused", { status: 403 });

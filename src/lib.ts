@@ -20,6 +20,8 @@ export interface Env {
   live?: () => Set<string>;
   /** Redraw a member's open dashboards; undefined outside the hub. */
   refreshWeb?: (member: string) => void;
+  /** Where message images live (R2). */
+  files?: R2Bucket;
 }
 
 export interface Message {

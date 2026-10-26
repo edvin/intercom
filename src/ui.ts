@@ -56,6 +56,7 @@ const ICONS: Record<string, string> = {
   eye: '<path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/>',
   eyeOff: '<path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49"/><path d="M14.084 14.158a3 3 0 0 1-4.242-4.242"/><path d="M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143"/><path d="m2 2 20 20"/>',
   messages: '<path d="M14 9a2 2 0 0 1-2 2H6l-4 4V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z"/><path d="M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1"/>',
+  image: '<rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>',
   terminal: '<path d="m4 17 6-6-6-6"/><path d="M12 19h8"/>',
   at: '<circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8"/>',
   sparkles: '<path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z"/>',
@@ -345,6 +346,11 @@ label.field>input,label.field>textarea,label.field>select{width:100%}
 .act-text{color:var(--ink-2)}.act-text .atx{white-space:normal}.act-text .aic{color:var(--accent)}
 .act-prompt .aic{color:var(--green)}
 .act-read{opacity:.75}
+.imgtray{display:flex;gap:8px;flex-wrap:wrap;padding:6px 6px 8px}.imgthumb{position:relative}.imgthumb img{height:64px;max-width:120px;object-fit:cover;border-radius:8px;border:1px solid var(--line);display:block}
+.imgthumb button{position:absolute;top:-6px;right:-6px;width:20px;height:20px;border-radius:50%;border:0;background:var(--ink);color:var(--bg);font-size:13px;line-height:20px;padding:0;cursor:pointer}
+form.dropping{outline:2px dashed var(--accent);outline-offset:4px;border-radius:12px}
+.att{display:inline-block;margin:6px 8px 2px 0;vertical-align:top}.att img{display:block;max-width:min(360px,100%);max-height:240px;border-radius:8px;border:1px solid var(--line);background:var(--surface-2)}
+.att:hover img{border-color:var(--accent)}
 .act-loop .aic,.act-loop .atx{color:var(--accent)}
 .looprow{color:var(--accent);margin-top:2px}
 .thread.noact .act,.thread.noact .actgroup{display:none}
@@ -513,6 +519,53 @@ const SCRIPT = `
     setTimeout(() => { t.classList.add("out"); setTimeout(() => t.remove(), 300); }, err ? 6000 : 3500);
   }
   window.icToast = toast;
+  // Images in a composer: pasted, dropped or picked; scaled down in the browser, sent with the message.
+  const MAX_SIDE = 1600, MAX_IMGS = 4;
+  async function shrink(file) {
+    if (file.type === "image/gif" || (file.type === "image/png" && file.size < 600000)) return file;
+    try {
+      const bmp = await createImageBitmap(file);
+      const k = Math.min(1, MAX_SIDE / Math.max(bmp.width, bmp.height));
+      if (k === 1 && file.size < 600000) return file;
+      const c = document.createElement("canvas");
+      c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
+      c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
+      const blob = await new Promise((r) => c.toBlob(r, "image/jpeg", 0.86));
+      return blob ? new File([blob], (file.name || "image").replace(/[.][^.]*$/, "") + ".jpg", { type: "image/jpeg" }) : file;
+    } catch { return file; }
+  }
+  function drawTray(f) {
+    const tray = f.querySelector(".imgtray"); if (!tray) return;
+    tray.hidden = !f._imgs.length; tray.textContent = "";
+    f._imgs.forEach((it, i) => {
+      const d = document.createElement("span"); d.className = "imgthumb";
+      const img = document.createElement("img"); img.src = it.url; img.alt = it.file.name; d.appendChild(img);
+      const x = document.createElement("button"); x.type = "button"; x.textContent = "×"; x.title = "Remove";
+      x.onclick = () => { URL.revokeObjectURL(it.url); f._imgs.splice(i, 1); drawTray(f); };
+      d.appendChild(x); tray.appendChild(d);
+    });
+    const t = f.querySelector("textarea"); if (t) t.required = !f._imgs.length;
+  }
+  async function addImages(f, files) {
+    const imgs = [...files].filter((x) => /^image[/](png|jpeg|webp|gif)$/.test(x.type));
+    if (!imgs.length) return false;
+    for (const x of imgs) {
+      if (f._imgs.length >= MAX_IMGS) { toast("At most " + MAX_IMGS + " images per message", true); break; }
+      const file = await shrink(x); f._imgs.push({ file, url: URL.createObjectURL(file) });
+    }
+    drawTray(f); return true;
+  }
+  function bindImages(f) {
+    if (f._imgsBound) return; f._imgsBound = true; f._imgs = f._imgs || [];
+    const t = f.querySelector("textarea"), pick = f.querySelector("[data-imgpick]"), btn = f.querySelector("[data-imgbtn]");
+    if (btn && pick) { btn.onclick = () => pick.click(); pick.onchange = async () => { await addImages(f, pick.files); pick.value = ""; }; }
+    if (t) t.addEventListener("paste", async (e) => { const files = [...(e.clipboardData ? e.clipboardData.files : [])]; if (files.length && files.some((x) => x.type.startsWith("image/"))) { e.preventDefault(); await addImages(f, files); } });
+    f.addEventListener("dragover", (e) => { if (e.dataTransfer && [...e.dataTransfer.items].some((i) => i.type.startsWith("image/"))) { e.preventDefault(); f.classList.add("dropping"); } });
+    f.addEventListener("dragleave", () => f.classList.remove("dropping"));
+    f.addEventListener("drop", async (e) => { f.classList.remove("dropping"); if (e.dataTransfer && e.dataTransfer.files.length) { e.preventDefault(); await addImages(f, e.dataTransfer.files); } });
+    drawTray(f);
+  }
+
   // Folded tool steps you opened or closed stay that way when the thread redraws live.
   const folds = {};
   function bind(root = document) {
@@ -547,8 +600,9 @@ const SCRIPT = `
     $$("[data-dm]", root).forEach((b) => b.onclick = () => { const s = $("#compose-to"), c = $("#compose"); if (s && c) { s.value = b.dataset.dm; c.focus(); c.scrollIntoView({ block: "center", behavior: "smooth" }); } });
     $$("[data-close]", root).forEach((b) => b.onclick = () => b.closest("dialog").close());
     $$("form", root).forEach((f) => { if (!f.hasAttribute("data-native") || f.dataset.confirm) f.onsubmit = submit; });
+    [...(root.matches && root.matches("form[data-images]") ? [root] : []), ...$$("form[data-images]", root)].forEach(bindImages);
     $$("input[data-noenter]", root).forEach((i) => i.onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); toast("Pick an option to vote"); } });
-    $$("textarea[data-chat]", root).forEach((t) => t.onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); if (t.value.trim()) t.form.requestSubmit(); } });
+    $$("textarea[data-chat]", root).forEach((t) => t.onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); if (t.value.trim() || (t.form._imgs && t.form._imgs.length)) t.form.requestSubmit(); } });
     $$("[data-chip]", root).forEach((b) => b.onclick = () => { const t = $("#chat-input"); if (t) { t.value = b.dataset.chip; t.form.requestSubmit(); } });
     // Display choices live in cookies, so the server renders them and live redraws keep them.
     const cookie = (k) => { const c = document.cookie.split(";").map((x) => x.trim()).find((x) => x.startsWith(k + "=")); return c ? c.slice(k.length + 1) : undefined; };
@@ -567,11 +621,12 @@ const SCRIPT = `
     e.preventDefault();
     const btns = $$("button", f); btns.forEach((b) => (b.disabled = true));
     const data = new FormData(f); if (e.submitter && e.submitter.name) data.set(e.submitter.name, e.submitter.value);
+    (f._imgs || []).forEach((it) => data.append("image", it.file, it.file.name));
     try {
       const res = await fetch(f.action, { method: "POST", body: data, credentials: "same-origin" });
       const u = new URL(res.url), err = u.searchParams.get("err"), ok = u.searchParams.get("ok"), link = u.searchParams.get("link");
       await swap(await res.text());
-      if (err) toast(err, true); else { if (!f.hasAttribute("data-quiet")) toast(ok); f.reset(); const d = f.closest("dialog"); d && d.close(); const ci = f.querySelector("#chat-input"); ci && ci.focus(); }
+      if (err) toast(err, true); else { if (!f.hasAttribute("data-quiet")) toast(ok); f.reset(); if (f._imgs) { f._imgs.forEach((it) => URL.revokeObjectURL(it.url)); f._imgs = []; drawTray(f); } const d = f.closest("dialog"); d && d.close(); const ci = f.querySelector("#chat-input"); ci && ci.focus(); }
       if (link) { $("#invite-link").textContent = link; $("#invite-copy").dataset.copy = link; $("#invite-dlg").showModal(); }
     } catch { toast("Network error — try again", true); }
     btns.forEach((b) => (b.disabled = false));
@@ -580,6 +635,7 @@ const SCRIPT = `
     const doc = new DOMParser().parseFromString(text, "text/html");
     $$("[data-region]").forEach((el) => {
       const next = doc.getElementById(el.id); if (!next || el.contains(document.activeElement) && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) return;
+      if (el._imgs && el._imgs.length) return; // images waiting to be sent
       const open = new Set($$("details[open]", el).map((d) => d.id).filter(Boolean));
       // A thread you've scrolled up in stays where you are; one at the bottom follows new messages.
       const th = el.classList.contains("thread") ? el : null;

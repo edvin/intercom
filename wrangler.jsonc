@@ -14,5 +14,7 @@
   // GitHub OAuth app for "Sign in with GitHub" (callback: https://<host>/auth/github/callback).
   // The client secret is a Worker secret: npx wrangler secret put GITHUB_CLIENT_SECRET
   "vars": { "GITHUB_CLIENT_ID": "Ov23liesjt2Brx2QMPtY" },
+  // Images sent with messages (pasted in the dashboard). Objects expire after 30 days (bucket lifecycle rule).
+  "r2_buckets": [{ "binding": "FILES", "bucket_name": "intercom-attachments" }],
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["TeamHub"] }]
 }
