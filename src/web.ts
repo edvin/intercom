@@ -298,22 +298,26 @@ const EVENT_ICON: [RegExp, string, string][] = [
   [/rules|configured|updated #/, "sliders", ""],
 ];
 
-function messageRow(m: Message, me: string, showChannel: boolean, d?: Delivery): string {
+/**
+ * One feed entry, terminal style: a compact header (who, where, when, delivery) over the message. A message that
+ * continues the one above it (same sender and place, minutes apart) skips the header.
+ */
+function messageRow(m: Message, me: string, showChannel: boolean, d?: Delivery, cont = false): string {
   const dm = m.recipient !== null;
   const where = dm
-    ? `<span class="tag dm">${icon("at", 11)} ${m.sender === me || m.recipient_agent ? `to ${esc(address(m.recipient!, m.recipient_agent))}` : "direct"}</span>`
+    ? `<span class="to">→ ${esc(m.recipient === me && !m.recipient_agent ? "you" : address(m.recipient!, m.recipient_agent))}</span>`
     : showChannel
-      ? `<a class="tag" href="/dashboard?channel=${encodeURIComponent(m.channel)}">#${esc(m.channel)}</a>`
+      ? `<a class="chan" href="/dashboard?channel=${encodeURIComponent(m.channel)}">#${esc(m.channel)}</a>`
       : "";
   if (m.kind === "event" && !dm) {
     const [, ic, cls] = EVENT_ICON.find(([re]) => re.test(m.body)) ?? [null, "radio", ""];
-    return `<div class="event ${cls}" data-day="${m.created_at}" data-mid="${m.id}"><span class="ico">${icon(ic as string, 13)}</span>
-      <span class="txt"><b>${esc(m.sender)}</b> ${esc(m.body.replace(/\s*Ask your user and vote with the vote tool\.?$/, ""))} ${where}</span>${time(m.created_at)}</div>`;
+    return `<div class="event ${cls}" data-day="${m.created_at}" data-mid="${m.id}"><span class="ico">${icon(ic as string, 12)}</span>
+      <span class="txt"><b>${esc(address(m.sender, m.sender_agent))}</b> ${esc(m.body.replace(/\s*Ask your user and vote with the vote tool\.?$/, ""))} ${where}</span>${time(m.created_at)}</div>`;
   }
-  return `<div class="msg ${dm ? "dm" : ""}" data-day="${m.created_at}" data-mid="${m.id}">
-    ${avatar(m.sender)}
-    <div><div class="head"><span class="who">${esc(m.sender === me ? "you" : m.sender)}</span>${m.sender_agent ? `<span class="agent">/${esc(m.sender_agent)}</span>` : ""}${where}<span class="meta">${time(m.created_at)}${deliveryMark(d)}</span></div>
-    <div class="body md">${md(m.body)}</div></div>
+  const who = m.sender === me && !m.sender_agent ? "you" : address(m.sender, m.sender_agent);
+  return `<div class="msg${dm ? " dm" : ""}${m.sender === me ? " mine" : ""}${cont ? " cont" : ""}" data-day="${m.created_at}" data-mid="${m.id}">
+    <div class="head"><span class="who">${esc(who)}</span>${where}<span class="meta">${time(m.created_at)}${deliveryMark(d)}</span></div>
+    <div class="body md">${md(m.body)}</div>
   </div>`;
 }
 
@@ -593,7 +597,13 @@ export async function dashboard(url: URL, env: Env, me: string, cookie = ""): Pr
     : "";
   const feed = `<section class="card" id="feed" data-region>
       <div class="hd"><h2>${channel ? `${icon("hash", 16)}${esc(channel)}` : `${icon("radio", 16)}Activity`}</h2><span class="small muted">${channel ? "project feed" : "your projects and direct messages"}</span></div>
-      <div class="feed">${msgsRes.results.length ? msgsRes.results.map((m) => messageRow(m, me, !channel, marks.get(m.id))).join("") : `<div class="empty">${icon("message", 28)}<div>No messages yet.</div><div class="small">Messages your teammates' agents post will show up here, live.</div></div>`}</div>
+      <div class="feed">${msgsRes.results.length ? msgsRes.results.map((m, i, all) => {
+        // Newest first: a message continues the (older) one below it when sender, place and minute-ish match.
+        const prev = all[i - 1];
+        const same = (a: Message, b: Message) =>
+          a.kind !== "event" && b.kind !== "event" && a.sender === b.sender && a.sender_agent === b.sender_agent && a.recipient === b.recipient && a.recipient_agent === b.recipient_agent && a.channel === b.channel;
+        return messageRow(m, me, !channel, marks.get(m.id), !!prev && same(prev, m) && prev.created_at - m.created_at < 5 * 60_000);
+      }).join("") : `<div class="empty">${icon("message", 28)}<div>No messages yet.</div><div class="small">Messages your teammates' agents post will show up here, live.</div></div>`}</div>
     </section>`;
 
   // Right column

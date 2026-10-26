@@ -918,7 +918,7 @@ describe("delivery marks", () => {
     assert.match(page, /bob\/core → bob\/alder[\s\S]*?class="dlv wait"/);
     assert.match(page, /alice → bob\/alder/);
     assert.match(await view("bob", "/dashboard?view=agents&agent=bob/core"), /bob\/core → bob\/ghost[\s\S]*?⚠ not connected/);
-    const DM = /to bob\/alder<\/span><span class="meta"><time[^>]*>[^<]*<\/time>(<span class="dlv[^"]*"[^>]*>[^<]*<\/span>)/;
+    const DM = /→ bob\/alder<\/span><span class="meta"><time[^>]*>[^<]*<\/time>(<span class="dlv[^"]*"[^>]*>[^<]*<\/span>)/;
     assert.match((await view("alice", "/dashboard")).match(DM)![1]!, /dlv wait/);
 
     // alder's next turn takes both messages into its context.

@@ -233,20 +233,25 @@ label.field>input,label.field>textarea,label.field>select{width:100%}
 .feed{padding:6px 0}
 .day{display:flex;align-items:center;gap:12px;margin:14px 18px 6px;font-size:11.5px;font-weight:600;color:var(--mute);text-transform:uppercase;letter-spacing:.08em}
 .day::after{content:"";flex:1;height:1px;background:var(--line)}
-.msg{display:grid;grid-template-columns:36px minmax(0,1fr);gap:0 12px;padding:10px 18px;transition:background .2s}
+.msg{display:flow-root;padding:7px 18px 7px 22px;font-family:"JetBrains Mono","Geist Mono",ui-monospace,monospace;font-size:12.5px;transition:background .2s}
 .msg:hover{background:color-mix(in srgb,var(--surface-2) 60%,transparent)}
-.msg .head{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
-.msg .who{font-weight:600}.msg .agent{font-family:"Geist Mono",monospace;font-size:11.5px;color:var(--mute)}
-.msg .meta{font-size:12px;color:var(--mute);margin-left:auto}
-.msg .body{overflow-wrap:anywhere;color:var(--ink-2);margin-top:2px}
-.msg.dm{background:linear-gradient(90deg,var(--accent-soft),transparent 70%);box-shadow:inset 3px 0 0 var(--accent)}
+.msg .head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;font-size:12px}
+.msg .who{font-weight:700;color:var(--accent)}.msg.mine .who{color:var(--green)}
+.msg .to{color:var(--accent);opacity:.85}.msg .chan{color:var(--mute);text-decoration:none}.msg .chan:hover{color:var(--ink-2)}
+.msg .meta{font-size:11px;color:var(--mute);margin-left:auto;white-space:nowrap}
+.msg .body{overflow-wrap:anywhere;color:var(--ink);margin-top:3px;line-height:1.55}
+.msg .body p{margin:0 0 4px}.msg .body p:last-child{margin-bottom:0}
+.msg.dm{box-shadow:inset 2px 0 0 color-mix(in srgb,var(--accent) 55%,transparent)}
+.msg.cont{padding-top:0}.msg.cont .who,.msg.cont .to,.msg.cont .chan{display:none}
+#compose{font-family:"JetBrains Mono","Geist Mono",ui-monospace,monospace;font-size:13px}
+.msg.cont .head{float:right;margin-left:14px}.msg.cont .body{margin-top:0}
 .msg.fresh{animation:fresh 2.4s ease-out}
 @keyframes fresh{from{background:var(--accent-soft)}}
-.event{display:flex;align-items:center;gap:10px;padding:5px 18px 5px 26px;font-size:13px;color:var(--mute)}
-.event .ico{width:22px;height:22px;border-radius:7px;display:grid;place-items:center;background:var(--surface-2);color:var(--ink-2);flex:none}
+.event{display:flex;align-items:center;gap:10px;padding:4px 18px 4px 22px;font-size:12px;color:var(--mute);font-family:"JetBrains Mono","Geist Mono",ui-monospace,monospace}
+.event .ico{width:18px;height:18px;border-radius:5px;display:grid;place-items:center;background:var(--surface-2);color:var(--ink-2);flex:none}
 .event.lock .ico{background:var(--amber-soft);color:var(--amber)}.event.unlock .ico{background:var(--green-soft);color:var(--green)}
 .event.vote .ico,.event.decision .ico{background:var(--accent-soft);color:var(--accent)}
-.event b{color:var(--ink-2);font-weight:600}.event .txt{flex:1;min-width:0;overflow-wrap:anywhere}.event time{font-size:12px;white-space:nowrap}
+.event b{color:var(--ink-2);font-weight:600}.event .to{color:var(--accent)}.event .chan{color:var(--mute);text-decoration:none}.event .txt{flex:1;min-width:0;overflow-wrap:anywhere}.event time{font-size:12px;white-space:nowrap}
 .tag{font-size:11.5px;font-weight:600;color:var(--mute);background:var(--surface-2);border:1px solid var(--line);padding:0 7px;border-radius:6px}
 .tag.dm{color:var(--accent);background:var(--accent-soft);border-color:transparent}
 
@@ -508,13 +513,11 @@ const SCRIPT = `
     const cookie = (k) => { const c = document.cookie.split(";").map((x) => x.trim()).find((x) => x.startsWith(k + "=")); return c ? c.slice(k.length + 1) : undefined; };
     const setCookie = (k, v) => { document.cookie = k + "=" + v + "; path=/; max-age=31536000; samesite=lax"; };
     const within = (sel) => [...(root.matches && root.matches(sel) ? [root] : []), ...$$(sel, root)];
-    const style = cookie("ic_chat") || "term";
     const acts = cookie("ic_activity") !== "off";
     const relay = cookie("ic_relay") !== "off";
-    within(".thread").forEach((th) => { th.classList.toggle("term", style === "term"); th.classList.toggle("noact", !acts); th.classList.toggle("norelay", !relay); th.style.scrollBehavior = "auto"; if (th.dataset.stuck !== "no") th.scrollTop = th.scrollHeight; });
+    within(".thread").forEach((th) => { th.classList.toggle("noact", !acts); th.classList.toggle("norelay", !relay); th.style.scrollBehavior = "auto"; if (th.dataset.stuck !== "no") th.scrollTop = th.scrollHeight; });
     $$("[data-relaytoggle]").forEach((b) => { b.classList.toggle("on", relay); b.onclick = () => { setCookie("ic_relay", relay ? "off" : "on"); bind(document); }; });
     $$("[data-acttoggle]").forEach((b) => { b.classList.toggle("on", acts); b.onclick = () => { setCookie("ic_activity", acts ? "off" : "on"); bind(document); }; });
-    $$("[data-chatstyle]").forEach((b) => { b.classList.toggle("on", b.dataset.chatstyle === style); b.onclick = () => { setCookie("ic_chat", b.dataset.chatstyle); bind(document); }; });
     $$("textarea[data-enter]", root).forEach((t) => t.onkeydown = (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); t.form.requestSubmit(); } });
   }
   async function submit(e) {
