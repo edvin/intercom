@@ -161,6 +161,7 @@ const SETTINGS = {
   show: { key: "INTERCOM_SHOW", on: "1", off: "0", def: true, what: "show 📻 lines in the terminal when messages reach a session", live: true },
   notify: { key: "INTERCOM_NOTIFY", on: "1", off: "0", def: true, what: "desktop notifications for DMs, locks and votes", live: true },
   guard: { key: "INTERCOM_GUARD", on: "1", off: "0", def: true, what: "the deploy guard on shell commands", live: true },
+  mirror: { key: "INTERCOM_MIRROR", on: "1", off: "0", def: true, what: "mirror what your agents do (commands, edits, their text) to your own Agents view; only you can see it", live: true },
   share_host: { key: "INTERCOM_SHARE_HOST", on: "1", off: "0", def: true, what: "show which machine your sessions run on (INTERCOM_HOST_NAME=… sets a nickname)", live: false },
   share_branch: { key: "INTERCOM_SHARE_BRANCH", on: "1", off: "0", def: true, what: "share this machine's git branch with project members", live: false },
   auto_status: { key: "INTERCOM_AUTO_STATUS", on: "1", off: "0", def: true, what: "let agents set their own status notes", live: false },
@@ -200,6 +201,143 @@ function localSettings(args) {
   fs.writeFileSync(CONFIG, `${[...lines, line].join("\n")}\n`, { mode: 0o600 });
   return reply(`${args.setting} is now ${args.value} (${s.what}). ${s.live ? "Takes effect right away." : "Applies to sessions started from now on."}`);
 }
+
+// ---- activity mirroring: what this session does, for its owner's Agents view (and nobody else's) ----
+// Follows the session's transcript (its path left by the SessionStart hook) and sends short summaries every few
+// seconds: commands run, files edited or read, the agent's own text, prompts typed in the terminal. Never file
+// contents or command output. On by default; INTERCOM_MIRROR=0 (or the settings tool) turns it off.
+
+const mirrorOn = () => setting("INTERCOM_MIRROR") !== "0";
+const clip = (t, n = 300) => {
+  const s = String(t ?? "").replace(/\s+$/g, "");
+  return s.length > n ? `${s.slice(0, n - 1)}…` : s;
+};
+const firstLine = (t) => String(t ?? "").split("\n").find((l) => l.trim()) ?? "";
+/** A command as one line: its first line, with … when there's more (heredocs, scripts). */
+const oneLine = (t) => {
+  const s = String(t ?? "").trim();
+  const first = firstLine(s);
+  return clip(first, 200) + (s.length > first.length ? " …" : "");
+};
+const isNoise = (t) => /^\s*(<|# AGENTS\.md|\[intercom|Caveat:)/.test(t);
+
+/** One transcript line (Claude Code or Codex) → zero or more {at, kind, text}. */
+function summarizeLine(line) {
+  let d;
+  try {
+    d = JSON.parse(line);
+  } catch {
+    return [];
+  }
+  const at = Date.parse(d.timestamp ?? "") || Date.now();
+  const out = [];
+  // Claude Code: {type: "assistant"|"user", message: {content: [...]}}
+  if ((d.type === "assistant" || d.type === "user") && d.message && !d.isSidechain && !d.isMeta) {
+    const c = d.message.content;
+    const blocks = typeof c === "string" ? [{ type: "text", text: c }] : Array.isArray(c) ? c : [];
+    for (const b of blocks) {
+      if (b.type === "text" && b.text?.trim() && !isNoise(b.text)) out.push({ at, kind: d.type === "assistant" ? "text" : "prompt", text: clip(b.text, d.type === "assistant" ? 600 : 240) });
+      if (b.type === "tool_use") {
+        const i = b.input ?? {};
+        const n = b.name ?? "tool";
+        if (n === "Bash") out.push({ at, kind: "cmd", text: oneLine(i.command) });
+        else if (/^(Edit|Write|MultiEdit|NotebookEdit)$/.test(n)) out.push({ at, kind: "edit", text: `${n === "Write" ? "write" : "edit"} ${i.file_path ?? i.notebook_path ?? ""}` });
+        else if (/^(Read|Grep|Glob|LS)$/.test(n)) out.push({ at, kind: "read", text: `${n.toLowerCase()} ${clip(i.file_path ?? i.pattern ?? i.path ?? "", 160)}` });
+        else if (!/^mcp__.*intercom/.test(n)) out.push({ at, kind: "tool", text: `${n.replace(/^mcp__/, "")}${i.description ? `: ${clip(i.description, 120)}` : ""}` });
+      }
+    }
+    return out;
+  }
+  // Codex: {type: "response_item", payload: {...}}
+  const p = d.payload;
+  if (d.type === "response_item" && p) {
+    if (p.type === "message" && Array.isArray(p.content)) {
+      const text = p.content.filter((x) => x.type === "output_text" || x.type === "input_text").map((x) => x.text).join("\n");
+      if (text.trim() && !isNoise(text)) out.push({ at, kind: p.role === "assistant" ? "text" : "prompt", text: clip(text, p.role === "assistant" ? 600 : 240) });
+    } else if (p.type === "function_call" || p.type === "custom_tool_call" || p.type === "local_shell_call") {
+      const name = p.name ?? "shell";
+      let args = p.arguments ?? p.input ?? p.action;
+      try {
+        if (typeof args === "string" && args.trim().startsWith("{")) args = JSON.parse(args);
+      } catch {}
+      const cmd = Array.isArray(args?.command) ? args.command.slice(-1)[0] : args?.command;
+      if (name === "wait" || name.includes("intercom")) return out;
+      if (name === "apply_patch" || /\*\*\* (Update|Add|Delete) File:/.test(typeof args === "string" ? args : "")) {
+        const files = [...String(typeof args === "string" ? args : args?.input ?? "").matchAll(/\*\*\* (?:Update|Add|Delete) File: (.+)/g)].map((m) => m[1]);
+        out.push({ at, kind: "edit", text: `edit ${files.join(", ") || "files"}` });
+      } else if (cmd) out.push({ at, kind: "cmd", text: oneLine(cmd) });
+      else out.push({ at, kind: "tool", text: `${name}: ${clip(firstLine(typeof args === "string" ? args : JSON.stringify(args ?? "")), 160)}` });
+    }
+  }
+  return out;
+}
+
+const mirror = { file: null, offset: 0, rest: Buffer.alloc(0), skipFirst: false, outbox: [], sending: false };
+
+function transcriptFor(session) {
+  if (session.startsWith("pid-")) return null;
+  try {
+    return fs.readFileSync(path.join(DIR, "transcripts", session), "utf8").trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+function mirrorTick() {
+  if (!mirrorOn() || !BASE || !TOKEN) return;
+  const file = transcriptFor(SESSION);
+  if (!file) return;
+  let size;
+  try {
+    size = fs.statSync(file).size;
+  } catch {
+    return;
+  }
+  if (file !== mirror.file) {
+    // A new session (or a resumed one): start with its last ~32 KB, so the view isn't empty.
+    Object.assign(mirror, { file, offset: Math.max(0, size - 32768), rest: Buffer.alloc(0), skipFirst: size > 32768 });
+  }
+  if (size < mirror.offset) mirror.offset = 0;
+  if (size > mirror.offset) {
+    const len = Math.min(size - mirror.offset, 1 << 20);
+    const buf = Buffer.alloc(len);
+    const fd = fs.openSync(file, "r");
+    try {
+      fs.readSync(fd, buf, 0, len, mirror.offset);
+    } finally {
+      fs.closeSync(fd);
+    }
+    mirror.offset += len;
+    const all = Buffer.concat([mirror.rest, buf]);
+    const end = all.lastIndexOf(10);
+    if (end >= 0) {
+      const lines = all.subarray(0, end).toString("utf8").split("\n");
+      mirror.rest = all.subarray(end + 1);
+      if (mirror.skipFirst) {
+        lines.shift();
+        mirror.skipFirst = false;
+      }
+      for (const l of lines) if (l.trim()) mirror.outbox.push(...summarizeLine(l));
+    } else mirror.rest = all;
+  }
+  if (mirror.outbox.length > 500) mirror.outbox.splice(0, mirror.outbox.length - 500);
+  if (!mirror.outbox.length || mirror.sending) return;
+  const items = mirror.outbox.splice(0, 100);
+  mirror.sending = true;
+  fetch(`${BASE}/api/activity?session=${encodeURIComponent(SESSION)}`, { method: "POST", headers, body: JSON.stringify({ items }), signal: AbortSignal.timeout(10_000) })
+    .then((r) => {
+      if (!r.ok) mirror.outbox.unshift(...items);
+    })
+    .catch(() => mirror.outbox.unshift(...items))
+    .finally(() => (mirror.sending = false));
+}
+setInterval(() => {
+  try {
+    mirrorTick();
+  } catch (e) {
+    log("mirror:", e.message);
+  }
+}, 3000).unref();
 
 // ---- stdio JSON-RPC (newline-delimited) ----
 

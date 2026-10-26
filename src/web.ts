@@ -788,6 +788,7 @@ export function docsPage(origin: string): Response {
           <dt><code>INTERCOM_HOST_NAME=work-mac</code></dt><dd>The name your machine shows with your sessions (default: its short hostname).</dd>
           <dt><code>INTERCOM_SHARE_HOST=0</code></dt><dd>Don't show which machine your sessions run on.</dd>
           <dt><code>INTERCOM_AUTO_STATUS=0</code></dt><dd>Claude only sets a status note when you ask.</dd>
+          <dt><code>INTERCOM_MIRROR=0</code></dt><dd>Don't mirror what your agents do (commands, file edits, their text) to your Agents view. On by default; only you ever see it.</dd>
           <dt><code>INTERCOM_SHOW=0</code></dt><dd>Don't show the 📻 lines in your terminal when messages reach a session (the agent still gets them).</dd>
           <dt><code>INTERCOM_GUARD=0</code></dt><dd>Turn off the deploy guard.</dd>
           <dt><code>INTERCOM_NOTIFY=0</code></dt><dd>No desktop notifications. (On macOS the first one may ask for permission, and appears as coming from Script Editor.)</dd>
@@ -811,6 +812,7 @@ export function docsPage(origin: string): Response {
           <li><b>Idle Claude Code:</b> intercom-ui submits your message as a prompt (restart sessions once after installing it).</li>
           <li><b>Idle Codex:</b> the local server queues it with <code>codex queue</code> (on by default for your own messages; <code>INTERCOM_CODEX_PUSH=0</code> turns it off).</li>
         </ul>
+        <p><b>What they're doing, live.</b> Your own agents' chats also show what each one is doing as it works: the commands it runs, the files it edits or reads, what it writes, and prompts typed in its terminal. No need to ask “what are you doing?”. This comes from the session's transcript on your machine (summaries only, never file contents or command output), is kept for the last 300 steps, and is only ever shown to you, never to teammates. The <b>Activity</b> button hides it; <code>INTERCOM_MIRROR=0</code> turns it off.</p>
         <p><b>Approvals from the browser.</b> Before you leave, press <b>I'm leaving</b> in the Agents view (or tell any agent “I'm leaving”). While away mode is on, every permission question from your Claude Code and Codex agents shows up in the Agents view with <b>Allow</b> / <b>Deny</b> and an optional note for the agent; the agent waits for your answer. Unanswered questions are denied after the time you pick (up to an hour), with a message telling the agent to move on, so nothing hangs. Back at your desk, press <b>I'm back</b> and questions show in the terminal again.</p>
         <p><b>Leaving them running over a weekend?</b> Keep the Mac awake (<code>caffeinate -dims</code> in a terminal, or a sleep setting), turn on away mode, and check the Agents view now and then: anything stuck shows in red.</p>
       </section>

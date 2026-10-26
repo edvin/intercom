@@ -21,6 +21,8 @@ if [ "$client" = "codex" ]; then
 else
   session="$CLAUDE_CODE_SESSION_ID"
   key="$CLAUDE_PID"
+  # Session start: read the input for the transcript path (activity mirroring).
+  [ "$event" = "SessionStart" ] && input=$(cat)
 fi
 workdir="${workdir:-${CLAUDE_PROJECT_DIR:-$PWD}}"
 # Heartbeat for `brief.sh doctor`: proves the agent runs this hook at all.
@@ -107,6 +109,15 @@ fi
 
 if [ -z "$input" ]; then
   if [ -n "$session" ]; then cat >/dev/null 2>&1; else session=$(json_field session_id); fi
+fi
+
+# Where this session's transcript is, for the local server's activity mirroring (shown only to you).
+if [ "$event" = "SessionStart" ] && [ -n "$session" ]; then
+  [ -n "$session" ] || session=$(printf '%s' "$input" | json_field session_id)
+  transcript=$(printf '%s' "$input" | json_field transcript_path)
+  [ -n "$transcript" ] && mkdir -p "$D/transcripts" && printf '%s\n' "$transcript" > "$D/transcripts/$session"
+elif [ "$event" = "SessionEnd" ] && [ -n "$session" ]; then
+  rm -f "$D/transcripts/$session"
 fi
 
 # Codex starts the local MCP server without telling it the session; leave a note so it can find its session.

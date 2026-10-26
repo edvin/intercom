@@ -837,3 +837,27 @@ describe("renaming from the web", () => {
     assert.match(await w.ok("bob", "set_name", { name: "birch", agent: "billing-rn2" }, { id: "rn1", project: "billing-api" }), /That session is now bob\/birch/);
   });
 });
+
+describe("activity mirroring", () => {
+  test("stored for your own sessions, shown only to you, capped", async () => {
+    const w = await standardWorld();
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=mir1&client=claude", { as: "bob" });
+    await w.ok("bob", "set_name", { name: "alder" }, { id: "mir1", project: "billing-api" });
+    const send = (as: string, items: object[]) =>
+      w.request("/api/activity?session=mir1", { method: "POST", as, body: JSON.stringify({ items }) }).then((r) => r.json() as Promise<{ stored: number }>);
+    assert.equal((await send("bob", [{ kind: "cmd", text: "npm test" }, { kind: "edit", text: "edit src/app.ts" }, { kind: "bogus", text: "x" }])).stored, 2);
+    // Someone else can't write into bob's session.
+    assert.equal((await send("alice", [{ kind: "cmd", text: "rm -rf /" }])).stored, 0);
+    const mine = await (await w.request("/dashboard?view=agents&agent=bob/alder", { as: "bob", cookie: true })).text();
+    assert.match(mine, /npm test/);
+    assert.match(mine, /edit src\/app\.ts/);
+    // alice shares #billing with bob and sees his agent, but never its activity.
+    const theirs = await (await w.request("/dashboard?view=agents&agent=bob/alder", { as: "alice", cookie: true })).text();
+    assert.match(theirs, /bob\/alder/);
+    assert.doesNotMatch(theirs, /npm test|edit src\/app\.ts/);
+    // Only the newest 300 are kept.
+    for (let i = 0; i < 4; i++) await send("bob", Array.from({ length: 100 }, (_, j) => ({ kind: "cmd", text: `step ${i}-${j}` })));
+    const n = await w.db.prepare("SELECT COUNT(*) AS n FROM activity WHERE session_id = 'mir1'").first<{ n: number }>();
+    assert.equal(n!.n, 300);
+  });
+});

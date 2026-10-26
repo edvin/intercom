@@ -283,6 +283,16 @@ label.field>input,label.field>textarea,label.field>select{width:100%}
 .thread.term .activity{align-self:stretch;justify-content:flex-start;text-align:left;max-width:none;padding:3px 0;font-size:12px}
 .thread.term .md code{font-size:1em}.thread.term .mdpre{font-size:12.6px}
 .thread.term .md .mdh{font-size:1em;color:var(--accent)}
+/* mirrored activity: what your own agent is doing */
+.act{display:grid;grid-template-columns:18px minmax(0,1fr) auto;gap:8px;align-items:baseline;font-size:12.5px;color:var(--mute);padding:2px 0;font-family:"JetBrains Mono","Geist Mono",ui-monospace,monospace}
+.act .aic{text-align:center;color:var(--ink-2)}.act .atx{overflow-wrap:anywhere;white-space:pre-wrap}.act .when{font-size:11px;opacity:.6}
+.act-cmd .atx{color:var(--ink-2)}.act-cmd .aic{color:var(--green)}
+.act-edit .aic{color:var(--amber)}.act-edit .atx{color:var(--ink-2)}
+.act-text{color:var(--ink-2)}.act-text .atx{white-space:normal}.act-text .aic{color:var(--accent)}
+.act-prompt .aic{color:var(--green)}
+.act-read{opacity:.75}
+.thread.noact .act{display:none}
+[data-acttoggle].on{background:var(--accent-soft);color:var(--accent)}
 .viewtoggle{display:inline-flex;border:1px solid var(--line-strong);border-radius:8px;overflow:hidden}
 .viewtoggle button{font:inherit;font-size:12px;padding:3px 10px;border:0;background:transparent;color:var(--mute);cursor:pointer}
 .viewtoggle button.on{background:var(--accent-soft);color:var(--accent);font-weight:600}
@@ -449,6 +459,9 @@ const SCRIPT = `
     $$("[data-chip]", root).forEach((b) => b.onclick = () => { const t = $("#chat-input"); if (t) { t.value = b.dataset.chip; t.form.requestSubmit(); } });
     const style = (() => { try { return localStorage.getItem("ic-chat") || "term"; } catch { return "term"; } })();
     $$(".thread", root).forEach((th) => { th.classList.toggle("term", style === "term"); th.style.scrollBehavior = "auto"; th.scrollTop = th.scrollHeight; });
+    const acts = (() => { try { return localStorage.getItem("ic-activity") !== "off"; } catch { return true; } })();
+    $$(".thread", root).forEach((th) => th.classList.toggle("noact", !acts));
+    $$("[data-acttoggle]", root).forEach((b) => { b.classList.toggle("on", acts); b.onclick = () => { try { localStorage.setItem("ic-activity", acts ? "off" : "on"); } catch {} bind(document); }; });
     $$("[data-chatstyle]", root).forEach((b) => { b.classList.toggle("on", b.dataset.chatstyle === style); b.onclick = () => { try { localStorage.setItem("ic-chat", b.dataset.chatstyle); } catch {} bind(document); }; });
     $$("textarea[data-enter]", root).forEach((t) => t.onkeydown = (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); t.form.requestSubmit(); } });
   }

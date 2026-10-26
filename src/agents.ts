@@ -3,7 +3,7 @@
 // what it answers comes back here. Its project posts show in the thread as activity.
 
 import { awayState, pendingApprovals } from "./approvals";
-import { type Env, type Message, ago, hostNames, myProjects } from "./lib";
+import { type Activity, type Env, type Message, ago, hostNames, myProjects } from "./lib";
 import { avatar, esc, hidden, icon, md, time } from "./ui";
 
 interface Agent {
@@ -119,12 +119,24 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
     `SELECT * FROM messages WHERE
        (sender = ?1 AND sender_agent IS NULL AND recipient = ?2 AND recipient_agent = ?3)
        OR (sender = ?2 AND sender_agent = ?3 AND recipient = ?1 AND (recipient_agent IS NULL OR ?1 != ?2))
-       OR (sender = ?2 AND sender_agent = ?3 AND recipient IS NULL AND channel IN (${ph(mine.length)}))
+       OR (sender = ?2 AND sender_agent = ?3 AND recipient IS NULL AND kind != 'event' AND channel IN (${ph(mine.length)}))
      ORDER BY id DESC LIMIT 150`,
   )
     .bind(me, agent.member, agent.label, ...mine)
     .all<Message>();
-  const thread = rows
+  // What the agent is doing, mirrored from its transcript: only ever for your own agents.
+  const { results: acts } =
+    agent.member === me
+      ? await env.DB.prepare("SELECT * FROM activity WHERE member = ? AND session_id = ? ORDER BY id DESC LIMIT 200").bind(me, agent.session_id).all<Activity>()
+      : { results: [] as Activity[] };
+  const ACT_ICON: Record<string, string> = { cmd: "$", edit: "✎", read: "·", tool: "⚙", text: "●", prompt: "›" };
+  const actRow = (a: Activity) =>
+    `<div class="act act-${a.kind}" data-mid="a${a.id}"><span class="aic">${ACT_ICON[a.kind] ?? "·"}</span><span class="atx">${
+      a.kind === "text" ? md(a.text) : a.kind === "prompt" ? `<span class="muted">typed in the terminal:</span> ${esc(a.text)}` : esc(a.text)
+    }</span><span class="when">${time(a.at)}</span></div>`;
+  type Item = { at: number; html: string };
+  const items: Item[] = [];
+  const thread0 = rows
     .reverse()
     .map((m) => {
       if (!m.recipient) {
@@ -132,8 +144,10 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
       }
       const fromMe = m.sender === me && !m.sender_agent;
       return `<div class="bubble md ${fromMe ? "mine" : ""}" data-mid="${m.id}" data-who="${esc(agent.label)}">${md(m.body)}<span class="when">${time(m.created_at)}</span></div>`;
-    })
-    .join("");
+    });
+  rows.forEach((m, i) => items.push({ at: m.created_at, html: thread0[i]! }));
+  for (const a of [...acts].reverse()) items.push({ at: a.at, html: actRow(a) }); // oldest first; sort is stable
+  const thread = items.sort((x, y) => x.at - y.at).map((x) => x.html).join("");
   const on = isOn(agent);
   const ownAgent = agent.member === me;
   const back = `/dashboard?view=agents&agent=${encodeURIComponent(key(agent))}`;
@@ -142,7 +156,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
         <span class="presence ${on ? "on" : ""}">${avatar(agent.label, "m")}</span>
         <div class="grow" style="min-width:0">
           <h2 style="display:flex;gap:8px;align-items:center"><span class="grow" style="display:flex;gap:8px;align-items:center">${esc(key(agent))}${ownAgent ? `<button type="button" class="btn ghost xs icon" data-open="dlg-rename" title="Rename this agent">${icon("pencil", 12)}</button>` : ""}${clientBadge(agent.client, true)}</span>
-            <span class="viewtoggle" title="How messages are shown (remembered in this browser)"><button type="button" data-chatstyle="term">Terminal</button><button type="button" data-chatstyle="chat">Chat</button></span></h2>
+            ${ownAgent ? '<button type="button" class="btn ghost xs" data-acttoggle title="Show or hide what the agent is doing (commands, edits, its text); only you see this">Activity</button>' : ""}<span class="viewtoggle" title="How messages are shown (remembered in this browser)"><button type="button" data-chatstyle="term">Terminal</button><button type="button" data-chatstyle="chat">Chat</button></span></h2>
           <div class="small muted row" style="gap:6px">${stateBadge(agent)}<span>${agent.host ? `on <b style="color:var(--ink-2)">${esc(hostOf(agent))}</b>${ownAgent ? `<button type="button" class="btn ghost xs icon" data-open="dlg-host" title="Rename this machine">${icon("pencil", 11)}</button>` : ""} · ` : ""}${agent.project ? `#${esc(agent.project)}` : "no project"}${agent.branch ? ` · ⎇ ${esc(agent.branch)}` : ""}${on ? "" : ` · last seen ${ago(agent.last_seen)}`}${agent.note ? ` · “${esc(agent.note)}”` : ""}</span></div>
         </div>
       </div>

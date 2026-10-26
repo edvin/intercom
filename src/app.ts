@@ -1,4 +1,4 @@
-import { type Env, type Message, type Proposal, type Session, MEMBER_OF, RECEIVES, UserError, activeLocks, address, ago, cleanBranch, cleanClient, fromOwnUser, renameSession, setHost, workingOn, authenticate, coMembers, fmtLock, fmtMessage, myProjects, resolveProject, setPresence, tally, touchSession, unread } from "./lib";
+import { type Env, type Message, type Proposal, type Session, MEMBER_OF, RECEIVES, UserError, activeLocks, address, ago, addActivity, cleanBranch, cleanClient, fromOwnUser, renameSession, setHost, workingOn, authenticate, coMembers, fmtLock, fmtMessage, myProjects, resolveProject, setPresence, tally, touchSession, unread } from "./lib";
 import { INSTRUCTIONS, tools } from "./tools";
 import { cliPoll, cliStart, connectPage, discoverJoin, discoverPage, discoverRequest, githubCallback, githubCreate, githubStart, signOut } from "./accounts";
 import { approvalStatus, decide, requestApproval, setAway } from "./approvals";
@@ -444,6 +444,11 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
   if (url.pathname === "/api/guard" && req.method === "POST") return handleGuard(req, url, env, me);
   if (url.pathname === "/api/brief") return handleBrief(url, env, me);
   if (url.pathname === "/api/ui") return handleUi(url, env, me);
+  if (url.pathname === "/api/activity" && req.method === "POST") {
+    // Mirrored activity from the local server; stored only for the caller's own session, shown only to them.
+    const body = (await req.json().catch(() => ({}))) as { items?: unknown };
+    return json({ stored: await addActivity(env, me, url.searchParams.get("session") ?? "", body.items) });
+  }
   if (url.pathname === "/api/approval" && req.method === "POST") {
     const sid = url.searchParams.get("session") ?? "";
     const session = await env.DB.prepare("SELECT session_id, label FROM sessions WHERE member = ? AND session_id = ?").bind(me, sid).first<{ session_id: string; label: string }>();

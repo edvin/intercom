@@ -430,6 +430,7 @@ export async function prune(env: Env, retentionDays = RETENTION_DAYS, now = Date
     access: await run("DELETE FROM repo_access WHERE expires_at < ?", now),
     limits: await run("DELETE FROM rate_limits WHERE window_start < ?", now - 2 * day),
     webTokens: await run("DELETE FROM tokens WHERE kind = 'web' AND created_at < ?", now - 365 * day),
+    activity: await run("DELETE FROM activity WHERE at < ?", now - 14 * day),
   };
 }
 
@@ -550,4 +551,40 @@ export async function renameSession(
 export async function hostNames(env: Env, me: string): Promise<Map<string, string>> {
   const { results } = await env.DB.prepare("SELECT host, name FROM host_names WHERE member = ?").bind(me).all<{ host: string; name: string }>();
   return new Map(results.map((r) => [r.host, r.name]));
+}
+
+export interface Activity {
+  id: number;
+  session_id: string;
+  at: number;
+  kind: string;
+  text: string;
+}
+
+const ACTIVITY_KINDS = new Set(["prompt", "text", "cmd", "edit", "read", "tool"]);
+export const ACTIVITY_KEEP = 300;
+
+/** Store a batch of mirrored activity for one of `me`'s own sessions. */
+export async function addActivity(env: Env, me: string, sessionId: string, items: unknown): Promise<number> {
+  if (!Array.isArray(items) || !sessionId) return 0;
+  const own = await env.DB.prepare("SELECT 1 FROM sessions WHERE member = ? AND session_id = ?").bind(me, sessionId).first();
+  if (!own) return 0;
+  const now = Date.now();
+  const rows = items.slice(-100).flatMap((it) => {
+    const i = it as { at?: unknown; kind?: unknown; text?: unknown };
+    const kind = String(i.kind ?? "");
+    const text = String(i.text ?? "").replace(/\s+$/g, "").slice(0, 600);
+    if (!ACTIVITY_KINDS.has(kind) || !text) return [];
+    const at = Number(i.at);
+    return [{ kind, text, at: Number.isFinite(at) && at > now - 86400_000 && at < now + 60_000 ? at : now }];
+  });
+  if (!rows.length) return 0;
+  await env.DB.batch([
+    ...rows.map((r) => env.DB.prepare("INSERT INTO activity (member, session_id, at, kind, text) VALUES (?, ?, ?, ?, ?)").bind(me, sessionId, r.at, r.kind, r.text)),
+    env.DB.prepare(
+      "DELETE FROM activity WHERE member = ?1 AND session_id = ?2 AND id <= (SELECT id FROM activity WHERE member = ?1 AND session_id = ?2 ORDER BY id DESC LIMIT 1 OFFSET ?3)",
+    ).bind(me, sessionId, ACTIVITY_KEEP),
+  ]);
+  env.refreshWeb?.(me);
+  return rows.length;
 }
