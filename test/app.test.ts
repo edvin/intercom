@@ -1310,3 +1310,16 @@ describe("background jobs", () => {
     assert.match(page, /✗ failed: Run the dev server \(exit 1\) after/);
   });
 });
+
+describe("mod toasts", () => {
+  test("a DM from your own other agent is toasted once: 'latest' covers it", async () => {
+    const w = await standardWorld();
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=t1&name=core", { as: "bob" });
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=t2&name=perf", { as: "bob" });
+    await w.ok("bob", "post", { to: "bob/core", message: "preflight sees your runlib" }, { id: "t2", project: "billing-api" });
+    const s = (await (await w.request("/api/ui?project=billing-api&session=t1", { as: "bob" })).json()) as { latest: number; recent: { id: number; body: string }[] };
+    const dm = s.recent.find((m) => m.body.includes("preflight"))!;
+    assert.ok(dm, "the sibling's DM is in recent");
+    assert.ok(s.latest >= dm.id, "latest covers it, so the mod won't toast it again");
+  });
+});

@@ -338,7 +338,12 @@ async function handleUi(url: URL, env: Env, me: string): Promise<Response> {
   const unreadCount = pending
     ? pending.length
     : (await env.DB.prepare(`SELECT COUNT(*) AS n FROM messages WHERE id > ?1 AND sender != ?2 AND ${RECEIVES}`).bind(cursor, me).first<{ n: number }>())!.n;
-  const latest = (await env.DB.prepare(`SELECT COALESCE(MAX(id), 0) AS id FROM messages WHERE sender != ?2 AND ${RECEIVES} AND ?1 IS NULL`).bind(null, me).first<{ id: number }>())!.id;
+  // The mod toasts what's newer than the newest it has seen: that must cover everything in `recent`, including
+  // DMs from your own other agents (sent as you), or it toasts them again on every poll.
+  const latest = Math.max(
+    (await env.DB.prepare(`SELECT COALESCE(MAX(id), 0) AS id FROM messages WHERE sender != ?2 AND ${RECEIVES} AND ?1 IS NULL`).bind(null, me).first<{ id: number }>())!.id,
+    ...recent.map((m) => m.id),
+  );
   // What the user typed to this session in the dashboard and it hasn't read: the mod submits these when it's idle.
   const prompts = pending
     ? pending
