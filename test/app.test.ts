@@ -15,7 +15,7 @@ describe("privacy between projects", () => {
     assert.equal(await w.ok("carol", "locks"), "No active locks.");
     assert.equal(await w.ok("carol", "proposals"), "No proposals.");
     assert.equal(await w.ok("carol", "inbox"), "No unread messages.");
-    const dash = await (await w.request("/", { as: "carol", cookie: true })).text();
+    const dash = await (await w.request("/dashboard", { as: "carol", cookie: true })).text();
     assert.doesNotMatch(dash, /secret billing plans|deploy:billing:prod|Freeze the ledger/);
 
     assert.match(await w.ok("bob", "inbox"), /secret billing plans/);
@@ -179,7 +179,7 @@ describe("web security", () => {
   test("message text is escaped on the dashboard", async () => {
     const w = await standardWorld();
     await w.ok("bob", "post", { channel: "billing", message: '<img src=x onerror="alert(1)"><script>alert(2)</script>' });
-    const res = await w.request("/", { as: "alice", cookie: true });
+    const res = await w.request("/dashboard", { as: "alice", cookie: true });
     const page = await res.text();
     assert.doesNotMatch(page, /<img src=x|<script>alert/);
     assert.match(page, /&lt;script&gt;alert\(2\)/);
@@ -192,9 +192,13 @@ describe("web security", () => {
     assert.equal(res.status, 303);
     assert.match(await (await w.request("/")).text(), /finally talking/);
     // Signed in, the overview is still at /welcome, pointing to the dashboard.
-    const welcome = await (await w.request("/welcome", { as: "alice", cookie: true })).text();
+    const welcome = await (await w.request("/", { as: "alice", cookie: true })).text();
     assert.match(welcome, /finally talking/);
     assert.match(welcome, /Open your dashboard/);
+    // Old dashboard links move to /dashboard; /dashboard needs sign-in.
+    const old = await w.request("/?channel=billing", { as: "alice", cookie: true, redirect: "manual" });
+    assert.equal(old.headers.get("location"), "/dashboard?channel=billing");
+    assert.match((await w.request("/dashboard", { redirect: "manual" })).headers.get("location") ?? "", /\/login\?next=%2Fdashboard/);
     assert.equal((await w.request("/mcp", { method: "POST", headers: { authorization: "Bearer nope" } })).status, 401);
   });
 });
@@ -357,7 +361,7 @@ describe("GitHub", () => {
       const pending = askPage.match(/name="pending" value="([0-9a-f]+)"/)![1];
       const res = await w.request("/auth/github/create", { method: "POST", headers: { origin: ORIGIN }, body: new URLSearchParams({ pending }), redirect: "manual" });
       assert.equal(res.status, 303);
-      assert.equal(res.headers.get("location"), "/?welcome=1");
+      assert.equal(res.headers.get("location"), "/dashboard?welcome=1");
       const who = await (await w.request("/api/whoami", { headers: { cookie: sessionFrom(res) } })).text();
       assert.equal(who, "dominic-x");
       const again = await oauth(w, "");

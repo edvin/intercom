@@ -107,10 +107,10 @@ export async function githubCallback(req: Request, env: Env, url: URL): Promise<
   }
 
   // Sign in.
-  if (owner) return signedIn(env, owner.name, next || "/", clear);
+  if (owner) return signedIn(env, owner.name, next || "/dashboard", clear);
   if (me) {
     const err = await link(me);
-    return redirect(`${next || "/"}${(next || "/").includes("?") ? "&" : "?"}${err ? "err" : "ok"}=${encodeURIComponent(err ?? `Connected GitHub (@${gh.login})`)}`, clear);
+    return redirect(`${next || "/dashboard"}${(next || "/dashboard").includes("?") ? "&" : "?"}${err ? "err" : "ok"}=${encodeURIComponent(err ?? `Connected GitHub (@${gh.login})`)}`, clear);
   }
   const invited = next.startsWith("/join/") && !!(await env.DB.prepare("SELECT 1 FROM invites WHERE code = ? AND uses_left > 0 AND expires_at > ?").bind(next.slice(6), Date.now()).first());
   if (!invited && !(await openSignup(env))) return loginPage("Accounts on this instance are invite-only. Open the invite link you were sent and continue with GitHub from there.", next, true);
@@ -144,12 +144,12 @@ export async function githubCreate(req: Request, env: Env): Promise<Response> {
   if (!row || row.expires_at < Date.now()) return loginPage("That sign-up expired. Please continue with GitHub again.", "", true);
   const { id, login, next } = JSON.parse(row.data) as { id: number; login: string; next: string };
   const taken = await env.DB.prepare("SELECT name FROM members WHERE github_id = ?").bind(id).first<{ name: string }>();
-  if (taken) return signedIn(env, taken.name, next || "/", {});
+  if (taken) return signedIn(env, taken.name, next || "/dashboard", {});
   const name = await freeHandle(env, login);
   await env.DB.prepare("INSERT INTO members (name, token_hash, created_at, org, github_id, github_login) VALUES (?, ?, ?, '', ?, ?)")
     .bind(name, await sha256(newToken()), Date.now(), id, login)
     .run();
-  return signedIn(env, name, next || "/?welcome=1", {});
+  return signedIn(env, name, next || "/dashboard?welcome=1", {});
 }
 
 async function signedIn(env: Env, member: string, to: string, extra: Record<string, string>): Promise<Response> {
@@ -210,7 +210,7 @@ export async function connectPage(req: Request, env: Env, me: string, url: URL):
       "connected",
       `<div class="row">${avatar(me, "l")}<div><p class="small muted" style="margin:0">${icon("check", 13)} Approved</p><h1 class="headline">You're connected</h1></div></div>
       <p class="muted">Go back to your terminal: the setup finishes by itself. Then restart Claude Code and type <code>/intercom</code>.</p>
-      <div class="row"><a class="btn primary" href="/">${icon("arrow", 15)}Open the dashboard</a></div>`,
+      <div class="row"><a class="btn primary" href="/dashboard">${icon("arrow", 15)}Open the dashboard</a></div>`,
     );
   }
   if (row.token) return solo("connect", `<h1 class="headline">Already approved</h1><p class="muted">Go back to your terminal.</p>`);
@@ -248,7 +248,7 @@ export async function discoverPage(env: Env, me: string, url: URL): Promise<Resp
           ? results
               .map(
                 (p) => `<div class="row card" style="padding:12px 14px;box-shadow:none">${icon("hash", 16)}<div class="grow"><b>${esc(p.name)}</b>${p.description ? `<div class="small muted">${esc(p.description)}</div>` : ""}</div>
-                ${mine.has(p.name) ? `<a class="btn sm" href="/?channel=${encodeURIComponent(p.name)}">Open</a>` : `<form method="post" action="/discover/join" data-native>${hidden({ project: p.name, repo })}<button class="btn primary sm">${icon("userPlus", 14)}Join</button></form>`}</div>`,
+                ${mine.has(p.name) ? `<a class="btn sm" href="/dashboard?channel=${encodeURIComponent(p.name)}">Open</a>` : `<form method="post" action="/discover/join" data-native>${hidden({ project: p.name, repo })}<button class="btn primary sm">${icon("userPlus", 14)}Join</button></form>`}</div>`,
               )
               .join("")
           : `<p class="muted small">You have push access to <b>${esc(repo)}</b>, but no project is linked to it yet. A project owner can add it under Edit → GitHub repos.</p>`;
@@ -278,7 +278,7 @@ export async function discoverPage(env: Env, me: string, url: URL): Promise<Resp
         <input name="note" style="width:100%" placeholder="Optional note for the owners, e.g. “Dominic from Acme, working on payments”" maxlength="200">
       </form>
       ${pending.length ? `<p class="small muted">Waiting for approval: ${pending.map((p) => `#${esc(p.project)}`).join(", ")}</p>` : ""}</div>
-    <div class="row"><a class="btn ghost" href="/">${icon("arrow", 15)}Dashboard</a></div>`,
+    <div class="row"><a class="btn ghost" href="/dashboard">${icon("arrow", 15)}Dashboard</a></div>`,
   );
 }
 
@@ -298,7 +298,7 @@ export async function discoverJoin(req: Request, env: Env, me: string): Promise<
     .run();
   if (res.meta.changes) await postMessage(env, { channel: project, sender: me, kind: "event", body: `joined #${project} (push access to ${repo})` });
   await env.DB.prepare("DELETE FROM join_requests WHERE project = ? AND member = ?").bind(project, me).run();
-  return redirect(`/?channel=${encodeURIComponent(project)}&ok=${encodeURIComponent(`You joined #${project}`)}`);
+  return redirect(`/dashboard?channel=${encodeURIComponent(project)}&ok=${encodeURIComponent(`You joined #${project}`)}`);
 }
 
 /** POST /discover/request: ask a discoverable project's owners to let you in. */
@@ -314,7 +314,7 @@ export async function discoverRequest(req: Request, env: Env, me: string): Promi
   }
   const generic = `If #${project} accepts requests, its owners have been asked to approve you.`;
   if (!project) return redirect("/discover");
-  if ((await myProjects(env, me)).includes(project)) return redirect(`/?channel=${encodeURIComponent(project)}`);
+  if ((await myProjects(env, me)).includes(project)) return redirect(`/dashboard?channel=${encodeURIComponent(project)}`);
   const p = await env.DB.prepare("SELECT name FROM projects WHERE name = ? AND discoverable = 1").bind(project).first();
   if (p) {
     const fresh = await env.DB.prepare("INSERT INTO join_requests (project, member, note, created_at) VALUES (?, ?, ?, ?) ON CONFLICT(project, member) DO NOTHING").bind(project, me, note, Date.now()).run();

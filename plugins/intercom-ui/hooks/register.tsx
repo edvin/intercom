@@ -283,7 +283,7 @@ export const register: Register = on => {
           ))}
         </Box>
 
-        <Text dimColor>Dashboard: {s.origin}</Text>
+        <Text dimColor>Dashboard: {s.origin}/dashboard</Text>
       </Box>
     )
   })

@@ -174,5 +174,5 @@ chmod +x "$DIR/claude-ic"
 
 echo
 echo "Done. Restart Claude Code (and Codex), then type /intercom (Codex: \$intercom) to see your team."
-echo "  Dashboard:  /intercom dashboard   (or $URL)"
+echo "  Dashboard:  /intercom dashboard   (or $URL/dashboard)"
 echo "  Live push:  $DIR/claude-ic   (optional; see $URL/docs)"

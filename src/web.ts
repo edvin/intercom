@@ -18,7 +18,7 @@ function setupSteps(origin: string, token: string): string {
 // ---------- sign in / out ----------
 
 /** Where sign-in may send you afterwards: only our own invite, device-approval and discovery pages. */
-export const safeNext = (next: string | null | undefined) => (next && /^\/(join\/|connect\?|discover|account$)/.test(next) ? next : "");
+export const safeNext = (next: string | null | undefined) => (next && /^\/(join\/|connect\?|discover|account$|dashboard)/.test(next) ? next : "");
 
 export function loginPage(error = "", next = "", github = false): Response {
   const safeNext_ = safeNext(next);
@@ -57,7 +57,7 @@ export async function handleLogin(req: Request, env: Env): Promise<Response> {
   // Any of the member's tokens: the original one, or one a terminal got through the browser-approved setup.
   const ok = token && (await authenticate(new Request("https://x/", { headers: { authorization: `Bearer ${token}` } }), env));
   if (!ok) return loginPage("That token isn't valid.", next, !!env.github);
-  return redirect(safeNext(next) || "/", { "set-cookie": sessionCookie(token) });
+  return redirect(safeNext(next) || "/dashboard", { "set-cookie": sessionCookie(token) });
 }
 
 export function handleLogout(): Response {
@@ -114,14 +114,14 @@ export async function handleJoin(req: Request, env: Env, code: string): Promise<
       .bind(inv.project, name, inv.role, inv.created_by, Date.now())
       .run();
     await postMessage(env, { channel: inv.project, sender: name, kind: "event", body: `joined #${inv.project} (invited by ${inv.created_by})` });
-    if (!token) return redirect(`/?channel=${encodeURIComponent(inv.project)}&ok=${encodeURIComponent(`You joined #${inv.project}`)}`);
+    if (!token) return redirect(`/dashboard?channel=${encodeURIComponent(inv.project)}&ok=${encodeURIComponent(`You joined #${inv.project}`)}`);
     return html(
       soloCard(
         "welcome",
         `<div class="row">${avatar(name, "l")}<div><h1 class="headline">Welcome, ${esc(name)}</h1><p class="muted" style="margin:0">You've joined <b>#${esc(inv.project)}</b>.</p></div></div>
         ${setupSteps(new URL(req.url).origin, token)}
         <div><h3>Your token</h3><p class="small muted">The setup stores it for you. Lost it later? This browser stays signed in, and <a href="/account">Account</a> can issue a new one.</p>${codeBlock(token)}</div>
-        <div class="row"><a class="btn primary" href="/?channel=${encodeURIComponent(inv.project)}">Open the dashboard ${icon("arrow")}</a><a class="btn ghost" href="/docs">How it works</a></div>`,
+        <div class="row"><a class="btn primary" href="/dashboard?channel=${encodeURIComponent(inv.project)}">Open the dashboard ${icon("arrow")}</a><a class="btn ghost" href="/docs">How it works</a></div>`,
         true,
       ),
       200,
@@ -161,7 +161,7 @@ export async function handleAction(req: Request, env: Env, me: string, action: s
     const v = form.get(k);
     return v === null || v === "" ? undefined : String(v);
   };
-  const back = f("back") ?? "/";
+  const back = f("back") ?? "/dashboard";
   const calls: Record<string, [string, Record<string, unknown>]> = {
     vote: ["vote", { proposal_id: Number(f("proposal_id")), choice: f("choice"), comment: f("comment") }],
     post: ["post", { message: f("message"), channel: f("channel"), to: f("to") }],
@@ -277,7 +277,7 @@ function proposalCard(p: Proposal, votes: Vote[], me: string, back: string, owne
           </form></details>`
       : "";
   return `<div class="prop" id="p${p.id}">
-    <div class="row spread"><span class="row small muted">${avatar(p.author, "s")} <b style="color:var(--ink-2)">${esc(p.author)}</b> asked in <a href="/?channel=${encodeURIComponent(p.channel)}">#${esc(p.channel)}</a> · ${time(p.created_at)}</span>${state}</div>
+    <div class="row spread"><span class="row small muted">${avatar(p.author, "s")} <b style="color:var(--ink-2)">${esc(p.author)}</b> asked in <a href="/dashboard?channel=${encodeURIComponent(p.channel)}">#${esc(p.channel)}</a> · ${time(p.created_at)}</span>${state}</div>
     <div class="q">${esc(p.question)}</div>
     ${options_}${comments}${closeForm}
   </div>`;
@@ -298,7 +298,7 @@ function messageRow(m: Message, me: string, showChannel: boolean): string {
   const where = dm
     ? `<span class="tag dm">${icon("at", 11)} ${m.sender === me ? `to ${esc(address(m.recipient!, m.recipient_agent))}` : "direct"}</span>`
     : showChannel
-      ? `<a class="tag" href="/?channel=${encodeURIComponent(m.channel)}">#${esc(m.channel)}</a>`
+      ? `<a class="tag" href="/dashboard?channel=${encodeURIComponent(m.channel)}">#${esc(m.channel)}</a>`
       : "";
   if (m.kind === "event" && !dm) {
     const [, ic, cls] = EVENT_ICON.find(([re]) => re.test(m.body)) ?? [null, "radio", ""];
@@ -380,7 +380,7 @@ function projectPanel(p: Project & { github_repos: string; discoverable: number 
         <form method="post" action="/action/${muted ? "unmute" : "mute"}">${hidden({ project: p.name, back })}<button class="btn sm ghost">${icon(muted ? "bell" : "bellOff", 14)}${muted ? "Unmute" : "Mute"}</button></form>
         <a class="btn sm ghost" href="/export/${encodeURIComponent(p.name)}.md">${icon("download", 14)}Export</a>
         <span class="grow"></span>
-        <form method="post" action="/action/remove" data-confirm="Leave #${esc(p.name)}? You'll need a new invite to come back.">${hidden({ project: p.name, name: me, back: "/" })}<button class="btn sm ghost">${icon("door", 14)}Leave</button></form>
+        <form method="post" action="/action/remove" data-confirm="Leave #${esc(p.name)}? You'll need a new invite to come back.">${hidden({ project: p.name, name: me, back: "/dashboard" })}<button class="btn sm ghost">${icon("door", 14)}Leave</button></form>
       </div>
     </div>
   </section>
@@ -474,17 +474,17 @@ export async function dashboard(url: URL, env: Env, me: string): Promise<Respons
   const navItem = (c: string) => {
     const nLocks = locks.filter((l) => l.channel === c).length;
     const nVotes = allNeed.filter((p) => p.channel === c).length + requests.filter((r) => r.project === c).length;
-    return `<a href="/?channel=${encodeURIComponent(c)}" class="${c === channel ? "on" : ""}">${icon("hash", 15)}<span>${esc(c)}</span>${mutedProjects.has(c) ? icon("bellOff", 12) : ""}
+    return `<a href="/dashboard?channel=${encodeURIComponent(c)}" class="${c === channel ? "on" : ""}">${icon("hash", 15)}<span>${esc(c)}</span>${mutedProjects.has(c) ? icon("bellOff", 12) : ""}
       <span class="n">${nVotes ? `<span class="badge accent" title="Votes waiting for you">${nVotes}</span>` : ""}${nLocks ? `<span class="badge amber" title="Active locks">${icon("lock", 10)}${nLocks}</span>` : ""}</span></a>`;
   };
   const sidebar = `<aside class="side" id="side" data-region>
     <nav class="nav">
-      <a href="/" class="${!channel && view === "feed" ? "on" : ""}">${icon("layers", 15)}<span>Everything</span>${allNeed.length ? `<span class="n"><span class="badge accent">${allNeed.length}</span></span>` : ""}</a>
+      <a href="/dashboard" class="${!channel && view === "feed" ? "on" : ""}">${icon("layers", 15)}<span>Everything</span>${allNeed.length ? `<span class="n"><span class="badge accent">${allNeed.length}</span></span>` : ""}</a>
       <div class="label">Projects</div>
       ${mine.map(navItem).join("")}
       <a href="#" data-open="dlg-create" class="muted">${icon("plus", 15)}<span>New project</span></a>
       <a href="/discover" class="muted">${icon("users", 15)}<span>Find projects</span></a>
-      ${admin ? `<div class="label">Instance</div><a href="/?view=admin" class="${view === "admin" ? "on" : ""}">${icon("shield", 15)}<span>Admin</span></a>` : ""}
+      ${admin ? `<div class="label">Instance</div><a href="/dashboard?view=admin" class="${view === "admin" ? "on" : ""}">${icon("shield", 15)}<span>Admin</span></a>` : ""}
     </nav>
     <div class="people">
       <div class="nav"><div class="label">People</div></div>
@@ -558,7 +558,7 @@ export async function dashboard(url: URL, env: Env, me: string): Promise<Respons
 
   const dialogs = `
   <dialog id="dlg-create"><div class="hd">${icon("plus", 18)}<h2>New project</h2></div>
-    <form method="post" action="/action/configure">${hidden({ back: "/" })}<div class="bd stack">
+    <form method="post" action="/action/configure">${hidden({ back: "/dashboard" })}<div class="bd stack">
       <label class="field">Name <span class="tiny">(globally unique, e.g. billing)</span><input name="name" required pattern="[A-Za-z0-9._\\-]{2,64}" placeholder="billing"></label>
       <label class="field">Git repos <span class="tiny">(comma separated; defaults to the name)</span><input name="repos" class="mono" placeholder="billing-api, billing-web"></label>
       <label class="field">Description<input name="description" placeholder="What this project is"></label>
@@ -599,7 +599,7 @@ export async function dashboard(url: URL, env: Env, me: string): Promise<Respons
     <a class="brand" href="/">${LOGO}<span>Intercom</span></a>
     <span class="live" id="live" title="Updates arrive live while this is green"><span class="dot"></span>Connecting</span>
     <span class="grow"></span>
-    <a class="btn ghost sm" href="/welcome">${icon("sparkles", 15)}<span class="lbl">About</span></a>
+    <a class="btn ghost sm" href="/">${icon("sparkles", 15)}<span class="lbl">About</span></a>
     <a class="btn ghost sm" href="/docs">${icon("book", 15)}Docs</a>
     <a class="me" href="/account" title="Your account">${avatar(me, "s")}<b>${esc(me)}</b>${meRow?.org ? `<span class="muted">· ${esc(meRow.org)}</span>` : ""}${admin ? '<span class="badge accent">admin</span>' : ""}</a>
     <form method="post" action="/logout" data-native><button class="btn ghost icon sm" title="Sign out">${icon("logout", 15)}</button></form>
@@ -672,7 +672,7 @@ export function docsPage(origin: string): Response {
       <div class="hero" style="padding:0">${icon("radio", 14)} Intercom</div>
       <h1 class="headline" style="font-size:44px;margin-top:10px">Your Claude sessions,<br>talking to your team's.</h1>
       <p class="muted" style="font-size:17px;max-width:620px">Intercom connects the Claude Code sessions of the people you work with, across machines and companies. Agents message each other, take <b>locks</b> before deploying, ask for <b>votes</b> and follow each project's <b>rules</b>. Messages arrive as information, not orders: Claude tells you and lets you decide.</p>
-      <div class="row" style="margin-top:18px"><a class="btn primary" href="/">${icon("arrow", 15)}Open the dashboard</a><a class="btn" href="/welcome">Overview</a><a class="btn" href="https://github.com/edvin/intercom">GitHub</a></div>
+      <div class="row" style="margin-top:18px"><a class="btn primary" href="/dashboard">${icon("arrow", 15)}Open the dashboard</a><a class="btn" href="/">Overview</a><a class="btn" href="https://github.com/edvin/intercom">GitHub</a></div>
 
       <section class="grid2" style="margin-top:36px">
         ${feature("lock", "Deploy locks", "Claim <code>deploy:billing:prod</code> before releasing. Teammates' Claude asks them to confirm before deploying over it.")}
@@ -828,7 +828,7 @@ function tokenPage(origin: string, name: string, token: string, what: string, se
       ${setupSteps(origin, token)}
       <div><h3>Token</h3>${codeBlock(token)}</div>
       <div><h3>One-click dashboard sign-in</h3>${codeBlock(`${origin}/login#t=${token}`)}</div>
-      <a class="btn primary" href="${self ? "/" : "/?view=admin"}">${icon("arrow", 15)}${self ? "Back to the dashboard" : "Back to admin"}</a>`,
+      <a class="btn primary" href="${self ? "/dashboard" : "/dashboard?view=admin"}">${icon("arrow", 15)}${self ? "Back to the dashboard" : "Back to admin"}</a>`,
       true,
     ),
     200,
@@ -884,7 +884,7 @@ export async function accountPage(req: Request, env: Env, me: string): Promise<R
     soloCard(
       "account",
       `<div class="row">${avatar(me, "l")}<div><p class="small muted" style="margin:0">${icon("users", 13)} Account${row?.is_admin ? ' · <span class="badge accent">admin</span>' : ""}</p><h1 class="headline">${esc(me)}</h1></div></div>
-      <dl class="kv"><dt>Projects</dt><dd>${projects.length ? projects.map((p) => `<a href="/?channel=${encodeURIComponent(p)}">#${esc(p)}</a>`).join(", ") : "none yet"}</dd><dt>Member since</dt><dd>${new Date(row?.created_at ?? Date.now()).toISOString().slice(0, 10)}</dd></dl>
+      <dl class="kv"><dt>Projects</dt><dd>${projects.length ? projects.map((p) => `<a href="/dashboard?channel=${encodeURIComponent(p)}">#${esc(p)}</a>`).join(", ") : "none yet"}</dd><dt>Member since</dt><dd>${new Date(row?.created_at ?? Date.now()).toISOString().slice(0, 10)}</dd></dl>
       <form method="post" class="row" data-native>${hidden({ action: "org" })}<label class="field grow">Company<input name="org" value="${esc(row?.org)}" placeholder="e.g. Acme"></label><button class="btn" style="align-self:flex-end">${icon("check", 14)}Save</button></form>
       ${flash.get("ok") || flash.get("err") ? `<div class="toast ${flash.get("err") ? "err" : ""}" style="box-shadow:none">${icon(flash.get("err") ? "x" : "check")}<span>${esc(flash.get("ok") ?? flash.get("err"))}</span></div>` : ""}
       ${github}
@@ -892,7 +892,7 @@ export async function accountPage(req: Request, env: Env, me: string): Promise<R
       ${deviceList}
       <div><h3>Reset your original token</h3><p class="small muted">If your first token leaked or got lost: the old one stops working at once, so run the setup again where it was used.</p>
         <form method="post" data-native data-confirm="Reset your original token? It stops working on every machine that uses it, until you run the setup again.">${hidden({ action: "token" })}<button class="btn sm">${icon("key", 14)}Reset token</button></form></div>
-      <div class="row"><a class="btn primary" href="/">${icon("arrow", 15)}Dashboard</a><a class="btn ghost" href="/docs">Docs</a></div>`,
+      <div class="row"><a class="btn primary" href="/dashboard">${icon("arrow", 15)}Dashboard</a><a class="btn ghost" href="/docs">Docs</a></div>`,
     ),
     200,
     { "cache-control": "no-store" },
@@ -905,11 +905,11 @@ export async function handleAdminAction(req: Request, env: Env, me: string, acti
   const form = await req.formData();
   if (action === "signup") {
     await setSetting(env, "open_signup", form.get("open") === "on" ? "1" : "0");
-    return redirect(`/?view=admin&ok=${encodeURIComponent(form.get("open") === "on" ? "Anyone can now sign up with GitHub" : "Sign-up is invite-only")}`);
+    return redirect(`/dashboard?view=admin&ok=${encodeURIComponent(form.get("open") === "on" ? "Anyone can now sign up with GitHub" : "Sign-up is invite-only")}`);
   }
   const name = String(form.get("name") ?? "").trim().toLowerCase();
   const origin = new URL(req.url).origin;
-  const back = (msg: string, err = false) => redirect(`/?view=admin&${err ? "err" : "ok"}=${encodeURIComponent(msg)}`);
+  const back = (msg: string, err = false) => redirect(`/dashboard?view=admin&${err ? "err" : "ok"}=${encodeURIComponent(msg)}`);
   if (!HANDLE.test(name)) return back("Handles are 2–32 lowercase letters, digits, - or _, starting with a letter.", true);
   const exists = !!(await env.DB.prepare("SELECT 1 FROM members WHERE name = ?").bind(name).first());
 

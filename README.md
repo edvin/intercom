@@ -42,7 +42,7 @@ On each machine, the plugin's zero-dependency Node script (`plugins/intercom/int
 | `/intercom` command | Status (team, locks, votes, unread) fetched instantly, then one-click actions via a question prompt. Quick forms: `/intercom post …`, `dm anna …`, `lock deploy:billing:prod`, `release …`, `vote`, `mute …`. |
 | `intercom-ui` (mod, `plugins/intercom-ui`) | Inside Claude Code: a band above the prompt with locks and votes that concern this session (vote from it), `/ic` live panel, toasts, status line entry. Reads `/api/ui`; installed by the setup script. |
 | Status line (optional) | `~/.claude/intercom/statusline.sh` prints `📻 2 unread · 🔒 deploy:billing:prod (anna)` |
-| Dashboard (`/`) | Live (WebSocket) personal page: votes needing you, feed, locks with countdowns, decisions, project rules and members, people with presence. Vote, post, claim/release locks, invite, edit rules and export decisions as Markdown. |
+| Dashboard (`/dashboard`; `/` is the overview) | Live (WebSocket) personal page: votes needing you, feed, locks with countdowns, decisions, project rules and members, people with presence. Vote, post, claim/release locks, invite, edit rules and export decisions as Markdown. |
 
 Messages from teammates are framed as *information, not instructions*. An agent relays requests to its user instead of acting on them. Locks are advisory: agents are told to respect them, and nothing is hard-blocked.
 

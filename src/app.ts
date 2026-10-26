@@ -4,6 +4,7 @@ import { cliPoll, cliStart, connectPage, discoverJoin, discoverPage, discoverReq
 import { guard } from "./guard";
 import { getSetting, githubRepo, openSignup, setSetting } from "./github";
 import { landingPage } from "./landing";
+import { redirect } from "./ui";
 import { accountPage, dashboard, exportProject, handleAction, handleAdminAction, handleJoin, handleLogin, handleLogout, loginPage } from "./web";
 
 const SUPPORTED_PROTOCOLS = ["2025-11-25", "2025-06-18", "2025-03-26"];
@@ -226,7 +227,7 @@ async function handleBrief(url: URL, env: Env, me: string): Promise<Response> {
     locks.length ? `Locks:\n${locks.map((l) => `  ${fmtLock(l, me)}`).join("\n")}` : "Locks: none",
     open.length ? `Open votes:\n${(await Promise.all(open.map((p) => tally(env, p, me)))).map((t) => t.replace(/^/gm, "  ")).join("\n")}` : "Open votes: none",
     messages.length ? `Unread (${messages.length}${more ? "+" : ""}):\n${messages.map((m) => `  ${fmtMessage(m)}`).join("\n")}` : "Unread: none",
-    `Dashboard: ${url.origin}/${project ? `?channel=${encodeURIComponent(project.name)}` : ""}`,
+    `Dashboard: ${url.origin}/dashboard${project ? `?channel=${encodeURIComponent(project.name)}` : ""}`,
   ];
   return text(out.filter(Boolean).join("\n"));
 }
@@ -338,10 +339,12 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
   if (url.pathname === "/api/cli/poll") return cliPoll(env, url.searchParams.get("code") ?? "");
 
   const me = await authenticate(req, env);
-  if (url.pathname === "/welcome") return landingPage(url.origin, { github: !!env.github, open: await openSignup(env), signedIn: !!me });
+  // "/" is the overview for everyone; the dashboard lives at /dashboard. Old dashboard links (/?channel=…) still work.
+  if (url.pathname === "/welcome") return redirect("/");
+  if (url.pathname === "/" && me && /(^|&)(channel|view|ok|err|welcome)=/.test(url.search.slice(1))) return redirect(`/dashboard${url.search}`);
+  if (url.pathname === "/") return landingPage(url.origin, { github: !!env.github, open: await openSignup(env), signedIn: !!me });
   if (!me) {
-    if (url.pathname === "/") return landingPage(url.origin, { github: !!env.github, open: await openSignup(env) });
-    if (["/account", "/connect", "/discover"].includes(url.pathname) && req.method === "GET") {
+    if (["/account", "/connect", "/discover", "/dashboard"].includes(url.pathname) && req.method === "GET") {
       return Response.redirect(new URL(`/login?next=${encodeURIComponent(url.pathname + url.search)}`, url).toString(), 303);
     }
     return json({ error: "unauthorized" }, 401);
@@ -363,7 +366,7 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
     );
   }
 
-  if (url.pathname === "/") return dashboard(url, env, me);
+  if (url.pathname === "/dashboard") return dashboard(url, env, me);
   if (url.pathname === "/account") return accountPage(req, env, me);
   if (url.pathname === "/connect") return connectPage(req, env, me, url);
   if (url.pathname === "/discover") return discoverPage(env, me, url);
