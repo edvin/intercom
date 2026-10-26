@@ -1039,3 +1039,30 @@ describe("activity mirror", () => {
     assert.match(page, /grep -rl brand web\/src/);
   });
 });
+
+describe("folded tool steps", () => {
+  test("consecutive tool steps fold into one line; text and single steps stay as they are", async () => {
+    const w = await standardWorld();
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=f1&name=folder", { as: "bob" });
+    const t = Date.now();
+    await w.request("/api/activity?session=f1", {
+      as: "bob",
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        items: [
+          { at: t, kind: "cmd", text: "npm test" },
+          { at: t + 1, kind: "cmd", text: "git status" },
+          { at: t + 2, kind: "read", text: "src/app.ts" },
+          { at: t + 3, kind: "tool", text: "ToolSearch" },
+          { at: t + 4, kind: "text", text: "All green; now the docs." },
+          { at: t + 5, kind: "edit", text: "src/web.ts" },
+        ],
+      }),
+    });
+    const page = await (await w.request("/dashboard?view=agents&agent=bob/folder", { as: "bob", cookie: true })).text();
+    assert.match(page, /<details class="actgroup" data-gid="g\d+"><summary>.*Ran 2 commands, read 1 file, 1 tool call<span class="alast"> · ToolSearch/);
+    assert.match(page, /<\/details><div class="act act-text"[^>]*>.*All green/);
+    assert.match(page, /All green[\s\S]*<div class="act act-edit"/); // one step alone isn't folded
+  });
+});

@@ -40,6 +40,22 @@ export const clientBadge = (client: string, named = false) =>
 
 const QUICK = ["What's your status?", "Pause and check in with me first.", "Stop, summarize, and wait.", "Commit and push what you have."];
 
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+
+/** "Ran 3 commands, read 2 files, edited 1 file" for a run of tool steps, expandable to the steps themselves. */
+function foldSteps(steps: Activity[], open: boolean, row: (a: Activity) => string): string {
+  const n = (k: string) => steps.filter((a) => a.kind === k).length;
+  const parts = [
+    n("cmd") ? `ran ${plural(n("cmd"), "command", "commands")}` : "",
+    n("read") ? `read ${plural(n("read"), "file", "files")}` : "",
+    n("edit") ? `edited ${plural(n("edit"), "file", "files")}` : "",
+    n("tool") ? plural(n("tool"), "tool call", "tool calls") : "",
+  ].filter(Boolean);
+  const summary = parts.join(", ").replace(/^./, (c) => c.toUpperCase());
+  const last = steps[steps.length - 1]!;
+  return `<details class="actgroup" data-gid="g${steps[0]!.id}"${open ? " open data-live" : ""}><summary><span class="aic">▸</span><span class="atx">${summary}<span class="alast"> · ${esc(plainSpaces(last.text).split("\n")[0]!.slice(0, 90))}</span></span><span class="when">${time(last.at)}</span></summary>${steps.map(row).join("")}</details>`;
+}
+
 export async function agentsView(env: Env, me: string, url: URL, people: string[], cookie = ""): Promise<string> {
   const mine = await myProjects(env, me);
   const ph = (n: number) => Array.from({ length: n }, () => "?").join(",") || "NULL";
@@ -149,7 +165,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
     `<div class="act act-${a.kind}" data-mid="a${a.id}"><span class="aic">${ACT_ICON[a.kind] ?? "·"}</span><span class="atx">${
       a.kind === "text" ? md(a.text) : a.kind === "prompt" ? `<span class="muted">typed in the terminal:</span> ${esc(plainSpaces(a.text))}` : esc(plainSpaces(a.text))
     }</span><span class="when">${time(a.at)}</span></div>`;
-  type Item = { at: number; html: string };
+  type Item = { at: number; html: string; act?: Activity };
   const items: Item[] = [];
   const thread0 = rows
     .reverse()
@@ -178,8 +194,28 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
     const t = flat(a.text);
     return t.length >= 8 && sentByYou.some((b) => t.includes(b.slice(0, Math.min(b.length, t.length))));
   };
-  for (const a of [...acts].reverse()) if (!echo(a)) items.push({ at: a.at, html: actRow(a) }); // oldest first; sort is stable
-  const thread = items.sort((x, y) => x.at - y.at).map((x) => x.html).join("");
+  for (const a of [...acts].reverse()) if (!echo(a)) items.push({ at: a.at, html: actRow(a), act: a }); // oldest first; sort is stable
+  // Like Claude Code, consecutive tool steps (commands, reads, edits, tool calls) fold into one line; the agent's
+  // text, your messages and typed prompts stay out. A working agent's latest run stays open to watch it live.
+  const STEP = new Set(["cmd", "edit", "read", "tool"]);
+  const sorted = items.sort((x, y) => x.at - y.at);
+  const out: string[] = [];
+  let run: Activity[] = [];
+  const working = isOn(agent) && agent.state === "working";
+  const flush = (tail: boolean) => {
+    if (run.length === 1) out.push(actRow(run[0]!));
+    else if (run.length > 1) out.push(foldSteps(run, tail && working, actRow));
+    run = [];
+  };
+  for (const it of sorted) {
+    if (it.act && STEP.has(it.act.kind)) run.push(it.act);
+    else {
+      flush(false);
+      out.push(it.html);
+    }
+  }
+  flush(true);
+  const thread = out.join("");
   const on = isOn(agent);
   const ownAgent = agent.member === me;
   const back = `/dashboard?view=agents&agent=${encodeURIComponent(key(agent))}`;

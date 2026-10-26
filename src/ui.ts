@@ -316,7 +316,12 @@ label.field>input,label.field>textarea,label.field>select{width:100%}
 .act-text{color:var(--ink-2)}.act-text .atx{white-space:normal}.act-text .aic{color:var(--accent)}
 .act-prompt .aic{color:var(--green)}
 .act-read{opacity:.75}
-.thread.noact .act{display:none}
+.thread.noact .act,.thread.noact .actgroup{display:none}
+.actgroup>summary{list-style:none;cursor:pointer;display:grid;grid-template-columns:18px minmax(0,1fr) auto;gap:8px;align-items:start;font-size:12.5px;color:var(--mute);padding:2px 0;font-family:"JetBrains Mono","Geist Mono",ui-monospace,monospace;border-radius:6px}
+.actgroup>summary::-webkit-details-marker{display:none}
+.actgroup>summary:hover{color:var(--ink-2)}.actgroup>summary .aic{text-align:center;transition:transform .15s}.actgroup[open]>summary .aic{transform:rotate(90deg)}
+.actgroup>summary .alast{opacity:.6}.actgroup[open]>summary .alast{display:none}.actgroup>summary .when{font-size:11px;opacity:.6}
+.actgroup>.act{padding-left:14px;border-left:1px solid var(--line);margin-left:8px}
 .thread.norelay .relay{display:none}
 .dlv{font-size:11px;margin-left:6px;white-space:nowrap}.dlv.ok{color:var(--green)}.dlv.wait{opacity:.7}.dlv.off{color:var(--amber)}
 .bubble.mine .dlv.ok{color:#fff;opacity:.9}.thread.term .bubble.mine .dlv.ok{color:var(--green)}
@@ -475,7 +480,15 @@ const SCRIPT = `
     setTimeout(() => { t.classList.add("out"); setTimeout(() => t.remove(), 300); }, err ? 6000 : 3500);
   }
   window.icToast = toast;
+  // Folded tool steps you opened or closed stay that way when the thread redraws live.
+  const folds = {};
   function bind(root = document) {
+    $$("details.actgroup", root).forEach((d) => {
+      const gid = d.dataset.gid;
+      if (gid in folds) d.open = folds[gid];
+      const sum = d.querySelector("summary");
+      if (sum) sum.onclick = () => { folds[gid] = !d.open; };
+    });
     $$("[data-copy]", root).forEach((b) => b.onclick = async () => { try { await navigator.clipboard.writeText(b.dataset.copy); const s = b.querySelector("span"); if (s) { const o = s.textContent; s.textContent = "Copied"; setTimeout(() => (s.textContent = o), 1400); } else toast("Copied"); } catch { toast("Couldn't copy", true); } });
     $$("[data-open]", root).forEach((b) => b.onclick = (e) => { e.preventDefault(); const d = document.getElementById(b.dataset.open); d && d.showModal(); const f = d && d.querySelector("input:not([type=hidden]),textarea"); f && f.focus(); });
     $$("[data-railtoggle]", root).forEach((b) => b.onclick = () => {
