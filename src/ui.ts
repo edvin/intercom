@@ -83,25 +83,7 @@ function relative(ts: number): string {
 
 export const hidden = (fields: Record<string, string>) => Object.entries(fields).map(([k, v]) => `<input type="hidden" name="${k}" value="${esc(v)}">`).join("");
 
-/**
- * Message text as light Markdown, escaped first: fenced and inline code, bold, italics, links, bullet and numbered
- * lines, headings. Agents write Markdown; this keeps it readable without a parser or any raw HTML.
- */
-export function md(text: string): string {
-  const blocks: string[] = [];
-  let s = esc(text).replace(/```[a-z0-9_+-]*\n?([\s\S]*?)```/gi, (_, code) => {
-    blocks.push(`<pre class="mdpre"><code>${code.replace(/\n$/, "")}</code></pre>`);
-    return `\u0000${blocks.length - 1}\u0000`;
-  });
-  s = s
-    .replace(/`([^`\n]+)`/g, "<code>$1</code>")
-    .replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>")
-    .replace(/(^|[\s(])\*([^*\n]+)\*(?=[\s).,!?:;]|$)/g, "$1<i>$2</i>")
-    .replace(/\bhttps?:\/\/[^\s<)]+/g, (u) => `<a href="${u}" target="_blank" rel="noopener noreferrer">${u}</a>`)
-    .replace(/^#{1,4} +(.+)$/gm, "<b>$1</b>")
-    .replace(/^(\s*)[-*] +/gm, "$1• ");
-  return s.replace(/\u0000(\d+)\u0000/g, (_, i) => blocks[Number(i)]);
-}
+export { md } from "./markdown";
 
 /** A code block with a copy button. */
 export const codeBlock = (s: string) =>
@@ -110,6 +92,7 @@ export const codeBlock = (s: string) =>
 const STYLE = `
 @font-face{font-family:Geist;src:url(/assets/geist.woff2) format("woff2");font-weight:100 900;font-display:swap}
 @font-face{font-family:"Geist Mono";src:url(/assets/geist-mono.woff2) format("woff2");font-weight:100 900;font-display:swap}
+@font-face{font-family:"JetBrains Mono";src:url(/assets/jetbrains-mono.woff2) format("woff2");font-weight:100 800;font-display:swap}
 :root{
   --bg:#f6f6f8;--bg-glow:rgba(124,92,255,.10);--surface:#ffffff;--surface-2:#f2f2f6;--surface-3:#e9e9ef;
   --line:rgba(16,18,30,.08);--line-strong:rgba(16,18,30,.14);--ink:#0d0f17;--ink-2:#3b3f4f;--mute:#6b7081;
@@ -225,7 +208,7 @@ label.field>input,label.field>textarea,label.field>select{width:100%}
 .msg .head{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
 .msg .who{font-weight:600}.msg .agent{font-family:"Geist Mono",monospace;font-size:11.5px;color:var(--mute)}
 .msg .meta{font-size:12px;color:var(--mute);margin-left:auto}
-.msg .body{white-space:pre-wrap;overflow-wrap:anywhere;color:var(--ink-2);margin-top:2px}
+.msg .body{overflow-wrap:anywhere;color:var(--ink-2);margin-top:2px}
 .msg.dm{background:linear-gradient(90deg,var(--accent-soft),transparent 70%);box-shadow:inset 3px 0 0 var(--accent)}
 .msg.fresh{animation:fresh 2.4s ease-out}
 @keyframes fresh{from{background:var(--accent-soft)}}
@@ -237,9 +220,23 @@ label.field>input,label.field>textarea,label.field>select{width:100%}
 .tag{font-size:11.5px;font-weight:600;color:var(--mute);background:var(--surface-2);border:1px solid var(--line);padding:0 7px;border-radius:6px}
 .tag.dm{color:var(--accent);background:var(--accent-soft);border-color:transparent}
 
-/* markdown in messages */
-.mdpre{margin:6px 0;background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:8px 10px;overflow-x:auto;white-space:pre;font-size:12.5px}
-.body code,.bubble code{font-size:.86em}
+/* markdown in messages (rendered by markdown.ts) */
+.md{white-space:normal;overflow-wrap:anywhere}
+.md p{margin:0 0 .55em}.md p:last-child{margin-bottom:0}
+.md ul,.md ol{margin:.2em 0 .55em;padding-left:1.4em}.md li{margin:.12em 0}.md li.task{list-style:none;margin-left:-1.2em}
+.md .mdbox{display:inline-grid;place-items:center;width:1em;height:1em;border:1.5px solid var(--line-strong);border-radius:4px;font-size:.75em;margin-right:.45em;vertical-align:-1px}.md .mdbox.on{background:var(--green);border-color:var(--green);color:#fff}
+.md .mdh{font-weight:700;margin:.6em 0 .3em;letter-spacing:-.01em}.md .mdh1{font-size:1.25em}.md .mdh2{font-size:1.12em}.md .mdh3,.md .mdh4{font-size:1em}
+.md blockquote{margin:.4em 0;padding:.1em 0 .1em .9em;border-left:3px solid var(--line-strong);color:var(--ink-2)}
+.md hr{border:0;border-top:1px solid var(--line);margin:.8em 0}
+.md code{font-size:.86em}
+.mdpre{margin:.5em 0;background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:10px 12px;overflow-x:auto;white-space:pre;font-size:12.5px;line-height:1.55}
+.mdpre code{background:none;border:0;padding:0;font-size:inherit}
+.mdtable{overflow-x:auto;margin:.5em 0}.md table{border-collapse:collapse;font-size:.93em}.md th,.md td{border:1px solid var(--line-strong);padding:5px 10px;text-align:left;vertical-align:top}.md th{background:var(--surface-2);font-weight:600}
+/* ANSI colours (terminal output pasted into a message) */
+.a-b{font-weight:700}.a-dim{opacity:.6}.a-i{font-style:italic}.a-u{text-decoration:underline}
+.a-red{color:#e5534b}.a-green{color:#3fb950}.a-yellow{color:#d4a72c}.a-blue{color:#539bf5}.a-magenta{color:#c678dd}.a-cyan{color:#39c5cf}.a-white{color:var(--ink)}.a-black{color:var(--mute)}
+.a-bright.a-red{color:#ff7b72}.a-bright.a-green{color:#56d364}.a-bright.a-yellow{color:#e3b341}.a-bright.a-blue{color:#79c0ff}.a-bright.a-magenta{color:#d2a8ff}.a-bright.a-cyan{color:#56d4dd}
+.a-bg-red{background:rgba(229,83,75,.25)}.a-bg-green{background:rgba(63,185,80,.25)}.a-bg-yellow{background:rgba(212,167,44,.25)}.a-bg-blue{background:rgba(83,155,245,.25)}
 
 /* agents: the management station. An app-like screen: the page doesn't scroll; the list and the thread do. */
 .shell.wide{grid-template-columns:232px minmax(0,1fr);height:calc(100dvh - 58px);padding-top:16px;padding-bottom:16px;align-items:stretch;overflow:hidden}
@@ -261,11 +258,27 @@ label.field>input,label.field>textarea,label.field>select{width:100%}
 .chat>.hd{flex-wrap:wrap;flex:none}
 .thread{flex:1;min-height:0;overflow-y:auto;padding:18px;display:flex;flex-direction:column;gap:10px;overscroll-behavior:contain}
 .thread>.empty{margin:auto}
-.bubble{max-width:min(78%,760px);padding:10px 14px;border-radius:16px;background:var(--surface-2);border:1px solid var(--line);white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.5;align-self:flex-start;border-bottom-left-radius:6px}
-.bubble.me{align-self:flex-end;background:var(--grad);color:#fff;border:0;border-bottom-left-radius:16px;border-bottom-right-radius:6px}
-.bubble.me a{color:#fff;text-decoration:underline}.bubble.me code{background:rgba(255,255,255,.18);border-color:transparent;color:#fff}
+.bubble{max-width:min(86%,1100px);padding:10px 14px;border-radius:16px;background:var(--surface-2);border:1px solid var(--line);overflow-wrap:anywhere;line-height:1.5;align-self:flex-start;border-bottom-left-radius:6px}
+.bubble.mine{align-self:flex-end;background:var(--grad);color:#fff;border:0;border-bottom-left-radius:16px;border-bottom-right-radius:6px}
+.bubble.mine a{color:#fff;text-decoration:underline}.bubble.mine code{background:rgba(255,255,255,.18);border-color:transparent;color:#fff}
 .bubble .when{display:block;font-size:11px;opacity:.65;margin-top:4px}
 .activity{align-self:center;font-size:12.5px;color:var(--mute);text-align:center;max-width:80%;display:flex;gap:6px;align-items:center}
+/* Terminal style (default): a full-width CLI transcript in JetBrains Mono */
+.thread.term{gap:0;padding:14px 22px;font-family:"JetBrains Mono","Geist Mono",ui-monospace,Menlo,monospace;font-size:13.2px;line-height:1.6}
+.thread.term .bubble{max-width:none;align-self:stretch;background:none;border:0;border-radius:0;padding:8px 0 10px;color:var(--ink)}
+.thread.term .bubble::before{content:"● " attr(data-who);display:block;font-weight:700;color:var(--accent);margin-bottom:2px}
+.thread.term .bubble.mine{color:var(--ink);background:none}
+.thread.term .bubble.mine::before{content:"› you";color:var(--green)}
+.thread.term .bubble.mine{border-left:2px solid var(--green);padding-left:12px;margin:6px 0;background:color-mix(in srgb,var(--green) 6%,transparent)}
+.thread.term .bubble.mine a{color:inherit;text-decoration:underline}
+.thread.term .bubble.mine code{background:var(--surface-2);border:1px solid var(--line);text-decoration:none}
+.thread.term .bubble .when{display:inline;margin:0 0 0 .6em;font-size:11px;opacity:.5}
+.thread.term .activity{align-self:stretch;justify-content:flex-start;text-align:left;max-width:none;padding:3px 0;font-size:12px}
+.thread.term .md code{font-size:1em}.thread.term .mdpre{font-size:12.6px}
+.thread.term .md .mdh{font-size:1em;color:var(--accent)}
+.viewtoggle{display:inline-flex;border:1px solid var(--line-strong);border-radius:8px;overflow:hidden}
+.viewtoggle button{font:inherit;font-size:12px;padding:3px 10px;border:0;background:transparent;color:var(--mute);cursor:pointer}
+.viewtoggle button.on{background:var(--accent-soft);color:var(--accent);font-weight:600}
 .chatbox{flex:none;border-top:1px solid var(--line);padding:12px 14px;display:flex;flex-direction:column;gap:8px;background:var(--surface)}
 .chatbox textarea{min-height:48px;max-height:30vh;font-size:14.5px;resize:none}
 .chatbox .chips{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}.chatbox .chip{white-space:nowrap}
@@ -406,7 +419,9 @@ const SCRIPT = `
     $$("input[data-noenter]", root).forEach((i) => i.onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); toast("Pick an option to vote"); } });
     $$("textarea[data-chat]", root).forEach((t) => t.onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); if (t.value.trim()) t.form.requestSubmit(); } });
     $$("[data-chip]", root).forEach((b) => b.onclick = () => { const t = $("#chat-input"); if (t) { t.value = b.dataset.chip; t.form.requestSubmit(); } });
-    $$(".thread", root).forEach((th) => { th.style.scrollBehavior = "auto"; th.scrollTop = th.scrollHeight; });
+    const style = (() => { try { return localStorage.getItem("ic-chat") || "term"; } catch { return "term"; } })();
+    $$(".thread", root).forEach((th) => { th.classList.toggle("term", style === "term"); th.style.scrollBehavior = "auto"; th.scrollTop = th.scrollHeight; });
+    $$("[data-chatstyle]", root).forEach((b) => { b.classList.toggle("on", b.dataset.chatstyle === style); b.onclick = () => { try { localStorage.setItem("ic-chat", b.dataset.chatstyle); } catch {} bind(document); }; });
     $$("textarea[data-enter]", root).forEach((t) => t.onkeydown = (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); t.form.requestSubmit(); } });
   }
   async function submit(e) {

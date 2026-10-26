@@ -310,7 +310,7 @@ function messageRow(m: Message, me: string, showChannel: boolean): string {
   return `<div class="msg ${dm ? "dm" : ""}" data-day="${m.created_at}" data-mid="${m.id}">
     ${avatar(m.sender)}
     <div><div class="head"><span class="who">${esc(m.sender === me ? "you" : m.sender)}</span>${m.sender_agent ? `<span class="agent">/${esc(m.sender_agent)}</span>` : ""}${where}<span class="meta">${time(m.created_at)}</span></div>
-    <div class="body">${md(m.body)}</div></div>
+    <div class="body md">${md(m.body)}</div></div>
   </div>`;
 }
 

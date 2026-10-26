@@ -112,10 +112,10 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
     .reverse()
     .map((m) => {
       if (!m.recipient) {
-        return `<div class="activity" data-mid="${m.id}">${icon(m.kind === "event" ? "radio" : "hash", 12)}<span>#${esc(m.channel)} · ${m.kind === "event" ? esc(m.body) : md(m.body)} · ${time(m.created_at)}</span></div>`;
+        return `<div class="activity" data-mid="${m.id}">${icon(m.kind === "event" ? "radio" : "hash", 12)}<span>#${esc(m.channel)} · ${esc(m.body.split("\n")[0]!.slice(0, 240))} · ${time(m.created_at)}</span></div>`;
       }
       const fromMe = m.sender === me && !m.sender_agent;
-      return `<div class="bubble ${fromMe ? "me" : ""}" data-mid="${m.id}">${md(m.body)}<span class="when">${fromMe ? "you" : esc(agent.label)} · ${time(m.created_at)}</span></div>`;
+      return `<div class="bubble md ${fromMe ? "mine" : ""}" data-mid="${m.id}" data-who="${esc(agent.label)}">${md(m.body)}<span class="when">${time(m.created_at)}</span></div>`;
     })
     .join("");
   const on = isOn(agent);
@@ -125,7 +125,8 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
       <div class="hd">
         <span class="presence ${on ? "on" : ""}">${avatar(agent.label, "m")}</span>
         <div class="grow" style="min-width:0">
-          <h2 style="display:flex;gap:8px;align-items:center">${esc(key(agent))}${agent.client === "codex" ? '<span class="badge">Codex</span>' : '<span class="badge">Claude Code</span>'}</h2>
+          <h2 style="display:flex;gap:8px;align-items:center"><span class="grow" style="display:flex;gap:8px;align-items:center">${esc(key(agent))}${agent.client === "codex" ? '<span class="badge">Codex</span>' : '<span class="badge">Claude Code</span>'}</span>
+            <span class="viewtoggle" title="How messages are shown (remembered in this browser)"><button type="button" data-chatstyle="term">Terminal</button><button type="button" data-chatstyle="chat">Chat</button></span></h2>
           <div class="small muted row" style="gap:6px">${stateBadge(agent)}<span>${agent.project ? `#${esc(agent.project)}` : "no project"}${agent.branch ? ` · ⎇ ${esc(agent.branch)}` : ""}${on ? "" : ` · last seen ${ago(agent.last_seen)}`}${agent.note ? ` · “${esc(agent.note)}”` : ""}</span></div>
         </div>
       </div>

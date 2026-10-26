@@ -10,8 +10,9 @@ import { TeamHub, type WorkerEnv } from "./hub";
 import { docsPage } from "./web";
 import geist from "../assets/geist.woff2";
 import geistMono from "../assets/geist-mono.woff2";
+import jetbrainsMono from "../assets/jetbrains-mono.woff2";
 
-const FONTS: Record<string, ArrayBuffer> = { "/assets/geist.woff2": geist, "/assets/geist-mono.woff2": geistMono };
+const FONTS: Record<string, ArrayBuffer> = { "/assets/geist.woff2": geist, "/assets/geist-mono.woff2": geistMono, "/assets/jetbrains-mono.woff2": jetbrainsMono };
 
 export { TeamHub };
 

@@ -766,3 +766,44 @@ describe("approvals from the browser", () => {
     assert.match(expired.hookSpecificOutput.decision.message, /didn't answer/);
   });
 });
+
+describe("message rendering", () => {
+  test("Markdown agents write, ANSI colours, and nothing unsafe", async () => {
+    const { md } = await import("../src/markdown.ts");
+    const html = md(
+      [
+        "## Results",
+        "**bold** and *italic* and ~~gone~~, `code`",
+        "",
+        "| step | p50 |",
+        "|:-----|----:|",
+        "| cold | 1.08s |",
+        "",
+        "- [x] lazy codecs",
+        "- [ ] autoloader",
+        "1. first",
+        "2. second",
+        "",
+        "> quoted",
+        "",
+        "```bash",
+        "npm test",
+        "```",
+        "\u001b[32mPASS\u001b[0m 48 tests",
+        "<script>alert(1)</script> [x](javascript:alert(2)) https://example.com/a?b=1",
+      ].join("\n"),
+    );
+    assert.match(html, /<div class="mdh mdh2">Results<\/div>/);
+    assert.match(html, /<b>bold<\/b> and <i>italic<\/i> and <s>gone<\/s>, <code>code<\/code>/);
+    assert.match(html, /<th style="text-align:left">step<\/th>|<th>step<\/th>/);
+    assert.match(html, /<td style="text-align:right">1\.08s<\/td>/);
+    assert.match(html, /class="mdbox on">✓<\/span>lazy codecs/);
+    assert.match(html, /<ol><li[^>]*>first<\/li>/);
+    assert.match(html, /<blockquote><p>quoted<\/p><\/blockquote>/);
+    assert.match(html, /<pre class="mdpre" data-lang="bash"><code>npm test<\/code><\/pre>/);
+    assert.match(html, /<span class="a-green">PASS<\/span> 48 tests/);
+    assert.doesNotMatch(html, /<script>|href="javascript:/);
+    assert.match(html, /&lt;script&gt;/);
+    assert.match(html, /<a href="https:\/\/example\.com\/a\?b=1"/);
+  });
+});
