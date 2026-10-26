@@ -1,7 +1,7 @@
 import { recordsBrief } from "./records";
 import { answerBtw, pendingBtw } from "./btw";
-import { getAttachment, readImage } from "./attachments";
-import { type Env, type Message, type Proposal, type Session, MEMBER_OF, RECEIVES, UserError, activeLocks, address, isMyLock, ago, addActivity, lockIn, scopedLocks, cleanBranch, cleanClient, fromOwnUser, renameSession, setHost, setVersion, workingOn, authenticate, coMembers, fmtLock, fmtMessage, myProjects, moveSession, projectFor, resolveProject, setOrigin, setPresence, setRepo, tally, touchSession, unread } from "./lib";
+import { getAttachment, isImage, readImage } from "./attachments";
+import { type Env, type Message, type Proposal, type Session, MEMBER_OF, RECEIVES, UserError, activeLocks, address, isMyLock, ago, addActivity, lockIn, scopedLocks, cleanBranch, cleanClient, fromOwnUser, renameSession, setHost, setVersion, workingOn, authenticate, coMembers, fmtLock, fmtMessage, myProjects, moveSession, projectFor, resolveProject, setCwd, setOrigin, setPresence, setRepo, tally, touchSession, unread } from "./lib";
 import { INSTRUCTIONS, tools } from "./tools";
 import { cliPoll, cliStart, connectPage, discoverJoin, discoverPage, discoverRequest, githubCallback, githubCreate, githubStart, signOut } from "./accounts";
 import { approvalStatus, decide, requestApproval, setAway } from "./approvals";
@@ -121,6 +121,7 @@ async function handleHook(url: URL, env: Env, me: string): Promise<Response> {
     await setHost(env, me, session.session_id, url.searchParams.get("host"));
     await setRepo(env, me, session.session_id, raw);
     await setOrigin(env, me, session.session_id, url.searchParams.get("origin"));
+    await setCwd(env, me, session.session_id, url.searchParams.get("cwd"));
     await setVersion(env, me, session.session_id, url.searchParams.get("version"));
   }
 
@@ -569,13 +570,21 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
     return redirect(back.pathname + back.search);
   }
   if (url.pathname.startsWith("/attachment/") && req.method === "GET") {
-    // An image attached to a message, for whoever may read that message.
+    // An image or file attached to a message, for whoever may read that message. Images show inline; any other
+    // file (an agent's share) only ever downloads, so nothing it contains runs on this origin.
     const a = await getAttachment(env, me, Number(url.pathname.slice(12)));
     if (!a) return new Response("Not found", { status: 404 });
     const buf = await readImage(env, a);
-    if (!buf) return new Response("This image has expired", { status: 410 });
+    if (!buf) return new Response("This attachment has expired", { status: 410 });
+    const image = isImage(a.mime);
     return new Response(buf, {
-      headers: { "content-type": a.mime, "cache-control": "private, max-age=86400", "x-content-type-options": "nosniff", "content-security-policy": "default-src 'none'" },
+      headers: {
+        "content-type": image ? a.mime : "application/octet-stream",
+        ...(image ? {} : { "content-disposition": `attachment; filename="${a.name.replace(/"/g, "")}"` }),
+        "cache-control": "private, max-age=86400",
+        "x-content-type-options": "nosniff",
+        "content-security-policy": "default-src 'none'; sandbox",
+      },
     });
   }
   if (url.pathname === "/agent/project" && req.method === "POST") {

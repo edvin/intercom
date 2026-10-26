@@ -23,6 +23,40 @@ export interface Attachment {
 export const marker = (a: Pick<Attachment, "id" | "name">) => `[📎 image #${a.id}${a.name ? `: ${a.name.replace(/[\]\n]/g, "")}` : ""}]`;
 export const MARKER_RE = /\[📎 image #(\d+)(?::[^\]\n]*)?\]/g;
 
+/** "[📎 file #13: report.pdf · 240 KB]": any other file an agent shared; the dashboard offers it as a download. */
+export const fileMarker = (a: Pick<Attachment, "id" | "name" | "bytes">) => `[📎 file #${a.id}: ${a.name.replace(/[\]\n·]/g, "")} · ${size(a.bytes)}]`;
+export const isImage = (mime: string) => TYPES.has(mime);
+export const MAX_FILE_BYTES = 10 * 1024 * 1024;
+
+export function size(bytes: number): string {
+  return bytes < 1024 ? `${bytes} B` : bytes < 1024 * 1024 ? `${Math.round(bytes / 1024)} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+/** A file an agent shares from its machine (the local intercom server reads it and sends it base64). */
+export async function storeFile(env: Env, me: string, f: { name: string; mime: string; data: string }): Promise<Attachment> {
+  if (!env.files) throw new UserError("File sharing isn't enabled on this intercom.");
+  await limit(env, `upload:${me}`, 100, 3600_000, "uploads");
+  let bytes: Uint8Array;
+  try {
+    bytes = Uint8Array.from(atob(f.data), (c) => c.charCodeAt(0));
+  } catch {
+    throw new UserError("The file data didn't arrive intact; try again.");
+  }
+  if (!bytes.length) throw new UserError("That file is empty.");
+  if (bytes.length > MAX_FILE_BYTES) throw new UserError(`That file is over ${MAX_FILE_BYTES / 1024 / 1024} MB.`);
+  const mime = /^[\w.+-]+\/[\w.+-]+$/.test(f.mime) ? f.mime.toLowerCase() : "application/octet-stream";
+  const key = `att/${crypto.randomUUID()}`;
+  await env.files.put(key, bytes, { httpMetadata: { contentType: mime } });
+  const name = (f.name || "file").replace(/[^\w.\- ]+/g, "_").slice(0, 80);
+  const row = await env.DB.prepare("INSERT INTO attachments (member, r2_key, mime, bytes, name, created_at) VALUES (?, ?, ?, ?, ?, ?) RETURNING *")
+    .bind(me, key, mime, bytes.length, name, Date.now())
+    .first<Attachment>();
+  return row!;
+}
+
+/** Text an agent can read straight from a shared file, when it is text and small. */
+export const isText = (a: Attachment) => /^text\/|\/(json|xml|yaml|x-yaml|csv|x-sh|javascript|typescript)$/.test(a.mime) && a.bytes <= 200_000;
+
 /** Store uploaded images; returns their markers, to append to the message. */
 export async function storeImages(env: Env, me: string, files: File[]): Promise<Attachment[]> {
   if (!files.length) return [];
@@ -65,7 +99,7 @@ export async function getAttachment(env: Env, me: string, id: number): Promise<A
   return (await roleIn(env, me, m.channel)) ? a : null;
 }
 
-/** The image bytes, or null when gone (expired). */
+/** The bytes, or null when gone (expired). */
 export async function readImage(env: Env, a: Attachment): Promise<ArrayBuffer | null> {
   const obj = await env.files?.get(a.r2_key);
   return obj ? await obj.arrayBuffer() : null;

@@ -225,6 +225,12 @@ export async function setOrigin(env: Env, me: string, sessionId: string, raw: st
   if (base) await env.DB.prepare("UPDATE sessions SET origin = ? WHERE member = ? AND session_id = ? AND origin != ?").bind(base, me, sessionId, base).run();
 }
 
+/** The directory a session works in, as its client reports it (home already shortened to ~). */
+export async function setCwd(env: Env, me: string, sessionId: string, raw: string | null | undefined): Promise<void> {
+  const cwd = String(raw ?? "").replace(/[\x00-\x1f]/g, "").slice(0, 300);
+  if (cwd) await env.DB.prepare("UPDATE sessions SET cwd = ? WHERE member = ? AND session_id = ? AND cwd != ?").bind(cwd, me, sessionId, cwd).run();
+}
+
 /** Remember the repo a session runs in (what the dashboard can link to a project). */
 export async function setRepo(env: Env, me: string, sessionId: string, raw: string | null | undefined): Promise<void> {
   const repo = normChannel(raw ?? "", "");

@@ -20,7 +20,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const VERSION = "0.12.11"; // kept in step with .claude-plugin/plugin.json (a test checks)
+const VERSION = "0.12.12"; // kept in step with .claude-plugin/plugin.json (a test checks)
 const DIR = path.join(os.homedir(), ".claude", "intercom");
 const CONFIG = path.join(DIR, "config");
 function readConf() {
@@ -145,18 +145,45 @@ function notify(m) {
   } catch {}
 }
 
-async function remote(method, params) {
+async function remote(method, params, timeout = 10_000) {
   refreshSession();
   const res = await fetch(`${BASE}/mcp`, {
     method: "POST",
     headers,
     body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
-    signal: AbortSignal.timeout(10_000),
+    signal: AbortSignal.timeout(timeout),
   });
   if (!res.ok) throw new Error(`hub returned HTTP ${res.status}`);
   const body = await res.json();
   if (body.error) throw new Error(body.error.message);
   return body.result;
+}
+
+// ---- share_file: the hub's tool, but the file is on this machine, so it's read here and sent along ----
+
+const SHARE_MAX = 10 * 1024 * 1024;
+const MIME = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp", gif: "image/gif", svg: "image/svg+xml", pdf: "application/pdf",
+  txt: "text/plain", log: "text/plain", md: "text/markdown", csv: "text/csv", json: "application/json", yaml: "application/yaml", yml: "application/yaml",
+  xml: "application/xml", html: "text/html", diff: "text/x-diff", patch: "text/x-diff", zip: "application/zip", gz: "application/gzip", mp4: "video/mp4", webm: "video/webm" };
+
+async function shareFile(params) {
+  const args = params.arguments ?? {};
+  const fail = (text) => ({ content: [{ type: "text", text }], isError: true });
+  const raw = String(args.path ?? "").trim();
+  if (!raw) return fail("Give the file's path.");
+  const file = path.resolve(process.cwd(), raw.replace(/^~(?=$|\/)/, os.homedir()));
+  let st;
+  try {
+    st = fs.statSync(file);
+  } catch {
+    return fail(`No file at ${file}.`);
+  }
+  if (!st.isFile()) return fail(`${file} isn't a file.`);
+  if (st.size > SHARE_MAX) return fail(`${file} is ${(st.size / 1024 / 1024).toFixed(1)} MB; the limit is 10 MB.`);
+  const name = path.basename(file);
+  const mime = MIME[path.extname(name).slice(1).toLowerCase()] ?? "application/octet-stream";
+  const data = fs.readFileSync(file).toString("base64");
+  return await remote("tools/call", { ...params, arguments: { ...args, path: file, _file: { name, mime, data } } }, 60_000);
 }
 
 // ---- local settings (this machine's ~/.claude/intercom/config), changed by asking the agent ----
@@ -460,6 +487,7 @@ async function onRequest(msg) {
     case "tools/call":
       if (msg.params?.name === SETTINGS_TOOL.name) return localSettings(msg.params?.arguments ?? {});
       try {
+        if (msg.params?.name === "share_file") return await shareFile(msg.params);
         return await remote("tools/call", msg.params);
       } catch (e) {
         return { content: [{ type: "text", text: `Intercom hub unreachable: ${e.message}` }], isError: true };

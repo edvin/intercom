@@ -7,7 +7,7 @@
 # lets the user decide to go ahead. It never blocks on its own in Claude Code.
 # Never fails: any error just means no intercom context this time.
 
-VERSION=0.12.11 # kept in step with .claude-plugin/plugin.json (a test checks)
+VERSION=0.12.12 # kept in step with .claude-plugin/plugin.json (a test checks)
 D="$HOME/.claude/intercom"
 event="${1:-UserPromptSubmit}"
 client="${2:-claude}"
@@ -188,13 +188,18 @@ branch=""
 # The machine, as teammates see it (INTERCOM_HOST_NAME nickname, or the short hostname; INTERCOM_SHARE_HOST=0: none).
 host=""
 [ "$INTERCOM_SHARE_HOST" = "0" ] || host="${INTERCOM_HOST_NAME:-$(hostname -s 2>/dev/null || hostname)}"
+# Where the session works, home shortened to ~ (only its owner sees it; INTERCOM_SHARE_CWD=0: not sent).
+cwd=""
+if [ "$INTERCOM_SHARE_CWD" != "0" ]; then
+  case "$workdir" in "$HOME"|"$HOME"/*) cwd="~${workdir#"$HOME"}" ;; *) cwd="$workdir" ;; esac
+fi
 # A standing name for this agent's sessions (INTERCOM_CODEX_NAME / INTERCOM_CLAUDE_NAME / INTERCOM_NAME).
 if [ "$client" = "codex" ]; then name="${INTERCOM_CODEX_NAME:-$INTERCOM_NAME}"; else name="${INTERCOM_CLAUDE_NAME:-$INTERCOM_NAME}"; fi
 
 curl -sf --max-time 3 -G "$INTERCOM_URL/api/hook" \
   --data-urlencode "event=$event" --data-urlencode "project=$project" --data-urlencode "session=$session" \
   --data-urlencode "branch=$branch" --data-urlencode "remote=$remote" --data-urlencode "origin=$origin" --data-urlencode "client=$client" --data-urlencode "name=$name" \
-  --data-urlencode "show=${INTERCOM_SHOW:-1}" --data-urlencode "host=$host" --data-urlencode "version=$VERSION" \
+  --data-urlencode "show=${INTERCOM_SHOW:-1}" --data-urlencode "host=$host" --data-urlencode "cwd=$cwd" --data-urlencode "version=$VERSION" \
   --data-urlencode "autoupdate=${INTERCOM_AUTO_UPDATE:-1}" --data-urlencode "updated=$updated" \
   -H "Authorization: Bearer $INTERCOM_TOKEN" 2>/dev/null
 exit 0

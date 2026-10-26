@@ -26,6 +26,7 @@ const ICONS: Record<string, string> = {
   monitor: '<rect width="20" height="14" x="2" y="3" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/>',
   pencil: '<path d="M21.17 6.81a1 1 0 0 0-3.99-3.99L3.84 16.17a2 2 0 0 0-.5.83l-1.32 4.35a.5.5 0 0 0 .62.62l4.35-1.32a2 2 0 0 0 .83-.5z"/><path d="m15 5 4 4"/>',
   sidebar: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/>',
+  folder: '<path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>',
   branch: '<path d="M6 3v12"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/>',
   unlock: '<rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/>',
   check: '<path d="M20 6 9 17l-5-5"/>',
@@ -357,6 +358,9 @@ form.btwmode textarea{border-color:color-mix(in srgb,var(--amber) 60%,transparen
 .imgtray{display:flex;gap:8px;flex-wrap:wrap;padding:6px 6px 8px}.imgthumb{position:relative}.imgthumb img{height:64px;max-width:120px;object-fit:cover;border-radius:8px;border:1px solid var(--line);display:block}
 .imgthumb button{position:absolute;top:-6px;right:-6px;width:20px;height:20px;border-radius:50%;border:0;background:var(--ink);color:var(--bg);font-size:13px;line-height:20px;padding:0;cursor:pointer}
 form.dropping{outline:2px dashed var(--accent);outline-offset:4px;border-radius:12px}
+.attf{display:inline-flex;align-items:center;gap:8px;margin:6px 8px 2px 0;padding:6px 11px 6px 8px;border:1px solid var(--line);border-radius:8px;background:var(--surface-2);color:var(--ink);text-decoration:none;font-family:"JetBrains Mono","Geist Mono",ui-monospace,monospace;font-size:12.5px;max-width:100%}
+.attf:hover{border-color:var(--accent);color:var(--ink)}.attf-i{display:grid;place-items:center;width:22px;height:22px;border-radius:6px;background:var(--accent-soft);color:var(--accent);font-size:13px}
+.attf-n{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.attf-s{color:var(--mute);font-size:11px;white-space:nowrap}
 .att{display:inline-block;margin:6px 8px 2px 0;vertical-align:top}.att img{display:block;max-width:min(360px,100%);max-height:240px;border-radius:8px;border:1px solid var(--line);background:var(--surface-2)}
 .att:hover img{border-color:var(--accent)}
 .act-loop .aic,.act-loop .atx{color:var(--accent)}
@@ -656,7 +660,13 @@ const SCRIPT = `
 
   // Folded tool steps you opened or closed stay that way when the thread redraws live.
   const folds = {};
+  // Unsent text in the composers survives live redraws, navigation and reloads: kept per page (agent or channel)
+  // in this browser, cleared when the message is sent.
+  const draftKey = (t) => { const u = new URL(location.href); return "ic_draft:" + t.id + ":" + (u.searchParams.get("agent") || u.searchParams.get("channel") || ""); };
+  const drafts = { get: (t) => { try { return localStorage.getItem(draftKey(t)) || ""; } catch { return ""; } },
+    set: (t) => { try { t.value.trim() ? localStorage.setItem(draftKey(t), t.value) : localStorage.removeItem(draftKey(t)); } catch {} } };
   function bind(root = document) {
+    $$("#chat-input, #compose", root).forEach((t) => { if (!t.value) t.value = drafts.get(t); t.addEventListener("input", () => drafts.set(t)); });
     // The tree: hide/show (⌘B; on phones it slides over), folded projects remembered, the drawer on feeds.
     const ide = document.getElementById("ide");
     $$("[data-treetoggle]", root).forEach((b) => b.onclick = () => toggleTree());
@@ -723,6 +733,8 @@ const SCRIPT = `
     try {
       const res = await fetch(f.action, { method: "POST", body: data, credentials: "same-origin" });
       const u = new URL(res.url), err = u.searchParams.get("err"), ok = u.searchParams.get("ok"), link = u.searchParams.get("link");
+      // Sent: the text goes before the redraw, which otherwise carries unsent text over.
+      if (!err) $$("textarea[id]", f).forEach((t) => { t.value = ""; drafts.set(t); });
       await swap(await res.text());
       if (err) toast(err, true); else { if (!f.hasAttribute("data-quiet")) toast(ok); f.reset(); if (f._imgs) { f._imgs.forEach((it) => URL.revokeObjectURL(it.url)); f._imgs = []; drawTray(f); } const d = f.closest("dialog"); d && d.close(); const ci = f.querySelector("#chat-input"); ci && ci.focus(); }
       if (link) { $("#invite-link").textContent = link; $("#invite-copy").dataset.copy = link; $("#invite-dlg").showModal(); }
@@ -740,6 +752,8 @@ const SCRIPT = `
       const stick = th ? th.scrollHeight - th.scrollTop - th.clientHeight < 80 : true;
       const keep = th ? th.scrollTop : 0;
       const known = new Set($$("[data-mid]", el).map((m) => m.dataset.mid));
+      // Whatever was typed but not sent stays, focused or not.
+      const typed = $$("textarea[id], input[type=text][id]", el).filter((t) => t.value).map((t) => [t.id, t.value]);
       const tb = el.querySelector(".tbody"), tbTop = tb ? tb.scrollTop : 0; // the tree keeps its place
       // Agent rows keep the order they had, so nothing moves under the pointer; ones that need you and new ones go first.
       if (tb) { const was = $$(".ta[data-k]", el).map((a) => a.dataset.k);
@@ -747,6 +761,7 @@ const SCRIPT = `
           const pos = (r) => { const i = was.indexOf(r.dataset.k); return "w" in r.dataset ? -2 : i < 0 ? -1 : i; };
           const anchor = rows[rows.length - 1].nextSibling;
           rows.sort((a, b) => pos(a) - pos(b)).forEach((r) => g.insertBefore(r, anchor)); }); }
+      typed.forEach(([id, v]) => { const t = next.querySelector("#" + CSS.escape(id)); if (t && !t.value) t.value = v; });
       el.replaceWith(next);
       if (tb) { const nb = next.querySelector(".tbody"); if (nb) nb.scrollTop = tbTop; }
       $$("details", next).forEach((d) => d.id && open.has(d.id) && (d.open = true));

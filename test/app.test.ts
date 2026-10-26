@@ -1255,6 +1255,38 @@ describe("images with messages", () => {
   });
 });
 
+describe("share_file", () => {
+  test("an agent shares a file from its machine: it lands in its user's dashboard; images preview, other files only download", async () => {
+    const w = await standardWorld();
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=sf1&name=core", { as: "bob" });
+    const s = { id: "sf1", project: "billing-api" };
+    const b64 = (t: string) => Buffer.from(t).toString("base64");
+
+    // Without the local server's file data (an old plugin), it says what to do.
+    assert.match((await w.tool("bob", "share_file", { path: "/tmp/x.log" }, s)).text, /needs the intercom's local server/);
+
+    // A log, to bob himself (the default): a DM to the dashboard with a file marker.
+    const out = await w.ok("bob", "share_file", { path: "/work/build.log", message: "The failing build:", _file: { name: "build.log", mime: "text/plain", data: b64("step 3 failed\n") } }, s);
+    assert.match(out, /Sent DM \[\d+\] to bob\. It carries \[📎 file #1: build\.log · 14 B\]/);
+    const page = await (await w.request("/dashboard", { as: "bob", cookie: true })).text();
+    assert.match(page, /<a class="attf" href="\/attachment\/1" download="build\.log"[^>]*>.*build\.log.*14 B/);
+    const dl = await w.request("/attachment/1", { as: "bob", cookie: true });
+    assert.equal(dl.headers.get("content-type"), "application/octet-stream");
+    assert.match(dl.headers.get("content-disposition")!, /attachment; filename="build\.log"/);
+    assert.equal(await dl.text(), "step 3 failed\n");
+    // Agents read text files with the attachment tool; outsiders get nothing.
+    assert.match(await w.ok("bob", "attachment", { id: 1 }, s), /File #1 \(build\.log, 14 B\)[\s\S]*step 3 failed/);
+    assert.equal((await w.request("/attachment/1", { as: "alice", cookie: true })).status, 404);
+
+    // An HTML file never renders on our origin; a screenshot previews like a pasted image.
+    await w.ok("bob", "share_file", { path: "x.html", _file: { name: "x.html", mime: "text/html", data: b64("<script>alert(1)</script>") }, to: "alice" }, s);
+    assert.equal((await w.request("/attachment/2", { as: "alice", cookie: true })).headers.get("content-type"), "application/octet-stream");
+    await w.ok("bob", "share_file", { path: "shot.png", _file: { name: "shot.png", mime: "image/png", data: b64("png") }, channel: "billing" }, s);
+    assert.match(await (await w.request("/dashboard?channel=billing", { as: "alice", cookie: true })).text(), /<a class="att" href="\/attachment\/3"/);
+    assert.equal((await w.request("/attachment/3", { as: "alice", cookie: true })).headers.get("content-type"), "image/png");
+  });
+});
+
 
 describe("invite-only (the default)", () => {
   test("only admins invite; owners' old links stop working; admin links create accounts, with or without a project", async () => {
@@ -1423,5 +1455,15 @@ describe("tree order", () => {
     assert.match(page, /data-k="bob\/older"[\s\S]*?<time class="tt"[^>]*>1h<\/time>/);
     assert.match(page, /data-k="bob\/newer"[\s\S]*?<time class="tt"[^>]*>5m<\/time>/);
     assert.doesNotMatch(page.match(/data-k="bob\/busy"[\s\S]*?<\/a>/)![0], /class="tt"/); // its dot says it's working
+  });
+});
+
+describe("working directory", () => {
+  test("the hooks report where a session works; only its owner sees it", async () => {
+    const w = await standardWorld();
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=wd1&name=core&cwd=~/work/billing-api", { as: "bob" });
+    const view = (as: string) => w.request("/dashboard?view=agents&agent=bob/core", { as, cookie: true }).then((r) => r.text());
+    assert.match(await view("bob"), /<span class="cwd" title="Working directory">.*~\/work\/billing-api<\/span>/);
+    assert.doesNotMatch(await view("alice"), /work\/billing-api/);
   });
 });

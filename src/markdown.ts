@@ -165,7 +165,13 @@ export function md(text: string, refs?: string | null): string {
   }
   flush();
   // Images attached to a message ([📎 image #12: shot.png]) show as thumbnails; a click opens the full image.
-  return out.join("").replace(/\[📎 image #(\d+)(?::\s?([^\]<]*))?\]/g, (_, id: string, name = "") =>
-    `<a class="att" href="/attachment/${id}" target="_blank" rel="noopener" title="${name || `image #${id}`}"><img src="/attachment/${id}" alt="${name || `image #${id}`}" loading="lazy"></a>`,
-  );
+  // Other files an agent shared ([📎 file #13: report.pdf · 240 KB]) are a download chip.
+  return out
+    .join("")
+    .replace(/\[📎 image #(\d+)(?::\s?([^\]<]*))?\]/g, (_, id: string, name = "") =>
+      `<a class="att" href="/attachment/${id}" target="_blank" rel="noopener" title="${name || `image #${id}`}"><img src="/attachment/${id}" alt="${name || `image #${id}`}" loading="lazy"></a>`,
+    )
+    .replace(/\[📎 file #(\d+):\s?([^\]<·]*?)\s*(?:·\s*([^\]<]*))?\]/g, (_, id: string, name: string, size = "") =>
+      `<a class="attf" href="/attachment/${id}" download="${name}" title="Download ${name}"><span class="attf-i">⤓</span><span class="attf-n">${name}</span>${size ? `<span class="attf-s">${size}</span>` : ""}</a>`,
+    );
 }
