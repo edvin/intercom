@@ -133,8 +133,12 @@ export function until(ts: number): string {
 
 export const address = (member: string, agent: string | null | undefined) => (agent ? `${member}/${agent}` : member);
 
-export function fmtMessage(m: Message): string {
-  const from = address(m.sender, m.sender_agent);
+/** Written by the person themself in the dashboard (no agent session), as seen by one of their own agents. */
+export const fromOwnUser = (m: Message, viewer?: string) => !!viewer && m.sender === viewer && !m.sender_agent;
+
+export function fmtMessage(m: Message, viewer?: string): string {
+  const own = fromOwnUser(m, viewer);
+  const from = own ? `${m.sender} (YOUR USER, from the dashboard)` : address(m.sender, m.sender_agent);
   const where = m.recipient ? `DM ${from} → ${address(m.recipient, m.recipient_agent)}` : `#${m.channel} · ${from}`;
   const marker = m.kind === "event" ? "• " : "";
   return `[${m.id}] ${where} · ${ago(m.created_at)}: ${marker}${m.body}`;
@@ -330,7 +334,11 @@ export async function unread(
   const agentOk = session ? "(recipient IS NULL OR recipient_agent IS NULL OR recipient_agent IN (?4, ?5))" : "?4 IS NULL AND ?5 IS NULL";
   // A session skips only what it sent itself: the member's other sessions (say Claude Code and Codex in one
   // project) and their posts from the dashboard reach it. Without a session it's the person's view: skip all their own.
-  const notMine = session ? "(sender != ?2 OR sender_agent IS NULL OR sender_agent != ?4)" : "sender != ?2";
+  // An agent writing to its own person without naming a session ("edvin") is answering the human in the dashboard;
+  // that reply isn't for the person's other agents.
+  const notMine = session
+    ? "(sender != ?2 OR sender_agent IS NULL OR (sender_agent != ?4 AND NOT (recipient IS NOT NULL AND recipient = ?2 AND recipient_agent IS NULL)))"
+    : "sender != ?2";
   const { results } = await env.DB.prepare(`SELECT * FROM messages WHERE id > ?1 AND ${notMine} AND ${RECEIVES} AND ${agentOk} ORDER BY id LIMIT ?3`)
     .bind(cursor, me, limit + 1, session?.label ?? null, session?.project ?? null)
     .all<Message>();

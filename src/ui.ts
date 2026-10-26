@@ -83,6 +83,26 @@ function relative(ts: number): string {
 
 export const hidden = (fields: Record<string, string>) => Object.entries(fields).map(([k, v]) => `<input type="hidden" name="${k}" value="${esc(v)}">`).join("");
 
+/**
+ * Message text as light Markdown, escaped first: fenced and inline code, bold, italics, links, bullet and numbered
+ * lines, headings. Agents write Markdown; this keeps it readable without a parser or any raw HTML.
+ */
+export function md(text: string): string {
+  const blocks: string[] = [];
+  let s = esc(text).replace(/```[a-z0-9_+-]*\n?([\s\S]*?)```/gi, (_, code) => {
+    blocks.push(`<pre class="mdpre"><code>${code.replace(/\n$/, "")}</code></pre>`);
+    return `\u0000${blocks.length - 1}\u0000`;
+  });
+  s = s
+    .replace(/`([^`\n]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>")
+    .replace(/(^|[\s(])\*([^*\n]+)\*(?=[\s).,!?:;]|$)/g, "$1<i>$2</i>")
+    .replace(/\bhttps?:\/\/[^\s<)]+/g, (u) => `<a href="${u}" target="_blank" rel="noopener noreferrer">${u}</a>`)
+    .replace(/^#{1,4} +(.+)$/gm, "<b>$1</b>")
+    .replace(/^(\s*)[-*] +/gm, "$1• ");
+  return s.replace(/\u0000(\d+)\u0000/g, (_, i) => blocks[Number(i)]);
+}
+
 /** A code block with a copy button. */
 export const codeBlock = (s: string) =>
   `<div class="code"><pre>${esc(s)}</pre><button type="button" class="btn ghost xs copy" data-copy="${esc(s)}" title="Copy">${icon("copy", 14)}<span>Copy</span></button></div>`;
@@ -217,6 +237,36 @@ label.field>input,label.field>textarea,label.field>select{width:100%}
 .tag{font-size:11.5px;font-weight:600;color:var(--mute);background:var(--surface-2);border:1px solid var(--line);padding:0 7px;border-radius:6px}
 .tag.dm{color:var(--accent);background:var(--accent-soft);border-color:transparent}
 
+/* markdown in messages */
+.mdpre{margin:6px 0;background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:8px 10px;overflow-x:auto;white-space:pre;font-size:12.5px}
+.body code,.bubble code{font-size:.86em}
+
+/* agents: the management station */
+.shell.wide{grid-template-columns:232px minmax(0,1fr)}
+@media (max-width:820px){.shell.wide{grid-template-columns:1fr}}
+.agents{display:grid;grid-template-columns:300px minmax(0,1fr);gap:20px;align-items:start}
+@media (max-width:1100px){.agents{grid-template-columns:1fr}}
+.alist{display:flex;flex-direction:column;gap:6px;position:sticky;top:76px;max-height:calc(100vh - 96px);overflow:auto}
+.acard{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border-radius:12px;border:1px solid transparent;color:var(--ink);text-decoration:none!important}
+.acard:hover{background:var(--surface-2)}
+.acard.on{background:var(--surface);border-color:var(--line);box-shadow:var(--shadow)}
+.acard .nm{font-weight:600;display:flex;gap:6px;align-items:center}.acard .sub{font-size:12px;color:var(--mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.acard .st{font-size:12.5px;color:var(--ink-2);margin-top:2px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--mute);flex:none}.dot.on{background:var(--green);box-shadow:0 0 0 3px var(--green-soft)}
+.chat{display:flex;flex-direction:column;height:calc(100vh - 120px);min-height:520px}
+.chat>.hd{flex-wrap:wrap}
+.thread{flex:1;overflow-y:auto;padding:18px;display:flex;flex-direction:column;gap:10px;scroll-behavior:smooth}
+.bubble{max-width:min(78%,760px);padding:10px 14px;border-radius:16px;background:var(--surface-2);border:1px solid var(--line);white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.5;align-self:flex-start;border-bottom-left-radius:6px}
+.bubble.me{align-self:flex-end;background:var(--grad);color:#fff;border:0;border-bottom-left-radius:16px;border-bottom-right-radius:6px}
+.bubble.me a{color:#fff;text-decoration:underline}.bubble.me code{background:rgba(255,255,255,.18);border-color:transparent;color:#fff}
+.bubble .when{display:block;font-size:11px;opacity:.65;margin-top:4px}
+.activity{align-self:center;font-size:12.5px;color:var(--mute);text-align:center;max-width:80%;display:flex;gap:6px;align-items:center}
+.chatbox{border-top:1px solid var(--line);padding:12px 14px;display:flex;flex-direction:column;gap:8px}
+.chatbox textarea{min-height:52px;max-height:240px;font-size:14.5px}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chip{font-size:12px;padding:3px 10px;border-radius:99px;border:1px solid var(--line-strong);background:var(--surface);color:var(--ink-2);cursor:pointer}
+.chip:hover{border-color:color-mix(in srgb,var(--accent) 50%,transparent);color:var(--accent)}
+
 /* avatars */
 .av{display:inline-grid;place-items:center;flex:none;border-radius:50%;font-weight:650;color:#fff;background:linear-gradient(135deg,hsl(var(--h) 75% 62%),hsl(calc(var(--h) + 40) 70% 48%));box-shadow:inset 0 0 0 1px rgba(255,255,255,.15)}
 .av-s{width:22px;height:22px;font-size:11px}.av-m{width:36px;height:36px;font-size:15px}.av-l{width:44px;height:44px;font-size:18px}
@@ -337,6 +387,9 @@ const SCRIPT = `
     $$("[data-close]", root).forEach((b) => b.onclick = () => b.closest("dialog").close());
     $$("form", root).forEach((f) => { if (!f.hasAttribute("data-native") || f.dataset.confirm) f.onsubmit = submit; });
     $$("input[data-noenter]", root).forEach((i) => i.onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); toast("Pick an option to vote"); } });
+    $$("textarea[data-chat]", root).forEach((t) => t.onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); if (t.value.trim()) t.form.requestSubmit(); } });
+    $$("[data-chip]", root).forEach((b) => b.onclick = () => { const t = $("#chat-input"); if (t) { t.value = b.dataset.chip; t.form.requestSubmit(); } });
+    $$(".thread", root).forEach((th) => { th.scrollTop = th.scrollHeight; });
     $$("textarea[data-enter]", root).forEach((t) => t.onkeydown = (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); t.form.requestSubmit(); } });
   }
   async function submit(e) {
@@ -349,7 +402,7 @@ const SCRIPT = `
       const res = await fetch(f.action, { method: "POST", body: data, credentials: "same-origin" });
       const u = new URL(res.url), err = u.searchParams.get("err"), ok = u.searchParams.get("ok"), link = u.searchParams.get("link");
       await swap(await res.text());
-      if (err) toast(err, true); else { toast(ok); f.reset(); const d = f.closest("dialog"); d && d.close(); }
+      if (err) toast(err, true); else { if (!f.hasAttribute("data-quiet")) toast(ok); f.reset(); const d = f.closest("dialog"); d && d.close(); const ci = f.querySelector("#chat-input"); ci && ci.focus(); }
       if (link) { $("#invite-link").textContent = link; $("#invite-copy").dataset.copy = link; $("#invite-dlg").showModal(); }
     } catch { toast("Network error — try again", true); }
     btns.forEach((b) => (b.disabled = false));

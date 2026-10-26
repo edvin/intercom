@@ -8,6 +8,7 @@ const later = Date.now() + 30 * 60_000
 const SNAP: Snapshot = {
   me: 'edvin',
   label: 'loxodon-core',
+  prompts: [],
   project: 'billing',
   origin: 'https://hub.example',
   unread: 2,
@@ -69,3 +70,20 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(await ui.findAll({ type: 'Text', text: /deploy:billing:prod/ })).toHaveLength(0)
   })
 }
+
+test('an idle session takes a dashboard message from its user as a prompt, once', async ($, on) => {
+  const submitted: string[] = []
+  on('prompt.submit', async (_$, e) => {
+    submitted.push(e.text)
+    return { text: e.text } as never
+  })
+  on('ui.toast', async () => ({ value: undefined }) as never)
+  const clock = world(on, { ...SNAP, locks: [], votes: [], prompts: [{ id: 41, body: 'Switch to the WebP fixes first.' }] })
+  await $.session.start({ cwd: '/work/billing-api', surface: 'terminal' } as never)
+  await clock.advance(1)
+  expect(submitted).toHaveLength(1)
+  expect(submitted[0]).toContain('Switch to the WebP fixes first.')
+  // The next poll sees the same unread message (the hook marks it read on submit): not submitted again.
+  await clock.advance(8_000)
+  expect(submitted).toHaveLength(1)
+})

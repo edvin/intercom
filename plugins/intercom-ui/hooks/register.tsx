@@ -15,7 +15,7 @@ const snap = atom({ plugin: 'intercom-ui', key: 'snap' } as const, null)
 const error = atom({ plugin: 'intercom-ui', key: 'error' } as const, null)
 const hidden = atom({ plugin: 'intercom-ui', key: 'hidden' } as const, [])
 
-const POLL_MS = 15_000
+const POLL_MS = 8_000
 
 type Conf = { url: string; token: string }
 
@@ -33,7 +33,7 @@ const left = (ts: number, now: number) => {
 const short = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s)
 
 /** Module state; a reload starts it over (the snapshot itself lives in $.state). */
-const ctx = { conf: null as Conf | null, repo: '', sessionId: '', seen: -1, busy: false }
+const ctx = { conf: null as Conf | null, repo: '', sessionId: '', seen: -1, busy: false, turning: false, submitted: new Set<number>() }
 
 async function loadConf($: Engine): Promise<Conf | null> {
   const home = await $.env.get('HOME')
@@ -96,6 +96,7 @@ async function refresh($: Engine): Promise<void> {
     await update($, error, () => null)
     await update($, snap, () => s)
     announce($, s)
+    await wake($, s)
     // Lead with this session's name on the intercom (e.g. "alder"), which is what others address it by.
     const parts = [`📻 ${s.label ?? s.me}`, `${s.unread} unread`]
     const others = s.locks.filter(l => !l.mine)
@@ -130,6 +131,22 @@ function announce($: Engine, s: Snapshot): void {
   }
 }
 
+/**
+ * The user wrote to this session from the dashboard: when it's idle, submit that as a prompt, as if typed here.
+ * A busy session gets it from its Stop hook instead, so it isn't submitted twice.
+ */
+async function wake($: Engine, s: Snapshot): Promise<void> {
+  if (ctx.turning) return
+  const fresh = (s.prompts ?? []).filter(p => !ctx.submitted.has(p.id))
+  if (!fresh.length) return
+  for (const p of fresh) ctx.submitted.add(p.id)
+  const body = fresh.map(p => p.body).join('\n\n---\n\n')
+  $.ui.toast(`📻 ${s.label ?? 'intercom'}: your message from the dashboard`)
+  await $.prompt.submit({
+    text: `${body}\n\n(Sent by you from the intercom dashboard. Reply there with the intercom post tool, to: "${s.me}".)`,
+  })
+}
+
 async function vote($: Engine, v: Vote, choice: string): Promise<void> {
   $.ui.toast(short(await call($, 'vote', { proposal_id: v.id, choice }), 160))
   await refresh($)
@@ -157,9 +174,18 @@ export const register: Register = on => {
   })
 
   // Fresh numbers right after each of your turns (the main loop's, not subagents').
+  on('turn.start', async ($, e, next) => {
+    // Mid-turn, the Stop hook carries dashboard messages; a new prompt only goes to an idle session.
+    if (e.agentId === undefined) ctx.turning = true
+    return next(e)
+  })
+
   on('turn.complete', async ($, e, next) => {
     const out = await next(e)
-    if (e.agentId === undefined) void refresh($)
+    if (e.agentId === undefined) {
+      ctx.turning = false
+      void refresh($)
+    }
     return out
   })
 

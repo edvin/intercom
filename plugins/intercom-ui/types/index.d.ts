@@ -35,6 +35,8 @@ export type Snapshot = {
   me: string
   /** This session's intercom name, e.g. alder (null until the session is known to the hub). */
   label: string | null
+  /** What the user typed to this session in the dashboard, not read yet: submitted as prompts when idle. */
+  prompts: { id: number; body: string }[]
   project: string | null
   origin: string
   unread: number

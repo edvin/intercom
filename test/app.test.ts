@@ -692,3 +692,46 @@ describe("dead agents", () => {
     assert.equal(await start(w, "k3"), "birch");
   });
 });
+
+describe("managing your agents from the dashboard", () => {
+  test("a message from you is YOUR USER; a busy agent continues with it at Stop; its reply reaches only you", async () => {
+    const w = await standardWorld();
+    const alder = { id: "codex-m", project: "billing-api" };
+    const lox = { id: "claude-m", project: "billing-api" };
+    await w.ok("bob", "inbox", {}, alder);
+    await w.ok("bob", "inbox", {}, lox);
+    await w.ok("bob", "set_name", { name: "alder" }, alder);
+    await w.ok("bob", "set_name", { name: "loxodon" }, lox);
+    // Bob types in the dashboard (no session): to one agent.
+    await w.ok("bob", "post", { to: "bob/alder", message: "Switch to the WebP fixes first." });
+    const stop = async (sid: string) => {
+      const t = await (await w.request(`/api/hook?event=Stop&project=billing-api&session=${sid}`, { as: "bob" })).text();
+      return t ? JSON.parse(t) : null;
+    };
+    const cont = await stop("codex-m");
+    assert.equal(cont.decision, "block");
+    assert.match(cont.reason, /Switch to the WebP fixes first\./);
+    assert.equal(await stop("codex-m"), null); // handed over once
+    assert.equal(await stop("claude-m"), null); // not for loxodon
+    // alder answers its user; loxodon (another of bob's agents) doesn't get that reply.
+    await w.ok("bob", "post", { to: "bob", message: "On it: WebP first." }, alder);
+    assert.equal(await w.ok("bob", "inbox", {}, lox), "No unread messages.");
+    // In an agent's view, your own dashboard messages are marked as yours.
+    await w.ok("bob", "post", { channel: "billing", message: "Freeze after 18:00." });
+    assert.match(await w.ok("bob", "inbox", {}, lox), /bob \(YOUR USER, from the dashboard\).*Freeze after 18:00/);
+  });
+
+  test("hooks report what a session is doing", async () => {
+    const w = await standardWorld();
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=st1", { as: "bob" });
+    const state = async () => (await w.db.prepare("SELECT state, state_detail FROM sessions WHERE session_id = 'st1'").first<{ state: string; state_detail: string }>())!;
+    await w.request("/api/hook?event=UserPromptSubmit&project=billing-api&session=st1", { as: "bob" });
+    assert.equal((await state()).state, "working");
+    await w.request("/api/hook?event=Notification&session=st1&detail=Claude%20needs%20your%20permission%20to%20use%20Bash", { as: "bob" });
+    const waiting = await state();
+    assert.equal(waiting.state, "waiting");
+    assert.equal(waiting.state_detail, "Claude needs your permission to use Bash");
+    await w.request("/api/hook?event=Notification&session=st1&kind=idle_prompt", { as: "bob" });
+    assert.equal((await state()).state, "idle");
+  });
+});

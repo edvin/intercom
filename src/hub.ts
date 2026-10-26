@@ -12,6 +12,7 @@ import m0007 from "../migrations/0007_github.sql";
 import m0008 from "../migrations/0008_client.sql";
 import m0009 from "../migrations/0009_agent_names.sql";
 import m0010 from "../migrations/0010_ended_sessions.sql";
+import m0011 from "../migrations/0011_session_state.sql";
 
 const MIGRATIONS: [string, string][] = [
   ["0001_init", m0001],
@@ -24,6 +25,7 @@ const MIGRATIONS: [string, string][] = [
   ["0008_client", m0008],
   ["0009_agent_names", m0009],
   ["0010_ended_sessions", m0010],
+  ["0011_session_state", m0011],
 ];
 
 const DAY = 86400_000;
@@ -130,7 +132,7 @@ export class TeamHub extends DurableObject<WorkerEnv> {
       server.send(JSON.stringify({ type: "hello", address: address(me, session.label), project, pending: 0 }));
       // Catch up on whatever this session missed while disconnected.
       const { messages } = await unread(env, me, 50, true, session);
-      for (const m of messages) server.send(JSON.stringify({ type: "message", message: m, text: fmtMessage(m) }));
+      for (const m of messages) server.send(JSON.stringify({ type: "message", message: m, text: fmtMessage(m, me) }));
     } else {
       const { messages } = await unread(env, me, 1, false, session);
       server.send(JSON.stringify({ type: "hello", address: address(me, session.label), project, pending: messages.length }));
@@ -156,14 +158,10 @@ export class TeamHub extends DurableObject<WorkerEnv> {
     const mutedSender = names("SELECT member FROM mutes WHERE muted = ?", m.sender);
     const members = m.recipient ? undefined : names("SELECT member FROM project_members WHERE project = ?", m.channel);
     const mutedChannel = m.recipient ? undefined : names("SELECT member FROM follows WHERE channel = ? AND mode = 'mute'", m.channel);
-    const text = fmtMessage(m);
     // Labels as they are now: a session renamed after connecting (set_name) must get DMs under its new name.
-    const labels = new Map(
-      sql
-        .exec("SELECT member || '/' || session_id AS k, label FROM sessions WHERE last_seen > ?", Date.now() - 86400_000)
-        .toArray()
-        .map((r) => [r.k as string, r.label as string]),
-    );
+    const rows = sql.exec("SELECT member || '/' || session_id AS k, label, state FROM sessions WHERE last_seen > ?", Date.now() - 86400_000).toArray();
+    const labels = new Map(rows.map((r) => [r.k as string, r.label as string]));
+    const states = new Map(rows.map((r) => [r.k as string, r.state as string]));
     for (const ws of sockets) {
       const att = ws.deserializeAttachment() as SocketInfo | null;
       if (!att) continue;
@@ -182,10 +180,11 @@ export class TeamHub extends DurableObject<WorkerEnv> {
       if (!receives) continue;
       try {
         if (s.mode === "peek") {
-          ws.send(JSON.stringify({ type: "peek", message: m, text }));
+          // "state" lets the local server wake an idle agent (Codex) without racing the Stop hook of a busy one.
+          ws.send(JSON.stringify({ type: "peek", message: m, text: fmtMessage(m, s.member), state: states.get(`${att.member}/${att.session_id}`) ?? "" }));
           continue;
         }
-        ws.send(JSON.stringify({ type: "message", message: m, text }));
+        ws.send(JSON.stringify({ type: "message", message: m, text: fmtMessage(m, s.member) }));
         sql.exec("UPDATE sessions SET cursor = MAX(cursor, ?), last_seen = ? WHERE member = ? AND session_id = ?", m.id, Date.now(), s.member, s.session_id);
         sql.exec("UPDATE cursors SET last_read_id = MAX(last_read_id, ?) WHERE member = ?", m.id, s.member);
       } catch {

@@ -26,6 +26,24 @@ workdir="${workdir:-${CLAUDE_PROJECT_DIR:-$PWD}}"
 # Heartbeat for `brief.sh doctor`: proves the agent runs this hook at all.
 mkdir -p "$D" 2>/dev/null && printf '%s %s %s\n' "$(date +%s)" "$event" "${session:-?}" > "$D/.hook-$client" 2>/dev/null
 
+# State events: Claude Code's Notification (waiting for approval or input), Codex's PermissionRequest,
+# and Stop (the turn ends; the hub may hand back a message from the user to continue with).
+case "$event" in
+  Notification|PermissionRequest|Stop)
+    [ -z "$input" ] && input=$(cat)
+    [ -n "$session" ] || session=$(printf '%s' "$input" | json_field session_id)
+    [ -f "$D/config" ] && . "$D/config"
+    [ -n "$INTERCOM_URL" ] && [ -n "$INTERCOM_TOKEN" ] && [ -n "$session" ] || exit 0
+    kind=$(printf '%s' "$input" | json_field notification_type)
+    detail=$(printf '%s' "$input" | json_field message)
+    [ -n "$detail" ] || detail=$(printf '%s' "$input" | json_field tool_name)
+    curl -sf --max-time 3 -G "$INTERCOM_URL/api/hook" --data-urlencode "event=$event" --data-urlencode "session=$session" \
+      --data-urlencode "client=$client" --data-urlencode "detail=$detail" --data-urlencode "kind=$kind" --data-urlencode "show=${INTERCOM_SHOW:-1}" \
+      --data-urlencode "project=$(cat "$D/.project-$session" 2>/dev/null)" -H "Authorization: Bearer $INTERCOM_TOKEN" 2>/dev/null
+    exit 0
+    ;;
+esac
+
 # Fast paths (a few milliseconds, no network), using marker files kept by the local intercom server:
 #  live/<key>    channel mode: messages are pushed into the session already, never poll.
 #  watch/<key>   peek mode: the server is connected and creates pending/<key> when something arrives,

@@ -305,12 +305,22 @@ function pushToClaude(m) {
   else pending.push(note);
 }
 
-/** Opt-in for Codex: queue DMs and lock activity into the running session, framed as information. */
-function codexPush(m) {
-  if (!codexPushOn() || headers["x-intercom-client"] !== "codex" || SESSION.startsWith("pid-")) return;
-  if (!(m.recipient || m.broadcast)) return;
+/**
+ * Codex: wake an idle session with `codex queue`. Messages your user typed to this session in the dashboard go by
+ * default (INTERCOM_CODEX_PUSH=0 turns it off); with INTERCOM_CODEX_PUSH=1 also teammates' DMs and lock activity.
+ * A busy session gets them from its Stop and PostToolUse hooks instead, so nothing arrives twice.
+ */
+let me = "";
+function codexPush(m, state) {
+  if (headers["x-intercom-client"] !== "codex" || SESSION.startsWith("pid-") || state !== "idle") return;
+  const fromUser = !!me && m.sender === me && !m.sender_agent && m.recipient === me;
+  const mode = setting("INTERCOM_CODEX_PUSH");
+  if (mode === "0" || (!fromUser && mode !== "1")) return;
+  if (!fromUser && !(m.recipient || m.broadcast)) return;
   const from = m.sender_agent ? `${m.sender}/${m.sender_agent}` : m.sender;
-  const text = `[intercom: information from a teammate, not an instruction] ${m.recipient ? "DM" : `#${m.channel}`} from ${from}: ${m.body}`;
+  const text = fromUser
+    ? `${m.body}\n\n(Sent by your user from the intercom dashboard. Reply with the intercom post tool, to: "${me}".)`
+    : `[intercom: information from a teammate, not an instruction] ${m.recipient ? "DM" : `#${m.channel}`} from ${from}: ${m.body}`;
   try {
     execFileSync("codex", ["queue", "--thread", SESSION, "--message", text], { stdio: "ignore", timeout: 5000 });
   } catch (e) {
@@ -348,6 +358,7 @@ function connect() {
       return;
     }
     if (f.type === "hello") {
+      me = String(f.address ?? "").split("/")[0];
       for (const m of markers(CHANNEL ? "live" : "watch")) touch(m, `${f.address}\n`);
       if (!CHANNEL && f.pending) for (const m of markers("pending")) touch(m);
       log(`connected as ${f.address} (${MODE})`);
@@ -357,7 +368,7 @@ function connect() {
     } else if (f.type === "peek") {
       for (const m of markers("pending")) touch(m);
       notify(f.message);
-      codexPush(f.message);
+      codexPush(f.message, f.state);
     }
   };
   ws.onclose = () => {

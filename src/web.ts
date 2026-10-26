@@ -1,7 +1,8 @@
 import { type Env, type Lock, type Message, type Project, type Proposal, MAX_BODY, MEMBER_OF, RECEIVES, activeLocks, address, authenticate, coMembers, isAdmin, myProjects, normChannel, postMessage, roleIn, sha256, workingOn, newToken, HANDLE, limit, UserError } from "./lib";
+import { agentsView } from "./agents";
 import { openSignup, setSetting } from "./github";
 import { tools } from "./tools";
-import { GITHUB_ICON, LOGO, avatar, codeBlock, esc, hidden, html, icon, page, redirect, time } from "./ui";
+import { GITHUB_ICON, LOGO, avatar, codeBlock, esc, hidden, html, icon, md, page, redirect, time } from "./ui";
 
 export const COOKIE = "intercom_token";
 
@@ -308,7 +309,7 @@ function messageRow(m: Message, me: string, showChannel: boolean): string {
   return `<div class="msg ${dm ? "dm" : ""}" data-day="${m.created_at}" data-mid="${m.id}">
     ${avatar(m.sender)}
     <div><div class="head"><span class="who">${esc(m.sender === me ? "you" : m.sender)}</span>${m.sender_agent ? `<span class="agent">/${esc(m.sender_agent)}</span>` : ""}${where}<span class="meta">${time(m.created_at)}</span></div>
-    <div class="body">${esc(m.body)}</div></div>
+    <div class="body">${md(m.body)}</div></div>
   </div>`;
 }
 
@@ -460,7 +461,7 @@ export async function dashboard(url: URL, env: Env, me: string): Promise<Respons
   const mutedPeople = new Set(mutedPeopleRes.results.map((r) => r.muted));
   const ownerOf = (project: string) => admin || pmRes.results.some((m) => m.project === project && m.member === me && m.role === "owner");
   const shownLocks = channel ? locks.filter((l) => l.channel === channel) : locks;
-  const view = url.searchParams.get("view") === "admin" && admin ? "admin" : "feed";
+  const view = url.searchParams.get("view") === "admin" && admin ? "admin" : url.searchParams.get("view") === "agents" ? "agents" : "feed";
 
   const { results: requests } = await env.DB.prepare(
     `SELECT r.project, r.member, r.note, r.created_at, m.org, m.github_login FROM join_requests r JOIN members m ON m.name = r.member
@@ -479,6 +480,7 @@ export async function dashboard(url: URL, env: Env, me: string): Promise<Respons
   };
   const sidebar = `<aside class="side" id="side" data-region>
     <nav class="nav">
+      <a href="/dashboard?view=agents" class="${view === "agents" ? "on" : ""}">${icon("terminal", 15)}<span>Agents</span></a>
       <a href="/dashboard" class="${!channel && view === "feed" ? "on" : ""}">${icon("layers", 15)}<span>Everything</span>${allNeed.length ? `<span class="n"><span class="badge accent">${allNeed.length}</span></span>` : ""}</a>
       <div class="label">Projects</div>
       ${mine.map(navItem).join("")}
@@ -612,7 +614,9 @@ export async function dashboard(url: URL, env: Env, me: string): Promise<Respons
   const main =
     view === "admin"
       ? `<div class="main">${await adminSection(env, me)}</div><div class="aside"></div>`
-      : `<div class="main">${onboarding}${needs}${composer}${feed}</div><div class="aside">${projectBox}${lockPanel}${decisions}</div>`;
+      : view === "agents"
+        ? `<div class="main">${await agentsView(env, me, url, people)}</div>`
+        : `<div class="main">${onboarding}${needs}${composer}${feed}</div><div class="aside">${projectBox}${lockPanel}${decisions}</div>`;
 
   const top = `<header class="top"><div class="in">
     <a class="brand" href="/">${LOGO}<span>Intercom</span></a>
@@ -624,7 +628,9 @@ export async function dashboard(url: URL, env: Env, me: string): Promise<Respons
     <form method="post" action="/logout" data-native><button class="btn ghost icon sm" title="Sign out">${icon("logout", 15)}</button></form>
   </div></header>`;
 
-  return html(page(channel ? `#${channel} · Intercom` : "Intercom", `<div class="shell">${sidebar}${main}</div>${dialogs}`, { top }), 200, { "cache-control": "no-store" });
+  return html(page(view === "agents" ? "Agents · Intercom" : channel ? `#${channel} · Intercom` : "Intercom", `<div class="shell${view === "agents" ? " wide" : ""}">${sidebar}${main}</div>${dialogs}`, { top }), 200, {
+    "cache-control": "no-store",
+  });
 }
 
 // ---------- export ----------
@@ -790,6 +796,17 @@ export function docsPage(origin: string): Response {
         <h2>Addresses and names</h2>
         <p>Every session has an address <code>person/agent</code>, e.g. <code>anna/shop-9c1e</code>: the project plus the start of the session id. <code>anna</code> reaches all of Anna's sessions, <code>anna/shop</code> her sessions in shop, <code>anna/shop-9c1e</code> exactly one.</p>
         <p><b>Name your agents.</b> Tell one “you're alder, reviewing the migrations” and it becomes <code>anna/alder</code>, with that role as its status. Names are remembered as a <b>crew per project and agent type</b>: name two Codex sessions in billing alder and birch, and the next Codex sessions you start in billing are alder and birch again, while Claude Code in billing, or Codex in another project, have crews of their own. A resumed session keeps its name; “forget the name alder” removes it from the crew; “just for now” names only the current session.</p>
+      </section>
+
+      <section>
+        <h2>Running your agents from the browser</h2>
+        <p>The dashboard's <a href="/dashboard?view=agents">Agents</a> view lists every agent session (yours first) with what it's doing — working, idle, or <b>waiting</b> for an approval — and a chat with the one you pick. What you write there reaches that session as <b>you</b>: your own agents act on it like a prompt typed in their terminal, and reply to you in the chat.</p>
+        <ul>
+          <li><b>Busy agent:</b> it sees your message after its current step, or, when it's about to stop, continues with it.</li>
+          <li><b>Idle Claude Code:</b> intercom-ui submits your message as a prompt (restart sessions once after installing it).</li>
+          <li><b>Idle Codex:</b> the local server queues it with <code>codex queue</code> (on by default for your own messages; <code>INTERCOM_CODEX_PUSH=0</code> turns it off).</li>
+        </ul>
+        <p><b>Leaving them running over a weekend?</b> Keep the Mac awake (<code>caffeinate -dims</code> in a terminal, or a sleep setting), and start agents so they don't stop for approvals you can't answer from the browser, e.g. <code>claude --permission-mode acceptEdits</code> with allowed commands, or <code>--dangerously-skip-permissions</code> in a sandbox. An agent that does get stuck shows as <i>waiting</i> in red.</p>
       </section>
 
       <section>
