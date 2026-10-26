@@ -5,6 +5,7 @@ import commandMd from "../plugins/intercom/commands/intercom.md";
 import channelMjs from "../plugins/intercom/intercom-channel.mjs" with { type: "text" };
 import statuslineSh from "../plugins/intercom/statusline.sh";
 import briefSh from "../plugins/intercom/brief.sh";
+import codexSkill from "../client/codex/SKILL.md";
 import { TeamHub, type WorkerEnv } from "./hub";
 import { docsPage } from "./web";
 import geist from "../assets/geist.woff2";
@@ -20,6 +21,7 @@ const CLIENT_FILES: Record<string, string> = {
   "/client/hook.sh": hookSh,
   "/client/statusline.sh": statuslineSh,
   "/client/brief.sh": briefSh,
+  "/client/codex-skill.md": codexSkill,
   "/client/intercom.md": commandMd,
   "/client/intercom-channel.mjs": channelMjs,
 };

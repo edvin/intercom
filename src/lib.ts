@@ -244,16 +244,47 @@ async function getCursor(env: Env, me: string): Promise<number> {
 }
 
 /** Register/refresh a session. New sessions start reading where the member's person-level cursor is. */
-export async function touchSession(env: Env, me: string, sessionId: string, project: string, branch: string | null = null): Promise<Session & { cursor: number }> {
-  const label = `${project || "session"}-${sessionId.replace(/[^a-z0-9]/gi, "").slice(0, 4).toLowerCase()}`;
+/** The agent a session runs in, as reported by the local server: "claude" (default) or "codex". */
+export const cleanClient = (raw: string | null | undefined): string | null => (raw === "codex" || raw === "claude" ? raw : null);
+
+/** A session name as people type it ("Alder" → "alder"), or null if it isn't a usable name. */
+export const cleanName = (raw: unknown): string | null => {
+  const n = String(raw ?? "").trim().toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 24);
+  return /^[a-z][a-z0-9-]{0,23}$/.test(n) ? n : null;
+};
+
+/** `name`, or name-2, name-3 … if another of the member's live sessions already uses it. */
+export async function freeLabel(env: Env, me: string, sessionId: string, name: string): Promise<string> {
+  for (let i = 1; i < 50; i++) {
+    const label = i === 1 ? name : `${name}-${i}`;
+    const taken = await env.DB.prepare("SELECT 1 FROM sessions WHERE member = ? AND label = ? AND session_id != ? AND last_seen > ?")
+      .bind(me, label, sessionId, Date.now() - 6 * 3600_000)
+      .first();
+    if (!taken) return label;
+  }
+  return `${name}-${sessionId.slice(0, 4)}`;
+}
+
+export async function touchSession(
+  env: Env,
+  me: string,
+  sessionId: string,
+  project: string,
+  branch: string | null = null,
+  client: string | null = null,
+  name: string | null = null,
+): Promise<Session & { cursor: number }> {
+  const named = cleanName(name);
+  const label = named ? await freeLabel(env, me, sessionId, named) : `${project || "session"}-${sessionId.replace(/[^a-z0-9]/gi, "").slice(0, 4).toLowerCase()}`;
   const base = await getCursor(env, me);
   const now = Date.now();
   const row = await env.DB.prepare(
-    `INSERT INTO sessions (member, session_id, label, project, cursor, started_at, last_seen, branch) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6, COALESCE(?7, ''))
-     ON CONFLICT(member, session_id) DO UPDATE SET project = ?4, last_seen = ?6, branch = COALESCE(?7, sessions.branch)
+    `INSERT INTO sessions (member, session_id, label, project, cursor, started_at, last_seen, branch, client) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6, COALESCE(?7, ''), COALESCE(?8, 'claude'))
+     ON CONFLICT(member, session_id) DO UPDATE SET project = ?4, last_seen = ?6, branch = COALESCE(?7, sessions.branch), client = COALESCE(?8, sessions.client),
+       label = CASE WHEN ?9 IS NOT NULL AND sessions.label NOT LIKE ?9 || '%' THEN ?3 ELSE sessions.label END
      RETURNING label, cursor`,
   )
-    .bind(me, sessionId, label, project, base, now, branch)
+    .bind(me, sessionId, label, project, base, now, branch, client, named)
     .first<{ label: string; cursor: number }>();
   return { session_id: sessionId, project, ...row! };
 }

@@ -101,15 +101,31 @@ export function conflicting(locks: Lock[], me: string, project: string | null, c
 }
 
 /** Hook JSON for the PreToolUse guard, or null to stay silent. */
-export async function guard(env: Env, me: string, project: string | null, command: string): Promise<object | null> {
+/** Prefix a command with this to run it anyway after the user decided to (Codex can't ask; it can only refuse). */
+export const OVERRIDE = "INTERCOM_LOCK_OK=1";
+
+export async function guard(env: Env, me: string, project: string | null, command: string, client = "claude"): Promise<object | null> {
   const risky = riskyCommand(command);
   if (!risky) return null;
+  if (client === "codex" && command.includes(OVERRIDE)) return null;
   const mine = await myProjects(env, me);
   const current = project && mine.includes(project) ? project : null;
   const locks = await activeLocks(env, me);
   const hits = conflicting(locks, me, current, command, risky);
   if (hits.length) {
     const lines = hits.map((l) => `🔒 ${l.resource} is held by ${l.holder} (since ${ago(l.created_at)}, ${until(l.expires_at)} left)${l.reason ? ` — "${l.reason}"` : ""}`);
+    if (client === "codex") {
+      // Codex hooks can refuse but not ask: refuse with the reason, and let the user decide to go ahead.
+      return {
+        hookSpecificOutput: {
+          hookEventName: "PreToolUse",
+          permissionDecision: "deny",
+          permissionDecisionReason:
+            `Intercom: ${lines.join("; ")}. Don't retry on your own: tell your user who holds the lock and why, and offer to message ${hits[0].holder} on the intercom. ` +
+            `Only if your user explicitly says to go ahead anyway, run the same command prefixed with ${OVERRIDE} (e.g. \`${OVERRIDE} ${command.slice(0, 80)}\`).`,
+        },
+      };
+    }
     return {
       hookSpecificOutput: {
         hookEventName: "PreToolUse",

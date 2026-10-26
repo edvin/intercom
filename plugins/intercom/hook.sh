@@ -1,61 +1,82 @@
 #!/bin/sh
-# Claude Code hook for the team intercom.
-# Usage (from settings.json): hook.sh SessionStart | UserPromptSubmit | PostToolUse | PreToolUse | SessionEnd
-# Prints hook JSON that adds unread team messages (and, at session start, rules/locks/votes) to Claude's context.
+# Claude Code / Codex hook for the team intercom.
+# Usage: hook.sh <SessionStart|UserPromptSubmit|PostToolUse|PreToolUse|SessionEnd> [claude|codex]
+# Prints hook JSON that adds unread team messages (and, at session start, rules/locks/votes) to the agent's context.
 # PreToolUse (Bash) is the deploy guard: if a command looks like a deploy/migration and a teammate holds a
-# matching lock, Claude Code asks the user to confirm. It never blocks on its own.
+# matching lock, Claude Code asks the user to confirm; Codex (whose hooks can't ask) refuses with the reason and
+# lets the user decide to go ahead. It never blocks on its own in Claude Code.
 # Never fails: any error just means no intercom context this time.
 
 D="$HOME/.claude/intercom"
 event="${1:-UserPromptSubmit}"
+client="${2:-claude}"
+json_field() { sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\"\\([^\"]*\\)\".*/\\1/p" | head -n 1; }
+
+# Who's running us. Claude Code passes the session in the environment; Codex only on stdin.
+if [ "$client" = "codex" ]; then
+  input=$(cat)
+  session=$(printf '%s' "$input" | json_field session_id)
+  workdir=$(printf '%s' "$input" | json_field cwd)
+  key="s-$session"
+else
+  session="$CLAUDE_CODE_SESSION_ID"
+  key="$CLAUDE_PID"
+fi
+workdir="${workdir:-${CLAUDE_PROJECT_DIR:-$PWD}}"
 
 # Fast paths (a few milliseconds, no network), using marker files kept by the local intercom server:
-#  live/<pid>    channel mode: messages are pushed into the session already, never poll.
-#  watch/<pid>   peek mode: the server is connected and creates pending/<pid> when something arrives,
+#  live/<key>    channel mode: messages are pushed into the session already, never poll.
+#  watch/<key>   peek mode: the server is connected and creates pending/<key> when something arrives,
 #                so only fetch when that flag exists.
-if [ "$event" = "UserPromptSubmit" ] || [ "$event" = "PostToolUse" ]; then
-  if [ -n "$CLAUDE_PID" ]; then
-    [ -f "$D/live/$CLAUDE_PID" ] && { cat >/dev/null 2>&1; exit 0; }
-    if [ -f "$D/watch/$CLAUDE_PID" ]; then
-      [ -f "$D/pending/$CLAUDE_PID" ] || { cat >/dev/null 2>&1; exit 0; }
-      rm -f "$D/pending/$CLAUDE_PID"   # cleared before fetching, so anything arriving meanwhile re-flags
-      peek=1
-    fi
+if { [ "$event" = "UserPromptSubmit" ] || [ "$event" = "PostToolUse" ]; } && [ -n "$key" ] && [ "$key" != "s-" ]; then
+  [ -f "$D/live/$key" ] && { [ -z "$input" ] && cat >/dev/null 2>&1; exit 0; }
+  if [ -f "$D/watch/$key" ]; then
+    [ -f "$D/pending/$key" ] || { [ -z "$input" ] && cat >/dev/null 2>&1; exit 0; }
+    rm -f "$D/pending/$key" # cleared before fetching, so anything arriving meanwhile re-flags
+    peek=1
   fi
 fi
 
 [ -f "$D/config" ] && . "$D/config"
 if [ -z "$INTERCOM_URL" ] || [ -z "$INTERCOM_TOKEN" ]; then
-  # Installed (e.g. as a plugin) but no token yet: say so once per session, then stay quiet.
+  # Installed but no token yet: say so once per session, then stay quiet.
   if [ "$event" = "SessionStart" ]; then
-    cat >/dev/null 2>&1
-    printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"The intercom plugin is installed but not set up yet. If the user asks about intercom, tell them to get a token (invite link or admin) and run in a terminal: curl -fsSL https://intercom.mhst.io/setup.sh | sh"}}'
+    [ -z "$input" ] && cat >/dev/null 2>&1
+    printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"The intercom plugin is installed but not set up yet. If the user asks about intercom, tell them to run in a terminal: curl -fsSL https://intercom.mhst.io/setup.sh | sh"}}'
   fi
   exit 0
 fi
 
+repo_name() {
+  p=$(git -C "$workdir" remote get-url origin 2>/dev/null | sed -e 's#\.git$##' -e 's#.*[/:]##')
+  [ -n "$p" ] || p=$(basename "$(git -C "$workdir" rev-parse --show-toplevel 2>/dev/null || echo "$workdir")")
+  printf '%s' "$p"
+}
+
 # Deploy guard. Cheap local pre-filter first, so ordinary commands never touch the network.
 if [ "$event" = "PreToolUse" ]; then
-  [ "$INTERCOM_GUARD" = "0" ] && { cat >/dev/null 2>&1; exit 0; }
-  input=$(cat)
+  [ -z "$input" ] && input=$(cat)
+  [ "$INTERCOM_GUARD" = "0" ] && exit 0
   printf '%s' "$input" | grep -Eiq 'deploy|releas|rollout|rollback|migrat|publish|promote|helm|kubectl|flux|terraform|tofu|terragrunt|pulumi|wrangler|fly|vercel|netlify|kamal|heroku|ansible|argocd|gcloud|alembic|flyway|liquibase|prisma' || exit 0
-  session="${CLAUDE_CODE_SESSION_ID:-$(printf '%s' "$input" | sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)}"
+  [ -n "$session" ] || session=$(printf '%s' "$input" | json_field session_id)
   project=$(cat "$D/.project-${session:-default}" 2>/dev/null)
-  if [ -z "$project" ]; then
-    dir="${CLAUDE_PROJECT_DIR:-$PWD}"
-    project=$(git -C "$dir" remote get-url origin 2>/dev/null | sed -e 's#\.git$##' -e 's#.*[/:]##')
-    [ -n "$project" ] || project=$(basename "$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null || echo "$dir")")
-  fi
-  printf '%s' "$input" | curl -sf --max-time 3 -X POST "$INTERCOM_URL/api/guard?project=$(printf '%s' "$project" | sed 's/[^A-Za-z0-9._-]/-/g')" \
+  [ -n "$project" ] || project=$(repo_name)
+  printf '%s' "$input" | curl -sf --max-time 3 -X POST "$INTERCOM_URL/api/guard?client=$client&project=$(printf '%s' "$project" | sed 's/[^A-Za-z0-9._-]/-/g')" \
     -H "Authorization: Bearer $INTERCOM_TOKEN" -H "Content-Type: application/json" --data-binary @- 2>/dev/null
   exit 0
 fi
 
-session="$CLAUDE_CODE_SESSION_ID"
-if [ -n "$session" ]; then
-  cat >/dev/null 2>&1
-else
-  session=$(sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)
+if [ -z "$input" ]; then
+  if [ -n "$session" ]; then cat >/dev/null 2>&1; else session=$(json_field session_id); fi
+fi
+
+# Codex starts the local MCP server without telling it the session; leave a note so it can find its session.
+if [ "$client" = "codex" ] && [ -n "$session" ]; then
+  if [ "$event" = "SessionEnd" ]; then
+    rm -f "$D/codex-sessions/$session"
+  elif [ "$event" = "SessionStart" ]; then
+    mkdir -p "$D/codex-sessions" && printf '%s\n%s\n%s\n' "$PPID" "$workdir" "$(date +%s)" > "$D/codex-sessions/$session"
+  fi
 fi
 
 # Blind mid-turn polling (no local server connected) is throttled so long runs don't hit the network per tool call.
@@ -67,7 +88,7 @@ if [ "$event" = "PostToolUse" ] && [ -z "$peek" ]; then
   echo "$now" > "$stamp"
 fi
 
-# Keep a copy of brief.sh where the /intercom command can find it, for plugin and script installs alike.
+# Keep a copy of brief.sh where the /intercom command (and Codex's $intercom skill) can find it.
 if [ "$event" = "SessionStart" ] && [ -f "$(dirname "$0")/brief.sh" ]; then
   cmp -s "$(dirname "$0")/brief.sh" "$D/brief.sh" 2>/dev/null || cp "$(dirname "$0")/brief.sh" "$D/brief.sh" 2>/dev/null
 fi
@@ -79,18 +100,19 @@ if [ "$event" = "SessionEnd" ]; then
 elif [ "$event" != "SessionStart" ] && [ -f "$pcache" ]; then
   project=$(cat "$pcache")
 else
-  dir="${CLAUDE_PROJECT_DIR:-$PWD}"
   # owner/repo of a GitHub origin, so unlinked sessions can be pointed at projects open to its collaborators.
-  remote=$(git -C "$dir" remote get-url origin 2>/dev/null | sed -n -e 's#\.git$##' -e 's#.*github\.com[:/]\([^/]*/[^/]*\)$#\1#p')
-  project=$(git -C "$dir" remote get-url origin 2>/dev/null | sed -e 's#\.git$##' -e 's#.*[/:]##')
-  [ -n "$project" ] || project=$(basename "$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null || echo "$dir")")
+  remote=$(git -C "$workdir" remote get-url origin 2>/dev/null | sed -n -e 's#\.git$##' -e 's#.*github\.com[:/]\([^/]*/[^/]*\)$#\1#p')
+  project=$(repo_name)
   [ -n "$session" ] && printf '%s' "$project" > "$pcache"
 fi
 
 branch=""
-[ "$INTERCOM_SHARE_BRANCH" = "0" ] || branch=$(git -C "${CLAUDE_PROJECT_DIR:-$PWD}" branch --show-current 2>/dev/null)
+[ "$INTERCOM_SHARE_BRANCH" = "0" ] || branch=$(git -C "$workdir" branch --show-current 2>/dev/null)
+# A standing name for this agent's sessions (INTERCOM_CODEX_NAME / INTERCOM_CLAUDE_NAME / INTERCOM_NAME).
+if [ "$client" = "codex" ]; then name="${INTERCOM_CODEX_NAME:-$INTERCOM_NAME}"; else name="${INTERCOM_CLAUDE_NAME:-$INTERCOM_NAME}"; fi
 
 curl -sf --max-time 3 -G "$INTERCOM_URL/api/hook" \
-  --data-urlencode "event=$event" --data-urlencode "project=$project" --data-urlencode "session=$session" --data-urlencode "branch=$branch" --data-urlencode "remote=$remote" \
+  --data-urlencode "event=$event" --data-urlencode "project=$project" --data-urlencode "session=$session" \
+  --data-urlencode "branch=$branch" --data-urlencode "remote=$remote" --data-urlencode "client=$client" --data-urlencode "name=$name" \
   -H "Authorization: Bearer $INTERCOM_TOKEN" 2>/dev/null
 exit 0

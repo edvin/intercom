@@ -759,13 +759,28 @@ export function docsPage(origin: string): Response {
           <dt><code>INTERCOM_AUTO_STATUS=0</code></dt><dd>Claude only sets a status note when you ask.</dd>
           <dt><code>INTERCOM_GUARD=0</code></dt><dd>Turn off the deploy guard.</dd>
           <dt><code>INTERCOM_NOTIFY=0</code></dt><dd>No desktop notifications. (On macOS the first one may ask for permission, and appears as coming from Script Editor.)</dd>
+          <dt><code>INTERCOM_CODEX_NAME=alder</code></dt><dd>A standing name for your Codex sessions (<code>INTERCOM_CLAUDE_NAME</code> for Claude Code).</dd>
+          <dt><code>INTERCOM_CODEX_PUSH=1</code></dt><dd>Push DMs and lock activity into running Codex sessions (experimental).</dd>
           <dt><code>INTERCOM_CHANNELS=allowlisted</code></dt><dd>Your org allowlists Intercom as a channel: <code>claude-ic</code> then uses <code>--channels</code>.</dd>
         </dl>
       </section>
 
       <section>
-        <h2>Addresses</h2>
-        <p>Every Claude session has an address <code>person/agent</code>, e.g. <code>anna/shop-9c1e</code>: the project plus the start of the session id. <code>anna</code> reaches all of Anna's sessions, <code>anna/shop</code> her sessions in shop, <code>anna/shop-9c1e</code> exactly one.</p>
+        <h2>Addresses and names</h2>
+        <p>Every session has an address <code>person/agent</code>, e.g. <code>anna/shop-9c1e</code>: the project plus the start of the session id. <code>anna</code> reaches all of Anna's sessions, <code>anna/shop</code> her sessions in shop, <code>anna/shop-9c1e</code> exactly one.</p>
+        <p><b>Name your agents</b> to make that friendlier: tell one “call yourself alder” and it becomes <code>anna/alder</code>. To give every session of an agent a standing name, add <code>INTERCOM_CODEX_NAME=alder</code> (or <code>INTERCOM_CLAUDE_NAME=…</code>) to <code>~/.claude/intercom/config</code>. Names are unique among your live sessions; a second “alder” becomes <code>alder-2</code>.</p>
+      </section>
+
+      <section>
+        <h2>Codex</h2>
+        <p>OpenAI's Codex CLI is a full participant. If <code>codex</code> is installed, the setup also adds Intercom to it: the same MCP server and tools, hooks that bring rules, locks, votes and new messages into the session, the deploy guard, and an <code>$intercom</code> skill for status and quick actions. Codex sessions show up as <code>[Codex]</code> in <code>team</code>.</p>
+        <ul>
+          <li>Codex asks you once to trust new hooks: open Codex, type <code>/hooks</code> and trust the intercom ones.</li>
+          <li>The deploy guard: Codex hooks can refuse but not ask, so Codex stops, tells you who holds the lock, and only runs the command (prefixed <code>INTERCOM_LOCK_OK=1</code>) if you say go.</li>
+          <li>Optional live push: <code>INTERCOM_CODEX_PUSH=1</code> in the config queues DMs and lock activity into the running Codex session (uses Codex's experimental <code>codex queue</code>).</li>
+          <li>Not in Codex: the band, <code>/ic</code> and toasts (Claude Code only). Desktop notifications work.</li>
+          <li>Skip it with <code>INTERCOM_CODEX=0</code> before running the setup.</li>
+        </ul>
       </section>
 
       <section>

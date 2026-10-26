@@ -1,4 +1,4 @@
-import { type Env, type Message, type Proposal, MEMBER_OF, RECEIVES, UserError, activeLocks, address, ago, cleanBranch, workingOn, authenticate, coMembers, fmtLock, fmtMessage, myProjects, resolveProject, setPresence, tally, touchSession, unread } from "./lib";
+import { type Env, type Message, type Proposal, MEMBER_OF, RECEIVES, UserError, activeLocks, address, ago, cleanBranch, cleanClient, workingOn, authenticate, coMembers, fmtLock, fmtMessage, myProjects, resolveProject, setPresence, tally, touchSession, unread } from "./lib";
 import { INSTRUCTIONS, tools } from "./tools";
 import { cliPoll, cliStart, connectPage, discoverJoin, discoverPage, discoverRequest, githubCallback, githubCreate, githubStart, signOut } from "./accounts";
 import { guard } from "./guard";
@@ -94,8 +94,9 @@ async function handleHook(url: URL, env: Env, me: string): Promise<Response> {
   }
   const project = raw ? await resolveProject(env, raw, me) : null;
   const branch = cleanBranch(url.searchParams.get("branch"));
+  const client = cleanClient(url.searchParams.get("client"));
   await setPresence(env, me, project?.name ?? null, null, project ? branch : null);
-  const session = sessionId ? await touchSession(env, me, sessionId, project?.name ?? "", branch) : undefined;
+  const session = sessionId ? await touchSession(env, me, sessionId, project?.name ?? "", branch, client, url.searchParams.get("name")) : undefined;
 
   const sections: string[] = [];
   if (event === "SessionStart") {
@@ -112,6 +113,8 @@ async function handleHook(url: URL, env: Env, me: string): Promise<Response> {
           .bind(...people, Date.now() - 2 * 3600_000)
           .all<{ member: string; project: string; note: string; branch: string }>()
       : { results: [] };
+    // Codex doesn't put MCP server instructions in the system prompt, so the etiquette comes with the session start.
+    if (client === "codex") sections.push(INSTRUCTIONS);
     sections.push(
       `You are "${me}" on the intercom (MCP server "intercom"). Your projects: ${mine.length ? mine.map((p) => `#${p}`).join(", ") : "none"}.` +
         (project ? ` Current project: #${project.name}.` : "") +
@@ -160,7 +163,7 @@ async function handleGuard(req: Request, url: URL, env: Env, me: string): Promis
   const command = typeof input.tool_input?.command === "string" ? input.tool_input.command : "";
   const raw = url.searchParams.get("project");
   const project = raw ? await resolveProject(env, raw, me) : null;
-  const out = command ? await guard(env, me, project?.name ?? null, command) : null;
+  const out = command ? await guard(env, me, project?.name ?? null, command, cleanClient(url.searchParams.get("client")) ?? "claude") : null;
   return out ? json(out) : new Response("", { status: 200 });
 }
 
@@ -311,7 +314,15 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
   if (sid) {
     const raw = req.headers.get("x-intercom-project");
     if (raw) env.repo = raw;
-    env.session = await touchSession(env, me, sid, raw ? ((await resolveProject(env, raw, me))?.name ?? "") : "", cleanBranch(req.headers.get("x-intercom-branch")));
+    env.session = await touchSession(
+      env,
+      me,
+      sid,
+      raw ? ((await resolveProject(env, raw, me))?.name ?? "") : "",
+      cleanBranch(req.headers.get("x-intercom-branch")),
+      cleanClient(req.headers.get("x-intercom-client") ?? url.searchParams.get("client")),
+      req.headers.get("x-intercom-name"),
+    );
   }
 
   if (url.pathname === "/") return dashboard(url, env, me);

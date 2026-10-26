@@ -124,7 +124,41 @@ else
   warn "the claude CLI isn't on your PATH. In Claude Code, run: /plugin install intercom --marketplace edvin/intercom"
 fi
 
-# 4. Launcher for live push (Claude Code channels, research preview).
+# 4. Codex (OpenAI), if installed: the same MCP server, hooks (context, deploy guard) and an $intercom skill.
+if [ "$INTERCOM_CODEX" != "0" ] && command -v codex >/dev/null 2>&1; then
+  CX="${CODEX_HOME:-$HOME/.codex}"
+  for f in intercom-channel.mjs hook.sh brief.sh; do curl -fsSL "$URL/client/$f" -o "$DIR/$f" || fail "couldn't download $f"; done
+  chmod +x "$DIR/hook.sh" "$DIR/brief.sh"
+  mkdir -p "$CX"
+  codex mcp remove intercom >/dev/null 2>&1 || true
+  if codex mcp add intercom -- node "$DIR/intercom-channel.mjs" >/dev/null 2>&1; then
+    python3 -I - "$CX/hooks.json" "$DIR/hook.sh" <<'PY' && HOOKS_OK=1
+import json, os, sys
+path, hook = sys.argv[1], sys.argv[2]
+cfg = json.load(open(path)) if os.path.exists(path) else {}
+hooks = cfg.setdefault("hooks", {})
+for event in ("SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "SessionEnd"):
+    groups = [g for g in hooks.get(event, []) if not any("intercom/hook.sh" in h.get("command", "") for h in g.get("hooks", []))]
+    entry = {"hooks": [{"type": "command", "command": f'sh "{hook}" {event} codex', "timeout": 5}]}
+    if event == "PreToolUse":
+        entry["matcher"] = "^Bash$"
+    groups.append(entry)
+    hooks[event] = groups
+tmp = path + ".intercom.tmp"
+with open(tmp, "w") as f:
+    json.dump(cfg, f, indent=2)
+    f.write("\n")
+os.replace(tmp, path)
+PY
+    mkdir -p "$HOME/.agents/skills/intercom" && curl -fsSL "$URL/client/codex-skill.md" -o "$HOME/.agents/skills/intercom/SKILL.md"
+    ok "Codex: MCP server, hooks and \$intercom skill"
+    [ -n "$HOOKS_OK" ] && warn "Codex asks you to trust new hooks once: open Codex, type /hooks and trust the intercom ones."
+  else
+    warn "couldn't add the intercom MCP server to Codex (codex mcp add failed)."
+  fi
+fi
+
+# 5. Launcher for live push (Claude Code channels, research preview).
 # If your organisation allowlists intercom as a channel plugin, add INTERCOM_CHANNELS=allowlisted to the config:
 # the launcher then uses --channels instead of the development-channel flag.
 cat > "$DIR/claude-ic" <<'SH'
@@ -139,6 +173,6 @@ SH
 chmod +x "$DIR/claude-ic"
 
 echo
-echo "Done. Restart Claude Code, then type /intercom to see your team."
+echo "Done. Restart Claude Code (and Codex), then type /intercom (Codex: \$intercom) to see your team."
 echo "  Dashboard:  /intercom dashboard   (or $URL)"
 echo "  Live push:  $DIR/claude-ic   (optional; see $URL/docs)"

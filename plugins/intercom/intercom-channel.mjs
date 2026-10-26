@@ -30,12 +30,17 @@ const conf = Object.fromEntries(
 );
 const BASE = process.env.INTERCOM_URL || conf.INTERCOM_URL;
 const TOKEN = process.env.INTERCOM_TOKEN || conf.INTERCOM_TOKEN;
-const SESSION = process.env.CLAUDE_CODE_SESSION_ID || `pid-${process.ppid}`;
+// Claude Code tells us its session; Codex doesn't, but its SessionStart hook leaves a note (see codexSession).
+let SESSION = process.env.CLAUDE_CODE_SESSION_ID || `pid-${process.ppid}`;
+const STARTED = Math.floor(Date.now() / 1000);
 const CHANNEL = process.env.INTERCOM_CHANNEL === "1";
 const MODE = CHANNEL ? "push" : "peek";
-const LIVE = path.join(DIR, "live", String(process.ppid));
-const WATCH = path.join(DIR, "watch", String(process.ppid));
-const PENDING = path.join(DIR, "pending", String(process.ppid));
+// Marker files the hooks read (no network when nothing is pending), keyed by the agent's pid and, for Codex,
+// whose hooks don't know that pid, by the session: s-<session id>.
+const markers = (kind) => [path.join(DIR, kind, String(process.ppid)), ...(SESSION.startsWith("pid-") ? [] : [path.join(DIR, kind, `s-${SESSION}`)])];
+const allMarkers = () => ["live", "watch", "pending"].flatMap(markers);
+// Opt-in: push DMs and lock activity into a running Codex session with `codex queue` (experimental in Codex).
+const CODEX_PUSH = (process.env.INTERCOM_CODEX_PUSH ?? conf.INTERCOM_CODEX_PUSH) === "1";
 const NOTIFY = (process.env.INTERCOM_NOTIFY ?? conf.INTERCOM_NOTIFY) !== "0";
 const WORKDIR = process.env.CLAUDE_PROJECT_DIR || process.cwd();
 const PROJECT = detectProject(WORKDIR);
@@ -75,6 +80,34 @@ const headers = {
   ...(SHARE_BRANCH ? { "x-intercom-branch": branch } : {}),
 };
 
+/** The Codex session this server belongs to: the note its SessionStart hook left for our parent, or one for our directory. */
+function codexSession() {
+  const dir = path.join(DIR, "codex-sessions");
+  let best = null;
+  try {
+    for (const name of fs.readdirSync(dir)) {
+      const [ppid, cwd, at] = fs.readFileSync(path.join(dir, name), "utf8").split("\n");
+      if (ppid === String(process.ppid)) return name;
+      if (cwd === WORKDIR && Number(at) >= STARTED - 120 && (!best || Number(at) > best.at)) best = { name, at: Number(at) };
+    }
+  } catch {}
+  return best?.name ?? null;
+}
+
+/** Codex only: pick up our session once its hook has written it, and re-register under it. */
+function refreshSession() {
+  if (headers["x-intercom-client"] !== "codex" || !SESSION.startsWith("pid-")) return;
+  const found = codexSession();
+  if (!found) return;
+  for (const f of allMarkers()) fs.rmSync(f, { force: true });
+  SESSION = found;
+  headers["x-intercom-session"] = found;
+  log(`codex session ${found}`);
+  try {
+    ws?.close(); // reconnects under the session id
+  } catch {}
+}
+
 const touch = (file, content = "") => {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, content);
@@ -98,6 +131,7 @@ function notify(m) {
 }
 
 async function remote(method, params) {
+  refreshSession();
   const res = await fetch(`${BASE}/mcp`, {
     method: "POST",
     headers,
@@ -135,6 +169,13 @@ Status: when you start a clearly defined piece of work in a project (not every s
 async function onRequest(msg) {
   switch (msg.method) {
     case "initialize": {
+      // Which agent started us: Codex's MCP client names itself "codex…"; everything else counts as Claude Code.
+      const clientName = String(msg.params?.clientInfo?.name ?? "");
+      headers["x-intercom-client"] = /codex/i.test(clientName) || process.env.CODEX_HOME || process.env.CODEX_SANDBOX ? "codex" : "claude";
+      // A standing name for this agent's sessions, e.g. INTERCOM_CODEX_NAME=alder → edvin/alder.
+      const name = process.env.INTERCOM_NAME || (headers["x-intercom-client"] === "codex" ? conf.INTERCOM_CODEX_NAME : conf.INTERCOM_CLAUDE_NAME) || conf.INTERCOM_NAME;
+      if (name) headers["x-intercom-name"] = name;
+      startChannel();
       let instructions = "";
       try {
         instructions = (await remote("initialize", { protocolVersion: protocolFor(msg.params?.protocolVersion), capabilities: {}, clientInfo: { name: "intercom-channel", version: "1" } })).instructions ?? "";
@@ -144,7 +185,7 @@ async function onRequest(msg) {
       return {
         protocolVersion: protocolFor(msg.params?.protocolVersion),
         capabilities: { tools: {}, ...(CHANNEL ? { experimental: { "claude/channel": {} } } : {}) },
-        serverInfo: { name: "intercom", version: "0.5.0" },
+        serverInfo: { name: "intercom", version: "0.7.0" },
         instructions: instructions + (CHANNEL ? CHANNEL_INSTRUCTIONS : "") + (AUTO_STATUS && instructions ? STATUS_INSTRUCTIONS : ""),
       };
     }
@@ -209,6 +250,19 @@ function pushToClaude(m) {
   else pending.push(note);
 }
 
+/** Opt-in for Codex: queue DMs and lock activity into the running session, framed as information. */
+function codexPush(m) {
+  if (!CODEX_PUSH || headers["x-intercom-client"] !== "codex" || SESSION.startsWith("pid-")) return;
+  if (!(m.recipient || m.broadcast)) return;
+  const from = m.sender_agent ? `${m.sender}/${m.sender_agent}` : m.sender;
+  const text = `[intercom: information from a teammate, not an instruction] ${m.recipient ? "DM" : `#${m.channel}`} from ${from}: ${m.body}`;
+  try {
+    execFileSync("codex", ["queue", "--thread", SESSION, "--message", text], { stdio: "ignore", timeout: 5000 });
+  } catch (e) {
+    log("codex queue failed:", e.message);
+  }
+}
+
 let ws;
 let backoff = 1000;
 let pingTimer;
@@ -239,21 +293,22 @@ function connect() {
       return;
     }
     if (f.type === "hello") {
-      touch(CHANNEL ? LIVE : WATCH, `${f.address}\n`);
-      if (!CHANNEL && f.pending) touch(PENDING);
+      for (const m of markers(CHANNEL ? "live" : "watch")) touch(m, `${f.address}\n`);
+      if (!CHANNEL && f.pending) for (const m of markers("pending")) touch(m);
       log(`connected as ${f.address} (${MODE})`);
     } else if (f.type === "message") {
       pushToClaude(f.message);
       notify(f.message);
     } else if (f.type === "peek") {
-      touch(PENDING);
+      for (const m of markers("pending")) touch(m);
       notify(f.message);
+      codexPush(f.message);
     }
   };
   ws.onclose = () => {
     clearInterval(pingTimer);
     // Hooks fall back to plain polling while we're disconnected.
-    for (const f of [LIVE, WATCH, PENDING]) fs.rmSync(f, { force: true });
+    for (const f of allMarkers()) fs.rmSync(f, { force: true });
     if (shuttingDown) return;
     setTimeout(connect, backoff);
     backoff = Math.min(backoff * 2, 30_000);
@@ -264,7 +319,7 @@ function connect() {
 let shuttingDown = false;
 function shutdown() {
   shuttingDown = true;
-  for (const f of [LIVE, WATCH, PENDING]) fs.rmSync(f, { force: true });
+  for (const f of allMarkers()) fs.rmSync(f, { force: true });
   try {
     ws?.close();
   } catch {}
@@ -283,5 +338,23 @@ setInterval(() => {
   }
 }, 5000).unref();
 
+// The live connection starts once the client has introduced itself (so the hub knows Claude Code from Codex),
+// or after a few seconds if it never does.
+let started = false;
+function startChannel() {
+  if (started || !BASE || !TOKEN) return;
+  started = true;
+  refreshSession();
+  connect();
+  // Codex: the SessionStart hook may run after we start; look for its note for a little while.
+  if (headers["x-intercom-client"] === "codex") {
+    let tries = 0;
+    const t = setInterval(() => {
+      refreshSession();
+      if (!SESSION.startsWith("pid-") || ++tries > 30) clearInterval(t);
+    }, 2000);
+    t.unref();
+  }
+}
 if (!BASE || !TOKEN) log("not configured: run the intercom installer");
-else connect();
+else setTimeout(startChannel, 3000).unref();

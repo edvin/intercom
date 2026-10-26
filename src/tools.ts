@@ -15,6 +15,8 @@ import {
   fmtLock,
   fmtMessage,
   isAdmin,
+  cleanName,
+  freeLabel,
   limit,
   myProjects,
   normChannel,
@@ -565,9 +567,9 @@ export const tools: Tool[] = [
         env.DB.prepare(`SELECT m.name, m.org, p.project, p.note, p.branch, p.updated_at FROM members m LEFT JOIN presence p ON p.member = m.name WHERE m.name IN (${ph}) ORDER BY p.updated_at DESC NULLS LAST, m.name`)
           .bind(...people)
           .all<{ name: string; org: string; project: string | null; note: string | null; branch: string | null; updated_at: number | null }>(),
-        env.DB.prepare(`SELECT member, label, project, branch, note, last_seen FROM sessions WHERE last_seen > ? AND member IN (${ph}) ORDER BY last_seen DESC`)
+        env.DB.prepare(`SELECT member, label, project, branch, note, last_seen, client FROM sessions WHERE last_seen > ? AND member IN (${ph}) ORDER BY last_seen DESC`)
           .bind(Date.now() - 6 * 3600_000, ...people)
-          .all<{ member: string; label: string; project: string; branch: string; note: string; last_seen: number }>(),
+          .all<{ member: string; label: string; project: string; branch: string; note: string; last_seen: number; client: string }>(),
       ]);
       return results
         .map((r) => {
@@ -577,7 +579,7 @@ export const tools: Tool[] = [
           const live = sessions.filter((s) => s.member === r.name && s.project && mine.has(s.project));
           const hidden = r.name !== me && sessions.some((s) => s.member === r.name && s.project && !mine.has(s.project));
           const head = `${who}: active ${ago(r.updated_at)}${!live.length && r.project && mine.has(r.project) ? ` — ${workingOn(r.project, r.branch, r.note)}` : ""}`;
-          const lines = live.map((s) => `    ${address(s.member, s.label)}: ${workingOn(s.project, s.branch, s.note)} (${ago(s.last_seen)})`);
+          const lines = live.map((s) => `    ${address(s.member, s.label)}${s.client === "codex" ? " [Codex]" : ""}: ${workingOn(s.project, s.branch, s.note)} (${ago(s.last_seen)})`);
           if (hidden) lines.push("    (also active in projects you're not in)");
           return [head, ...lines].join("\n");
         })
@@ -604,6 +606,20 @@ export const tools: Tool[] = [
         await env.DB.prepare("UPDATE sessions SET note = ?, note_at = ? WHERE member = ? AND session_id = ?").bind(note, Date.now(), me, env.session.session_id).run();
       }
       return note ? `Status set: ${note}` : "Status cleared.";
+    },
+  },
+  {
+    name: "set_name",
+    description:
+      "Give this session a name, e.g. \"alder\", when your user asks you to (\"call yourself alder\"). Teammates and your user's other sessions can then reach exactly this session as <person>/<name>. Names are unique among the user's live sessions. To keep a name for every session, the user can set INTERCOM_CLAUDE_NAME or INTERCOM_CODEX_NAME in ~/.claude/intercom/config.",
+    inputSchema: { type: "object", properties: { name: { type: "string", description: "Short name: letters, digits and -, e.g. alder." } }, required: ["name"] },
+    async run(env, me, a) {
+      if (!env.session) throw new UserError("This session isn't connected through the local intercom server, so it can't be named.");
+      const name = cleanName(a.name);
+      if (!name) throw new UserError("Names are letters, digits and -, starting with a letter (max 24), e.g. alder.");
+      const label = await freeLabel(env, me, env.session.session_id, name);
+      await env.DB.prepare("UPDATE sessions SET label = ? WHERE member = ? AND session_id = ?").bind(label, me, env.session.session_id).run();
+      return `This session is now ${address(me, label)}${label !== name ? ` ("${name}" is taken by another of your sessions)` : ""}. Messages to ${address(me, label)} reach only this session.`;
     },
   },
   {

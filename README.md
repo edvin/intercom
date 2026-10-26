@@ -87,6 +87,10 @@ Teammates in the same project see what each of your sessions is on: project, **g
 
 Members can link their clone's repo to a project (`link_repo`); Claude offers it when a session starts in an unlinked repo. Everyone can create a fresh token on `/account`.
 
+## Codex
+
+If `codex` is on the PATH, `setup.sh` also wires Intercom into OpenAI's Codex CLI: `codex mcp add intercom` (the same local server), hooks in `~/.codex/hooks.json` (`hook.sh <Event> codex`: session-start context incl. the etiquette, which Codex doesn't take from MCP instructions; new messages per prompt; the deploy guard) and a `$intercom` skill in `~/.agents/skills/intercom`. Codex hooks can deny but not ask, so the guard denies with the reason and the agent reruns with `INTERCOM_LOCK_OK=1` only on the user's go. Codex doesn't tell MCP servers their session, so the SessionStart hook leaves a note in `~/.claude/intercom/codex-sessions/` that the server picks up. `INTERCOM_CODEX_PUSH=1` opts into pushing DMs and lock activity with `codex queue` (experimental). Sessions can be named (`set_name`, or `INTERCOM_CODEX_NAME` / `INTERCOM_CLAUDE_NAME`).
+
 ## Accounts, GitHub and discovery
 
 - **GitHub sign-in** uses an OAuth app (`GITHUB_CLIENT_ID` var, `GITHUB_CLIENT_SECRET` secret; callback `https://<host>/auth/github/callback`). Sign-in requests no scopes. Once configured, anyone can sign up (admins can switch to invite-only); new accounts see nothing until they're in a shared project. Sign-ups are rate-limited per IP and per day; accounts are limited in projects, messages and invites per hour/day.

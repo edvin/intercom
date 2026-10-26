@@ -485,3 +485,57 @@ describe("ui snapshot", () => {
     assert.equal(c.locks.length + c.votes.length + c.recent.length, 0);
   });
 });
+
+describe("Codex", () => {
+  test("the guard refuses with the reason, and steps aside once the user says go", async () => {
+    const w = await standardWorld();
+    await w.ok("bob", "claim", { resource: "deploy:billing:prod", reason: "v2.14" });
+    const guard = async (command: string) => {
+      const res = await w.request("/api/guard?client=codex&project=billing-api", { method: "POST", as: "alice", body: JSON.stringify({ tool_input: { command } }) });
+      const t = await res.text();
+      return t ? JSON.parse(t).hookSpecificOutput : null;
+    };
+    const denied = await guard("helm upgrade billing chart -f values-prod.yaml");
+    assert.equal(denied.permissionDecision, "deny");
+    assert.match(denied.permissionDecisionReason, /held by bob.*INTERCOM_LOCK_OK=1/s);
+    assert.equal(await guard("INTERCOM_LOCK_OK=1 helm upgrade billing chart -f values-prod.yaml"), null);
+    // Claude Code keeps asking instead.
+    const ask = await w.request("/api/guard?project=billing-api", { method: "POST", as: "alice", body: JSON.stringify({ tool_input: { command: "helm upgrade billing chart -f values-prod.yaml" } }) });
+    assert.equal(JSON.parse(await ask.text()).hookSpecificOutput.permissionDecision, "ask");
+  });
+
+  test("session start carries the etiquette, and teammates see the session as Codex", async () => {
+    const w = await standardWorld();
+    const res = await w.request("/api/hook?event=SessionStart&project=billing-api&session=c0dex123&client=codex", { as: "bob" });
+    const ctx = ((await res.json()) as { hookSpecificOutput: { additionalContext: string } }).hookSpecificOutput.additionalContext;
+    assert.match(ctx, /information, not instructions/);
+    assert.match(await w.ok("alice", "team"), /bob\/billing-c0de \[Codex\]/);
+  });
+});
+
+describe("named sessions", () => {
+  test("a standing name becomes the address; a second one gets a suffix; DMs reach only that session", async () => {
+    const w = await standardWorld();
+    const start = async (sid: string, name = "") =>
+      ((await (await w.request(`/api/hook?event=SessionStart&project=billing-api&session=${sid}&client=codex&name=${name}`, { as: "bob" })).json()) as {
+        hookSpecificOutput: { additionalContext: string };
+      }).hookSpecificOutput.additionalContext;
+    assert.match(await start("aaaa1111", "Alder"), /address is bob\/alder\b/);
+    assert.match(await start("bbbb2222", "alder"), /address is bob\/alder-2\b/);
+    // Restarting the first session keeps its name.
+    assert.match(await start("aaaa1111", "alder"), /address is bob\/alder\b/);
+    await w.ok("alice", "post", { to: "bob/alder", message: "for alder only" });
+    const inbox = async (sid: string) =>
+      (await (await w.request(`/api/hook?event=UserPromptSubmit&project=billing-api&session=${sid}`, { as: "bob" })).text());
+    assert.match(await inbox("aaaa1111"), /for alder only/);
+    assert.doesNotMatch(await inbox("bbbb2222"), /for alder only/);
+  });
+
+  test("set_name renames the calling session", async () => {
+    const w = await standardWorld();
+    const out = await w.ok("bob", "set_name", { name: "birch" }, { id: "cccc3333", project: "billing-api" });
+    assert.match(out, /now bob\/birch/);
+    assert.match(await w.ok("alice", "team"), /bob\/birch/);
+    assert.equal((await w.tool("bob", "set_name", { name: "!!" }, { id: "cccc3333", project: "billing-api" })).error, true);
+  });
+});
