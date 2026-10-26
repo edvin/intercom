@@ -42,7 +42,7 @@ function world(on: On, snap: Snapshot, seen: string[] = []) {
   on('session.root', async () => ({ value: '/work/billing-api' }))
   on('session.id', async () => ({ value: 'sess-1' }))
   on('http.fetch', async (_$, e) => {
-    seen.push(e.url)
+    seen.push(e.init?.method && e.init.method !== 'GET' ? `${e.init.method} ${e.url} ${String(e.init.body ?? '')}` : e.url)
     return { value: { status: 200, ok: true, headers: {}, text: JSON.stringify(snap) } }
   })
   return clock
@@ -86,4 +86,24 @@ test('an idle session takes a dashboard message from its user as a prompt, once'
   // The next poll sees the same unread message (the hook marks it read on submit): not submitted again.
   await clock.advance(8_000)
   expect(submitted).toHaveLength(1)
+})
+
+test('a side question from the dashboard is answered with a fork of the context, once', async ($, on) => {
+  const forks: string[] = []
+  on('model.fork', async (_$, e) => {
+    forks.push(e.prompt)
+    return { value: { isAnswered: true, text: 'Migrating the invoices index first, then the API.' } } as never
+  })
+  on('ui.toast', async () => ({ value: undefined }) as never)
+  const seen: string[] = []
+  const clock = world(on, { ...SNAP, locks: [], votes: [], btw: [{ id: 9, prompt: 'Question: what is your plan?' }] }, seen)
+  await $.session.start({ cwd: '/work/billing-api', surface: 'terminal' } as never)
+  await clock.advance(1)
+  expect(forks).toEqual(['Question: what is your plan?'])
+  const posted = seen.filter(u => u.startsWith('POST https://hub.example/api/btw/9'))
+  expect(posted).toHaveLength(1)
+  expect(posted[0]).toContain('Migrating the invoices index first')
+  // The next poll still lists it until the hub has it: not asked twice.
+  await clock.advance(8_000)
+  expect(forks).toHaveLength(1)
 })

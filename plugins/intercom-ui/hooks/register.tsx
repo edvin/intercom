@@ -33,7 +33,7 @@ const left = (ts: number, now: number) => {
 const short = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s)
 
 /** Module state; a reload starts it over (the snapshot itself lives in $.state). */
-const ctx = { conf: null as Conf | null, repo: '', sessionId: '', seen: -1, busy: false, turning: false, submitted: new Set<number>(), ownLine: false }
+const ctx = { conf: null as Conf | null, repo: '', sessionId: '', seen: -1, busy: false, turning: false, submitted: new Set<number>(), ownLine: false, btwBusy: false, btwDone: new Set<number>() }
 
 /** Claude Code's own status line already shows the intercom (the setup sets it): then the mod adds no line of its own. */
 async function hasOwnLine($: Engine): Promise<boolean> {
@@ -100,6 +100,7 @@ async function call($: Engine, tool: string, args: Record<string, unknown>): Pro
 async function refresh($: Engine): Promise<void> {
   if (!ctx.conf || ctx.busy) return
   ctx.busy = true
+  let got: Snapshot | null = null
   try {
     const res = await $.http.fetch(`${ctx.conf.url}/api/ui?project=${encodeURIComponent(ctx.repo)}&session=${encodeURIComponent(ctx.sessionId)}`, {
       headers: { authorization: `Bearer ${ctx.conf.token}` },
@@ -110,6 +111,7 @@ async function refresh($: Engine): Promise<void> {
       return
     }
     const s = JSON.parse(res.text) as Snapshot
+    got = s
     await update($, error, () => null)
     await update($, snap, () => s)
     announce($, s)
@@ -128,6 +130,32 @@ async function refresh($: Engine): Promise<void> {
     status($, '📻 intercom: offline')
   } finally {
     ctx.busy = false
+  }
+  // After the poll, so a slow answer doesn't hold up the next one.
+  if (got) await sideQuestions($, got)
+}
+
+/**
+ * Side questions (/btw) from the dashboard: answered with a fork of this session's context, which adds nothing
+ * to it, and the answer goes back to the dashboard. One at a time; each only once.
+ */
+async function sideQuestions($: Engine, s: Snapshot): Promise<void> {
+  if (!ctx.conf || ctx.btwBusy) return
+  const todo = (s.btw ?? []).filter(b => !ctx.btwDone.has(b.id))
+  if (!todo.length) return
+  ctx.btwBusy = true
+  try {
+    for (const b of todo) {
+      ctx.btwDone.add(b.id)
+      const r = await $.model.fork({ prompt: b.prompt })
+      await $.http.fetch(`${ctx.conf.url}/api/btw/${b.id}`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${ctx.conf.token}`, 'content-type': 'application/json' },
+        body: JSON.stringify(r.isAnswered ? { answer: r.text } : { reason: r.reason }),
+      })
+    }
+  } finally {
+    ctx.btwBusy = false
   }
 }
 

@@ -346,6 +346,11 @@ label.field>input,label.field>textarea,label.field>select{width:100%}
 .act-text{color:var(--ink-2)}.act-text .atx{white-space:normal}.act-text .aic{color:var(--accent)}
 .act-prompt .aic{color:var(--green)}
 .act-read{opacity:.75}
+.btw{border:1px dashed color-mix(in srgb,var(--amber) 55%,transparent);border-radius:10px;padding:8px 12px;margin:6px 0;background:color-mix(in srgb,var(--amber) 5%,transparent)}
+.btwq{font-weight:600;color:var(--ink)}.btwtag{font-size:10.5px;font-weight:700;color:var(--amber);border:1px solid currentColor;border-radius:5px;padding:0 5px;margin-right:8px;vertical-align:1px}
+.btwa{margin-top:4px;color:var(--ink-2)}.btwa p{margin:0 0 4px}
+.btwbtn.on{background:color-mix(in srgb,var(--amber) 18%,transparent);color:var(--amber);border-color:var(--amber)}
+form.btwmode textarea{border-color:color-mix(in srgb,var(--amber) 60%,transparent)}.btwbar{padding:2px 4px 0}
 .act .adesc{display:block;color:var(--ink)}.act .acmd{display:block;opacity:.6;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .imgtray{display:flex;gap:8px;flex-wrap:wrap;padding:6px 6px 8px}.imgthumb{position:relative}.imgthumb img{height:64px;max-width:120px;object-fit:cover;border-radius:8px;border:1px solid var(--line);display:block}
 .imgthumb button{position:absolute;top:-6px;right:-6px;width:20px;height:20px;border-radius:50%;border:0;background:var(--ink);color:var(--bg);font-size:13px;line-height:20px;padding:0;cursor:pointer}
@@ -568,6 +573,26 @@ const SCRIPT = `
     drawTray(f);
   }
 
+  // btw mode in an agent's chat: side questions, answered from its context without adding to it. Remembered per
+  // agent while the page is open, so live redraws keep it.
+  const btwOn = {}, btwFresh = {};
+  function bindBtw(f) {
+    const key = f.dataset.agent, btn = f.querySelector("[data-btwtoggle]"), bar = f.querySelector(".btwbar"), t = f.querySelector("textarea");
+    const mode = f.querySelector("input[name=mode]"), thread = f.querySelector("input[name=thread]");
+    if (!btn || !mode) return;
+    const apply = () => {
+      const on = !!btwOn[key];
+      mode.value = on ? "btw" : ""; thread.value = on && btwFresh[key] ? "new" : "";
+      btn.classList.toggle("on", on); f.classList.toggle("btwmode", on); if (bar) bar.hidden = !on;
+      if (t) t.placeholder = on ? "Side question for " + f.dataset.label + " (btw): not added to its context" : "Message " + f.dataset.label + " — Enter to send, Shift+Enter for a new line, paste images";
+    };
+    btn.onclick = () => { btwOn[key] = !btwOn[key]; apply(); t && t.focus(); };
+    const nw = f.querySelector("[data-btwnew]");
+    if (nw) nw.onclick = (e) => { e.preventDefault(); btwFresh[key] = true; apply(); toast("Your next side question starts a new thread"); t && t.focus(); };
+    f.addEventListener("submit", () => { btwFresh[key] = false; });
+    apply();
+  }
+
   // Folded tool steps you opened or closed stay that way when the thread redraws live.
   const folds = {};
   function bind(root = document) {
@@ -603,6 +628,7 @@ const SCRIPT = `
     $$("[data-close]", root).forEach((b) => b.onclick = () => b.closest("dialog").close());
     $$("form", root).forEach((f) => { if (!f.hasAttribute("data-native") || f.dataset.confirm) f.onsubmit = submit; });
     [...(root.matches && root.matches("form[data-images]") ? [root] : []), ...$$("form[data-images]", root)].forEach(bindImages);
+    [...(root.matches && root.matches("form[data-agent]") ? [root] : []), ...$$("form[data-agent]", root)].forEach(bindBtw);
     $$("input[data-noenter]", root).forEach((i) => i.onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); toast("Pick an option to vote"); } });
     $$("textarea[data-chat]", root).forEach((t) => t.onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); if (t.value.trim() || (t.form._imgs && t.form._imgs.length)) t.form.requestSubmit(); } });
     $$("[data-chip]", root).forEach((b) => b.onclick = () => { const t = $("#chat-input"); if (t) { t.value = b.dataset.chip; t.form.requestSubmit(); } });

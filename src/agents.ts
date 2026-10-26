@@ -6,6 +6,7 @@ import { awayState, pendingApprovals } from "./approvals";
 import { PLUGIN_VERSION, outdated } from "./version";
 import { activeLoops, describe, parseLoops } from "./loops";
 import { activeJobs, duration, jobName, parseJobs } from "./jobs";
+import { BTW_TIMEOUT, btwFor } from "./btw";
 import { type Activity, type Env, type Message, address, ago, deliveryMarks, hostNames, myProjects } from "./lib";
 import { agentAvatar, agentHue, agentName, avatar, deliveryMark, esc, hidden, icon, md, plainSpaces, time } from "./ui";
 
@@ -220,6 +221,19 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
     return t.length >= 8 && sentByYou.some((b) => t.includes(b.slice(0, Math.min(b.length, t.length))));
   };
   for (const a of [...acts].reverse()) if (!echo(a)) items.push({ at: a.at, html: actRow(a), act: a }); // oldest first; sort is stable
+  // Side questions (/btw) to your own agent: shown apart, never part of its context.
+  if (agent.member === me) {
+    for (const b of await btwFor(env, me, agent.session_id)) {
+      const late = b.status === "pending" && Date.now() - b.created_at > BTW_TIMEOUT;
+      const answer =
+        b.status === "answered"
+          ? `<div class="btwa md">${md(b.answer)}</div>`
+          : b.status === "failed" || late
+            ? `<div class="btwa muted">no answer: ${esc(late ? "nothing picked it up; is the intercom-ui mod running in that session (and on 0.2.4 or newer)?" : b.reason === "nothing-to-fork" ? "it hasn't finished a turn yet, so there's no context to ask" : b.reason)}</div>`
+            : `<div class="btwa muted">asking… (a side look at its context)</div>`;
+      items.push({ at: b.created_at, html: `<div class="btw" data-mid="b${b.id}"><div class="btwq"><span class="btwtag">btw</span>${esc(b.question)}</div>${answer}</div>` });
+    }
+  }
   // Like Claude Code, consecutive tool steps (commands, reads, edits, tool calls) fold into one line; the agent's
   // text, your messages and typed prompts stay out. A working agent's latest run stays open to watch it live.
   const STEP = new Set(["cmd", "edit", "read", "tool"]);
@@ -243,6 +257,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   const thread = out.join("");
   const on = isOn(agent);
   const ownAgent = agent.member === me;
+  const canBtw = ownAgent && agent.client !== "codex";
   const back = `/dashboard?view=agents&agent=${encodeURIComponent(key(agent))}`;
   const chat = `<section class="card chat">
       <div class="hd">
@@ -255,13 +270,15 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
       </div>
       ${on && agent.state === "waiting" ? `<div class="toast err" style="box-shadow:none;margin:10px 14px 0">${icon("x")}<span><b>${esc(agent.label)} is waiting:</b> ${esc(agent.state_detail || "for approval or input")}. That can only be answered in its terminal (or with Claude's Remote Control); for unattended runs, start agents in a mode that doesn't stop to ask.</span></div>` : ""}
       <div class="thread term${/(?:^|;\s*)ic_activity=off/.test(cookie) ? " noact" : ""}${/(?:^|;\s*)ic_relay=off/.test(cookie) ? " norelay" : ""}" id="thread" data-region>${thread || `<div class="empty" style="margin:auto">${icon("message", 28)}<div>No messages with ${esc(agent.label)} yet.</div><div class="small">${ownAgent ? "Ask a question or give it a new direction; it treats what you write here like a prompt you typed." : "Your message reaches this session; its owner's agent treats it as information from you."}</div></div>`}</div>
-      <form method="post" action="/action/post" class="chatbox" id="chatform" data-region data-quiet data-images>${hidden({ back, to: key(agent), channel: agent.project || "" })}
+      <form method="post" action="/action/post" class="chatbox" id="chatform" data-region data-quiet data-images data-agent="${esc(key(agent))}" data-label="${esc(agent.label)}">${hidden({ back, to: key(agent), channel: agent.project || "", session: agent.session_id, mode: "", thread: "" })}
         <div class="imgtray" hidden></div>
         <div class="row" style="align-items:flex-end;flex-wrap:nowrap">
           <button type="button" class="btn ghost icon" style="height:48px" data-imgbtn title="Attach images (or paste / drop them here)">${icon("image", 16)}</button><input type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden data-imgpick>
           <textarea id="chat-input" name="message" data-chat required maxlength="4000" class="grow" rows="2" placeholder="Message ${esc(agent.label)} — Enter to send, Shift+Enter for a new line, paste images"></textarea>
+          ${canBtw ? `<button type="button" class="btn ghost btwbtn" style="height:48px" data-btwtoggle title="Ask on the side (like /btw): answered from its current context, without adding anything to it">btw</button>` : ""}
           <button class="btn primary" style="height:48px" title="${on ? (ownAgent ? "It picks this up right away if it's idle, or after its current step." : "It sees this on its next step.") : "Not connected: the next session with this name gets it."}">${icon("send", 15)}Send</button>
         </div>
+        <div class="btwbar tiny muted" hidden>Side question for ${esc(agent.label)}: answered from its current context, not added to it. Follow-ups continue the thread · <a href="#" data-btwnew>start a new side thread</a></div>
         <div class="chips">${[...QUICK, ...(loopsOf(agent).length ? LOOP_CHIPS : [])].map((q) => `<button type="button" class="chip" data-chip="${esc(q)}">${esc(q)}</button>`).join("")}${on ? "" : '<span class="tiny muted" style="align-self:center">· not connected: the next session with this name gets it</span>'}</div>
       </form>
     </section>`;

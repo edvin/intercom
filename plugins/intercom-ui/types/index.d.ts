@@ -37,6 +37,8 @@ export type Snapshot = {
   label: string | null
   /** What the user typed to this session in the dashboard, not read yet: submitted as prompts when idle. */
   prompts: { id: number; body: string }[]
+  /** Side questions (/btw) from the dashboard: answered with a fork of this session's context, then posted back. */
+  btw?: { id: number; prompt: string }[]
   project: string | null
   origin: string
   unread: number

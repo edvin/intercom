@@ -2,6 +2,7 @@ import { DurableObject } from "cloudflare:workers";
 import { handle, json } from "./app";
 import { tools } from "./tools";
 import { pruneAttachments } from "./attachments";
+import { pruneBtw } from "./btw";
 import { SqlDb, splitStatements } from "./db";
 import { type Env, type Message, address, authenticate, cleanBranch, cleanClient, fmtMessage, prune, setHost, setVersion, projectFor, setPresence, setRepo, touchSession, unread } from "./lib";
 import m0001 from "../migrations/0001_init.sql";
@@ -27,6 +28,7 @@ import m0020 from "../migrations/0020_lock_agent.sql";
 import m0021 from "../migrations/0021_session_loops.sql";
 import m0022 from "../migrations/0022_attachments.sql";
 import m0023 from "../migrations/0023_session_jobs.sql";
+import m0024 from "../migrations/0024_btw.sql";
 
 /** A short fingerprint of the MCP tools (names, descriptions, schemas) this code offers. */
 const TOOLS_TAG = (() => {
@@ -59,6 +61,7 @@ const MIGRATIONS: [string, string][] = [
   ["0021_session_loops", m0021],
   ["0022_attachments", m0022],
   ["0023_session_jobs", m0023],
+  ["0024_btw", m0024],
 ];
 
 const DAY = 86400_000;
@@ -112,7 +115,7 @@ export class TeamHub extends DurableObject<WorkerEnv> {
   /** Daily housekeeping: message retention, expired locks, invites and stale sessions. */
   async alarm(): Promise<void> {
     const days = Number(this.env.RETENTION_DAYS) || undefined;
-    const removed = { ...(await prune(this.appEnv(), days)), attachments: await pruneAttachments(this.appEnv()) };
+    const removed = { ...(await prune(this.appEnv(), days)), attachments: await pruneAttachments(this.appEnv()), btw: await pruneBtw(this.appEnv()) };
     console.log("prune", JSON.stringify(removed));
     await this.ctx.storage.setAlarm(Date.now() + DAY);
   }

@@ -1323,3 +1323,48 @@ describe("mod toasts", () => {
     assert.ok(s.latest >= dm.id, "latest covers it, so the mod won't toast it again");
   });
 });
+
+describe("side questions (btw)", () => {
+  test("asked from the dashboard, answered by the mod's fork, never in the agent's context; follow-ups carry the thread", async () => {
+    const w = await standardWorld();
+    const hook = async (event: string, sid: string) => {
+      const t = await (await w.request(`/api/hook?event=${event}&project=billing-api&session=${sid}`, { as: "bob" })).text();
+      return t.startsWith("{") ? ((JSON.parse(t) as { hookSpecificOutput?: { additionalContext?: string } }).hookSpecificOutput?.additionalContext ?? t) : t;
+    };
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=bw1&name=core", { as: "bob" });
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=bw2&name=alder&client=codex", { as: "bob" });
+    await hook("UserPromptSubmit", "bw1");
+    const ask = (as: string, fields: Record<string, string>) =>
+      w.form("/action/post", as, { back: "/dashboard?view=agents", to: "bob/core", session: "bw1", mode: "btw", ...fields }).then((r) => new URL(r.headers.get("location")!, ORIGIN).searchParams);
+    const snap = async () => (await (await w.request("/api/ui?project=billing-api&session=bw1", { as: "bob" })).json()) as { btw: { id: number; prompt: string }[] };
+    const answer = (id: number, text: string) => w.request(`/api/btw/${id}`, { as: "bob", method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ answer: text }) });
+
+    assert.equal((await ask("bob", { message: "what's your plan?" })).get("ok"), "Asked on the side");
+    // Not a message: nothing reaches the agent through hooks or its inbox.
+    assert.doesNotMatch(await hook("UserPromptSubmit", "bw1"), /what's your plan/);
+    assert.doesNotMatch(await w.ok("bob", "inbox", {}, { id: "bw1", project: "billing-api" }), /what's your plan/);
+
+    let s = await snap();
+    assert.equal(s.btw.length, 1);
+    assert.match(s.btw[0]!.prompt, /side question from your user[\s\S]*Question: what's your plan\?$/);
+    await answer(s.btw[0]!.id, "Invoices index first, then the API.");
+    assert.equal((await snap()).btw.length, 0);
+
+    // A follow-up carries the earlier exchange; "new thread" doesn't.
+    await ask("bob", { message: "why that order?" });
+    s = await snap();
+    assert.match(s.btw[0]!.prompt, /Earlier side questions in this thread:\nQ: what's your plan\?\nA: Invoices index first, then the API\.\n\nQuestion: why that order\?/);
+    await answer(s.btw[0]!.id, "The API reads the index.");
+    await ask("bob", { message: "unrelated: are the tests green?", thread: "new" });
+    assert.doesNotMatch((await snap()).btw[0]!.prompt, /Earlier side questions/);
+
+    const page = await (await w.request("/dashboard?view=agents&agent=bob/core", { as: "bob", cookie: true })).text();
+    assert.match(page, /<span class="btwtag">btw<\/span>why that order\?<\/div><div class="btwa md"><p>The API reads the index\.<\/p>/);
+    assert.match(page, /data-btwtoggle title=/);
+
+    // Owner-only; not for Codex.
+    assert.match((await ask("alice", { message: "peek" })).get("err")!, /only ask your own agents/);
+    assert.match((await ask("bob", { message: "hi", session: "bw2", to: "bob/alder" })).get("err")!, /need Claude Code/);
+    assert.doesNotMatch(await (await w.request("/dashboard?view=agents&agent=bob/alder", { as: "bob", cookie: true })).text(), /data-btwtoggle title=/);
+  });
+});

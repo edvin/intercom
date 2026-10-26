@@ -1,5 +1,6 @@
 import { type Delivery, type Env, type Lock, deliveryMarks, type Message, type Project, type Proposal, MAX_BODY, MEMBER_OF, RECEIVES, activeLocks, address, authenticate, coMembers, isAdmin, myProjects, normChannel, postMessage, roleIn, sha256, workingOn, newToken, HANDLE, limit, UserError } from "./lib";
 import { agentsView } from "./agents";
+import { askBtw } from "./btw";
 import { linkImages, marker, storeImages } from "./attachments";
 import { type Decision, type Handoff, OPEN_HANDOFF, findDecisions, listHandoffs } from "./records";
 import { pendingApprovals } from "./approvals";
@@ -203,6 +204,18 @@ export async function handleAction(req: Request, env: Env, me: string, action: s
       },
     ],
   };
+  // A side question (/btw) to your own agent: not a message, so it never reaches the agent's context.
+  const text = f("message") ?? "";
+  if (action === "post" && (f("mode") === "btw" || /^\/btw\s/i.test(text)) && f("session")) {
+    const u = new URL(back, req.url);
+    try {
+      await askBtw(env, me, f("session")!, text.replace(/^\/btw\s+/i, ""), f("thread") === "new");
+      u.searchParams.set("ok", "Asked on the side");
+    } catch (e) {
+      u.searchParams.set("err", (e as Error).message.split("\n")[0]);
+    }
+    return redirect(u.pathname + u.search);
+  }
   const call = calls[action];
   const tool = call && tools.find((t) => t.name === call[0]);
   if (!tool) return new Response("Not found", { status: 404 });
@@ -896,6 +909,7 @@ export function docsPage(origin: string): Response {
         <p>The dashboard's <a href="/dashboard?view=agents">Agents</a> view lists every agent session (yours first) with what it's doing — working, idle, or <b>waiting</b> for an approval — and a chat with the one you pick. What you write there reaches that session as <b>you</b>: your own agents act on it like a prompt typed in their terminal, and reply to you in the chat.</p>
         <ul>
           <li><b>Images:</b> paste (⌘V), drop or pick images in a message: text and up to 4 images go together, like in the terminal. The agent sees <code>[📎 image #12: name]</code> in the message and opens the image itself with the <code>attachment</code> tool. Images are scaled down before upload, visible only to those who can read the message, and kept 30 days.</li>
+          <li><b>Side questions (btw):</b> switch the chat to <b>btw</b> (or start with <code>/btw</code>) to ask your own Claude Code agent something without touching its work, e.g. “what's your plan?”. The intercom-ui mod in that session answers from a read-only copy of its current context; nothing is added to the agent's history. Follow-ups continue the side thread; “start a new side thread” begins fresh. Needs intercom-ui 0.2.4+ and at least one finished turn; not available for Codex.</li>
           <li><b>Background jobs:</b> commands an agent runs in the background (a dev server, a long deploy) show in its header with how long they've run (⧗ in the agent list), and a ✓ finished / ✗ failed line when they end. Like activity, this comes from the transcript and only you see it; the jobs' output stays on your machine.</li>
           <li><b>Loops:</b> when one of your agents runs a loop (<code>/loop</code>, or a prompt it scheduled), its chat header and the agent list show it with a 🔁, e.g. “loop every 20m: /babysit-prs” or “self-paced loop, next in 14m”. This comes from the activity mirror (only you see it), so it costs nothing. To stop or change a loop, ask the agent (the chips have a shortcut); the dashboard never edits its schedule itself.</li>
           <li><b>Its project:</b> a session's project normally comes from its repo. The pencil next to the project in the chat header sets it for <i>this session only</i> (shown as <i>pinned</i>; pick “Follow its repo” to undo), or <i>always for its repo</i> (links the repo to the project, so future sessions there join it). The agent gets the project's rules at its next turn, without being woken.</li>

@@ -1,4 +1,5 @@
 import { recordsBrief } from "./records";
+import { answerBtw, pendingBtw } from "./btw";
 import { getAttachment, readImage } from "./attachments";
 import { type Env, type Message, type Proposal, type Session, MEMBER_OF, RECEIVES, UserError, activeLocks, address, isMyLock, ago, addActivity, lockIn, scopedLocks, cleanBranch, cleanClient, fromOwnUser, renameSession, setHost, setVersion, workingOn, authenticate, coMembers, fmtLock, fmtMessage, myProjects, moveSession, projectFor, resolveProject, setPresence, setRepo, tally, touchSession, unread } from "./lib";
 import { INSTRUCTIONS, tools } from "./tools";
@@ -354,6 +355,8 @@ async function handleUi(url: URL, env: Env, me: string): Promise<Response> {
     me,
     label: mySession?.label ?? null,
     prompts,
+    // Side questions for the mod to answer with a fork of this session's context.
+    btw: mySession ? await pendingBtw(env, me, mySession.session_id) : [],
     project: project?.name ?? null,
     origin: url.origin,
     unread: unreadCount,
@@ -491,6 +494,13 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
   if (url.pathname === "/api/guard" && req.method === "POST") return handleGuard(req, url, env, me);
   if (url.pathname === "/api/brief") return handleBrief(url, env, me);
   if (url.pathname === "/api/ui") return handleUi(url, env, me);
+  if (url.pathname.startsWith("/api/btw/") && req.method === "POST") {
+    // The intercom-ui mod's answer to a side question, from a fork of its session's context.
+    const body = (await req.json().catch(() => ({}))) as { answer?: unknown; reason?: unknown };
+    const answer = typeof body.answer === "string" && body.answer.trim() ? body.answer : null;
+    const ok = await answerBtw(env, me, Number(url.pathname.slice(9)), answer, answer ? null : String(body.reason ?? "no answer"));
+    return json({ ok });
+  }
   if (url.pathname === "/api/activity" && req.method === "POST") {
     // Mirrored activity from the local server; stored only for the caller's own session, shown only to them.
     const body = (await req.json().catch(() => ({}))) as { items?: unknown };
