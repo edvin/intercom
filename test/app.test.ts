@@ -1467,3 +1467,11 @@ describe("working directory", () => {
     assert.doesNotMatch(await view("alice"), /work\/billing-api/);
   });
 });
+
+describe("dashboard script", () => {
+  test("parses (a stray \\n in the template once broke every page's script)", async () => {
+    const { SCRIPT } = await import("../src/ui.ts");
+    assert.ok(SCRIPT.length > 1000);
+    assert.doesNotThrow(() => new Function(SCRIPT));
+  });
+});

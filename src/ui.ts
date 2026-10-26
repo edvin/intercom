@@ -465,7 +465,16 @@ dialog::backdrop{background:rgba(8,8,14,.45);backdrop-filter:blur(3px)}
 dialog[open]{animation:pop .18s cubic-bezier(.2,.9,.3,1.2)}
 @keyframes pop{from{opacity:0;transform:translateY(8px) scale(.98)}}
 dialog .hd{display:flex;align-items:center;gap:10px;padding:18px 20px 0}dialog .hd h2{font-size:17px}
-dialog .bd{padding:16px 20px 20px}dialog .ft{display:flex;justify-content:flex-end;gap:8px;padding:0 20px 20px}
+dialog .bd{padding:16px 20px 20px}dialog .ft{display:flex;justify-content:flex-end;align-items:center;gap:8px;padding:0 20px 20px}
+/* A dialog that is mostly one text to read and edit (project rules): large, the text gets the room. */
+dialog.editor{width:min(1040px,calc(100vw - 32px));height:min(860px,calc(100vh - 48px))}
+dialog.editor[open]{display:flex;flex-direction:column}dialog.editor form{flex:1;min-height:0;display:flex;flex-direction:column}
+dialog.editor .bd{flex:1;min-height:0;display:flex;flex-direction:column;gap:14px;overflow:auto}
+dialog.editor .ed-meta{gap:12px;align-items:flex-end;flex-wrap:wrap}dialog.editor .ed-meta .field{min-width:240px}
+dialog.editor .ed-rules{flex:1;min-height:220px}dialog.editor .ed-rules>.row{gap:8px;align-items:baseline;color:var(--ink-2)}
+dialog.editor .ed-rules textarea{flex:1;min-height:0;resize:none;padding:14px 16px;font:13.5px/1.75 "JetBrains Mono","Geist Mono",ui-monospace,Menlo,monospace;tab-size:2;white-space:pre-wrap}
+.ed-access>summary{list-style:none;display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12.5px;font-weight:600;color:var(--ink-2);padding:2px 0}.ed-access>summary::-webkit-details-marker{display:none}.ed-access[open]>summary{margin-bottom:10px}.ed-access[open]>summary .tcaret{transform:rotate(90deg)}
+dialog.editor .ft{padding-top:14px;border-top:1px solid var(--line)}
 .toasts{position:fixed;right:20px;bottom:20px;z-index:50;display:flex;flex-direction:column;gap:8px;max-width:min(420px,calc(100vw - 40px))}
 .toast{display:flex;gap:10px;align-items:flex-start;padding:12px 14px;border-radius:12px;background:var(--surface);border:1px solid var(--line-strong);box-shadow:var(--shadow-lg);font-size:13.5px;animation:pop .2s}
 .toast .i{margin-top:2px;color:var(--green)}.toast.err .i{color:var(--red)}
@@ -546,7 +555,7 @@ body:has(.ide) .top .in{max-width:none;padding:8px 14px}
 
 // Client behaviour: relative times, day separators, copy buttons, dialogs, toasts, progressive form submits
 // (no full reload) and live updates over a WebSocket.
-const SCRIPT = `
+export const SCRIPT = `
 (() => {
   const $ = (s, r = document) => r.querySelector(s), $$ = (s, r = document) => [...r.querySelectorAll(s)];
   const rel = (ts) => { const s = Math.round((Date.now() - ts) / 1000);
@@ -721,6 +730,7 @@ const SCRIPT = `
     within(".thread").forEach((th) => { th.classList.toggle("noact", !acts); th.classList.toggle("norelay", !relay); th.style.scrollBehavior = "auto"; if (th.dataset.stuck !== "no") th.scrollTop = th.scrollHeight; });
     $$("[data-relaytoggle]").forEach((b) => { b.classList.toggle("on", relay); b.onclick = () => { setCookie("ic_relay", relay ? "off" : "on"); bind(document); }; });
     $$("[data-acttoggle]").forEach((b) => { b.classList.toggle("on", acts); b.onclick = () => { setCookie("ic_activity", acts ? "off" : "on"); bind(document); }; });
+    $$("[data-rulecount]", root).forEach((c) => { const t = c.closest("label").querySelector("textarea"); const n = () => { const k = t.value.split("\\n").filter((l) => l.trim()).length; c.textContent = k === 1 ? "1 rule" : k + " rules"; }; n(); t.addEventListener("input", n); });
     $$("textarea[data-enter]", root).forEach((t) => t.onkeydown = (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); t.form.requestSubmit(); } });
   }
   async function submit(e) {

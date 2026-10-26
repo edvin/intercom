@@ -452,15 +452,20 @@ function projectPanel(p: Project & { github_repos: string; discoverable: number 
         <label class="field grow">Link expires<select name="expires_in_hours"><option value="24">in 1 day</option><option value="72" selected>in 3 days</option><option value="168">in 7 days</option><option value="720">in 30 days</option></select></label></div>
       <p class="tiny muted" style="margin:0">Adding an existing handle takes effect at once; links stop working once used up or expired.</p>
     </div><div class="ft"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary">${icon("link", 14)}Add or create link</button></div></form></dialog>
-  <dialog id="dlg-edit"><div class="hd">${icon("sliders", 18)}<h2>Edit #${esc(p.name)}</h2></div>
-    <form method="post" action="/action/configure">${hidden({ name: p.name, back })}<div class="bd stack">
-      <label class="field">Description<input name="description" value="${esc(p.description)}" placeholder="What this project is"></label>
-      <label class="field">Git repos <span class="tiny">(comma separated; sessions in these repos join this project)</span><input name="repos" class="mono" value="${esc((repos.length ? repos : [p.name]).join(", "))}"></label>
-      <label class="field">Rules <span class="tiny">(one per line; shown to every member's agent at session start)</span><textarea name="rules" rows="6" placeholder="Prod deploys only Tue/Thu&#10;anna owns releases">${esc(p.rules)}</textarea></label>
+  <dialog id="dlg-edit" class="editor"><div class="hd">${icon("sliders", 18)}<h2>Edit #${esc(p.name)}</h2><span class="grow"></span><button type="button" class="btn ghost xs icon" data-close title="Close (Esc)">${icon("x", 15)}</button></div>
+    <form method="post" action="/action/configure">${hidden({ name: p.name, back })}<div class="bd">
+      <div class="row ed-meta">
+        <label class="field grow">Description<input name="description" value="${esc(p.description)}" placeholder="What this project is"></label>
+        <label class="field grow" title="Sessions in these repos join this project"><span>Git repos <span class="tiny">· comma separated</span></span><input name="repos" class="mono" value="${esc((repos.length ? repos : [p.name]).join(", "))}"></label>
+      </div>
+      <label class="field ed-rules"><span class="row">Rules <span class="tiny">one per line · shown to every member's agent at session start</span><span class="grow"></span><span class="tiny" data-rulecount></span></span>
+        <textarea name="rules" data-enter spellcheck="false" placeholder="Prod deploys only Tue/Thu&#10;anna owns releases&#10;Announce schema changes in the channel">${esc(p.rules)}</textarea></label>
       <input type="hidden" name="advanced" value="1">
-      <label class="field">Open to GitHub collaborators <span class="tiny">(owner/repo, space separated; anyone with push access can join without an invite)</span><input name="github_repos" class="mono" value="${esc(ghRepos.join(" "))}" placeholder="acme/billing-api"></label>
-      <label class="check"><input type="checkbox" name="discoverable" ${p.discoverable ? "checked" : ""}> Accept join requests: people who know the exact name can ask to join, and owners approve</label>
-    </div><div class="ft"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary">${icon("check", 14)}Save</button></div></form></dialog>`
+      <details class="ed-access"><summary><span class="tcaret">${icon("chevron", 11)}</span>Access <span class="tiny muted">· GitHub collaborators, join requests</span></summary><div class="stack">
+        <label class="field">Open to GitHub collaborators <span class="tiny">(owner/repo, space separated; anyone with push access can join without an invite)</span><input name="github_repos" class="mono" value="${esc(ghRepos.join(" "))}" placeholder="acme/billing-api"></label>
+        <label class="check"><input type="checkbox" name="discoverable" ${p.discoverable ? "checked" : ""}> Accept join requests: people who know the exact name can ask to join, and owners approve</label>
+      </div></details>
+    </div><div class="ft"><span class="tiny muted">⌘↵ saves</span><span class="grow"></span><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary">${icon("check", 14)}Save</button></div></form></dialog>`
       : ""
   }`;
 }
