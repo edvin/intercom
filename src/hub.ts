@@ -23,6 +23,7 @@ import m0017 from "../migrations/0017_deliveries.sql";
 import m0018 from "../migrations/0018_records.sql";
 import m0019 from "../migrations/0019_session_project_pin.sql";
 import m0020 from "../migrations/0020_lock_agent.sql";
+import m0021 from "../migrations/0021_session_loops.sql";
 
 /** A short fingerprint of the MCP tools (names, descriptions, schemas) this code offers. */
 const TOOLS_TAG = (() => {
@@ -52,6 +53,7 @@ const MIGRATIONS: [string, string][] = [
   ["0018_records", m0018],
   ["0019_session_project_pin", m0019],
   ["0020_lock_agent", m0020],
+  ["0021_session_loops", m0021],
 ];
 
 const DAY = 86400_000;

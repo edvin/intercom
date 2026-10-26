@@ -1147,3 +1147,42 @@ describe("locks between one person's agents", () => {
     assert.match(await w.ok("alice", "locks"), /No active locks/);
   });
 });
+
+describe("loops", () => {
+  test("an agent's loops show for its owner, start/stop lines land in activity, stale ones drop off", async () => {
+    const w = await standardWorld();
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=lp&name=looper", { as: "bob" });
+    const post = (items: unknown[]) =>
+      w.request("/api/activity?session=lp", { as: "bob", method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ items }) });
+    const ev = (o: object, at = Date.now()) => ({ at, kind: "loop", text: JSON.stringify(o) });
+    await post([ev({ op: "cron", id: "job7", cron: "*/20 * * * *", prompt: "/babysit-prs", recurring: true })]);
+    await post([ev({ op: "wakeup", delay: 1200, prompt: "check the deploy" }), ev({ op: "wakeup", delay: 1200, prompt: "check the deploy" })]);
+    const view = (as: string) => w.request("/dashboard?view=agents&agent=bob/looper", { as, cookie: true }).then((r) => r.text());
+
+    let page = await view("bob");
+    assert.match(page, /🔁 loop every 20m: \/babysit-prs/);
+    assert.match(page, /🔁 self-paced loop, next in 20m: check the deploy/);
+    assert.match(page, /class="badge accent" title="[^"]*">🔁 2</);
+    assert.match(page, /data-chip="Stop your loop\."/);
+    assert.equal((page.match(/started a self-paced loop: check the deploy/g) ?? []).length, 1); // re-arming isn't news
+    assert.doesNotMatch(await view("alice"), /babysit-prs/); // only the owner
+
+    await post([ev({ op: "cron_delete", id: "job7" }), ev({ op: "wakeup_stop" })]);
+    page = await view("bob");
+    assert.doesNotMatch(page, /🔁 loop every 20m/);
+    assert.match(page, /stopped loop every 20m: \/babysit-prs/);
+    assert.match(page, /stopped its self-paced loop/);
+    assert.doesNotMatch(page, /data-chip="Stop your loop\."/);
+  });
+
+  test("describing schedules, and a self-paced loop that stopped re-arming expires", async () => {
+    const { describeCron, activeLoops } = await import("../src/loops.ts");
+    assert.equal(describeCron("*/5 * * * *"), "every 5m");
+    assert.equal(describeCron("7 * * * *"), "hourly at :07");
+    assert.equal(describeCron("57 8 * * 1-5"), "weekdays at 08:57");
+    assert.equal(describeCron("3 9 * * *"), "daily at 09:03");
+    const now = Date.now();
+    assert.equal(activeLoops([{ kind: "wakeup", id: "wakeup", prompt: "x", next: now - 20 * 60_000, at: now - 40 * 60_000 }], now).length, 0);
+    assert.equal(activeLoops([{ kind: "cron", id: "a", prompt: "x", cron: "*/5 * * * *", recurring: true, at: now - 8 * 86400_000 }], now).length, 0);
+  });
+});

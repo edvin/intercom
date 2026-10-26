@@ -1,5 +1,5 @@
 // The newest intercom plugin version (kept in step with plugins/intercom/.claude-plugin/plugin.json by a test).
-export const PLUGIN_VERSION = "0.12.5";
+export const PLUGIN_VERSION = "0.12.6";
 
 /** True when `v` (e.g. "0.10.0") is older than the newest plugin. Unknown versions count as outdated. */
 export function outdated(v: string | null | undefined): boolean {

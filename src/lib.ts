@@ -1,4 +1,5 @@
 import type { Db } from "./db";
+import { type LoopEvent, activeLoops, applyLoopEvents, parseLoops } from "./loops";
 
 /** Request-scoped context the app code runs with (inside the TeamHub Durable Object). */
 export interface Env {
@@ -615,7 +616,7 @@ export interface Activity {
   text: string;
 }
 
-const ACTIVITY_KINDS = new Set(["prompt", "text", "cmd", "edit", "read", "tool"]);
+const ACTIVITY_KINDS = new Set(["prompt", "text", "cmd", "edit", "read", "tool", "loop"]);
 export const ACTIVITY_KEEP = 300;
 
 /** Store a batch of mirrored activity for one of `me`'s own sessions. */
@@ -624,15 +625,42 @@ export async function addActivity(env: Env, me: string, sessionId: string, items
   const own = await env.DB.prepare("SELECT 1 FROM sessions WHERE member = ? AND session_id = ?").bind(me, sessionId).first();
   if (!own) return 0;
   const now = Date.now();
-  const rows = items.slice(-100).flatMap((it) => {
+  const when = (raw: unknown) => {
+    const at = Number(raw);
+    return Number.isFinite(at) && at > now - 86400_000 && at < now + 60_000 ? at : now;
+  };
+  // Loop events (the agent scheduling or stopping prompts) update the session's loop list; their readable
+  // form goes into the activity like any other step.
+  const loopEvents = items.slice(-100).flatMap((it) => {
     const i = it as { at?: unknown; kind?: unknown; text?: unknown };
-    const kind = String(i.kind ?? "");
-    const text = String(i.text ?? "").replace(/\s+$/g, "").slice(0, 600);
-    if (!ACTIVITY_KINDS.has(kind) || !text) return [];
-    const at = Number(i.at);
-    return [{ kind, text, at: Number.isFinite(at) && at > now - 86400_000 && at < now + 60_000 ? at : now }];
+    if (i.kind !== "loop") return [];
+    try {
+      return [{ at: when(i.at), ev: JSON.parse(String(i.text)) as LoopEvent }];
+    } catch {
+      return [];
+    }
   });
-  if (!rows.length) return 0;
+  const loopLines: { kind: string; text: string; at: number }[] = [];
+  if (loopEvents.length) {
+    const cur = await env.DB.prepare("SELECT loops FROM sessions WHERE member = ? AND session_id = ?").bind(me, sessionId).first<{ loops: string }>();
+    const { loops, lines } = applyLoopEvents(activeLoops(parseLoops(cur?.loops), now), loopEvents);
+    await env.DB.prepare("UPDATE sessions SET loops = ? WHERE member = ? AND session_id = ?").bind(JSON.stringify(loops), me, sessionId).run();
+    loopLines.push(...lines.map((l) => ({ kind: "loop", text: l.text, at: l.at })));
+  }
+  const rows = [
+    ...items.slice(-100).flatMap((it) => {
+      const i = it as { at?: unknown; kind?: unknown; text?: unknown };
+      const kind = String(i.kind ?? "");
+      const text = String(i.text ?? "").replace(/\s+$/g, "").slice(0, 600);
+      if (!ACTIVITY_KINDS.has(kind) || kind === "loop" || !text) return [];
+      return [{ kind, text, at: when(i.at) }];
+    }),
+    ...loopLines,
+  ];
+  if (!rows.length) {
+    if (loopEvents.length) env.refreshWeb?.(me);
+    return loopEvents.length;
+  }
   await env.DB.batch([
     ...rows.map((r) => env.DB.prepare("INSERT INTO activity (member, session_id, at, kind, text) VALUES (?, ?, ?, ?, ?)").bind(me, sessionId, r.at, r.kind, r.text)),
     env.DB.prepare(

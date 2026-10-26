@@ -4,6 +4,7 @@
 
 import { awayState, pendingApprovals } from "./approvals";
 import { PLUGIN_VERSION, outdated } from "./version";
+import { activeLoops, describe, parseLoops } from "./loops";
 import { type Activity, type Env, type Message, address, ago, deliveryMarks, hostNames, myProjects } from "./lib";
 import { avatar, deliveryMark, esc, hidden, icon, md, plainSpaces, time } from "./ui";
 
@@ -13,6 +14,7 @@ interface Agent {
   label: string;
   project: string;
   project_pin?: string;
+  loops?: string;
   repo?: string;
   branch: string;
   note: string;
@@ -38,6 +40,7 @@ export const clientBadge = (client: string, named = false) =>
     ? `<span class="client cx" title="OpenAI Codex">${CODEX_MARK}${named ? "Codex" : ""}</span>`
     : `<span class="client cl" title="Claude Code">${CLAUDE_MARK}${named ? "Claude Code" : ""}</span>`;
 
+const LOOP_CHIPS = ["Stop your loop.", "Run your loop every 30 minutes instead."];
 const QUICK = ["What's your status?", "Pause and check in with me first.", "Stop, summarize, and wait.", "Commit and push what you have."];
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
@@ -61,7 +64,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   const ph = (n: number) => Array.from({ length: n }, () => "?").join(",") || "NULL";
   const everyone = people.includes(me) ? people : [...people, me];
   const { results: agents } = await env.DB.prepare(
-    `SELECT member, session_id, label, project, project_pin, repo, branch, note, client, host, version, last_seen, state, state_detail, state_at FROM sessions
+    `SELECT member, session_id, label, project, project_pin, repo, loops, branch, note, client, host, version, last_seen, state, state_detail, state_at FROM sessions
      WHERE member IN (${ph(everyone.length)}) AND (member = ? OR project IN (${ph(mine.length)})) AND last_seen > ?
      ORDER BY member = ? DESC, last_seen DESC`,
   )
@@ -71,6 +74,12 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   const nick = await hostNames(env, me);
   const hostOf = (a: Agent) => (a.member === me ? nick.get(a.host) ?? a.host : a.host);
   const isOn = (a: Agent) => connected.has(`${a.member}/${a.session_id}`) || Date.now() - a.last_seen < 10 * 60_000;
+  // Loops (/loop, scheduled prompts) of your own connected agents, as their transcripts show them.
+  const loopsOf = (a: Agent) => (a.member === me && isOn(a) ? activeLoops(parseLoops(a.loops)) : []);
+  const loopBadge = (a: Agent) => {
+    const ls = loopsOf(a);
+    return ls.length ? `<span class="badge accent" title="${esc(ls.map((l) => describe(l)).join("\n"))}">🔁${ls.length > 1 ? ` ${ls.length}` : ""}</span>` : "";
+  };
   const key = (a: Agent) => `${a.member}/${a.label}`;
   /** Working / idle / needs you, from the session's own hooks; "gone" once it isn't connected. */
   const stateBadge = (a: Agent) => {
@@ -86,7 +95,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   const card = (a: Agent) => `<a class="acard ${agent && key(a) === key(agent) ? "on" : ""}" href="/dashboard?view=agents&agent=${encodeURIComponent(key(a))}">
       <span class="dot ${isOn(a) ? "on" : ""}" style="margin-top:6px" title="${isOn(a) ? "connected" : `last seen ${ago(a.last_seen)}`}"></span>
       <span class="grow" style="min-width:0">
-        <span class="nm">${clientBadge(a.client)}${a.member === me ? esc(a.label) : `${esc(a.member)}/${esc(a.label)}`}${stateBadge(a)}${a.member === me && isOn(a) && outdated(a.version) ? `<span class="badge amber" title="Runs intercom ${esc(a.version || "an old version")}; ${PLUGIN_VERSION} is available">⬆ update</span>` : ""}</span>
+        <span class="nm">${clientBadge(a.client)}${a.member === me ? esc(a.label) : `${esc(a.member)}/${esc(a.label)}`}${stateBadge(a)}${loopBadge(a)}${a.member === me && isOn(a) && outdated(a.version) ? `<span class="badge amber" title="Runs intercom ${esc(a.version || "an old version")}; ${PLUGIN_VERSION} is available">⬆ update</span>` : ""}</span>
         <span class="sub">${a.host ? `${icon("monitor", 11)} ${esc(hostOf(a))} · ` : ""}${a.project ? `#${esc(a.project)}` : "no project"}${a.branch ? ` · ${icon("branch", 11)} ${esc(a.branch)}` : ""}${isOn(a) ? "" : ` · seen ${ago(a.last_seen)}`}</span>
         ${a.note ? `<span class="st">${esc(a.note)}</span>` : ""}
       </span></a>`;
@@ -160,7 +169,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
       ? await env.DB.prepare("SELECT * FROM activity WHERE member = ? AND session_id = ? ORDER BY id DESC LIMIT 200").bind(me, agent.session_id).all<Activity>()
       : { results: [] as Activity[] };
   const marks = await deliveryMarks(env, me, rows);
-  const ACT_ICON: Record<string, string> = { cmd: "$", edit: "✎", read: "·", tool: "⚙", text: "●", prompt: "›" };
+  const ACT_ICON: Record<string, string> = { cmd: "$", edit: "✎", read: "·", tool: "⚙", text: "●", prompt: "›", loop: "↻" };
   const actRow = (a: Activity) =>
     `<div class="act act-${a.kind}" data-mid="a${a.id}"><span class="aic">${ACT_ICON[a.kind] ?? "·"}</span><span class="atx">${
       a.kind === "text" ? md(a.text) : a.kind === "prompt" ? `<span class="muted">typed in the terminal:</span> ${esc(plainSpaces(a.text))}` : esc(plainSpaces(a.text))
@@ -225,7 +234,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
         <div class="grow" style="min-width:0">
           <h2 style="display:flex;gap:8px;align-items:center"><span class="grow" style="display:flex;gap:8px;align-items:center">${esc(key(agent))}${ownAgent ? `<button type="button" class="btn ghost xs icon renamebtn" data-open="dlg-rename" title="Rename this agent">${icon("pencil", 12)}</button>` : ""}${clientBadge(agent.client, true)}</span>
             <button type="button" class="btn ghost xs icon ttog" data-relaytoggle title="Messages between agents: click to show or hide">${icon("messages", 14)}</button>${ownAgent ? `<button type="button" class="btn ghost xs icon ttog" data-acttoggle title="Follow what the agent is doing (commands, edits, its text; only you see this): click to turn on or off"><span class="when-on">${icon("eye", 14)}</span><span class="when-off">${icon("eyeOff", 14)}</span></button>` : ""}<span class="viewtoggle" title="How messages are shown (remembered in this browser)"><button type="button" data-chatstyle="term">Terminal</button><button type="button" data-chatstyle="chat">Chat</button></span></h2>
-          <div class="meta-row">${stateBadge(agent)}<span>${agent.host ? `on <b style="color:var(--ink-2)">${esc(hostOf(agent))}</b>${ownAgent ? `<button type="button" class="btn ghost xs icon renamebtn" data-open="dlg-host" title="Rename this machine">${icon("pencil", 11)}</button>` : ""} · ` : ""}${agent.project ? `#${esc(agent.project)}` : "no project"}${ownAgent && agent.project_pin ? ` <span class="badge" title="Set from the dashboard for this session; its repo would put it in ${esc(agent.repo ? `whatever ${agent.repo} maps to` : "no project")}">pinned</span>` : ""}${ownAgent ? `<button type="button" class="btn ghost xs icon renamebtn" data-open="dlg-project" title="Choose its project">${icon("pencil", 11)}</button>` : ""}${agent.branch ? ` · ${icon("branch", 12)} ${esc(agent.branch)}` : ""}${on ? "" : ` · last seen ${ago(agent.last_seen)}`}${agent.note ? ` · “${esc(plainSpaces(agent.note))}”` : ""}</span></div>
+          <div class="meta-row">${stateBadge(agent)}<span>${agent.host ? `on <b style="color:var(--ink-2)">${esc(hostOf(agent))}</b>${ownAgent ? `<button type="button" class="btn ghost xs icon renamebtn" data-open="dlg-host" title="Rename this machine">${icon("pencil", 11)}</button>` : ""} · ` : ""}${agent.project ? `#${esc(agent.project)}` : "no project"}${ownAgent && agent.project_pin ? ` <span class="badge" title="Set from the dashboard for this session; its repo would put it in ${esc(agent.repo ? `whatever ${agent.repo} maps to` : "no project")}">pinned</span>` : ""}${ownAgent ? `<button type="button" class="btn ghost xs icon renamebtn" data-open="dlg-project" title="Choose its project">${icon("pencil", 11)}</button>` : ""}${agent.branch ? ` · ${icon("branch", 12)} ${esc(agent.branch)}` : ""}${on ? "" : ` · last seen ${ago(agent.last_seen)}`}${agent.note ? ` · “${esc(plainSpaces(agent.note))}”` : ""}</span></div>${loopsOf(agent).map((l) => `<div class="meta-row looprow"><span>🔁 ${esc(describe(l))}</span></div>`).join("")}
         </div>
       </div>
       ${on && agent.state === "waiting" ? `<div class="toast err" style="box-shadow:none;margin:10px 14px 0">${icon("x")}<span><b>${esc(agent.label)} is waiting:</b> ${esc(agent.state_detail || "for approval or input")}. That can only be answered in its terminal (or with Claude's Remote Control); for unattended runs, start agents in a mode that doesn't stop to ask.</span></div>` : ""}
@@ -235,7 +244,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
           <textarea id="chat-input" name="message" data-chat required maxlength="4000" class="grow" rows="2" placeholder="Message ${esc(agent.label)} — Enter to send, Shift+Enter for a new line"></textarea>
           <button class="btn primary" style="height:48px" title="${on ? (ownAgent ? "It picks this up right away if it's idle, or after its current step." : "It sees this on its next step.") : "Not connected: the next session with this name gets it."}">${icon("send", 15)}Send</button>
         </div>
-        <div class="chips">${QUICK.map((q) => `<button type="button" class="chip" data-chip="${esc(q)}">${esc(q)}</button>`).join("")}${on ? "" : '<span class="tiny muted" style="align-self:center">· not connected: the next session with this name gets it</span>'}</div>
+        <div class="chips">${[...QUICK, ...(loopsOf(agent).length ? LOOP_CHIPS : [])].map((q) => `<button type="button" class="chip" data-chip="${esc(q)}">${esc(q)}</button>`).join("")}${on ? "" : '<span class="tiny muted" style="align-self:center">· not connected: the next session with this name gets it</span>'}</div>
       </form>
     </section>`;
   const dialogs = ownAgent

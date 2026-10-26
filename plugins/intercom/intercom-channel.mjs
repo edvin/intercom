@@ -20,7 +20,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const VERSION = "0.12.5"; // kept in step with .claude-plugin/plugin.json (a test checks)
+const VERSION = "0.12.6"; // kept in step with .claude-plugin/plugin.json (a test checks)
 const DIR = path.join(os.homedir(), ".claude", "intercom");
 const CONFIG = path.join(DIR, "config");
 function readConf() {
@@ -229,6 +229,7 @@ const oneLine = (t) => {
 const isNoise = (t) => /^\s*(<|# AGENTS\.md|\[intercom|Caveat:)/.test(t);
 
 /** One transcript line (Claude Code or Codex) → zero or more {at, kind, text}. */
+const pendingCron = new Map(); // CronCreate tool_use id → job, until its result names the job id
 function summarizeLine(line) {
   let d;
   try {
@@ -244,9 +245,28 @@ function summarizeLine(line) {
     const blocks = typeof c === "string" ? [{ type: "text", text: c }] : Array.isArray(c) ? c : [];
     for (const b of blocks) {
       if (b.type === "text" && b.text?.trim() && !isNoise(b.text)) out.push({ at, kind: d.type === "assistant" ? "text" : "prompt", text: clip(b.text, d.type === "assistant" ? 600 : 240) });
+      // Loops: the dashboard shows what the agent scheduled. A cron job's id comes in its tool result.
+      if (b.type === "tool_result" && pendingCron.has(b.tool_use_id)) {
+        const job = pendingCron.get(b.tool_use_id);
+        pendingCron.delete(b.tool_use_id);
+        const res = typeof b.content === "string" ? b.content : Array.isArray(b.content) ? b.content.map((x) => x.text ?? "").join(" ") : "";
+        if (!b.is_error) out.push({ at, kind: "loop", text: JSON.stringify({ op: "cron", id: res.match(/\b(?:job|id)\b\W*([A-Za-z0-9_-]{4,})/i)?.[1] ?? b.tool_use_id, ...job }) });
+      }
       if (b.type === "tool_use") {
         const i = b.input ?? {};
         const n = b.name ?? "tool";
+        if (n === "CronCreate") {
+          pendingCron.set(b.id, { cron: String(i.cron ?? ""), prompt: clip(i.prompt ?? "", 200), recurring: i.recurring !== false });
+          continue;
+        }
+        if (n === "CronDelete") {
+          out.push({ at, kind: "loop", text: JSON.stringify({ op: "cron_delete", id: String(i.id ?? "") }) });
+          continue;
+        }
+        if (n === "ScheduleWakeup") {
+          out.push({ at, kind: "loop", text: JSON.stringify(i.stop ? { op: "wakeup_stop" } : { op: "wakeup", delay: Number(i.delaySeconds) || 0, prompt: clip(i.prompt ?? "", 200) }) });
+          continue;
+        }
         if (n === "Bash") out.push({ at, kind: "cmd", text: oneLine(i.command) });
         else if (/^(Edit|Write|MultiEdit|NotebookEdit)$/.test(n)) out.push({ at, kind: "edit", text: `${n === "Write" ? "write" : "edit"} ${i.file_path ?? i.notebook_path ?? ""}` });
         else if (/^(Read|Grep|Glob|LS)$/.test(n)) out.push({ at, kind: "read", text: `${n.toLowerCase()} ${clip(i.file_path ?? i.pattern ?? i.path ?? "", 160)}` });

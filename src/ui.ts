@@ -316,6 +316,8 @@ label.field>input,label.field>textarea,label.field>select{width:100%}
 .act-text{color:var(--ink-2)}.act-text .atx{white-space:normal}.act-text .aic{color:var(--accent)}
 .act-prompt .aic{color:var(--green)}
 .act-read{opacity:.75}
+.act-loop .aic,.act-loop .atx{color:var(--accent)}
+.looprow{color:var(--accent);margin-top:2px}
 .thread.noact .act,.thread.noact .actgroup{display:none}
 .actgroup>summary{list-style:none;cursor:pointer;display:grid;grid-template-columns:18px minmax(0,1fr) auto;gap:8px;align-items:start;font-size:12.5px;color:var(--mute);padding:2px 0;font-family:"JetBrains Mono","Geist Mono",ui-monospace,monospace;border-radius:6px}
 .actgroup>summary::-webkit-details-marker{display:none}
