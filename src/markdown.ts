@@ -1,3 +1,5 @@
+import { linkCode, linkRefs } from "./refs";
+
 // Message text → HTML, safely: everything is escaped first, then the Markdown agents write (what Claude Code and
 // Codex render in a terminal) is turned into a small set of elements, and ANSI colour codes from pasted terminal
 // output become coloured spans. No raw HTML from a message ever reaches the page.
@@ -43,10 +45,10 @@ function ansi(text: string): string {
 
 // ---- inline Markdown ----
 
-function inline(s: string): string {
+function inline(s: string, refs?: string | null): string {
   const codes: string[] = [];
   s = s.replace(/`([^`\n]+)`/g, (_, c) => {
-    codes.push(`<code>${c}</code>`);
+    codes.push((refs && linkCode(c, refs)) || `<code>${c}</code>`);
     return `\u0001${codes.length - 1}\u0001`;
   });
   s = s
@@ -58,6 +60,8 @@ function inline(s: string): string {
     .replace(/(^|[\s(>])\*([^*\s][^*\n]*?)\*(?=[\s).,!?:;<]|$)/g, "$1<i>$2</i>")
     .replace(/(^|[\s(>])_([^_\s][^_\n]*?)_(?=[\s).,!?:;<]|$)/g, "$1<i>$2</i>")
     .replace(/~~([^~\n]+)~~/g, "<s>$1</s>");
+  // MR/issue/commit references, in plain text only (not inside links or tags).
+  if (refs) s = s.split(/(<a\b[^>]*>[\s\S]*?<\/a>|<[^>]+>)/).map((part, i) => (i % 2 ? part : linkRefs(part, refs))).join("");
   return s.replace(/\u0001(\d+)\u0001/g, (_, i) => codes[Number(i)]!);
 }
 
@@ -70,12 +74,12 @@ const cells = (l: string) => l.trim().replace(/^\|/, "").replace(/\|$/, "").spli
 /** Unusual spaces agents emit (thin, narrow no-break, …) as plain spaces, so fonts without those glyphs don't swallow them. */
 export const plainSpaces = (t: string) => t.replace(/[\u00a0\u2000-\u200a\u202f\u205f\u3000]/g, " ").replace(/[\u200b\u2060\ufeff]/g, "");
 
-export function md(text: string): string {
+export function md(text: string, refs?: string | null): string {
   const lines = esc(plainSpaces(text).replace(/\r\n?/g, "\n")).split("\n");
   const out: string[] = [];
   let para: string[] = [];
   const flush = () => {
-    if (para.length) out.push(`<p>${para.map((l) => ansi(inline(l))).join("<br>")}</p>`);
+    if (para.length) out.push(`<p>${para.map((l) => ansi(inline(l, refs))).join("<br>")}</p>`);
     para = [];
   };
   for (let i = 0; i < lines.length; i++) {
@@ -97,7 +101,7 @@ export function md(text: string): string {
       const rows: string[][] = [];
       i += 1;
       while (i + 1 < lines.length && lines[i + 1]!.includes("|") && lines[i + 1]!.trim()) rows.push(cells(lines[++i]!));
-      const td = (c: string, j: number, tag: string) => `<${tag}${align[j] ? ` style="text-align:${align[j]}"` : ""}>${ansi(inline(c))}</${tag}>`;
+      const td = (c: string, j: number, tag: string) => `<${tag}${align[j] ? ` style="text-align:${align[j]}"` : ""}>${ansi(inline(c, refs))}</${tag}>`;
       out.push(
         `<div class="mdtable"><table><thead><tr>${head.map((c, j) => td(c, j, "th")).join("")}</tr></thead><tbody>${rows
           .map((r) => `<tr>${r.map((c, j) => td(c, j, "td")).join("")}</tr>`)
@@ -109,7 +113,7 @@ export function md(text: string): string {
     const h = line.match(/^(#{1,6})\s+(.+)$/);
     if (h) {
       flush();
-      out.push(`<div class="mdh mdh${Math.min(h[1]!.length, 4)}">${ansi(inline(h[2]!))}</div>`);
+      out.push(`<div class="mdh mdh${Math.min(h[1]!.length, 4)}">${ansi(inline(h[2]!, refs))}</div>`);
       continue;
     }
     // rule
@@ -124,7 +128,7 @@ export function md(text: string): string {
       const q: string[] = [];
       for (; i < lines.length && /^&gt;\s?/.test(lines[i]!); i++) q.push(lines[i]!.replace(/^&gt;\s?/, ""));
       i--;
-      out.push(`<blockquote>${md(q.join("\n").replace(/&gt;/g, ">").replace(/&lt;/g, "<").replace(/&amp;/g, "&"))}</blockquote>`);
+      out.push(`<blockquote>${md(q.join("\n").replace(/&gt;/g, ">").replace(/&lt;/g, "<").replace(/&amp;/g, "&"), refs)}</blockquote>`);
       continue;
     }
     // lists (bullets, numbers, task boxes), with indentation
@@ -140,14 +144,14 @@ export function md(text: string): string {
         if (!m) {
           // a continuation line of the previous item
           if (lines[i]!.trim() && /^\s{2,}/.test(lines[i]!) && items.length) {
-            items[items.length - 1] += `<br>${ansi(inline(lines[i]!.trim()))}`;
+            items[items.length - 1] += `<br>${ansi(inline(lines[i]!.trim(), refs))}`;
             continue;
           }
           break;
         }
         const depth = Math.min(4, Math.floor(m[1]!.length / 2));
         const box = m[3] ? `<span class="mdbox ${/x/i.test(m[3]) ? "on" : ""}">${/x/i.test(m[3]) ? "✓" : ""}</span>` : "";
-        items.push(`<li style="margin-left:${depth * 1.4}em"${m[3] ? ' class="task"' : ""}>${box}${ansi(inline(m[4]!))}</li>`);
+        items.push(`<li style="margin-left:${depth * 1.4}em"${m[3] ? ' class="task"' : ""}>${box}${ansi(inline(m[4]!, refs))}</li>`);
       }
       i--;
       out.push(ordered ? `<ol>${items.join("")}</ol>` : `<ul>${items.join("")}</ul>`);

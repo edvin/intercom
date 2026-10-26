@@ -346,6 +346,7 @@ label.field>input,label.field>textarea,label.field>select{width:100%}
 .act-text{color:var(--ink-2)}.act-text .atx{white-space:normal}.act-text .aic{color:var(--accent)}
 .act-prompt .aic{color:var(--green)}
 .act-read{opacity:.75}
+a.ref{color:var(--accent);text-decoration:none;border-bottom:1px dotted color-mix(in srgb,var(--accent) 45%,transparent)}a.ref:hover{border-bottom-style:solid}a.ref code{color:inherit}
 .btw{border:1px dashed color-mix(in srgb,var(--amber) 55%,transparent);border-radius:10px;padding:8px 12px;margin:6px 0;background:color-mix(in srgb,var(--amber) 5%,transparent)}
 .btwq{font-weight:600;color:var(--ink)}.btwtag{font-size:10.5px;font-weight:700;color:var(--amber);border:1px solid currentColor;border-radius:5px;padding:0 5px;margin-right:8px;vertical-align:1px}
 .btwa{margin-top:4px;color:var(--ink-2)}.btwa p{margin:0 0 4px}

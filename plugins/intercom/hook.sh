@@ -7,7 +7,7 @@
 # lets the user decide to go ahead. It never blocks on its own in Claude Code.
 # Never fails: any error just means no intercom context this time.
 
-VERSION=0.12.8 # kept in step with .claude-plugin/plugin.json (a test checks)
+VERSION=0.12.9 # kept in step with .claude-plugin/plugin.json (a test checks)
 D="$HOME/.claude/intercom"
 event="${1:-UserPromptSubmit}"
 client="${2:-claude}"
@@ -177,6 +177,8 @@ elif [ "$event" != "SessionStart" ] && [ -f "$pcache" ]; then
 else
   # owner/repo of a GitHub origin, so unlinked sessions can be pointed at projects open to its collaborators.
   remote=$(git -C "$workdir" remote get-url origin 2>/dev/null | sed -n -e 's#\.git$##' -e 's#.*github\.com[:/]\([^/]*/[^/]*\)$#\1#p')
+  # The repo's web address (no credentials), so MR/issue refs like !3742 link to it on the dashboard.
+  [ "$event" = "SessionStart" ] && origin=$(git -C "$workdir" remote get-url origin 2>/dev/null | sed -e 's#://[^@/]*@#://#')
   project=$(repo_name)
   [ -n "$session" ] && printf '%s' "$project" > "$pcache"
 fi
@@ -191,7 +193,7 @@ if [ "$client" = "codex" ]; then name="${INTERCOM_CODEX_NAME:-$INTERCOM_NAME}"; 
 
 curl -sf --max-time 3 -G "$INTERCOM_URL/api/hook" \
   --data-urlencode "event=$event" --data-urlencode "project=$project" --data-urlencode "session=$session" \
-  --data-urlencode "branch=$branch" --data-urlencode "remote=$remote" --data-urlencode "client=$client" --data-urlencode "name=$name" \
+  --data-urlencode "branch=$branch" --data-urlencode "remote=$remote" --data-urlencode "origin=$origin" --data-urlencode "client=$client" --data-urlencode "name=$name" \
   --data-urlencode "show=${INTERCOM_SHOW:-1}" --data-urlencode "host=$host" --data-urlencode "version=$VERSION" \
   --data-urlencode "autoupdate=${INTERCOM_AUTO_UPDATE:-1}" --data-urlencode "updated=$updated" \
   -H "Authorization: Bearer $INTERCOM_TOKEN" 2>/dev/null

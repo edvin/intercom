@@ -328,7 +328,7 @@ const EVENT_ICON: [RegExp, string, string][] = [
  * One feed entry, terminal style: a compact header (who, where, when, delivery) over the message. A message that
  * continues the one above it (same sender and place, minutes apart) skips the header.
  */
-function messageRow(m: Message, me: string, showChannel: boolean, d?: Delivery, cont = false): string {
+function messageRow(m: Message, me: string, showChannel: boolean, d?: Delivery, cont = false, refs?: string | null): string {
   const dm = m.recipient !== null;
   const where = dm
     ? `<span class="to">→ ${m.recipient_agent ? agentName(m.recipient!, m.recipient_agent) : esc(m.recipient === me ? "you" : m.recipient!)}</span>`
@@ -344,7 +344,7 @@ function messageRow(m: Message, me: string, showChannel: boolean, d?: Delivery, 
   const who = m.sender_agent ? agentName(m.sender, m.sender_agent) : `<span class="person">${esc(m.sender === me ? "you" : m.sender)}</span>`;
   return `<div class="msg${dm ? " dm" : ""}${m.sender === me ? " mine" : ""}${cont ? " cont" : ""}" data-day="${m.created_at}" data-mid="${m.id}">
     <div class="head"><span class="who">${who}</span>${where}<span class="meta">${time(m.created_at)}${deliveryMark(d)}</span></div>
-    <div class="body md">${md(m.body)}</div>
+    <div class="body md">${md(m.body, refs)}</div>
   </div>`;
 }
 
@@ -510,6 +510,15 @@ export async function dashboard(url: URL, env: Env, me: string, cookie = ""): Pr
   const meRow = await env.DB.prepare("SELECT org FROM members WHERE name = ?").bind(me).first<{ org: string }>();
 
   const marks = await deliveryMarks(env, me, msgsRes.results);
+  // The repo each agent writes from, so its !MR / #issue / commit refs link there.
+  const senders = [...new Set(msgsRes.results.filter((m) => m.sender_agent).map((m) => m.sender))];
+  const senderOrigin = new Map<string, string>();
+  if (senders.length) {
+    const { results } = await env.DB.prepare(`SELECT member, label, origin FROM sessions WHERE origin != '' AND member IN (${senders.map(() => "?").join(",")})`)
+      .bind(...senders)
+      .all<{ member: string; label: string; origin: string }>();
+    for (const r of results) senderOrigin.set(`${r.member}/${r.label}`, r.origin);
+  }
   const votesFor = (id: number) => votesRes.results.filter((v) => v.proposal_id === id);
   const props = propsRes.results;
   const live = (p: Proposal) => p.status === "open" && !(p.closes_at !== null && p.closes_at <= Date.now());
@@ -635,7 +644,7 @@ export async function dashboard(url: URL, env: Env, me: string, cookie = ""): Pr
         const prev = all[i - 1];
         const same = (a: Message, b: Message) =>
           a.kind !== "event" && b.kind !== "event" && a.sender === b.sender && a.sender_agent === b.sender_agent && a.recipient === b.recipient && a.recipient_agent === b.recipient_agent && a.channel === b.channel;
-        return messageRow(m, me, !channel, marks.get(m.id), !!prev && same(prev, m) && prev.created_at - m.created_at < 5 * 60_000);
+        return messageRow(m, me, !channel, marks.get(m.id), !!prev && same(prev, m) && prev.created_at - m.created_at < 5 * 60_000, m.sender_agent ? senderOrigin.get(`${m.sender}/${m.sender_agent}`) : null);
       }).join("") : `<div class="empty">${icon("message", 28)}<div>No messages yet.</div><div class="small">Messages your teammates' agents post will show up here, live.</div></div>`}</div>
     </section>`;
 

@@ -18,6 +18,7 @@ interface Agent {
   project_pin?: string;
   loops?: string;
   jobs?: string;
+  origin?: string;
   repo?: string;
   branch: string;
   note: string;
@@ -67,7 +68,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   const ph = (n: number) => Array.from({ length: n }, () => "?").join(",") || "NULL";
   const everyone = people.includes(me) ? people : [...people, me];
   const { results: agents } = await env.DB.prepare(
-    `SELECT member, session_id, label, project, project_pin, repo, loops, jobs, branch, note, client, host, version, last_seen, state, state_detail, state_at FROM sessions
+    `SELECT member, session_id, label, project, project_pin, repo, loops, jobs, origin, branch, note, client, host, version, last_seen, state, state_detail, state_at FROM sessions
      WHERE member IN (${ph(everyone.length)}) AND (member = ? OR project IN (${ph(mine.length)})) AND last_seen > ?
      ORDER BY member = ? DESC, last_seen DESC`,
   )
@@ -178,11 +179,14 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
       ? await env.DB.prepare("SELECT * FROM activity WHERE member = ? AND session_id = ? ORDER BY id DESC LIMIT 200").bind(me, agent.session_id).all<Activity>()
       : { results: [] as Activity[] };
   const marks = await deliveryMarks(env, me, rows);
+  // Each writer's repo, so their !MR / #issue / commit refs link where they belong.
+  const origins = new Map(agents.map((a) => [`${a.member}/${a.label}`, a.origin ?? ""]));
+  const originOf = (member: string, label: string | null) => (label && origins.get(`${member}/${label}`)) || agent.origin || null;
   const ACT_ICON: Record<string, string> = { cmd: "$", edit: "✎", read: "·", tool: "⚙", text: "●", prompt: "›", loop: "↻", job: "" };
   const actRow = (a: Activity) =>
     `<div class="act act-${a.kind}" data-mid="a${a.id}"><span class="aic">${ACT_ICON[a.kind] ?? "·"}</span><span class="atx">${
       a.kind === "text"
-        ? md(a.text)
+        ? md(a.text, agent.origin)
         : a.kind === "prompt"
           ? `<span class="muted">typed in the terminal:</span> ${esc(plainSpaces(a.text))}`
           : a.kind === "cmd" && a.text.includes("\n")
@@ -206,9 +210,9 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
         const from = address(m.sender, m.sender_agent);
         const to = address(m.recipient!, m.recipient_agent);
         const named = (member: string, agentLabel: string | null, text: string) => (agentLabel ? agentName(member, agentLabel, text) : esc(text));
-        return `<div class="bubble md relay" data-mid="${m.id}"><span class="rhd">${named(m.sender, m.sender_agent, from)} → ${named(m.recipient!, m.recipient_agent, to)}</span>${md(m.body)}<span class="when">${time(m.created_at)}${mark}</span></div>`;
+        return `<div class="bubble md relay" data-mid="${m.id}"><span class="rhd">${named(m.sender, m.sender_agent, from)} → ${named(m.recipient!, m.recipient_agent, to)}</span>${md(m.body, originOf(m.sender, m.sender_agent))}<span class="when">${time(m.created_at)}${mark}</span></div>`;
       }
-      return `<div class="bubble md ${fromMe ? "mine" : ""}" data-mid="${m.id}" data-who="${esc(agent.label)}" style="--h:${agentHue(agent.member, agent.label)}">${md(m.body)}<span class="when">${time(m.created_at)}${mark}</span></div>`;
+      return `<div class="bubble md ${fromMe ? "mine" : ""}" data-mid="${m.id}" data-who="${esc(agent.label)}" style="--h:${agentHue(agent.member, agent.label)}">${md(m.body, fromMe ? agent.origin : originOf(m.sender, m.sender_agent))}<span class="when">${time(m.created_at)}${mark}</span></div>`;
     });
   rows.forEach((m, i) => items.push({ at: m.created_at, html: thread0[i]! }));
   // A dashboard message handed to the agent as a prompt (the mod's prompt.submit, codex queue) is also in its
@@ -227,7 +231,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
       const late = b.status === "pending" && Date.now() - b.created_at > BTW_TIMEOUT;
       const answer =
         b.status === "answered"
-          ? `<div class="btwa md">${md(b.answer)}</div>`
+          ? `<div class="btwa md">${md(b.answer, agent.origin)}</div>`
           : b.status === "failed" || late
             ? `<div class="btwa muted">no answer: ${esc(late ? "nothing picked it up; is the intercom-ui mod running in that session (and on 0.2.4 or newer)?" : b.reason === "nothing-to-fork" ? "it hasn't finished a turn yet, so there's no context to ask" : b.reason)}</div>`
             : `<div class="btwa muted">asking… (a side look at its context)</div>`;

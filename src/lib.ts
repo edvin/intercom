@@ -1,4 +1,5 @@
 import type { Db } from "./db";
+import { webBase } from "./refs";
 import { type LoopEvent, activeLoops, applyLoopEvents, parseLoops } from "./loops";
 import { type JobEvent, activeJobs, applyJobEvents, parseJobs } from "./jobs";
 
@@ -207,6 +208,12 @@ export async function projectFor(env: Env, me: string, raw: string | null | unde
     if (pinned) return pinned;
   }
   return raw ? resolveProject(env, raw, me) : null;
+}
+
+/** The web address of the session's git origin, for linking MR/issue/commit references in what it writes. */
+export async function setOrigin(env: Env, me: string, sessionId: string, raw: string | null | undefined): Promise<void> {
+  const base = webBase(raw);
+  if (base) await env.DB.prepare("UPDATE sessions SET origin = ? WHERE member = ? AND session_id = ? AND origin != ?").bind(base, me, sessionId, base).run();
 }
 
 /** Remember the repo a session runs in (what the dashboard can link to a project). */

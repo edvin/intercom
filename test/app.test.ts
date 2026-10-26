@@ -1368,3 +1368,33 @@ describe("side questions (btw)", () => {
     assert.doesNotMatch(await (await w.request("/dashboard?view=agents&agent=bob/alder", { as: "bob", cookie: true })).text(), /data-btwtoggle title=/);
   });
 });
+
+describe("reference links", () => {
+  test("origins normalise to web addresses; refs link to the writer's own repo", async () => {
+    const { webBase, linkRefs } = await import("../src/refs.ts");
+    assert.equal(webBase("git@gitlab.example.com:group/sub/billing.git"), "https://gitlab.example.com/group/sub/billing");
+    assert.equal(webBase("ssh://git@gitlab.example.com:2222/group/billing.git"), "https://gitlab.example.com/group/billing");
+    assert.equal(webBase("https://user:secret@github.com/acme/shop.git"), "https://github.com/acme/shop");
+    assert.equal(webBase("/local/path/repo"), null);
+
+    const gl = "https://gitlab.example.com/group/billing";
+    const html = linkRefs("see !3742 and #12, fixed in a91c2e0 (and other/repo!5)", gl);
+    assert.match(html, /<a class="ref" href="https:\/\/gitlab\.example\.com\/group\/billing\/-\/merge_requests\/3742"[^>]*>!3742<\/a>/);
+    assert.match(html, /href="https:\/\/gitlab\.example\.com\/group\/billing\/-\/issues\/12"/);
+    assert.match(html, /href="https:\/\/gitlab\.example\.com\/group\/billing\/-\/commit\/a91c2e0"/);
+    assert.match(html, /href="https:\/\/gitlab\.example\.com\/other\/repo\/-\/merge_requests\/5"/);
+    const gh = linkRefs("PR #88 and deadbeef and 1234567", "https://github.com/acme/shop");
+    assert.match(gh, /href="https:\/\/github\.com\/acme\/shop\/issues\/88"/);
+    assert.doesNotMatch(gh, /deadbeef<\/a>|1234567<\/a>/); // words and plain numbers aren't commits
+    assert.equal(linkRefs("&#39;quoted&#39; hello!3", gl), "&#39;quoted&#39; hello!3"); // entities and mid-word ! untouched
+  });
+
+  test("an agent's message links its MR refs to its own GitLab", async () => {
+    const w = await standardWorld();
+    await w.request(`/api/hook?event=SessionStart&project=billing-api&session=rf1&name=core&origin=${encodeURIComponent("git@gitlab.example.com:group/billing-api.git")}`, { as: "bob" });
+    await w.ok("bob", "post", { channel: "billing", message: "Opened !3742 for the ledger fix (`a91c2e0`)." }, { id: "rf1", project: "billing-api" });
+    const feed = await (await w.request("/dashboard", { as: "alice", cookie: true })).text();
+    assert.match(feed, /href="https:\/\/gitlab\.example\.com\/group\/billing-api\/-\/merge_requests\/3742"[^>]*>!3742<\/a>/);
+    assert.match(feed, /href="https:\/\/gitlab\.example\.com\/group\/billing-api\/-\/commit\/a91c2e0"[^>]*><code>a91c2e0<\/code><\/a>/);
+  });
+});
