@@ -20,7 +20,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const VERSION = "0.12.0"; // kept in step with .claude-plugin/plugin.json (a test checks)
+const VERSION = "0.12.1"; // kept in step with .claude-plugin/plugin.json (a test checks)
 const DIR = path.join(os.homedir(), ".claude", "intercom");
 const CONFIG = path.join(DIR, "config");
 function readConf() {
@@ -127,7 +127,10 @@ const touch = (file, content = "") => {
 
 let lastNotify = 0;
 function notify(m) {
-  const important = m.recipient || m.broadcast || /^opened proposal/.test(m.body);
+  // DMs and new votes; lock claims/releases only with INTERCOM_NOTIFY_LOCKS=1. Never the user's own activity.
+  if (m.sender === me && m.sender_agent && !m.recipient) return;
+  const lock = m.broadcast && /\block\b/.test(m.body);
+  const important = m.recipient || /^opened proposal/.test(m.body) || (lock && setting("INTERCOM_NOTIFY_LOCKS") === "1");
   if (!notifyOn() || !important || Date.now() - lastNotify < 3000) return;
   lastNotify = Date.now();
   const from = m.sender_agent ? `${m.sender}/${m.sender_agent}` : m.sender;
@@ -163,6 +166,7 @@ const SETTINGS = {
   show: { key: "INTERCOM_SHOW", on: "1", off: "0", def: true, what: "show 📻 lines in the terminal when messages reach a session", live: true },
   notify: { key: "INTERCOM_NOTIFY", on: "1", off: "0", def: true, what: "desktop notifications for DMs, locks and votes", live: true },
   guard: { key: "INTERCOM_GUARD", on: "1", off: "0", def: true, what: "the deploy guard on shell commands", live: true },
+  notify_locks: { key: "INTERCOM_NOTIFY_LOCKS", on: "1", off: "0", def: false, what: "desktop notifications and toasts for lock claims and releases too (off: only DMs and new votes)", live: true },
   auto_update: { key: "INTERCOM_AUTO_UPDATE", on: "1", off: "0", def: true, what: "install new intercom versions automatically in the background (checked at session start, at most every 6 hours)", live: true },
   mirror: { key: "INTERCOM_MIRROR", on: "1", off: "0", def: true, what: "mirror what your agents do (commands, edits, their text) to your own Agents view; only you can see it", live: true },
   share_host: { key: "INTERCOM_SHARE_HOST", on: "1", off: "0", def: true, what: "show which machine your sessions run on (INTERCOM_HOST_NAME=… sets a nickname)", live: false },

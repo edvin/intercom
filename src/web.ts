@@ -794,6 +794,7 @@ export function docsPage(origin: string): Response {
           <dt><code>INTERCOM_MIRROR=0</code></dt><dd>Don't mirror what your agents do (commands, file edits, their text) to your Agents view. On by default; only you ever see it.</dd>
           <dt><code>INTERCOM_SHOW=0</code></dt><dd>Don't show the 📻 lines in your terminal when messages reach a session (the agent still gets them).</dd>
           <dt><code>INTERCOM_GUARD=0</code></dt><dd>Turn off the deploy guard.</dd>
+          <dt><code>INTERCOM_NOTIFY_LOCKS=1</code></dt><dd>Also notify about lock claims and releases (by default only DMs and new votes notify).</dd>
           <dt><code>INTERCOM_NOTIFY=0</code></dt><dd>No desktop notifications. (On macOS the first one may ask for permission, and appears as coming from Script Editor.)</dd>
           <dt><code>INTERCOM_CODEX_NAME=alder</code></dt><dd>One fixed name for all your Codex sessions, everywhere (<code>INTERCOM_CLAUDE_NAME</code> for Claude Code). Usually per-project crews fit better.</dd>
           <dt><code>INTERCOM_CODEX_PUSH=1</code></dt><dd>Push DMs and lock activity into running Codex sessions (experimental).</dd>

@@ -1,6 +1,6 @@
 {
   "name": "intercom-ui",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Intercom inside Claude Code: a band with locks and votes that concern you, a live team panel (/ic), toasts and a status line entry.",
   "types": "./types/index.d.ts",
   "license": "MIT",

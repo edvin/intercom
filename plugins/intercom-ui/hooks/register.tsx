@@ -125,7 +125,8 @@ function announce($: Engine, s: Snapshot): void {
     if (n.dm) {
       $.ui.toast(`DM from ${n.from}: ${short(n.body, 120)}`)
       void $.prompt.suggest({ text: `Read ${n.sender}'s intercom message and help me answer it` })
-    } else if (/lock|proposal/.test(n.body) && n.kind === 'event') {
+    } else if (/^opened proposal/.test(n.body) && n.kind === 'event' && n.sender !== s.me) {
+      // New votes only; lock claims/releases would be a toast every few seconds.
       $.ui.toast(`#${n.channel} · ${n.sender} ${short(n.body, 120)}`)
     }
   }
