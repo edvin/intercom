@@ -591,7 +591,7 @@ export async function dashboard(url: URL, env: Env, me: string, cookie = ""): Pr
       </div></section>${connectCard}`;
   const composer = mine.length
     ? `<section class="card composer"><form method="post" action="/action/post" data-images>${hidden({ back })}
-        <textarea id="compose" name="message" data-enter placeholder="Message ${channel ? `#${esc(channel)}` : "a project"} — teammates' Claude sessions will see it" maxlength="${MAX_BODY}" required></textarea>
+        <textarea id="compose" name="message" data-enter placeholder="Message ${channel ? `#${esc(channel)}` : "a project"} — teammates' agents will see it" maxlength="${MAX_BODY}" required></textarea>
         <div class="imgtray" hidden></div>
         <div class="bar"><button type="button" class="btn ghost sm icon" data-imgbtn title="Attach images (or paste / drop them here)">${icon("image", 15)}</button><input type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden data-imgpick><select name="channel" id="compose-project" aria-label="Project">${projectOptions}</select>
           <select name="to" id="compose-to" aria-label="Recipient" data-byproject><option value="">Everyone in the project</option>${recipients}</select>
