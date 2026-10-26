@@ -314,7 +314,7 @@ label.field>input,label.field>textarea,label.field>select{width:100%}
 .chip:hover{border-color:color-mix(in srgb,var(--accent) 50%,transparent);color:var(--accent)}
 /* the global menu as an icon rail in the Agents view (expandable, remembered per browser) */
 .shell.wide{grid-template-columns:auto minmax(0,1fr)}
-.shell.wide>.side{width:232px;transition:width .15s}
+.shell.wide>.side{width:232px}
 .railtoggle{display:flex;align-items:center;justify-content:center;width:36px;height:28px;margin:0 0 6px 6px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--mute);cursor:pointer}
 .railtoggle:hover{color:var(--ink)}
 .side.rail{width:56px!important;overflow-x:hidden}
@@ -452,14 +452,10 @@ const SCRIPT = `
   function bind(root = document) {
     $$("[data-copy]", root).forEach((b) => b.onclick = async () => { try { await navigator.clipboard.writeText(b.dataset.copy); const s = b.querySelector("span"); if (s) { const o = s.textContent; s.textContent = "Copied"; setTimeout(() => (s.textContent = o), 1400); } else toast("Copied"); } catch { toast("Couldn't copy", true); } });
     $$("[data-open]", root).forEach((b) => b.onclick = (e) => { e.preventDefault(); const d = document.getElementById(b.dataset.open); d && d.showModal(); const f = d && d.querySelector("input:not([type=hidden]),textarea"); f && f.focus(); });
-    $$("[data-railable]", root).forEach((side) => {
-      const open = (() => { try { return localStorage.getItem("ic-rail") === "open"; } catch { return false; } })();
-      side.classList.toggle("rail", !open);
-    });
     $$("[data-railtoggle]", root).forEach((b) => b.onclick = () => {
       const side = b.closest(".side"); const nowRail = !side.classList.contains("rail");
       side.classList.toggle("rail", nowRail);
-      try { localStorage.setItem("ic-rail", nowRail ? "rail" : "open"); } catch {}
+      document.cookie = "ic_rail=" + (nowRail ? "rail" : "open") + "; path=/; max-age=31536000; samesite=lax";
     });
     $$("[data-dm]", root).forEach((b) => b.onclick = () => { const s = $("#compose-to"), c = $("#compose"); if (s && c) { s.value = b.dataset.dm; c.focus(); c.scrollIntoView({ block: "center", behavior: "smooth" }); } });
     $$("[data-close]", root).forEach((b) => b.onclick = () => b.closest("dialog").close());
@@ -467,12 +463,15 @@ const SCRIPT = `
     $$("input[data-noenter]", root).forEach((i) => i.onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); toast("Pick an option to vote"); } });
     $$("textarea[data-chat]", root).forEach((t) => t.onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); if (t.value.trim()) t.form.requestSubmit(); } });
     $$("[data-chip]", root).forEach((b) => b.onclick = () => { const t = $("#chat-input"); if (t) { t.value = b.dataset.chip; t.form.requestSubmit(); } });
-    const style = (() => { try { return localStorage.getItem("ic-chat") || "term"; } catch { return "term"; } })();
-    $$(".thread", root).forEach((th) => { th.classList.toggle("term", style === "term"); th.style.scrollBehavior = "auto"; th.scrollTop = th.scrollHeight; });
-    const acts = (() => { try { return localStorage.getItem("ic-activity") !== "off"; } catch { return true; } })();
-    $$(".thread", root).forEach((th) => th.classList.toggle("noact", !acts));
-    $$("[data-acttoggle]", root).forEach((b) => { b.classList.toggle("on", acts); b.onclick = () => { try { localStorage.setItem("ic-activity", acts ? "off" : "on"); } catch {} bind(document); }; });
-    $$("[data-chatstyle]", root).forEach((b) => { b.classList.toggle("on", b.dataset.chatstyle === style); b.onclick = () => { try { localStorage.setItem("ic-chat", b.dataset.chatstyle); } catch {} bind(document); }; });
+    // Display choices live in cookies, so the server renders them and live redraws keep them.
+    const cookie = (k) => { const c = document.cookie.split(";").map((x) => x.trim()).find((x) => x.startsWith(k + "=")); return c ? c.slice(k.length + 1) : undefined; };
+    const setCookie = (k, v) => { document.cookie = k + "=" + v + "; path=/; max-age=31536000; samesite=lax"; };
+    const within = (sel) => [...(root.matches && root.matches(sel) ? [root] : []), ...$$(sel, root)];
+    const style = cookie("ic_chat") || "term";
+    const acts = cookie("ic_activity") !== "off";
+    within(".thread").forEach((th) => { th.classList.toggle("term", style === "term"); th.classList.toggle("noact", !acts); th.style.scrollBehavior = "auto"; if (th.dataset.stuck !== "no") th.scrollTop = th.scrollHeight; });
+    $$("[data-acttoggle]").forEach((b) => { b.classList.toggle("on", acts); b.onclick = () => { setCookie("ic_activity", acts ? "off" : "on"); bind(document); }; });
+    $$("[data-chatstyle]").forEach((b) => { b.classList.toggle("on", b.dataset.chatstyle === style); b.onclick = () => { setCookie("ic_chat", b.dataset.chatstyle); bind(document); }; });
     $$("textarea[data-enter]", root).forEach((t) => t.onkeydown = (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); t.form.requestSubmit(); } });
   }
   async function submit(e) {
@@ -503,6 +502,7 @@ const SCRIPT = `
       el.replaceWith(next);
       $$("details", next).forEach((d) => d.id && open.has(d.id) && (d.open = true));
       if (known.size) $$("[data-mid]", next).forEach((m) => !known.has(m.dataset.mid) && m.classList.add("fresh"));
+      if (th && !stick) next.dataset.stuck = "no";
       bind(next); days(next);
       if (th && !stick) next.scrollTop = keep;
     });

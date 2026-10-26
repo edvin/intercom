@@ -38,7 +38,7 @@ export const clientBadge = (client: string, named = false) =>
 
 const QUICK = ["What's your status?", "Pause and check in with me first.", "Stop, summarize, and wait.", "Commit and push what you have."];
 
-export async function agentsView(env: Env, me: string, url: URL, people: string[]): Promise<string> {
+export async function agentsView(env: Env, me: string, url: URL, people: string[], cookie = ""): Promise<string> {
   const mine = await myProjects(env, me);
   const ph = (n: number) => Array.from({ length: n }, () => "?").join(",") || "NULL";
   const everyone = people.includes(me) ? people : [...people, me];
@@ -104,9 +104,9 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
     </div>`;
   const stale = agents.filter((a) => a.member === me && isOn(a) && outdated(a.version));
   const updateBar = stale.length
-    ? `<section class="card updatebar" id="updatebar" data-region><div class="row" style="gap:10px">${icon("download", 16)}
-        <div class="grow"><b>Update available: intercom ${PLUGIN_VERSION}</b> <span class="small muted">· ${stale.length} of your running session${stale.length > 1 ? "s run" : " runs"} an older version (${esc(stale.map((a) => a.label).slice(0, 4).join(", "))}${stale.length > 4 ? "…" : ""})</span></div>
-        <span class="small muted">Installed automatically at the next session start (unless auto-update is off); restart sessions to load it. Now: <code>/intercom update</code>.</span></div></section>`
+    ? `<section class="card updatebar" id="updatebar" data-region><div class="row" style="gap:10px;flex-wrap:nowrap">${icon("download", 16)}
+        <div class="grow" style="min-width:0"><b>intercom ${PLUGIN_VERSION} is available</b> <span class="small muted">· <span title="${esc(stale.map((a) => a.label).join(", "))}" style="text-decoration:underline dotted">${stale.length} of your running session${stale.length > 1 ? "s" : ""}</span> run${stale.length > 1 ? "" : "s"} an older version. They update automatically at their next start; restart them to load it, or update now with <code>/intercom update</code>.</span></div>
+      </div></section>`
     : "";
   const awayBar = `${updateBar}<section class="card awaybar ${away ? "on" : ""}" id="awaybar" data-region>
       <div class="row" style="gap:10px">
@@ -169,7 +169,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
         </div>
       </div>
       ${on && agent.state === "waiting" ? `<div class="toast err" style="box-shadow:none;margin:10px 14px 0">${icon("x")}<span><b>${esc(agent.label)} is waiting:</b> ${esc(agent.state_detail || "for approval or input")}. That can only be answered in its terminal (or with Claude's Remote Control); for unattended runs, start agents in a mode that doesn't stop to ask.</span></div>` : ""}
-      <div class="thread" id="thread" data-region>${thread || `<div class="empty" style="margin:auto">${icon("message", 28)}<div>No messages with ${esc(agent.label)} yet.</div><div class="small">${ownAgent ? "Ask a question or give it a new direction; it treats what you write here like a prompt you typed." : "Your message reaches this session; its owner's agent treats it as information from you."}</div></div>`}</div>
+      <div class="thread${/(?:^|;\s*)ic_chat=chat/.test(cookie) ? "" : " term"}${/(?:^|;\s*)ic_activity=off/.test(cookie) ? " noact" : ""}" id="thread" data-region>${thread || `<div class="empty" style="margin:auto">${icon("message", 28)}<div>No messages with ${esc(agent.label)} yet.</div><div class="small">${ownAgent ? "Ask a question or give it a new direction; it treats what you write here like a prompt you typed." : "Your message reaches this session; its owner's agent treats it as information from you."}</div></div>`}</div>
       <form method="post" action="/action/post" class="chatbox" id="chatform" data-region data-quiet>${hidden({ back, to: key(agent), channel: agent.project || "" })}
         <div class="row" style="align-items:flex-end;flex-wrap:nowrap">
           <textarea id="chat-input" name="message" data-chat required maxlength="4000" class="grow" rows="2" placeholder="Message ${esc(agent.label)} — Enter to send, Shift+Enter for a new line"></textarea>

@@ -442,7 +442,7 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
     await setVersion(env, me, sid, req.headers.get("x-intercom-version"));
   }
 
-  if (url.pathname === "/dashboard") return dashboard(url, env, me);
+  if (url.pathname === "/dashboard") return dashboard(url, env, me, req.headers.get("cookie") ?? "");
   if (url.pathname === "/account") return accountPage(req, env, me);
   if (url.pathname === "/connect") return connectPage(req, env, me, url);
   if (url.pathname === "/discover") return discoverPage(env, me, url);

@@ -410,7 +410,7 @@ function projectPanel(p: Project & { github_repos: string; discoverable: number 
 
 const presenceClass = (ts: number | null) => (!ts ? "" : Date.now() - ts < 15 * 60_000 ? "on" : Date.now() - ts < 2 * 3600_000 ? "idle" : "");
 
-export async function dashboard(url: URL, env: Env, me: string): Promise<Response> {
+export async function dashboard(url: URL, env: Env, me: string, cookie = ""): Promise<Response> {
   const mine = await myProjects(env, me);
   const requested = url.searchParams.get("channel") ? normChannel(url.searchParams.get("channel")) : null;
   const channel = requested && mine.includes(requested) ? requested : null;
@@ -480,7 +480,9 @@ export async function dashboard(url: URL, env: Env, me: string): Promise<Respons
     return `<a href="/dashboard?channel=${encodeURIComponent(c)}" class="${c === channel ? "on" : ""}" title="#${esc(c)}">${icon("hash", 15)}<span>${esc(c)}</span>${mutedProjects.has(c) ? icon("bellOff", 12) : ""}
       <span class="n">${nVotes ? `<span class="badge accent" title="Votes waiting for you">${nVotes}</span>` : ""}${nLocks ? `<span class="badge amber" title="Active locks">${icon("lock", 10)}${nLocks}</span>` : ""}</span></a>`;
   };
-  const sidebar = `<aside class="side" id="side" data-region${view === "agents" ? " data-railable" : ""}>
+  // The Agents view shows the menu as an icon rail unless you expanded it (a cookie, so live redraws keep it).
+  const rail = view === "agents" && !/(?:^|;\s*)ic_rail=open/.test(cookie);
+  const sidebar = `<aside class="side${rail ? " rail" : ""}" id="side" data-region${view === "agents" ? " data-railable" : ""}>
     ${view === "agents" ? `<button type="button" class="railtoggle" data-railtoggle title="Collapse or expand the menu">${icon("sidebar", 14)}</button>` : ""}
     <nav class="nav">
       <a href="/dashboard?view=agents" class="${view === "agents" ? "on" : ""}" title="Agents">${icon("terminal", 15)}<span>Agents</span>${approvalsWaiting ? `<span class="n"><span class="badge red" title="Approvals waiting for you">${approvalsWaiting}</span></span>` : ""}</a>
@@ -618,7 +620,7 @@ export async function dashboard(url: URL, env: Env, me: string): Promise<Respons
     view === "admin"
       ? `<div class="main">${await adminSection(env, me)}</div><div class="aside"></div>`
       : view === "agents"
-        ? `<div class="main">${await agentsView(env, me, url, people)}</div>`
+        ? `<div class="main">${await agentsView(env, me, url, people, cookie)}</div>`
         : `<div class="main">${onboarding}${needs}${composer}${feed}</div><div class="aside">${projectBox}${lockPanel}${decisions}</div>`;
 
   const top = `<header class="top"><div class="in">
