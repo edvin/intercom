@@ -1,3 +1,4 @@
+import { recordsBrief } from "./records";
 import { type Env, type Message, type Proposal, type Session, MEMBER_OF, RECEIVES, UserError, activeLocks, address, ago, addActivity, lockIn, scopedLocks, cleanBranch, cleanClient, fromOwnUser, renameSession, setHost, setVersion, workingOn, authenticate, coMembers, fmtLock, fmtMessage, myProjects, resolveProject, setPresence, tally, touchSession, unread } from "./lib";
 import { INSTRUCTIONS, tools } from "./tools";
 import { cliPoll, cliStart, connectPage, discoverJoin, discoverPage, discoverRequest, githubCallback, githubCreate, githubStart, signOut } from "./accounts";
@@ -197,6 +198,7 @@ async function handleHook(url: URL, env: Env, me: string): Promise<Response> {
     const visible = new Set(mine);
     if (active.length) sections.push(`Active in the last 2h: ${active.map((a) => `${a.member}${visible.has(a.project) ? ` (${workingOn(a.project, a.branch, a.note)})` : ""}`).join(", ")}`);
     sections.push(scopedLocks(locks, me, project?.name));
+    if (project) sections.push(...(await recordsBrief(env, me, project.name)));
     if (open.length) sections.push(`Open proposals:\n${(await Promise.all(open.map((p) => tally(env, p, me)))).join("\n")}`);
     const others = locks.filter((l) => l.holder !== me && lockIn(l, project?.name));
     startLine = [

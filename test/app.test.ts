@@ -932,3 +932,53 @@ describe("delivery marks", () => {
     assert.doesNotMatch(await view("alice", "/dashboard?view=agents&agent=bob/alder"), /handoff: abc123/);
   });
 });
+
+describe("decision log and handoffs", () => {
+  test("handoff → integrated notifies the author, lands in the log, and shows at session start; others' projects stay private", async () => {
+    const w = await standardWorld();
+    const hook = async (event: string, sid: string, extra = "") => {
+      const t = await (await w.request(`/api/hook?event=${event}&project=billing-api&session=${sid}${extra}`, { as: "bob" })).text();
+      return t.startsWith("{") ? ((JSON.parse(t) as { hookSpecificOutput?: { additionalContext?: string } }).hookSpecificOutput?.additionalContext ?? t) : t;
+    };
+    await hook("SessionStart", "h1", "&client=codex&name=alder");
+    await hook("SessionStart", "h2", "&name=core");
+    const alder = { id: "h1", project: "billing-api" };
+    const core = { id: "h2", project: "billing-api" };
+    await w.ok("bob", "set_name", { name: "alder", role: "works in isolated worktrees, hands over commits", remember: true }, alder);
+
+    assert.match(
+      await w.ok("bob", "handoff", { ref: "5df5034 on /tmp/alder-3", summary: "cache builtin descriptors", evidence: "bench/out.json", gates: "unit, corpus-lite: green", to: "bob/core" }, alder),
+      /Recorded handoff H1 and sent it to bob\/core/,
+    );
+    // core gets it in context, with the id to settle it.
+    assert.match(await hook("UserPromptSubmit", "h2"), /handed off H1: 5df5034 on \/tmp\/alder-3 — cache builtin descriptors[\s\S]*evidence: bench\/out\.json/);
+    assert.match(await w.ok("alice", "handoffs", { channel: "billing" }), /H1 PENDING · 5df5034/);
+
+    const settled = await w.ok("bob", "update_handoff", { id: 1, status: "integrated", result: "a91c2e0", note: "cherry-picked with -x" }, core);
+    assert.match(settled, /H1 \[#billing\] INTEGRATED as a91c2e0/);
+    assert.match(settled, /Logged D1/);
+    assert.match(await hook("UserPromptSubmit", "h1"), /Your handoff H1 \(5df5034 on \/tmp\/alder-3\) is now integrated as a91c2e0: cherry-picked with -x/);
+
+    await w.ok("bob", "decide", { subject: "FnCell 1cb2e05", verdict: "rejected", reason: "+34.9% CPU", refs: "1cb2e05" }, core);
+    assert.match(await w.ok("alice", "decisions", { query: "1cb2e05" }), /D2 \[#billing\] REJECTED · FnCell 1cb2e05 — \+34\.9% CPU · refs 1cb2e05 · bob\/core/);
+    assert.match(await w.ok("alice", "decisions", { query: "a91c2e0" }), /D1 .*APPROVED · H1 5df5034/);
+    // Replacing a decision hides the old one unless asked.
+    await w.ok("bob", "decide", { subject: "FnCell 1cb2e05", verdict: "approved", reason: "CPU fixed in 2f00aa1", supersedes: 2 }, core);
+    assert.doesNotMatch(await w.ok("alice", "decisions", { channel: "billing" }), /D2 /);
+    assert.match(await w.ok("alice", "decisions", { channel: "billing", include_superseded: true }), /D2 .*superseded by D3/);
+
+    // carol isn't in #billing.
+    assert.match(await w.ok("carol", "decisions", {}), /No decisions/);
+    assert.match((await w.tool("carol", "update_handoff", { id: 1, status: "rejected" })).text, /No handoff H1/);
+
+    // A new session sees the crew's roles and the latest decisions.
+    const ctx = await hook("SessionStart", "h3");
+    assert.match(ctx, /Crew roles in #billing:\n- bob\/alder \(Codex\): works in isolated worktrees/);
+    assert.match(ctx, /Latest decisions in #billing[^\n]*\n.*D3 APPROVED · FnCell 1cb2e05/);
+    assert.match(await w.ok("alice", "projects"), /crew roles:\n\s+- bob\/alder \(Codex\)/);
+
+    const page = await (await w.request("/dashboard?channel=billing&q=1cb2e05", { as: "alice", cookie: true })).text();
+    assert.match(page, /id="handoffs"[\s\S]*5df5034 on \/tmp\/alder-3[\s\S]*integrated as a91c2e0/);
+    assert.match(page, /id="decisionlog"[\s\S]*FnCell 1cb2e05/);
+  });
+});

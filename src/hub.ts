@@ -19,6 +19,7 @@ import m0014 from "../migrations/0014_host_names.sql";
 import m0015 from "../migrations/0015_activity.sql";
 import m0016 from "../migrations/0016_session_version.sql";
 import m0017 from "../migrations/0017_deliveries.sql";
+import m0018 from "../migrations/0018_records.sql";
 
 const MIGRATIONS: [string, string][] = [
   ["0001_init", m0001],
@@ -38,6 +39,7 @@ const MIGRATIONS: [string, string][] = [
   ["0015_activity", m0015],
   ["0016_session_version", m0016],
   ["0017_deliveries", m0017],
+  ["0018_records", m0018],
 ];
 
 const DAY = 86400_000;

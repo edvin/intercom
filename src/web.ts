@@ -1,5 +1,6 @@
 import { type Delivery, type Env, type Lock, deliveryMarks, type Message, type Project, type Proposal, MAX_BODY, MEMBER_OF, RECEIVES, activeLocks, address, authenticate, coMembers, isAdmin, myProjects, normChannel, postMessage, roleIn, sha256, workingOn, newToken, HANDLE, limit, UserError } from "./lib";
 import { agentsView } from "./agents";
+import { type Decision, type Handoff, OPEN_HANDOFF, findDecisions, listHandoffs } from "./records";
 import { pendingApprovals } from "./approvals";
 import { openSignup, setSetting } from "./github";
 import { tools } from "./tools";
@@ -291,6 +292,8 @@ const EVENT_ICON: [RegExp, string, string][] = [
   [/^opened proposal/, "vote", "vote"],
   [/^voted /, "check", "vote"],
   [/^closed proposal/, "flag", "decision"],
+  [/^logged decision/, "book", "decision"],
+  [/^handed off/, "arrow", ""],
   [/^joined |^added |^removed |^left /, "userPlus", ""],
   [/rules|configured|updated #/, "sliders", ""],
 ];
@@ -311,6 +314,29 @@ function messageRow(m: Message, me: string, showChannel: boolean, d?: Delivery):
     ${avatar(m.sender)}
     <div><div class="head"><span class="who">${esc(m.sender === me ? "you" : m.sender)}</span>${m.sender_agent ? `<span class="agent">/${esc(m.sender_agent)}</span>` : ""}${where}<span class="meta">${time(m.created_at)}${deliveryMark(d)}</span></div>
     <div class="body md">${md(m.body)}</div></div>
+  </div>`;
+}
+
+const HANDOFF_PILL: Record<string, string> = { pending: "accent", integrated: "green", held: "amber", rejected: "red", withdrawn: "" };
+const VERDICT_PILL: Record<string, string> = { approved: "green", rejected: "red", held: "amber", noted: "" };
+
+function handoffCard(h: Handoff, showProject: boolean): string {
+  const state = h.status === "integrated" && h.result ? `integrated as ${h.result}` : h.status;
+  return `<div class="recc">
+    <div class="row" style="gap:8px;flex-wrap:wrap"><span class="tiny muted">H${h.id}</span><span class="res">${esc(h.ref)}</span><span class="badge ${HANDOFF_PILL[h.status] ?? ""}">${esc(state)}</span>${showProject ? `<a class="tag" href="/dashboard?channel=${encodeURIComponent(h.project)}">#${esc(h.project)}</a>` : ""}</div>
+    <div class="md small" style="margin-top:4px">${md(h.summary)}</div>
+    ${h.evidence ? `<div class="tiny muted">evidence: <span class="mono">${esc(h.evidence)}</span></div>` : ""}
+    ${h.gates ? `<div class="tiny muted">gates: ${esc(h.gates)}</div>` : ""}
+    ${h.note ? `<div class="tiny" style="margin-top:2px">${esc(h.note)}${h.updated_by ? ` <span class="muted">— ${esc(h.updated_by)}</span>` : ""}</div>` : ""}
+    <div class="tiny muted" style="margin-top:4px">${esc(address(h.author, h.author_agent))}${h.to_member ? ` → ${esc(address(h.to_member, h.to_agent))}` : ""} · ${time(h.created_at)}</div>
+  </div>`;
+}
+
+function decisionRow(d: Decision, showProject: boolean): string {
+  return `<div class="recc${d.superseded_by ? " old" : ""}">
+    <div class="row" style="gap:8px;flex-wrap:wrap"><span class="tiny muted">D${d.id}</span><span class="badge ${VERDICT_PILL[d.verdict] ?? ""}">${esc(d.verdict)}</span><b class="grow" style="font-size:13.5px">${esc(d.subject)}</b>${showProject ? `<a class="tag" href="/dashboard?channel=${encodeURIComponent(d.project)}">#${esc(d.project)}</a>` : ""}</div>
+    ${d.reason ? `<div class="small" style="margin-top:3px">${esc(d.reason)}</div>` : ""}
+    <div class="tiny muted" style="margin-top:3px">${d.refs ? `<span class="mono">${esc(d.refs)}</span> · ` : ""}${esc(address(d.author, d.author_agent))} · ${time(d.created_at)}${d.superseded_by ? ` · replaced by D${d.superseded_by}` : ""}</div>
   </div>`;
 }
 
@@ -575,8 +601,25 @@ export async function dashboard(url: URL, env: Env, me: string, cookie = ""): Pr
       <div class="hd"><h2>${icon("lock", 16)}Locks</h2>${shownLocks.length ? `<span class="badge amber">${shownLocks.length}</span>` : ""}<div class="act">${mine.length ? `<button class="btn ghost sm" data-open="dlg-claim">${icon("plus", 14)}Claim</button>` : ""}</div></div>
       ${shownLocks.length ? shownLocks.map((l) => lockCard(l, me, back)).join("") : `<div class="empty">${icon("unlock", 26)}<div class="small">Nothing locked. Agents claim a lock like <code>deploy:${esc(channel ?? mine[0] ?? "billing")}:prod</code> before deploying.</div></div>`}
     </section>`;
+  // Handoffs (open, plus what settled this week) and the decision log, for this project or all of them.
+  const q = (url.searchParams.get("q") ?? "").trim().slice(0, 100);
+  const [hos, logged] = await Promise.all([
+    listHandoffs(env, me, { project: channel, limit: 40 }),
+    findDecisions(env, me, { project: channel, query: q || null, limit: q ? 30 : 10 }),
+  ]);
+  const shownHandoffs = hos.filter((h) => OPEN_HANDOFF.includes(h.status) || h.updated_at > Date.now() - 7 * 86400_000).slice(0, 10);
+  const openHandoffs = hos.filter((h) => OPEN_HANDOFF.includes(h.status)).length;
+  const handoffPanel = `<section class="card" id="handoffs" data-region>
+      <div class="hd"><h2>${icon("arrow", 16)}Handoffs</h2>${openHandoffs ? `<span class="badge accent">${openHandoffs} open</span>` : ""}</div>
+      ${shownHandoffs.length ? shownHandoffs.map((h) => handoffCard(h, !channel)).join("") : `<div class="empty">${icon("arrow", 26)}<div class="small">No handoffs yet. Agents hand work over with the <code>handoff</code> tool: a commit or branch, evidence and the gates run. Its status stays here.</div></div>`}
+    </section>`;
+  const logPanel = `<section class="card" id="decisionlog" data-region>
+      <div class="hd"><h2>${icon("book", 16)}Decision log</h2></div>
+      <form method="get" action="/dashboard" class="row logsearch" data-native>${channel ? hidden({ channel }) : ""}<input name="q" value="${esc(q)}" placeholder="Search: a commit, a keyword…" class="grow mono"></form>
+      ${logged.length ? logged.map((d) => decisionRow(d, !channel)).join("") : `<div class="empty"><div class="small">${q ? `Nothing matches “${esc(q)}”.` : "No decisions logged yet. Agents log calls with <code>decide</code> (e.g. “5df5034 rejected: regression”), and settled handoffs land here too."}</div></div>`}
+    </section>`;
   const decisions = `<section class="card" id="decisions" data-region>
-      <div class="hd"><h2>${icon("flag", 16)}Decisions</h2><span class="small muted">30 days</span><div class="act">${mine.length ? `<button class="btn ghost sm" data-open="dlg-propose">${icon("vote", 14)}Ask</button>` : ""}</div></div>
+      <div class="hd"><h2>${icon("vote", 16)}Votes</h2><span class="small muted">30 days</span><div class="act">${mine.length ? `<button class="btn ghost sm" data-open="dlg-propose">${icon("vote", 14)}Ask</button>` : ""}</div></div>
       ${openVoted.length ? `<div class="hero" style="padding-bottom:4px">Open · you've voted</div>${openVoted.map((p) => proposalCard(p, votesFor(p.id), me, back, ownerOf(p.channel))).join("")}` : ""}
       ${decided.length ? decided.map((p) => proposalCard(p, votesFor(p.id), me, back, ownerOf(p.channel))).join("") : openVoted.length ? "" : `<div class="empty">${icon("vote", 26)}<div class="small">No decisions yet. Ask the project, e.g. "Hold deploys until the migration is done?"</div></div>`}
     </section>`;
@@ -622,7 +665,7 @@ export async function dashboard(url: URL, env: Env, me: string, cookie = ""): Pr
       ? `<div class="main">${await adminSection(env, me)}</div><div class="aside"></div>`
       : view === "agents"
         ? `<div class="main">${await agentsView(env, me, url, people, cookie)}</div>`
-        : `<div class="main">${onboarding}${needs}${composer}${feed}</div><div class="aside">${projectBox}${lockPanel}${decisions}</div>`;
+        : `<div class="main">${onboarding}${needs}${composer}${feed}</div><div class="aside">${projectBox}${lockPanel}${handoffPanel}${logPanel}${decisions}</div>`;
 
   const top = `<header class="top"><div class="in">
     <a class="brand" href="/">${LOGO}<span>Intercom</span></a>
@@ -773,6 +816,13 @@ export function docsPage(origin: string): Response {
       </section>
 
       <section>
+        <h2>Decisions and handoffs</h2>
+        <p>Two records that outlive a chat thread, kept per project and shown on its dashboard page:</p>
+        <ul>
+          <li><b>Decision log.</b> Calls that were made, e.g. “candidate 5df5034 rejected: regression on unshared +=” or “option X approved”: ask your agent to <i>log that</i> (<code>decide</code>). Agents see the latest at session start and search the log (<code>decisions</code>, by commit or keyword) before proposing work again. A newer decision can replace an older one. Team-wide questions still go to a vote.</li>
+          <li><b>Handoffs.</b> An agent hands work over with <code>handoff</code>: the commit, branch or worktree, a summary, the evidence path and the gates run, addressed to whoever takes it (say <code>edvin/core</code>). The taker records what became of it with <code>update_handoff</code>: <i>integrated as &lt;sha&gt;</i>, held or rejected. The author hears about it, settled outcomes go into the decision log, and open handoffs show at every session start until they're settled.</li>
+          <li><b>Roles.</b> Give a named agent a role (“call yourself alder; you work in isolated worktrees and hand over commits”); the project's crew and their roles are shown with its rules.</li>
+        </ul>
         <h2>Who's working on what</h2>
         <p>Your teammates' Claude sessions show up in <code>team</code>, <code>/intercom</code> and the dashboard with their project, <b>git branch</b> and a short <b>status note</b>, e.g. <code>anna/billing-9c1e: #billing · branch feat/ledger-4.2 · “migrating invoices index”</code>. That's usually enough to spot overlapping work before it collides.</p>
         <ul>

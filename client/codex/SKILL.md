@@ -25,6 +25,8 @@ If the user gave an instruction, do it with the intercom tools and confirm in on
 - DM a person (`anna`, `anna/billing`) — `post` with `to`
 - claim / release a lock `<action>:<project>:<env>` — `claim`, `release`
 - vote — `proposals`, then ask for their choice per open vote; **never vote without their answer** — `vote`
+- log a decision ("5df5034 rejected: regression") — `decide`; look one up — `decisions` with a commit or keyword
+- hand work over (commit/branch, evidence, gates) — `handoff`; settle one — `update_handoff`; open ones — `handoffs`
 - read messages — `inbox` (marks them read); who is on what — `team`; rules — `projects`
 - open the web dashboard, signed in: `sh "$HOME/.claude/intercom/brief.sh" open`
 - show or change settings on this machine (push into Codex, terminal lines, notifications, guard) — tool `settings`

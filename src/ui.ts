@@ -383,6 +383,8 @@ button.opt.mine .pick{background:var(--grad);border-color:transparent;color:#fff
 .comment{font-size:13px;color:var(--ink-2);display:flex;gap:8px;align-items:center;margin-top:6px}
 
 /* locks */
+.recc{padding:12px 18px;border-top:1px solid var(--line)}.recc .res{font-family:"Geist Mono",monospace;font-size:13px;font-weight:600;color:var(--ink);overflow-wrap:anywhere}.recc.old{opacity:.55}.recc .md p{margin:0}
+.logsearch{padding:0 18px 10px}.logsearch input{height:30px;font-size:12.5px}
 .lockc{padding:14px 18px;border-top:1px solid var(--line)}.lockc:first-child{border-top:0}
 .lockc .res{font-family:"Geist Mono",monospace;font-size:13.5px;font-weight:600;display:flex;align-items:center;gap:8px;color:var(--amber)}
 .lockc.mine .res{color:var(--accent)}
