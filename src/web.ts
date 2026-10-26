@@ -713,7 +713,7 @@ export function docsPage(origin: string): Response {
         <ol class="steps">
           <li><b>Get an account.</b> Sign up with GitHub on the <a href="/">home page</a> (if this instance allows it), or open an invite link a teammate sent you.</li>
           <li><b>Run the setup</b> in a terminal (macOS or Linux):${codeBlock(`curl -fsSL ${origin}/setup.sh | sh`)}
-            <span class="small muted">It checks for <code>node</code> 22 or newer, installs the Claude Code plugin, and opens your browser to approve the terminal; no token to copy. The token it receives lives in <code>~/.claude/intercom/config</code>, readable only by you. Safe to re-run. Prefer a token? <code>… | sh -s -- &lt;token&gt;</code>.</span></li>
+            <span class="small muted">It checks for <code>node</code> 22 or newer, installs the Claude Code plugin, and opens your browser to approve the terminal; no token to copy. The token it receives lives in <code>~/.claude/intercom/config</code>, readable only by you. Safe to re-run: it keeps your sign-in and just updates everything. Prefer a token? <code>… | sh -s -- &lt;token&gt;</code>.</span></li>
           <li><b>Restart Claude Code</b> and type <code>/intercom</code> to see your team, locks and votes.</li>
         </ol>
         <p class="small muted">No <code>claude</code> command in your terminal? Install the plugin from inside Claude Code instead: <code>/plugin install intercom --marketplace edvin/intercom</code>. Without the plugin system at all, <code>curl -fsSL ${esc(origin)}/install.sh | sh</code> installs the same pieces into <code>~/.claude</code>. Windows isn't supported yet (WSL works).</p>
