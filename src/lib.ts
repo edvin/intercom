@@ -134,6 +134,15 @@ export function ago(ts: number): string {
   return `${Math.floor(s / 86400)}d ago`;
 }
 
+/** The compact form for tight spots: now, 5m, 3h, 2d. */
+export function short(ts: number): string {
+  const s = Math.round((Date.now() - ts) / 1000);
+  if (s < 60) return "now";
+  if (s < 3600) return `${Math.floor(s / 60)}m`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h`;
+  return `${Math.floor(s / 86400)}d`;
+}
+
 export function until(ts: number): string {
   const m = Math.max(0, Math.round((ts - Date.now()) / 60000));
   return m < 60 ? `${m}m` : `${Math.floor(m / 60)}h${m % 60 ? `${m % 60}m` : ""}`;
@@ -292,6 +301,9 @@ export async function postMessage(
       m.broadcast ? 1 : 0,
     )
     .first<Message>();
+  // A post from a session counts as it being active.
+  if (env.session && (m.sender_agent ?? env.session.label) === env.session.label)
+    await env.DB.prepare("UPDATE sessions SET active_at = ? WHERE member = ? AND session_id = ?").bind(row!.created_at, m.sender, env.session.session_id).run();
   env.onMessage?.(row!);
   return row!.id;
 }
@@ -692,6 +704,7 @@ export async function addActivity(env: Env, me: string, sessionId: string, items
     env.DB.prepare(
       "DELETE FROM activity WHERE member = ?1 AND session_id = ?2 AND id <= (SELECT id FROM activity WHERE member = ?1 AND session_id = ?2 ORDER BY id DESC LIMIT 1 OFFSET ?3)",
     ).bind(me, sessionId, ACTIVITY_KEEP),
+    env.DB.prepare("UPDATE sessions SET active_at = MAX(COALESCE(active_at, 0), ?) WHERE member = ? AND session_id = ?").bind(Math.max(...rows.map((r) => r.at)), me, sessionId),
   ]);
   env.refreshWeb?.(me);
   return rows.length;

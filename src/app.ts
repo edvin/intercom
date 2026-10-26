@@ -125,12 +125,17 @@ async function handleHook(url: URL, env: Env, me: string): Promise<Response> {
   }
 
   // What the session is doing, for the dashboard: working / idle / waiting (needs approval or input).
-  const setState = async (state: string, detail = "") => {
-    if (session) await env.DB.prepare("UPDATE sessions SET state = ?, state_detail = ?, state_at = ? WHERE member = ? AND session_id = ?").bind(state, detail.slice(0, 200), Date.now(), me, session.session_id).run();
+  // Claude Code's idle reminder a minute after a turn isn't activity, so it leaves active_at alone.
+  const setState = async (state: string, detail = "", active = true) => {
+    const now = Date.now();
+    if (session)
+      await env.DB.prepare("UPDATE sessions SET state = ?, state_detail = ?, state_at = ?, active_at = CASE WHEN ? THEN ? ELSE active_at END WHERE member = ? AND session_id = ?")
+        .bind(state, detail.slice(0, 200), now, active ? 1 : 0, now, me, session.session_id)
+        .run();
   };
   if (event === "Notification" || event === "PermissionRequest") {
     // Claude Code also notifies after a minute of plain idleness; that isn't waiting on anyone.
-    if (url.searchParams.get("kind") === "idle_prompt") await setState("idle");
+    if (url.searchParams.get("kind") === "idle_prompt") await setState("idle", "", false);
     else await setState("waiting", url.searchParams.get("detail") || (event === "PermissionRequest" ? "needs approval" : "waiting for input"));
     return new Response("", { status: 200 });
   }

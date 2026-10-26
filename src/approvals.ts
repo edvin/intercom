@@ -58,7 +58,7 @@ export async function requestApproval(env: Env, me: string, session: { session_i
   )
     .bind(me, session.session_id, session.label, client, tool, summarize(tool, body.tool_input), now, now + waitMin * 60_000)
     .first<Approval>();
-  await env.DB.prepare("UPDATE sessions SET state = 'waiting', state_detail = ?, state_at = ? WHERE member = ? AND session_id = ?")
+  await env.DB.prepare("UPDATE sessions SET state = 'waiting', state_detail = ?, state_at = ?, active_at = ?2 WHERE member = ? AND session_id = ?")
     .bind(`needs approval: ${row!.summary.slice(0, 120)}`, now, me, session.session_id)
     .run();
   env.refreshWeb?.(me);
@@ -84,7 +84,7 @@ export async function decide(env: Env, me: string, id: number, decision: "allow"
     .bind(decision, note.slice(0, 500), Date.now(), id, me)
     .first<{ session_id: string; summary: string; label: string }>();
   if (!res) throw new UserError("That approval was already answered or has expired.");
-  await env.DB.prepare("UPDATE sessions SET state = 'working', state_detail = '', state_at = ? WHERE member = ? AND session_id = ?").bind(Date.now(), me, res.session_id).run();
+  await env.DB.prepare("UPDATE sessions SET state = 'working', state_detail = '', state_at = ?, active_at = ?1 WHERE member = ? AND session_id = ?").bind(Date.now(), me, res.session_id).run();
   env.refreshWeb?.(me);
   return `${decision === "allow" ? "Allowed" : "Denied"} for ${res.label}: ${res.summary.slice(0, 80)}`;
 }

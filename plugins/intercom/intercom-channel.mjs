@@ -20,7 +20,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const VERSION = "0.12.10"; // kept in step with .claude-plugin/plugin.json (a test checks)
+const VERSION = "0.12.11"; // kept in step with .claude-plugin/plugin.json (a test checks)
 const DIR = path.join(os.homedir(), ".claude", "intercom");
 const CONFIG = path.join(DIR, "config");
 function readConf() {
@@ -226,7 +226,8 @@ const oneLine = (t) => {
   const first = firstLine(s);
   return clip(first, 200) + (s.length > first.length ? " …" : "");
 };
-const isNoise = (t) => /^\s*(<|# AGENTS\.md|\[intercom|Caveat:)/.test(t);
+// A dashboard message the intercom-ui mod submitted as a prompt is already in the chat as your message.
+const isNoise = (t) => /^\s*(<|# AGENTS\.md|\[intercom|Caveat:)/.test(t) || /\(Sent by you from the intercom dashboard\./.test(t);
 
 /** One transcript line (Claude Code or Codex) → zero or more {at, kind, text}. */
 const pendingCron = new Map(); // CronCreate tool_use id → job, until its result names the job id

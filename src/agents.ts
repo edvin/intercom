@@ -7,7 +7,7 @@ import { PLUGIN_VERSION, outdated } from "./version";
 import { activeLoops, describe, parseLoops } from "./loops";
 import { activeJobs, duration, jobName, parseJobs } from "./jobs";
 import { BTW_TIMEOUT, btwFor } from "./btw";
-import { type Activity, type Env, type Message, address, ago, deliveryMarks, hostNames, myProjects } from "./lib";
+import { type Activity, type Env, type Message, address, ago, deliveryMarks, short, hostNames, myProjects } from "./lib";
 import { agentAvatar, agentHue, agentName, avatar, deliveryMark, esc, hidden, icon, md, plainSpaces, time } from "./ui";
 
 interface Agent {
@@ -29,6 +29,7 @@ interface Agent {
   state: string;
   state_detail: string;
   state_at: number | null;
+  active_at: number | null;
 }
 
 /** Which agent runs the session, in each tool's own colours. */
@@ -85,7 +86,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   const ph = (n: number) => Array.from({ length: n }, () => "?").join(",") || "NULL";
   const everyone = people.includes(me) ? people : [...people, me];
   const { results: agents } = await env.DB.prepare(
-    `SELECT member, session_id, label, project, project_pin, repo, loops, jobs, origin, branch, note, client, host, version, last_seen, state, state_detail, state_at FROM sessions
+    `SELECT member, session_id, label, project, project_pin, repo, loops, jobs, origin, branch, note, client, host, version, last_seen, state, state_detail, state_at, active_at FROM sessions
      WHERE member IN (${ph(everyone.length)}) AND (member = ? OR project IN (${ph(mine.length)})) AND last_seen > ?
      ORDER BY member = ? DESC, last_seen DESC`,
   )
@@ -126,13 +127,18 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
     [key(a), !isOn(a) ? `last seen ${ago(a.last_seen)}` : a.state === "waiting" ? `needs you: ${a.state_detail || "waiting"}` : a.state || "connected", a.host ? `on ${hostOf(a)}` : "", a.branch ? `⎇ ${a.branch}` : "", a.note]
       .filter(Boolean)
       .join(" · ");
-  const tRow = (a: Agent) => `<a class="ta${sel(a) ? " on" : ""}${isOn(a) ? "" : " gone"}" href="/dashboard?view=agents&agent=${encodeURIComponent(key(a))}" title="${esc(tip(a))}">
+  // When it last did something (a prompt, a step, a post), as a quiet "2m" on the row; working agents show their dot instead.
+  const activeAt = (a: Agent) => a.active_at ?? a.state_at ?? a.last_seen;
+  const since = (a: Agent) => (isOn(a) && a.state === "working" ? "" : `<time class="tt" data-ts="${activeAt(a)}" data-short title="last active ${ago(activeAt(a))}">${short(activeAt(a))}</time>`);
+  const tRow = (a: Agent) => `<a class="ta${sel(a) ? " on" : ""}${isOn(a) ? "" : " gone"}" data-k="${esc(key(a))}"${isOn(a) && a.state === "waiting" ? " data-w" : ""} href="/dashboard?view=agents&agent=${encodeURIComponent(key(a))}" title="${esc(tip(a))}">
       <span class="tdot ${dot(a)}"></span>${agentAvatar(a.member, a.label, "s")}<span class="tn">${agentName(a.member, a.label, a.member === me ? a.label : `${a.member}/${a.label}`)}</span>
-      <span class="tb">${isOn(a) && a.state === "waiting" ? '<span class="tw" title="needs you">!</span>' : ""}${loopsOf(a).length ? '<span title="running a loop">🔁</span>' : ""}${jobsOf(a).length ? '<span title="background jobs">⧗</span>' : ""}${a.member === me && isOn(a) && outdated(a.version) ? '<span title="update available">⬆</span>' : ""}${a.client === "codex" ? '<span class="tcx" title="Codex">cx</span>' : ""}</span></a>`;
+      <span class="tb">${isOn(a) && a.state === "waiting" ? '<span class="tw" title="needs you">!</span>' : ""}${loopsOf(a).length ? '<span title="running a loop">🔁</span>' : ""}${jobsOf(a).length ? '<span title="background jobs">⧗</span>' : ""}${a.member === me && isOn(a) && outdated(a.version) ? '<span title="update available">⬆</span>' : ""}${a.client === "codex" ? '<span class="tcx" title="Codex">cx</span>' : ""}${since(a)}</span></a>`;
   const branch = (id: string, title: string, href: string | null, list: Agent[], badges: string, on: boolean) => {
-    const ordered = [...list].sort((x, y) => Number(y.member === me) - Number(x.member === me));
-    const live = ordered.filter(isOn);
-    const gone = ordered.filter((a) => !isOn(a));
+    // Needs you, then working, then the rest by when they last did something. Live redraws keep the order the
+    // page loaded with (see the script), so rows don't move under the pointer.
+    const rank = (a: Agent) => (a.state === "waiting" ? 0 : a.state === "working" ? 1 : 2);
+    const live = list.filter(isOn).sort((x, y) => rank(x) - rank(y) || activeAt(y) - activeAt(x));
+    const gone = list.filter((a) => !isOn(a)).sort((x, y) => activeAt(y) - activeAt(x));
     const open = !closed.has(id) || list.some(sel) || on;
     return `<details class="tp" id="tp-${esc(id)}" data-tp="${esc(id)}"${open ? " open" : ""}>
       <summary><span class="tcaret">${icon("chevron", 11)}</span>${href ? `<a class="tpn${on ? " on" : ""}" href="${href}">${title}</a>` : `<span class="tpn">${title}</span>`}<span class="tbadges">${badges}</span></summary>
@@ -256,6 +262,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   const sentByYou = rows.filter((m) => m.sender === me && !m.sender_agent && m.recipient).map((m) => flat(m.body).slice(0, 80)).filter((b) => b.length >= 8);
   const echo = (a: Activity) => {
     if (a.kind !== "prompt") return false;
+    if (a.text.includes("(Sent by you from the intercom dashboard.")) return true; // the mod's wrapper, however short the message
     const t = flat(a.text);
     return t.length >= 8 && sentByYou.some((b) => t.includes(b.slice(0, Math.min(b.length, t.length))));
   };

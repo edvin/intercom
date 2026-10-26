@@ -514,6 +514,7 @@ body:has(.ide) .top .in{max-width:none;padding:8px 14px}
 .tn{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:"JetBrains Mono","Geist Mono",ui-monospace,monospace;font-size:12.5px}.tn .an{font-weight:600}
 .tb{display:flex;align-items:center;gap:3px;font-size:11px}
 .tw{display:grid;place-items:center;width:15px;height:15px;border-radius:50%;background:var(--red);color:#fff;font-size:10px;font-weight:800}
+.tt{min-width:22px;text-align:right;font-size:10.5px;color:var(--mute);font-variant-numeric:tabular-nums}.ta.on .tt,.ta:hover .tt{color:var(--ink-2)}
 .tcx{font-size:9px;font-weight:700;color:var(--mute);border:1px solid var(--line);border-radius:4px;padding:0 3px}
 .tdot{position:absolute;left:11px;width:6px;height:6px;border-radius:50%;background:var(--mute)}
 .tdot.idle{background:var(--green)}.tdot.work{background:var(--accent);animation:pulse 1.8s infinite}.tdot.wait{background:var(--red)}.tdot.off{background:transparent;box-shadow:inset 0 0 0 1px var(--mute)}
@@ -547,9 +548,11 @@ const SCRIPT = `
   const rel = (ts) => { const s = Math.round((Date.now() - ts) / 1000);
     if (s < 45) return "just now"; if (s < 3600) return Math.max(1, Math.round(s / 60)) + "m ago";
     if (s < 86400) return Math.round(s / 3600) + "h ago"; return Math.round(s / 86400) + "d ago"; };
+  const short = (ts) => { const s = Math.round((Date.now() - ts) / 1000);
+    return s < 60 ? "now" : s < 3600 ? Math.floor(s / 60) + "m" : s < 86400 ? Math.floor(s / 3600) + "h" : Math.floor(s / 86400) + "d"; };
   const left = (ts) => { const m = Math.max(0, Math.round((ts - Date.now()) / 60000)); return m < 60 ? m + "m left" : Math.floor(m / 60) + "h " + (m % 60) + "m left"; };
   function tick() {
-    $$("time[data-ts]").forEach((t) => (t.textContent = rel(+t.dataset.ts)));
+    $$("time[data-ts]").forEach((t) => (t.textContent = "short" in t.dataset ? short(+t.dataset.ts) : rel(+t.dataset.ts)));
     $$("[data-until]").forEach((t) => (t.textContent = left(+t.dataset.until)));
     $$("[data-from][data-to]").forEach((b) => { const a = +b.dataset.from, z = +b.dataset.to; b.style.width = Math.max(0, Math.min(100, (100 * (z - Date.now())) / (z - a))) + "%"; });
   }
@@ -738,6 +741,12 @@ const SCRIPT = `
       const keep = th ? th.scrollTop : 0;
       const known = new Set($$("[data-mid]", el).map((m) => m.dataset.mid));
       const tb = el.querySelector(".tbody"), tbTop = tb ? tb.scrollTop : 0; // the tree keeps its place
+      // Agent rows keep the order they had, so nothing moves under the pointer; ones that need you and new ones go first.
+      if (tb) { const was = $$(".ta[data-k]", el).map((a) => a.dataset.k);
+        $$(".tp, .toff", next).forEach((g) => { const rows = [...g.children].filter((c) => c.matches(".ta[data-k]")); if (rows.length < 2) return;
+          const pos = (r) => { const i = was.indexOf(r.dataset.k); return "w" in r.dataset ? -2 : i < 0 ? -1 : i; };
+          const anchor = rows[rows.length - 1].nextSibling;
+          rows.sort((a, b) => pos(a) - pos(b)).forEach((r) => g.insertBefore(r, anchor)); }); }
       el.replaceWith(next);
       if (tb) { const nb = next.querySelector(".tbody"); if (nb) nb.scrollTop = tbTop; }
       $$("details", next).forEach((d) => d.id && open.has(d.id) && (d.open = true));

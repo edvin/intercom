@@ -1034,12 +1034,15 @@ describe("activity mirror", () => {
       { at: Date.now(), kind: "prompt", text: `The intercom-ui plugin sent a message: ${msg.slice(0, 60)}…` },
       { at: Date.now(), kind: "prompt", text: "yes, go ahead with the favicon variant" },
       { at: Date.now(), kind: "cmd", text: "grep -rl brand web/src" },
+      // Short ones too, by the mod's wrapper.
+      { at: Date.now(), kind: "prompt", text: 'The intercom-ui plugin sent a message:\nShip it\n\n(Sent by you from the intercom dashboard. Reply there with the intercom post tool, to: "bob".)' },
     ]);
     const page = await (await w.request("/dashboard?view=agents&agent=bob/video", { as: "bob", cookie: true })).text();
     assert.equal(page.split("Andreas noted that").length - 1, 1);
     assert.match(page, /class="bubble md mine"[^>]*><p>Andreas noted that/);
     assert.match(page, /typed in the terminal:<\/span> yes, go ahead/);
     assert.match(page, /grep -rl brand web\/src/);
+    assert.doesNotMatch(page, /Ship it/);
   });
 });
 
@@ -1396,5 +1399,29 @@ describe("reference links", () => {
     const feed = await (await w.request("/dashboard", { as: "alice", cookie: true })).text();
     assert.match(feed, /href="https:\/\/gitlab\.example\.com\/group\/billing-api\/-\/merge_requests\/3742"[^>]*>!3742<\/a>/);
     assert.match(feed, /href="https:\/\/gitlab\.example\.com\/group\/billing-api\/-\/commit\/a91c2e0"[^>]*><code>a91c2e0<\/code><\/a>/);
+  });
+});
+
+describe("tree order", () => {
+  test("agents that need you come first, then working, then by last activity, each with a quiet time", async () => {
+    const w = await standardWorld();
+    const hook = (sid: string, name: string, event = "SessionStart", extra = "") =>
+      w.request(`/api/hook?event=${event}&project=billing-api&session=${sid}&name=${name}${extra}`, { as: "bob" });
+    for (const [sid, name] of [["o1", "older"], ["o2", "newer"], ["o3", "busy"], ["o4", "asking"]]) await hook(sid, name);
+    const ago = (sid: string, min: number) =>
+      w.db.prepare("UPDATE sessions SET active_at = ?, state_at = ? WHERE session_id = ?").bind(Date.now() - min * 60_000, Date.now() - min * 60_000, sid).run();
+    await hook("o3", "busy", "UserPromptSubmit");
+    await hook("o4", "asking", "Notification", "&detail=needs%20approval");
+    await ago("o1", 90);
+    await ago("o2", 5);
+    // Claude Code's idle reminder isn't activity: "older" keeps its time.
+    await hook("o1", "older", "Notification", "&kind=idle_prompt");
+
+    const page = await w.request("/dashboard", { as: "bob", cookie: true }).then((r) => r.text());
+    const order = [...page.matchAll(/class="ta[^"]*" data-k="bob\/(\w+)"/g)].map((m) => m[1]);
+    assert.deepEqual(order, ["asking", "busy", "newer", "older"]);
+    assert.match(page, /data-k="bob\/older"[\s\S]*?<time class="tt"[^>]*>1h<\/time>/);
+    assert.match(page, /data-k="bob\/newer"[\s\S]*?<time class="tt"[^>]*>5m<\/time>/);
+    assert.doesNotMatch(page.match(/data-k="bob\/busy"[\s\S]*?<\/a>/)![0], /class="tt"/); // its dot says it's working
   });
 });
