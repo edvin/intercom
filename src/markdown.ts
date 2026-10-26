@@ -67,8 +67,11 @@ const isTableSep = (l: string) => /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?
 const cells = (l: string) => l.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((c) => c.trim());
 
 /** Markdown (plus ANSI colours) → HTML. Output is meant for an element with white-space: normal. */
+/** Unusual spaces agents emit (thin, narrow no-break, …) as plain spaces, so fonts without those glyphs don't swallow them. */
+export const plainSpaces = (t: string) => t.replace(/[\u00a0\u2000-\u200a\u202f\u205f\u3000]/g, " ").replace(/[\u200b\u2060\ufeff]/g, "");
+
 export function md(text: string): string {
-  const lines = esc(text.replace(/\r\n?/g, "\n")).split("\n");
+  const lines = esc(plainSpaces(text).replace(/\r\n?/g, "\n")).split("\n");
   const out: string[] = [];
   let para: string[] = [];
   const flush = () => {

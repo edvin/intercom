@@ -25,6 +25,7 @@ const ICONS: Record<string, string> = {
   monitor: '<rect width="20" height="14" x="2" y="3" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/>',
   pencil: '<path d="M21.17 6.81a1 1 0 0 0-3.99-3.99L3.84 16.17a2 2 0 0 0-.5.83l-1.32 4.35a.5.5 0 0 0 .62.62l4.35-1.32a2 2 0 0 0 .83-.5z"/><path d="m15 5 4 4"/>',
   sidebar: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/>',
+  branch: '<path d="M6 3v12"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/>',
   unlock: '<rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/>',
   check: '<path d="M20 6 9 17l-5-5"/>',
   x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
@@ -86,7 +87,7 @@ function relative(ts: number): string {
 
 export const hidden = (fields: Record<string, string>) => Object.entries(fields).map(([k, v]) => `<input type="hidden" name="${k}" value="${esc(v)}">`).join("");
 
-export { md } from "./markdown";
+export { md, plainSpaces } from "./markdown";
 
 /** A code block with a copy button. */
 export const codeBlock = (s: string) =>
@@ -161,7 +162,13 @@ p{margin:.5em 0}
 .client{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;color:var(--ink-2);flex:none}
 .client svg{flex:none}.client.cl{color:#c9643f}.client.cx{color:var(--ink)}
 @media (prefers-color-scheme:dark){.client.cl{color:#e08a6a}}
-.hd .client{padding:1px 8px 1px 5px;border-radius:99px;background:var(--surface-2);border:1px solid var(--line)}
+.hd .client,.hd .badge{height:22px;padding:0 9px 0 7px;border-radius:99px;font-size:11.5px;font-weight:600;display:inline-flex;align-items:center;gap:5px;line-height:1}
+.hd .client{background:var(--surface-2);border:1px solid var(--line)}
+.hd .client svg{width:13px;height:13px}
+.hd .client.cx{color:var(--ink-2)}
+.renamebtn{opacity:.45;transition:opacity .15s}.chat>.hd:hover .renamebtn,.renamebtn:focus{opacity:1}
+.meta-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:12.5px;color:var(--mute);margin-top:3px}
+.meta-row .i{vertical-align:-2px}
 .badge.accent{background:var(--accent-soft);color:var(--accent)}.badge.amber{background:var(--amber-soft);color:var(--amber)}.badge.green{background:var(--green-soft);color:var(--green)}.badge.red{background:var(--red-soft);color:var(--red)}
 .person{display:flex;align-items:center;gap:9px;padding:6px 10px;border-radius:9px}
 .person .where{font-size:12px;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -269,7 +276,8 @@ label.field>input,label.field>textarea,label.field>select{width:100%}
 .bubble.mine{align-self:flex-end;background:var(--grad);color:#fff;border:0;border-bottom-left-radius:16px;border-bottom-right-radius:6px}
 .bubble.mine a{color:#fff;text-decoration:underline}.bubble.mine code{background:rgba(255,255,255,.18);border-color:transparent;color:#fff}
 .bubble .when{display:block;font-size:11px;opacity:.65;margin-top:4px}
-.activity{align-self:center;font-size:12.5px;color:var(--mute);text-align:center;max-width:80%;display:flex;gap:6px;align-items:center}
+.activity{align-self:center;font-size:12.5px;color:var(--mute);text-align:center;max-width:80%;display:flex;gap:6px;align-items:baseline}
+.activity .i{align-self:flex-start;margin-top:2px}
 /* Terminal style (default): a full-width CLI transcript in JetBrains Mono */
 .thread.term{gap:0;padding:14px 22px;font-family:"JetBrains Mono","Geist Mono",ui-monospace,Menlo,monospace;font-size:13.2px;line-height:1.6}
 .thread.term .bubble{max-width:none;align-self:stretch;background:none;border:0;border-radius:0;padding:8px 0 10px;color:var(--ink)}
@@ -280,11 +288,12 @@ label.field>input,label.field>textarea,label.field>select{width:100%}
 .thread.term .bubble.mine a{color:inherit;text-decoration:underline}
 .thread.term .bubble.mine code{background:var(--surface-2);border:1px solid var(--line);text-decoration:none}
 .thread.term .bubble .when{display:inline;margin:0 0 0 .6em;font-size:11px;opacity:.5}
-.thread.term .activity{align-self:stretch;justify-content:flex-start;text-align:left;max-width:none;padding:3px 0;font-size:12px}
+.thread.term .activity{align-self:stretch;display:grid;grid-template-columns:18px minmax(0,1fr) auto;gap:8px;text-align:left;max-width:none;padding:2px 0;font-size:12.5px}
+.thread.term .activity .i{justify-self:center}
 .thread.term .md code{font-size:1em}.thread.term .mdpre{font-size:12.6px}
 .thread.term .md .mdh{font-size:1em;color:var(--accent)}
 /* mirrored activity: what your own agent is doing */
-.act{display:grid;grid-template-columns:18px minmax(0,1fr) auto;gap:8px;align-items:baseline;font-size:12.5px;color:var(--mute);padding:2px 0;font-family:"JetBrains Mono","Geist Mono",ui-monospace,monospace}
+.act{display:grid;grid-template-columns:18px minmax(0,1fr) auto;gap:8px;align-items:start;font-size:12.5px;color:var(--mute);padding:2px 0;font-family:"JetBrains Mono","Geist Mono",ui-monospace,monospace}
 .act .aic{text-align:center;color:var(--ink-2)}.act .atx{overflow-wrap:anywhere;white-space:pre-wrap}.act .when{font-size:11px;opacity:.6}
 .act-cmd .atx{color:var(--ink-2)}.act-cmd .aic{color:var(--green)}
 .act-edit .aic{color:var(--amber)}.act-edit .atx{color:var(--ink-2)}

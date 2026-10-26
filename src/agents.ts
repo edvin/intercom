@@ -5,7 +5,7 @@
 import { awayState, pendingApprovals } from "./approvals";
 import { PLUGIN_VERSION, outdated } from "./version";
 import { type Activity, type Env, type Message, ago, hostNames, myProjects } from "./lib";
-import { avatar, esc, hidden, icon, md, time } from "./ui";
+import { avatar, esc, hidden, icon, md, plainSpaces, time } from "./ui";
 
 interface Agent {
   member: string;
@@ -69,7 +69,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
       <span class="dot ${isOn(a) ? "on" : ""}" style="margin-top:6px" title="${isOn(a) ? "connected" : `last seen ${ago(a.last_seen)}`}"></span>
       <span class="grow" style="min-width:0">
         <span class="nm">${clientBadge(a.client)}${a.member === me ? esc(a.label) : `${esc(a.member)}/${esc(a.label)}`}${stateBadge(a)}${a.member === me && isOn(a) && outdated(a.version) ? `<span class="badge amber" title="Runs intercom ${esc(a.version || "an old version")}; ${PLUGIN_VERSION} is available">⬆ update</span>` : ""}</span>
-        <span class="sub">${a.host ? `${icon("monitor", 11)} ${esc(hostOf(a))} · ` : ""}${a.project ? `#${esc(a.project)}` : "no project"}${a.branch ? ` · ⎇ ${esc(a.branch)}` : ""}${isOn(a) ? "" : ` · seen ${ago(a.last_seen)}`}</span>
+        <span class="sub">${a.host ? `${icon("monitor", 11)} ${esc(hostOf(a))} · ` : ""}${a.project ? `#${esc(a.project)}` : "no project"}${a.branch ? ` · ${icon("branch", 11)} ${esc(a.branch)}` : ""}${isOn(a) ? "" : ` · seen ${ago(a.last_seen)}`}</span>
         ${a.note ? `<span class="st">${esc(a.note)}</span>` : ""}
       </span></a>`;
   // Connected agents first; the rest (ended, killed, laptop asleep) fold away unless one of them is open.
@@ -140,7 +140,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   const ACT_ICON: Record<string, string> = { cmd: "$", edit: "✎", read: "·", tool: "⚙", text: "●", prompt: "›" };
   const actRow = (a: Activity) =>
     `<div class="act act-${a.kind}" data-mid="a${a.id}"><span class="aic">${ACT_ICON[a.kind] ?? "·"}</span><span class="atx">${
-      a.kind === "text" ? md(a.text) : a.kind === "prompt" ? `<span class="muted">typed in the terminal:</span> ${esc(a.text)}` : esc(a.text)
+      a.kind === "text" ? md(a.text) : a.kind === "prompt" ? `<span class="muted">typed in the terminal:</span> ${esc(plainSpaces(a.text))}` : esc(plainSpaces(a.text))
     }</span><span class="when">${time(a.at)}</span></div>`;
   type Item = { at: number; html: string };
   const items: Item[] = [];
@@ -148,7 +148,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
     .reverse()
     .map((m) => {
       if (!m.recipient) {
-        return `<div class="activity" data-mid="${m.id}">${icon(m.kind === "event" ? "radio" : "hash", 12)}<span>#${esc(m.channel)} · ${esc(m.body.split("\n")[0]!.slice(0, 240))} · ${time(m.created_at)}</span></div>`;
+        return `<div class="activity" data-mid="${m.id}">${icon("hash", 12)}<span>#${esc(m.channel)} · ${esc(plainSpaces(m.body).split("\n")[0]!.slice(0, 240))}</span><span class="when">${time(m.created_at)}</span></div>`;
       }
       const fromMe = m.sender === me && !m.sender_agent;
       return `<div class="bubble md ${fromMe ? "mine" : ""}" data-mid="${m.id}" data-who="${esc(agent.label)}">${md(m.body)}<span class="when">${time(m.created_at)}</span></div>`;
@@ -163,9 +163,9 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
       <div class="hd">
         <span class="presence ${on ? "on" : ""}">${avatar(agent.label, "m")}</span>
         <div class="grow" style="min-width:0">
-          <h2 style="display:flex;gap:8px;align-items:center"><span class="grow" style="display:flex;gap:8px;align-items:center">${esc(key(agent))}${ownAgent ? `<button type="button" class="btn ghost xs icon" data-open="dlg-rename" title="Rename this agent">${icon("pencil", 12)}</button>` : ""}${clientBadge(agent.client, true)}</span>
+          <h2 style="display:flex;gap:8px;align-items:center"><span class="grow" style="display:flex;gap:8px;align-items:center">${esc(key(agent))}${ownAgent ? `<button type="button" class="btn ghost xs icon renamebtn" data-open="dlg-rename" title="Rename this agent">${icon("pencil", 12)}</button>` : ""}${clientBadge(agent.client, true)}</span>
             ${ownAgent ? '<button type="button" class="btn ghost xs" data-acttoggle title="Show or hide what the agent is doing (commands, edits, its text); only you see this">Activity</button>' : ""}<span class="viewtoggle" title="How messages are shown (remembered in this browser)"><button type="button" data-chatstyle="term">Terminal</button><button type="button" data-chatstyle="chat">Chat</button></span></h2>
-          <div class="small muted row" style="gap:6px">${stateBadge(agent)}<span>${agent.host ? `on <b style="color:var(--ink-2)">${esc(hostOf(agent))}</b>${ownAgent ? `<button type="button" class="btn ghost xs icon" data-open="dlg-host" title="Rename this machine">${icon("pencil", 11)}</button>` : ""} · ` : ""}${agent.project ? `#${esc(agent.project)}` : "no project"}${agent.branch ? ` · ⎇ ${esc(agent.branch)}` : ""}${on ? "" : ` · last seen ${ago(agent.last_seen)}`}${agent.note ? ` · “${esc(agent.note)}”` : ""}</span></div>
+          <div class="meta-row">${stateBadge(agent)}<span>${agent.host ? `on <b style="color:var(--ink-2)">${esc(hostOf(agent))}</b>${ownAgent ? `<button type="button" class="btn ghost xs icon renamebtn" data-open="dlg-host" title="Rename this machine">${icon("pencil", 11)}</button>` : ""} · ` : ""}${agent.project ? `#${esc(agent.project)}` : "no project"}${agent.branch ? ` · ${icon("branch", 12)} ${esc(agent.branch)}` : ""}${on ? "" : ` · last seen ${ago(agent.last_seen)}`}${agent.note ? ` · “${esc(plainSpaces(agent.note))}”` : ""}</span></div>
         </div>
       </div>
       ${on && agent.state === "waiting" ? `<div class="toast err" style="box-shadow:none;margin:10px 14px 0">${icon("x")}<span><b>${esc(agent.label)} is waiting:</b> ${esc(agent.state_detail || "for approval or input")}. That can only be answered in its terminal (or with Claude's Remote Control); for unattended runs, start agents in a mode that doesn't stop to ask.</span></div>` : ""}
