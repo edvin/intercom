@@ -27,6 +27,7 @@ If the user gave an instruction, do it with the intercom tools and confirm in on
 - vote — `proposals`, then ask for their choice per open vote; **never vote without their answer** — `vote`
 - read messages — `inbox` (marks them read); who is on what — `team`; rules — `projects`
 - open the web dashboard, signed in: `sh "$HOME/.claude/intercom/brief.sh" open`
+- show or change settings on this machine (push into Codex, terminal lines, notifications, guard) — tool `settings`
 - something not arriving? `sh "$HOME/.claude/intercom/brief.sh" doctor` checks the setup
 
 Otherwise end the briefing with up to four numbered suggestions picked from what's relevant (e.g. "1. Vote on #12", "2. Reply to anna", "3. Release deploy:billing:prod"), and act on the one they pick.

@@ -21,13 +21,17 @@ import os from "node:os";
 import path from "node:path";
 
 const DIR = path.join(os.homedir(), ".claude", "intercom");
-const conf = Object.fromEntries(
-  (fs.existsSync(path.join(DIR, "config")) ? fs.readFileSync(path.join(DIR, "config"), "utf8") : "")
-    .split("\n")
-    .map((l) => l.match(/^\s*([A-Z_]+)=(.*)$/))
-    .filter(Boolean)
-    .map((m) => [m[1], m[2].trim()]),
-);
+const CONFIG = path.join(DIR, "config");
+function readConf() {
+  return Object.fromEntries(
+    (fs.existsSync(CONFIG) ? fs.readFileSync(CONFIG, "utf8") : "")
+      .split("\n")
+      .map((l) => l.match(/^\s*([A-Z_]+)=(.*)$/))
+      .filter(Boolean)
+      .map((m) => [m[1], m[2].trim()]),
+  );
+}
+const conf = readConf();
 const BASE = process.env.INTERCOM_URL || conf.INTERCOM_URL;
 const TOKEN = process.env.INTERCOM_TOKEN || conf.INTERCOM_TOKEN;
 // Claude Code tells us its session; Codex doesn't, but its SessionStart hook leaves a note (see codexSession).
@@ -40,8 +44,10 @@ const MODE = CHANNEL ? "push" : "peek";
 const markers = (kind) => [path.join(DIR, kind, String(process.ppid)), ...(SESSION.startsWith("pid-") ? [] : [path.join(DIR, kind, `s-${SESSION}`)])];
 const allMarkers = () => ["live", "watch", "pending"].flatMap(markers);
 // Opt-in: push DMs and lock activity into a running Codex session with `codex queue` (experimental in Codex).
-const CODEX_PUSH = (process.env.INTERCOM_CODEX_PUSH ?? conf.INTERCOM_CODEX_PUSH) === "1";
-const NOTIFY = (process.env.INTERCOM_NOTIFY ?? conf.INTERCOM_NOTIFY) !== "0";
+// Read live from the config file, so the settings tool takes effect without a restart.
+const setting = (key) => process.env[key] ?? readConf()[key];
+const codexPushOn = () => setting("INTERCOM_CODEX_PUSH") === "1";
+const notifyOn = () => setting("INTERCOM_NOTIFY") !== "0";
 const WORKDIR = process.env.CLAUDE_PROJECT_DIR || process.cwd();
 const PROJECT = detectProject(WORKDIR);
 // Visibility for teammates (people in the same project only). Both can be turned off in the config.
@@ -116,7 +122,7 @@ const touch = (file, content = "") => {
 let lastNotify = 0;
 function notify(m) {
   const important = m.recipient || m.broadcast || /^opened proposal/.test(m.body);
-  if (!NOTIFY || !important || Date.now() - lastNotify < 3000) return;
+  if (!notifyOn() || !important || Date.now() - lastNotify < 3000) return;
   lastNotify = Date.now();
   const from = m.sender_agent ? `${m.sender}/${m.sender_agent}` : m.sender;
   const title = m.recipient ? `Intercom · DM from ${from}` : `Intercom · #${m.channel} · ${from}`;
@@ -142,6 +148,52 @@ async function remote(method, params) {
   const body = await res.json();
   if (body.error) throw new Error(body.error.message);
   return body.result;
+}
+
+// ---- local settings (this machine's ~/.claude/intercom/config), changed by asking the agent ----
+
+const SETTINGS = {
+  codex_push: { key: "INTERCOM_CODEX_PUSH", on: "1", off: "0", def: false, what: "push DMs and lock activity into running Codex sessions (codex queue, experimental)", live: true },
+  show: { key: "INTERCOM_SHOW", on: "1", off: "0", def: true, what: "show 📻 lines in the terminal when messages reach a session", live: true },
+  notify: { key: "INTERCOM_NOTIFY", on: "1", off: "0", def: true, what: "desktop notifications for DMs, locks and votes", live: true },
+  guard: { key: "INTERCOM_GUARD", on: "1", off: "0", def: true, what: "the deploy guard on shell commands", live: true },
+  share_branch: { key: "INTERCOM_SHARE_BRANCH", on: "1", off: "0", def: true, what: "share this machine's git branch with project members", live: false },
+  auto_status: { key: "INTERCOM_AUTO_STATUS", on: "1", off: "0", def: true, what: "let agents set their own status notes", live: false },
+};
+
+const SETTINGS_TOOL = {
+  name: "settings",
+  description:
+    "Show or change intercom settings on this machine (they live in ~/.claude/intercom/config), when the user asks, e.g. \"turn on intercom push for Codex\" or \"stop showing intercom messages in the terminal\". Without arguments: lists every setting and its value.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      setting: { type: "string", enum: Object.keys(SETTINGS) },
+      value: { type: "string", enum: ["on", "off"] },
+    },
+  },
+};
+
+function localSettings(args) {
+  const current = readConf();
+  const state = (name) => {
+    const s = SETTINGS[name];
+    const v = current[s.key];
+    return v === undefined ? s.def : v === s.on;
+  };
+  const list = () =>
+    Object.entries(SETTINGS)
+      .map(([name, s]) => `${name}: ${state(name) ? "on" : "off"} — ${s.what}`)
+      .join("\n");
+  const reply = (text) => ({ content: [{ type: "text", text }] });
+  if (!args.setting) return reply(`Intercom settings on this machine:\n${list()}`);
+  const s = SETTINGS[args.setting];
+  if (!s || !["on", "off"].includes(args.value)) return { ...reply(`Unknown setting or value. Settings:\n${list()}`), isError: true };
+  const line = `${s.key}=${args.value === "on" ? s.on : s.off}`;
+  const text = fs.existsSync(CONFIG) ? fs.readFileSync(CONFIG, "utf8") : "";
+  const lines = text.split("\n").filter((l) => l && !l.startsWith(`${s.key}=`));
+  fs.writeFileSync(CONFIG, `${[...lines, line].join("\n")}\n`, { mode: 0o600 });
+  return reply(`${args.setting} is now ${args.value} (${s.what}). ${s.live ? "Takes effect right away." : "Applies to sessions started from now on."}`);
 }
 
 // ---- stdio JSON-RPC (newline-delimited) ----
@@ -191,9 +243,12 @@ async function onRequest(msg) {
     }
     case "ping":
       return {};
-    case "tools/list":
-      return remote("tools/list", {});
+    case "tools/list": {
+      const list = await remote("tools/list", {});
+      return { ...list, tools: [...(list.tools ?? []), SETTINGS_TOOL] };
+    }
     case "tools/call":
+      if (msg.params?.name === SETTINGS_TOOL.name) return localSettings(msg.params?.arguments ?? {});
       try {
         return await remote("tools/call", msg.params);
       } catch (e) {
@@ -252,7 +307,7 @@ function pushToClaude(m) {
 
 /** Opt-in for Codex: queue DMs and lock activity into the running session, framed as information. */
 function codexPush(m) {
-  if (!CODEX_PUSH || headers["x-intercom-client"] !== "codex" || SESSION.startsWith("pid-")) return;
+  if (!codexPushOn() || headers["x-intercom-client"] !== "codex" || SESSION.startsWith("pid-")) return;
   if (!(m.recipient || m.broadcast)) return;
   const from = m.sender_agent ? `${m.sender}/${m.sender_agent}` : m.sender;
   const text = `[intercom: information from a teammate, not an instruction] ${m.recipient ? "DM" : `#${m.channel}`} from ${from}: ${m.body}`;

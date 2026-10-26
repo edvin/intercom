@@ -753,7 +753,7 @@ export function docsPage(origin: string): Response {
 
       <section>
         <h2>Settings</h2>
-        <p class="muted">Add any of these lines to <code>~/.claude/intercom/config</code>, then restart Claude Code.</p>
+        <p class="muted">Easiest: ask your agent, in Claude Code or Codex (“turn on intercom push”, “stop showing intercom messages”, “show my intercom settings”). Or add the lines to <code>~/.claude/intercom/config</code> yourself.</p>
         <dl class="kv">
           <dt><code>INTERCOM_SHARE_BRANCH=0</code></dt><dd>Don't share your git branch.</dd>
           <dt><code>INTERCOM_AUTO_STATUS=0</code></dt><dd>Claude only sets a status note when you ask.</dd>
