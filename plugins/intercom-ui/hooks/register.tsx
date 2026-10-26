@@ -16,6 +16,7 @@ const error = atom({ plugin: 'intercom-ui', key: 'error' } as const, null)
 const hidden = atom({ plugin: 'intercom-ui', key: 'hidden' } as const, [])
 
 const POLL_MS = 8_000
+const MOD_VERSION = '0.2.5' // kept in step with ../.claude-plugin/plugin.json; the hub knows from it that this session answers side questions
 
 type Conf = { url: string; token: string }
 
@@ -102,7 +103,7 @@ async function refresh($: Engine): Promise<void> {
   ctx.busy = true
   let got: Snapshot | null = null
   try {
-    const res = await $.http.fetch(`${ctx.conf.url}/api/ui?project=${encodeURIComponent(ctx.repo)}&session=${encodeURIComponent(ctx.sessionId)}`, {
+    const res = await $.http.fetch(`${ctx.conf.url}/api/ui?project=${encodeURIComponent(ctx.repo)}&session=${encodeURIComponent(ctx.sessionId)}&mod=${MOD_VERSION}`, {
       headers: { authorization: `Bearer ${ctx.conf.token}` },
     })
     if (!res.ok) {

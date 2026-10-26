@@ -379,6 +379,7 @@ form.dropping{outline:2px dashed var(--accent);outline-offset:4px;border-radius:
 .bubble.relay .rhd{display:block;font-size:12px;font-weight:600;color:var(--ink-2);margin-bottom:4px}
 .thread.term .bubble.relay{border-left:2px dashed var(--line);padding-left:12px;background:none}
 .thread.term .bubble.relay::before{content:none}
+.fsz{display:inline-flex;gap:0;border-right:1px solid var(--line);padding-right:4px;margin-right:2px}.fsz .btn{font:600 11px/1 "Geist",system-ui,sans-serif;color:var(--ink-3);width:24px}.fsz .btn:last-child{font-size:15px}.fsz .btn:disabled{opacity:.35}.fsz .btn.ghost{color:var(--ink-3)}.fsz .btn.ghost:hover:not(:disabled){color:var(--ink)}
 .ttog{color:var(--ink-3)}.ttog .i{display:block}.ttog .when-off{display:none}.ttog:not(.on) .when-on{display:none}.ttog:not(.on) .when-off{display:block}.ttog:not(.on){opacity:.7}
 [data-acttoggle].on,[data-relaytoggle].on{background:var(--accent-soft);color:var(--accent)}
 .viewtoggle{display:inline-flex;border:1px solid var(--line-strong);border-radius:8px;overflow:hidden}
@@ -727,6 +728,12 @@ export const SCRIPT = `
     const within = (sel) => [...(root.matches && root.matches(sel) ? [root] : []), ...$$(sel, root)];
     const acts = cookie("ic_activity") !== "off";
     const relay = cookie("ic_relay") !== "off";
+    // Text size in the agent chat: steps around 100%, kept in a cookie like the other display choices.
+    const FS = [0.85, 0.92, 1, 1.08, 1.16, 1.25, 1.35, 1.5];
+    const fs = Math.min(FS.length - 1, Math.max(0, +(cookie("ic_fs") ?? 2) || 0));
+    within(".thread").forEach((th) => (th.style.zoom = FS[fs]));
+    $$("#chat-input").forEach((t) => (t.style.fontSize = (13.5 * FS[fs]).toFixed(1) + "px"));
+    $$("[data-fs]").forEach((b) => { b.disabled = fs + +b.dataset.fs < 0 || fs + +b.dataset.fs >= FS.length; b.onclick = () => { setCookie("ic_fs", Math.min(FS.length - 1, Math.max(0, fs + +b.dataset.fs))); bind(document); }; });
     within(".thread").forEach((th) => { th.classList.toggle("noact", !acts); th.classList.toggle("norelay", !relay); th.style.scrollBehavior = "auto"; if (th.dataset.stuck !== "no") th.scrollTop = th.scrollHeight; });
     $$("[data-relaytoggle]").forEach((b) => { b.classList.toggle("on", relay); b.onclick = () => { setCookie("ic_relay", relay ? "off" : "on"); bind(document); }; });
     $$("[data-acttoggle]").forEach((b) => { b.classList.toggle("on", acts); b.onclick = () => { setCookie("ic_activity", acts ? "off" : "on"); bind(document); }; });

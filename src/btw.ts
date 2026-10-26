@@ -19,14 +19,29 @@ export interface Btw {
 const THREAD_IDLE = 30 * 60_000; // a follow-up continues the thread unless it has been quiet this long
 const KEEP = 5; // earlier exchanges carried into a follow-up
 export const BTW_TIMEOUT = 10 * 60_000;
+const MOD_GONE = 3 * 60_000; // the mod polls every few seconds; quiet this long, it isn't there
+
+/** Whether a session's intercom-ui mod is polling, and new enough to answer side questions (0.2.4; older polls had no version). */
+export function modAnswers(s: { ui_at?: number | null; ui_version?: string }): boolean {
+  if (!s.ui_at || Date.now() - s.ui_at > MOD_GONE) return false;
+  const [a = 0, b = 0, c = 0] = (s.ui_version || "0.2.4").split(".").map(Number);
+  return a * 1e6 + b * 1e3 + c >= 2004;
+}
+
+/** Why side questions can't go to this session, for the person asking. */
+export const NO_MOD = (label: string, host: string) =>
+  `${label} isn't running the intercom-ui mod (0.2.4 or newer), which answers side questions. On ${host || "that machine"}: claude plugin install intercom-ui@intercom (it needs a recent Claude Code), then restart the session.`;
 
 /** Ask one of your own sessions a side question; continues its latest thread unless `fresh`. */
 export async function askBtw(env: Env, me: string, sessionId: string, question: string, fresh = false): Promise<Btw> {
   const q = question.trim().slice(0, 2000);
   if (!q) throw new UserError("Ask something.");
-  const s = await env.DB.prepare("SELECT client FROM sessions WHERE member = ? AND session_id = ?").bind(me, sessionId).first<{ client: string }>();
+  const s = await env.DB.prepare("SELECT client, label, host, ui_at, ui_version FROM sessions WHERE member = ? AND session_id = ?")
+    .bind(me, sessionId)
+    .first<{ client: string; label: string; host: string; ui_at: number | null; ui_version: string }>();
   if (!s) throw new UserError("You can only ask your own agents side questions.");
   if (s.client === "codex") throw new UserError("Side questions need Claude Code (with the intercom-ui mod); Codex has no way to answer without adding to its context.");
+  if (!modAnswers(s)) throw new UserError(NO_MOD(s.label, s.host));
   await limit(env, `btw:${me}`, 60, 3600_000, "side questions");
   const last = fresh
     ? null

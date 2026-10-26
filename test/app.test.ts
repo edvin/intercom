@@ -1374,6 +1374,11 @@ describe("side questions (btw)", () => {
     const snap = async () => (await (await w.request("/api/ui?project=billing-api&session=bw1", { as: "bob" })).json()) as { btw: { id: number; prompt: string }[] };
     const answer = (id: number, text: string) => w.request(`/api/btw/${id}`, { as: "bob", method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ answer: text }) });
 
+    // Without the mod polling for that session nothing could answer: refused at once, with what to do.
+    assert.match((await ask("bob", { message: "anyone there?" })).get("err")!, /core isn't running the intercom-ui mod[\s\S]*claude plugin install intercom-ui@intercom/);
+    assert.match(await (await w.request("/dashboard?view=agents&agent=bob/core", { as: "bob", cookie: true })).text(), /class="btn ghost btwbtn"[^>]*disabled title="core isn&#39;t running|class="btn ghost btwbtn"[^>]*disabled/);
+    await snap(); // the mod polls
+
     assert.equal((await ask("bob", { message: "what's your plan?" })).get("ok"), "Asked on the side");
     // Not a message: nothing reaches the agent through hooks or its inbox.
     assert.doesNotMatch(await hook("UserPromptSubmit", "bw1"), /what's your plan/);

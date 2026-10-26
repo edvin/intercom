@@ -338,6 +338,13 @@ async function handleUi(url: URL, env: Env, me: string): Promise<Response> {
   const mySession = sid
     ? await env.DB.prepare("SELECT session_id, label, project, cursor FROM sessions WHERE member = ? AND session_id = ?").bind(me, sid).first<Session & { cursor: number }>()
     : null;
+  // The mod polling for this session: side questions can go to it.
+  if (mySession) {
+    const mod = (url.searchParams.get("mod") ?? "").replace(/[^\d.]/g, "").slice(0, 20);
+    await env.DB.prepare("UPDATE sessions SET ui_at = ?, ui_version = ? WHERE member = ? AND session_id = ? AND (ui_at IS NULL OR ui_at < ? OR ui_version != ?)")
+      .bind(Date.now(), mod, me, mySession.session_id, Date.now() - 60_000, mod)
+      .run();
+  }
   // A session counts what it receives (its project's posts and its DMs); without one, the person's view.
   const pending = mySession ? (await unread(env, me, 99, false, mySession)).messages : null;
   const recent = pending

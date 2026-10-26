@@ -6,7 +6,7 @@ import { awayState, pendingApprovals } from "./approvals";
 import { PLUGIN_VERSION, outdated } from "./version";
 import { activeLoops, describe, parseLoops } from "./loops";
 import { activeJobs, duration, jobName, parseJobs } from "./jobs";
-import { BTW_TIMEOUT, btwFor } from "./btw";
+import { BTW_TIMEOUT, NO_MOD, btwFor, modAnswers } from "./btw";
 import { type Activity, type Env, type Message, address, ago, deliveryMarks, short, hostNames, myProjects } from "./lib";
 import { agentAvatar, agentHue, agentName, avatar, deliveryMark, esc, hidden, icon, md, plainSpaces, time } from "./ui";
 
@@ -31,6 +31,8 @@ interface Agent {
   state_at: number | null;
   active_at: number | null;
   cwd?: string;
+  ui_at?: number | null;
+  ui_version?: string;
 }
 
 /** Which agent runs the session, in each tool's own colours. */
@@ -87,7 +89,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   const ph = (n: number) => Array.from({ length: n }, () => "?").join(",") || "NULL";
   const everyone = people.includes(me) ? people : [...people, me];
   const { results: agents } = await env.DB.prepare(
-    `SELECT member, session_id, label, project, project_pin, repo, loops, jobs, origin, branch, note, client, host, version, last_seen, state, state_detail, state_at, active_at, cwd FROM sessions
+    `SELECT member, session_id, label, project, project_pin, repo, loops, jobs, origin, branch, note, client, host, version, last_seen, state, state_detail, state_at, active_at, cwd, ui_at, ui_version FROM sessions
      WHERE member IN (${ph(everyone.length)}) AND (member = ? OR project IN (${ph(mine.length)})) AND last_seen > ?
      ORDER BY member = ? DESC, last_seen DESC`,
   )
@@ -271,7 +273,8 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   // Side questions (/btw) to your own agent: shown apart, never part of its context.
   if (agent.member === me) {
     for (const b of await btwFor(env, me, agent.session_id)) {
-      const late = b.status === "pending" && Date.now() - b.created_at > BTW_TIMEOUT;
+      // Unanswered: the mod went quiet (or never ran there), or it's simply been too long.
+      const late = b.status === "pending" && (Date.now() - b.created_at > BTW_TIMEOUT || (Date.now() - b.created_at > 30_000 && !modAnswers(agent)));
       const answer =
         b.status === "answered"
           ? `<div class="btwa md">${md(b.answer, agent.origin)}</div>`
@@ -305,12 +308,14 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   const on = isOn(agent);
   const ownAgent = agent.member === me;
   const canBtw = ownAgent && agent.client !== "codex";
+  const btwOff = canBtw && !modAnswers(agent) ? NO_MOD(agent.label, hostOf(agent)) : "";
   const back = `/dashboard?view=agents&agent=${encodeURIComponent(key(agent))}`;
   const chat = `<section class="card chat">
       <div class="hd">
         <span class="presence ${on ? "on" : ""}">${agentAvatar(agent.member, agent.label, "m")}</span>
         <div class="grow" style="min-width:0">
           <h2 style="display:flex;gap:8px;align-items:center"><span class="grow" style="display:flex;gap:8px;align-items:center">${esc(key(agent))}${ownAgent ? `<button type="button" class="btn ghost xs icon renamebtn" data-open="dlg-rename" title="Rename this agent">${icon("pencil", 12)}</button>` : ""}${clientBadge(agent.client, true)}</span>
+            <span class="fsz" title="Text size in the chat"><button type="button" class="btn ghost xs icon" data-fs="-1" title="Smaller text">A</button><button type="button" class="btn ghost xs icon" data-fs="1" title="Larger text">A</button></span>
             <button type="button" class="btn ghost xs icon ttog" data-relaytoggle title="Messages between agents: click to show or hide">${icon("messages", 14)}</button>${ownAgent ? `<button type="button" class="btn ghost xs icon ttog" data-acttoggle title="Follow what the agent is doing (commands, edits, its text; only you see this): click to turn on or off"><span class="when-on">${icon("eye", 14)}</span><span class="when-off">${icon("eyeOff", 14)}</span></button>` : ""}</h2>
           <div class="meta-row">${stateBadge(agent)}<span>${agent.host ? `on <b style="color:var(--ink-2)">${esc(hostOf(agent))}</b>${ownAgent ? `<button type="button" class="btn ghost xs icon renamebtn" data-open="dlg-host" title="Rename this machine">${icon("pencil", 11)}</button>` : ""} · ` : ""}${agent.project ? `#${esc(agent.project)}` : "no project"}${ownAgent && agent.project_pin ? ` <span class="badge" title="Set from the dashboard for this session; its repo would put it in ${esc(agent.repo ? `whatever ${agent.repo} maps to` : "no project")}">pinned</span>` : ""}${ownAgent ? `<button type="button" class="btn ghost xs icon renamebtn" data-open="dlg-project" title="Choose its project">${icon("pencil", 11)}</button>` : ""}${agent.branch ? ` · ${icon("branch", 12)} ${esc(agent.branch)}` : ""}${ownAgent && agent.cwd ? ` · <span class="cwd" title="Working directory">${icon("folder", 12)} ${esc(agent.cwd)}</span>` : ""}${on ? "" : ` · last seen ${ago(agent.last_seen)}`}${agent.note ? ` · “${esc(plainSpaces(agent.note))}”` : ""}</span></div>${loopsOf(agent).map((l) => `<div class="meta-row looprow"><span>🔁 ${esc(describe(l))}</span></div>`).join("")}${jobsOf(agent).map((j) => `<div class="meta-row jobrow" title="${esc(j.command)}"><span>⧗ ${esc(jobName(j))} <span class="muted">· running ${duration(Date.now() - j.at)}</span></span></div>`).join("")}
         </div>
@@ -322,7 +327,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
         <div class="row" style="align-items:flex-end;flex-wrap:nowrap">
           <button type="button" class="btn ghost icon" style="height:48px" data-imgbtn title="Attach images (or paste / drop them here)">${icon("image", 16)}</button><input type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden data-imgpick>
           <textarea id="chat-input" name="message" data-chat required maxlength="4000" class="grow" rows="2" placeholder="Message ${esc(agent.label)}"></textarea>
-          ${canBtw ? `<button type="button" class="btn ghost btwbtn" style="height:48px" data-btwtoggle title="Ask on the side (like /btw): answered from its current context, without adding anything to it">btw</button>` : ""}
+          ${canBtw ? (btwOff ? `<button type="button" class="btn ghost btwbtn" style="height:48px" disabled title="${esc(btwOff)}">btw</button>` : `<button type="button" class="btn ghost btwbtn" style="height:48px" data-btwtoggle title="Ask on the side (like /btw): answered from its current context, without adding anything to it">btw</button>`) : ""}
           <button class="btn primary" style="height:48px" title="${on ? (ownAgent ? "It picks this up right away if it's idle, or after its current step." : "It sees this on its next step.") : "Not connected: the next session with this name gets it."}">${icon("send", 15)}Send</button>
         </div>
         <div class="btwbar tiny muted" hidden>Side question for ${esc(agent.label)}: answered from its current context, not added to it. Follow-ups continue the thread · <a href="#" data-btwnew>start a new side thread</a></div>

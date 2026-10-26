@@ -32,6 +32,7 @@ import m0024 from "../migrations/0024_btw.sql";
 import m0025 from "../migrations/0025_session_origin.sql";
 import m0026 from "../migrations/0026_session_active.sql";
 import m0027 from "../migrations/0027_session_cwd.sql";
+import m0028 from "../migrations/0028_session_mod.sql";
 
 /** A short fingerprint of the MCP tools (names, descriptions, schemas) this code offers. */
 const TOOLS_TAG = (() => {
@@ -68,6 +69,7 @@ const MIGRATIONS: [string, string][] = [
   ["0025_session_origin", m0025],
   ["0026_session_active", m0026],
   ["0027_session_cwd", m0027],
+  ["0028_session_mod", m0028],
 ];
 
 const DAY = 86400_000;
