@@ -185,7 +185,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   const stale = agents.filter((a) => a.member === me && isOn(a) && outdated(a.version));
   const updateBar = stale.length
     ? `<section class="card updatebar" id="updatebar" data-region><div class="row" style="gap:10px;flex-wrap:nowrap">${icon("download", 16)}
-        <div class="grow" style="min-width:0"><b>intercom ${PLUGIN_VERSION} is available</b> <span class="small muted">· <span title="${esc(stale.map((a) => a.label).join(", "))}" style="text-decoration:underline dotted">${stale.length} of your running sessions</span> run${stale.length > 1 ? "" : "s"} an older version. They update automatically at their next start; restart them to load it, or update now with <code>/intercom update</code>.</span></div>
+        <div class="grow" style="min-width:0"><b>intercom ${PLUGIN_VERSION} is available</b> <span class="small muted">· <span title="${esc(stale.map((a) => a.label).join(", "))}" style="text-decoration:underline dotted">${stale.length} of your running sessions</span> run${stale.length > 1 ? "" : "s"} an older version. They update automatically at their next start; restart them to load it, or update now with <code>/intercom:update</code>.</span></div>
       </div></section>`
     : "";
   // Approval questions waiting for you: on top of the chat, only while there are any.
@@ -313,7 +313,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
         <div class="imgtray" hidden></div>
         <div class="row" style="align-items:flex-end;flex-wrap:nowrap">
           <button type="button" class="btn ghost icon" style="height:48px" data-imgbtn title="Attach images (or paste / drop them here)">${icon("image", 16)}</button><input type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden data-imgpick>
-          <textarea id="chat-input" name="message" data-chat required maxlength="4000" class="grow" rows="2" placeholder="Message ${esc(agent.label)} — Enter to send, Shift+Enter for a new line, paste images"></textarea>
+          <textarea id="chat-input" name="message" data-chat required maxlength="4000" class="grow" rows="2" placeholder="Message ${esc(agent.label)}"></textarea>
           ${canBtw ? `<button type="button" class="btn ghost btwbtn" style="height:48px" data-btwtoggle title="Ask on the side (like /btw): answered from its current context, without adding anything to it">btw</button>` : ""}
           <button class="btn primary" style="height:48px" title="${on ? (ownAgent ? "It picks this up right away if it's idle, or after its current step." : "It sees this on its next step.") : "Not connected: the next session with this name gets it."}">${icon("send", 15)}Send</button>
         </div>

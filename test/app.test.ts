@@ -884,7 +884,7 @@ describe("plugin versions", () => {
     const w = await standardWorld();
     const msg = async (q: string) => ((await (await w.request(`/api/hook?event=SessionStart&project=billing-api&session=v1&${q}`, { as: "bob" })).json()) as { systemMessage: string }).systemMessage;
     assert.match(await msg("version=0.1.0"), /updating intercom to .* in the background/);
-    assert.match(await msg("version=0.1.0&autoupdate=0"), /is available .* \/intercom update/);
+    assert.match(await msg("version=0.1.0&autoupdate=0"), /is available .* \/intercom:update/);
     assert.match(await msg(`version=0.1.0&updated=${PLUGIN_VERSION}`), /is installed; restart this session/);
     assert.doesNotMatch(await msg(`version=${PLUGIN_VERSION}`), /⬆/);
   });

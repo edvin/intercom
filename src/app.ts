@@ -215,7 +215,7 @@ async function handleHook(url: URL, env: Env, me: string): Promise<Response> {
           ? `⬆ intercom ${PLUGIN_VERSION} is installed; restart this session to use it (claude --continue)`
           : url.searchParams.get("autoupdate") !== "0"
             ? `⬆ updating intercom to ${PLUGIN_VERSION} in the background; restart sessions afterwards to use it`
-            : `⬆ intercom ${PLUGIN_VERSION} is available (this session runs ${url.searchParams.get("version")}): /intercom update, then restart`
+            : `⬆ intercom ${PLUGIN_VERSION} is available (this session runs ${url.searchParams.get("version")}): /intercom:update, then restart`
         : "",
     ]
       .filter(Boolean)

@@ -634,7 +634,7 @@ const SCRIPT = `
       const on = !!btwOn[key];
       mode.value = on ? "btw" : ""; thread.value = on && btwFresh[key] ? "new" : "";
       btn.classList.toggle("on", on); f.classList.toggle("btwmode", on); if (bar) bar.hidden = !on;
-      if (t) t.placeholder = on ? "Side question for " + f.dataset.label + " (btw): not added to its context" : "Message " + f.dataset.label + " — Enter to send, Shift+Enter for a new line, paste images";
+      if (t) t.placeholder = on ? "Side question for " + f.dataset.label + " (btw)" : "Message " + f.dataset.label;
     };
     btn.onclick = () => { btwOn[key] = !btwOn[key]; apply(); t && t.focus(); };
     const nw = f.querySelector("[data-btwnew]");
