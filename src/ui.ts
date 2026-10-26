@@ -226,7 +226,9 @@ label.field>input,label.field>textarea,label.field>select{width:100%}
 .composer textarea{border:0;background:transparent;box-shadow:none;padding:6px 6px 10px;min-height:64px;font-size:15px}
 .composer textarea:focus{box-shadow:none;background:transparent}
 .composer .bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding-top:10px;border-top:1px solid var(--line)}
-.composer select{height:32px;font-size:13px;background-color:var(--surface-2)}
+.composer select{height:32px;font-size:13px;background-color:var(--surface-2);min-width:0;text-overflow:ellipsis}
+.composer #compose-project{max-width:200px}.composer #compose-to{flex:0 1 300px}
+@media (min-width:640px){.composer .bar{flex-wrap:nowrap}}
 .kbd{font-family:"Geist Mono",monospace;font-size:11px;color:var(--mute);border:1px solid var(--line-strong);border-bottom-width:2px;border-radius:5px;padding:0 5px}
 
 /* feed */
@@ -490,6 +492,21 @@ const SCRIPT = `
   // Folded tool steps you opened or closed stay that way when the thread redraws live.
   const folds = {};
   function bind(root = document) {
+    // The composer's recipients follow the chosen project: its people and agents only.
+    const proj = $("#compose-project"), to = $("#compose-to");
+    if (proj && to && !to.dataset.all) {
+      to.dataset.all = to.innerHTML;
+      const filter = () => {
+        const keep = to.value, p = proj.value;
+        to.innerHTML = to.dataset.all;
+        to.options[0].textContent = "Everyone in #" + p;
+        [...to.querySelectorAll("option[data-p]")].forEach((o) => { if (!o.dataset.p.split(" ").includes(p)) o.remove(); });
+        [...to.querySelectorAll("optgroup")].forEach((g) => { if (!g.children.length) g.remove(); });
+        to.value = [...to.options].some((o) => o.value === keep) ? keep : "";
+      };
+      proj.addEventListener("change", filter);
+      filter();
+    }
     $$("details.actgroup", root).forEach((d) => {
       const gid = d.dataset.gid;
       if (gid in folds) d.open = folds[gid];

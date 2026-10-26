@@ -555,12 +555,17 @@ export async function dashboard(url: URL, env: Env, me: string, cookie = ""): Pr
   const connectedNow = env.live?.() ?? new Set<string>();
   const agentOption = (a: (typeof agentRows)[number]) => {
     const on = connectedNow.has(`${a.member}/${a.session_id}`) || Date.now() - a.last_seen < 10 * 60_000;
-    const label = `${a.member === me ? "your agent " : ""}${a.member}/${a.label} (${a.client === "codex" ? "Codex" : "Claude"}) · #${a.project}${a.note ? ` · ${a.note.slice(0, 40)}` : ""}${on ? "" : " · not connected"}`;
-    return `<option value="${esc(`${a.member}/${a.label}`)}">${esc(label)}</option>`;
+    const label = `${a.member === me ? a.label : `${a.member}/${a.label}`} · ${a.client === "codex" ? "Codex" : "Claude"}${on ? "" : " · not connected"}`;
+    return `<option value="${esc(`${a.member}/${a.label}`)}" data-p="${esc(a.project)}">${esc(label)}</option>`;
   };
   const recipients = [
     agentRows.some((a) => a.member === me) ? `<optgroup label="Your agents">${agentRows.filter((a) => a.member === me).map(agentOption).join("")}</optgroup>` : "",
-    others.length ? `<optgroup label="People (all their sessions)">${others.map((m) => `<option value="${esc(m)}">@${esc(m)}</option>`).join("")}</optgroup>` : "",
+    // A person is listed under each project you share with them; the script keeps the chosen project's ones.
+    others.length
+      ? `<optgroup label="People (all their sessions)">${others
+          .map((m) => `<option value="${esc(m)}" data-p="${esc(pmRes.results.filter((x) => x.member === m).map((x) => x.project).join(" "))}">@${esc(m)}</option>`)
+          .join("")}</optgroup>`
+      : "",
     agentRows.some((a) => a.member !== me) ? `<optgroup label="Their agents">${agentRows.filter((a) => a.member !== me).map(agentOption).join("")}</optgroup>` : "",
   ].join("");
 
@@ -589,8 +594,8 @@ export async function dashboard(url: URL, env: Env, me: string, cookie = ""): Pr
   const composer = mine.length
     ? `<section class="card composer"><form method="post" action="/action/post">${hidden({ back })}
         <textarea id="compose" name="message" data-enter placeholder="Message ${channel ? `#${esc(channel)}` : "a project"} — teammates' Claude sessions will see it" maxlength="${MAX_BODY}" required></textarea>
-        <div class="bar"><select name="channel" aria-label="Project">${projectOptions}</select>
-          <select name="to" id="compose-to" aria-label="Recipient"><option value="">Everyone in the project</option>${recipients}</select>
+        <div class="bar"><select name="channel" id="compose-project" aria-label="Project">${projectOptions}</select>
+          <select name="to" id="compose-to" aria-label="Recipient" data-byproject><option value="">Everyone in the project</option>${recipients}</select>
           <span class="grow"></span><span class="small muted"><span class="kbd">⌘</span> <span class="kbd">↩</span></span>
           <button class="btn primary sm">${icon("send", 14)}Send</button></div>
       </form></section>`
