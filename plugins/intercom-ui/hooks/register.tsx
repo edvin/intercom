@@ -84,7 +84,7 @@ async function refresh($: Engine): Promise<void> {
   if (!ctx.conf || ctx.busy) return
   ctx.busy = true
   try {
-    const res = await $.http.fetch(`${ctx.conf.url}/api/ui?project=${encodeURIComponent(ctx.repo)}`, {
+    const res = await $.http.fetch(`${ctx.conf.url}/api/ui?project=${encodeURIComponent(ctx.repo)}&session=${encodeURIComponent(ctx.sessionId)}`, {
       headers: { authorization: `Bearer ${ctx.conf.token}` },
     })
     if (!res.ok) {
@@ -96,7 +96,8 @@ async function refresh($: Engine): Promise<void> {
     await update($, error, () => null)
     await update($, snap, () => s)
     announce($, s)
-    const parts = [`📻 ${s.unread} unread`]
+    // Lead with this session's name on the intercom (e.g. "alder"), which is what others address it by.
+    const parts = [`📻 ${s.label ?? s.me}`, `${s.unread} unread`]
     const others = s.locks.filter(l => !l.mine)
     const mine = s.locks.filter(l => l.mine)
     if (others.length) parts.push(`🔒 ${others.map(l => `${l.resource} (${l.holder})`).join(', ')}`)
@@ -223,7 +224,7 @@ export const register: Register = on => {
     return (
       <Box flexDirection="column" gap={1}>
         <Box gap={1}>
-          <Text weight="bold">📻 {s.me}</Text>
+          <Text weight="bold">📻 {s.label ? `${s.me}/${s.label}` : s.me}</Text>
           <Text dimColor>{s.project ? `#${s.project}` : 'this repo is not linked to a project'}</Text>
           {err ? <Text color="error">{err}</Text> : null}
           <Button key="refresh" label="Refresh" onPress={() => void refresh($)} />

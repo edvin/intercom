@@ -653,12 +653,42 @@ describe("what the person sees", () => {
     const w = await standardWorld();
     const get = async (q: string) => (await (await w.request(`/api/hook?${q}`, { as: "bob" })).json()) as { systemMessage?: string };
     const start = await get("event=SessionStart&project=billing-api&session=s1");
-    assert.match(start.systemMessage!, /📻 intercom · bob\/billing-s1 in #billing/);
+    assert.match(start.systemMessage!, /📻 bob\/billing-s1 in #billing/);
     await w.ok("alice", "post", { to: "bob", message: "can you hold the deploy?" });
     const next = await get("event=UserPromptSubmit&project=billing-api&session=s1");
-    assert.match(next.systemMessage!, /1 new — alice \(DM\): can you hold the deploy\?/);
+    assert.match(next.systemMessage!, /📻 billing-s1 · 1 new — alice \(DM\): can you hold the deploy\?/);
     await w.ok("alice", "post", { to: "bob", message: "thanks" });
     const quiet = await get("event=UserPromptSubmit&project=billing-api&session=s1&show=0");
     assert.equal(quiet.systemMessage, undefined);
+  });
+});
+
+describe("dead agents", () => {
+  const start = async (w: World, sid: string) =>
+    ((await (await w.request(`/api/hook?event=SessionStart&project=billing-api&session=${sid}&client=codex`, { as: "bob" })).json()) as {
+      hookSpecificOutput: { additionalContext: string };
+    }).hookSpecificOutput.additionalContext.match(/address is bob\/([\w-]+)/)![1];
+
+  test("an ended agent's DMs go to the next session with its name, and senders are told", async () => {
+    const w = await standardWorld();
+    await start(w, "c1");
+    await w.ok("bob", "set_name", { name: "alder" }, { id: "c1", project: "billing-api" });
+    await w.request("/api/hook?event=SessionEnd&session=c1", { as: "bob" });
+    const sent = await w.ok("alice", "post", { to: "bob/alder", message: "while you were out" });
+    assert.match(sent, /no bob\/alder session is connected right now/);
+    const ctx = ((await (await w.request("/api/hook?event=SessionStart&project=billing-api&session=c2&client=codex", { as: "bob" })).json()) as {
+      hookSpecificOutput: { additionalContext: string };
+    }).hookSpecificOutput.additionalContext;
+    assert.match(ctx, /address is bob\/alder\b/);
+    assert.match(ctx, /while you were out/);
+  });
+
+  test("a killed agent (no SessionEnd) frees its name once it has been quiet for a while", async () => {
+    const w = await standardWorld();
+    await start(w, "k1");
+    await w.ok("bob", "set_name", { name: "birch" }, { id: "k1", project: "billing-api" });
+    assert.match(await start(w, "k2"), /^billing-/); // birch still counts as running
+    await w.db.prepare("UPDATE sessions SET last_seen = ? WHERE session_id = 'k1'").bind(Date.now() - 11 * 60_000).run();
+    assert.equal(await start(w, "k3"), "birch");
   });
 });

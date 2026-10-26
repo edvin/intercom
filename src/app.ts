@@ -90,7 +90,19 @@ async function handleHook(url: URL, env: Env, me: string): Promise<Response> {
   const raw = url.searchParams.get("project");
   const sessionId = url.searchParams.get("session");
   if (event === "SessionEnd") {
-    if (sessionId) await env.DB.prepare("DELETE FROM sessions WHERE member = ? AND session_id = ?").bind(me, sessionId).run();
+    if (sessionId) {
+      // Remember where a named session stopped, so the next session with its name picks up the mail sent meanwhile.
+      const gone = await env.DB.prepare("DELETE FROM sessions WHERE member = ? AND session_id = ? RETURNING label, project, cursor")
+        .bind(me, sessionId)
+        .first<{ label: string; project: string; cursor: number }>();
+      if (gone && !gone.label.startsWith(`${gone.project || "session"}-`)) {
+        await env.DB.prepare(
+          "INSERT INTO ended_sessions (member, label, cursor, ended_at) VALUES (?, ?, ?, ?) ON CONFLICT(member, label) DO UPDATE SET cursor = excluded.cursor, ended_at = excluded.ended_at",
+        )
+          .bind(me, gone.label, gone.cursor, Date.now())
+          .run();
+      }
+    }
     return new Response("", { status: 200 });
   }
   const project = raw ? await resolveProject(env, raw, me) : null;
@@ -146,7 +158,7 @@ async function handleHook(url: URL, env: Env, me: string): Promise<Response> {
     if (open.length) sections.push(`Open proposals:\n${(await Promise.all(open.map((p) => tally(env, p, me)))).join("\n")}`);
     const others = locks.filter((l) => l.holder !== me);
     startLine = [
-      `📻 intercom · ${session ? address(me, session.label) : me}${project ? ` in #${project.name}` : raw ? " (repo not linked)" : ""}`,
+      `📻 ${session ? address(me, session.label) : me}${project ? ` in #${project.name}` : raw ? " (repo not linked)" : ""}`,
       others.length ? `🔒 ${others.map((l) => `${l.resource} (${l.holder})`).join(", ")}` : "",
       open.length ? `🗳 ${open.length} open vote${open.length > 1 ? "s" : ""}` : "",
     ]
@@ -165,7 +177,7 @@ async function handleHook(url: URL, env: Env, me: string): Promise<Response> {
     return `${m.recipient ? `${from} (DM)` : `#${m.channel} ${from}`}: ${body.length > 90 ? `${body.slice(0, 89)}…` : body}`;
   };
   const newLine = messages.length
-    ? `📻 intercom · ${messages.length}${more ? "+" : ""} new — ${messages.slice(-3).map(preview).join(" · ")}${messages.length > 3 ? ` · …and ${messages.length - 3} more` : ""}`
+    ? `📻 ${session?.label ?? "intercom"} · ${messages.length}${more ? "+" : ""} new — ${messages.slice(-3).map(preview).join(" · ")}${messages.length > 3 ? ` · …and ${messages.length - 3} more` : ""}`
     : "";
   const systemMessage = show ? [startLine, event === "SessionStart" && messages.length ? `${messages.length}${more ? "+" : ""} unread` : newLine].filter(Boolean).join(" · ") : "";
 
@@ -261,8 +273,11 @@ async function handleUi(url: URL, env: Env, me: string): Promise<Response> {
   const { results: recent } = await env.DB.prepare(`SELECT * FROM messages WHERE id > ?1 AND sender != ?2 AND ${RECEIVES} ORDER BY id DESC LIMIT 8`).bind(cursor, me).all<Message>();
   const unread = (await env.DB.prepare(`SELECT COUNT(*) AS n FROM messages WHERE id > ?1 AND sender != ?2 AND ${RECEIVES}`).bind(cursor, me).first<{ n: number }>())!.n;
   const latest = (await env.DB.prepare(`SELECT COALESCE(MAX(id), 0) AS id FROM messages WHERE sender != ?2 AND ${RECEIVES} AND ?1 IS NULL`).bind(null, me).first<{ id: number }>())!.id;
+  const sid = url.searchParams.get("session");
+  const mySession = sid ? await env.DB.prepare("SELECT label FROM sessions WHERE member = ? AND session_id = ?").bind(me, sid).first<{ label: string }>() : null;
   return json({
     me,
+    label: mySession?.label ?? null,
     project: project?.name ?? null,
     origin: url.origin,
     unread,

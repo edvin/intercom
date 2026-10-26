@@ -33,6 +33,8 @@ export type Mate = { member: string; project: string; note: string; branch: stri
 
 export type Snapshot = {
   me: string
+  /** This session's intercom name, e.g. alder (null until the session is known to the hub). */
+  label: string | null
   project: string | null
   origin: string
   unread: number

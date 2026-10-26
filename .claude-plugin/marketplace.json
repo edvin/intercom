@@ -17,7 +17,7 @@
       "name": "intercom-ui",
       "source": "./plugins/intercom-ui",
       "description": "Intercom inside Claude Code: a band with locks and votes that concern you, a live team panel (/ic), toasts and a status line entry. Needs the intercom plugin.",
-      "version": "0.1.1"
+      "version": "0.1.2"
     }
   ]
 }

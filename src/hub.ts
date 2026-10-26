@@ -11,6 +11,7 @@ import m0006 from "../migrations/0006_visibility.sql";
 import m0007 from "../migrations/0007_github.sql";
 import m0008 from "../migrations/0008_client.sql";
 import m0009 from "../migrations/0009_agent_names.sql";
+import m0010 from "../migrations/0010_ended_sessions.sql";
 
 const MIGRATIONS: [string, string][] = [
   ["0001_init", m0001],
@@ -22,6 +23,7 @@ const MIGRATIONS: [string, string][] = [
   ["0007_github", m0007],
   ["0008_client", m0008],
   ["0009_agent_names", m0009],
+  ["0010_ended_sessions", m0010],
 ];
 
 const DAY = 86400_000;
@@ -93,7 +95,12 @@ export class TeamHub extends DurableObject<WorkerEnv> {
 
   private appEnv(): Env {
     const { GITHUB_CLIENT_ID: id, GITHUB_CLIENT_SECRET: secret } = this.env;
-    return { DB: this.db, onMessage: (m) => this.fanout(m), github: id && secret ? { client_id: id, client_secret: secret } : undefined };
+    return {
+      DB: this.db,
+      onMessage: (m) => this.fanout(m),
+      live: () => this.liveSessions(),
+      github: id && secret ? { client_id: id, client_secret: secret } : undefined,
+    };
   }
 
   async fetch(req: Request): Promise<Response> {
@@ -185,6 +192,16 @@ export class TeamHub extends DurableObject<WorkerEnv> {
         // Socket is closing; the session catches up from its cursor on reconnect.
       }
     }
+  }
+
+  /** "member/session_id" of every local server connected right now: the heartbeat of a running agent. */
+  private liveSessions(): Set<string> {
+    const out = new Set<string>();
+    for (const ws of this.ctx.getWebSockets()) {
+      const s = ws.deserializeAttachment() as SocketInfo | null;
+      if (s && s.mode !== "web" && s.session_id) out.add(`${s.member}/${s.session_id}`);
+    }
+    return out;
   }
 
   private safeSend(ws: WebSocket, data: string): void {

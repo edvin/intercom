@@ -507,6 +507,25 @@ export async function dashboard(url: URL, env: Env, me: string): Promise<Respons
     </div>
   </aside>`;
 
+  // Who the composer can address: each person, and each of their agent sessions (yours too) in your projects.
+  const { results: agentRows } = await env.DB.prepare(
+    `SELECT member, session_id, label, project, note, client, last_seen FROM sessions
+     WHERE member IN (${people.map(() => "?").join(",") || "NULL"}) AND project IN (${ph}) AND last_seen > ? ORDER BY member = ? DESC, member, label`,
+  )
+    .bind(...people, ...mine, Date.now() - 24 * 3600_000, me)
+    .all<{ member: string; session_id: string; label: string; project: string; note: string; client: string; last_seen: number }>();
+  const connectedNow = env.live?.() ?? new Set<string>();
+  const agentOption = (a: (typeof agentRows)[number]) => {
+    const on = connectedNow.has(`${a.member}/${a.session_id}`) || Date.now() - a.last_seen < 10 * 60_000;
+    const label = `${a.member === me ? "your agent " : ""}${a.member}/${a.label}${a.client === "codex" ? " (Codex)" : ""} · #${a.project}${a.note ? ` · ${a.note.slice(0, 40)}` : ""}${on ? "" : " · not connected"}`;
+    return `<option value="${esc(`${a.member}/${a.label}`)}">${esc(label)}</option>`;
+  };
+  const recipients = [
+    agentRows.some((a) => a.member === me) ? `<optgroup label="Your agents">${agentRows.filter((a) => a.member === me).map(agentOption).join("")}</optgroup>` : "",
+    others.length ? `<optgroup label="People (all their sessions)">${others.map((m) => `<option value="${esc(m)}">@${esc(m)}</option>`).join("")}</optgroup>` : "",
+    agentRows.some((a) => a.member !== me) ? `<optgroup label="Their agents">${agentRows.filter((a) => a.member !== me).map(agentOption).join("")}</optgroup>` : "",
+  ].join("");
+
   // Main column
   const projectOptions = mine.map((c) => `<option ${c === channel ? "selected" : ""} value="${esc(c)}">#${esc(c)}</option>`).join("");
   const needs = needVote.length
@@ -533,7 +552,7 @@ export async function dashboard(url: URL, env: Env, me: string): Promise<Respons
     ? `<section class="card composer"><form method="post" action="/action/post">${hidden({ back })}
         <textarea id="compose" name="message" data-enter placeholder="Message ${channel ? `#${esc(channel)}` : "a project"} — teammates' Claude sessions will see it" maxlength="${MAX_BODY}" required></textarea>
         <div class="bar"><select name="channel" aria-label="Project">${projectOptions}</select>
-          <select name="to" id="compose-to" aria-label="Recipient"><option value="">Everyone in the project</option>${others.map((m) => `<option value="${esc(m)}">@${esc(m)} (direct)</option>`).join("")}</select>
+          <select name="to" id="compose-to" aria-label="Recipient"><option value="">Everyone in the project</option>${recipients}</select>
           <span class="grow"></span><span class="small muted"><span class="kbd">⌘</span> <span class="kbd">↩</span></span>
           <button class="btn primary sm">${icon("send", 14)}Send</button></div>
       </form></section>`
@@ -771,6 +790,16 @@ export function docsPage(origin: string): Response {
         <h2>Addresses and names</h2>
         <p>Every session has an address <code>person/agent</code>, e.g. <code>anna/shop-9c1e</code>: the project plus the start of the session id. <code>anna</code> reaches all of Anna's sessions, <code>anna/shop</code> her sessions in shop, <code>anna/shop-9c1e</code> exactly one.</p>
         <p><b>Name your agents.</b> Tell one “you're alder, reviewing the migrations” and it becomes <code>anna/alder</code>, with that role as its status. Names are remembered as a <b>crew per project and agent type</b>: name two Codex sessions in billing alder and birch, and the next Codex sessions you start in billing are alder and birch again, while Claude Code in billing, or Codex in another project, have crews of their own. A resumed session keeps its name; “forget the name alder” removes it from the crew; “just for now” names only the current session.</p>
+      </section>
+
+      <section>
+        <h2>When an agent ends, or is killed</h2>
+        <ul>
+          <li>A session counts as connected while its local intercom server is connected to the hub; <code>team</code> and the dashboard show ● connected or when it was last seen.</li>
+          <li>When it ends (or is killed, or the machine sleeps), its name frees up within minutes, and the next session in that project's crew takes it.</li>
+          <li>DMs sent to a name while no session has it are kept: the next session with that name gets them. Whoever sent them is told the agent isn't connected right now.</li>
+          <li>Old sessions disappear from lists after a day, and from the hub after two weeks.</li>
+        </ul>
       </section>
 
       <section>

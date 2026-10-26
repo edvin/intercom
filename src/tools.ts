@@ -17,6 +17,9 @@ import {
   isAdmin,
   cleanName,
   freeLabel,
+  GONE_MS,
+  inheritMailbox,
+  liveIds,
   limit,
   myProjects,
   normChannel,
@@ -116,7 +119,16 @@ export const tools: Tool[] = [
         const recipient_agent = agent ? normChannel(agent) : null;
         const channel = env.session?.project || "dm";
         const id = await postMessage(env, { channel, sender: me, recipient, recipient_agent, body });
-        return `Sent DM [${id}] to ${address(recipient, recipient_agent)}.`;
+        const sent = `Sent DM [${id}] to ${address(recipient, recipient_agent)}.`;
+        if (!recipient_agent) return sent;
+        // Is a session with that name (or in that project) running? If not, say so; the next one picks it up.
+        const { results: matches } = await env.DB.prepare("SELECT session_id, last_seen FROM sessions WHERE member = ? AND (label = ?2 OR project = ?2) ORDER BY last_seen DESC")
+          .bind(recipient, recipient_agent)
+          .all<{ session_id: string; last_seen: number }>();
+        const live = new Set(liveIds(env, recipient));
+        const up = matches.some((m) => live.has(m.session_id) || Date.now() - m.last_seen < GONE_MS);
+        if (up) return sent;
+        return `${sent} Note: no ${address(recipient, recipient_agent)} session is connected right now${matches[0] ? ` (last seen ${ago(matches[0].last_seen)})` : ""}. It's kept for them: the next session with that name gets it.`;
       }
       const channel = await projectArg(env, me, a.channel);
       const id = await postMessage(env, { channel, sender: me, body });
@@ -579,10 +591,13 @@ export const tools: Tool[] = [
         env.DB.prepare(`SELECT m.name, m.org, p.project, p.note, p.branch, p.updated_at FROM members m LEFT JOIN presence p ON p.member = m.name WHERE m.name IN (${ph}) ORDER BY p.updated_at DESC NULLS LAST, m.name`)
           .bind(...people)
           .all<{ name: string; org: string; project: string | null; note: string | null; branch: string | null; updated_at: number | null }>(),
-        env.DB.prepare(`SELECT member, label, project, branch, note, last_seen, client FROM sessions WHERE last_seen > ? AND member IN (${ph}) ORDER BY last_seen DESC`)
+        env.DB.prepare(`SELECT member, session_id, label, project, branch, note, last_seen, client FROM sessions WHERE last_seen > ? AND member IN (${ph}) ORDER BY last_seen DESC`)
           .bind(Date.now() - 6 * 3600_000, ...people)
-          .all<{ member: string; label: string; project: string; branch: string; note: string; last_seen: number; client: string }>(),
+          .all<{ member: string; session_id: string; label: string; project: string; branch: string; note: string; last_seen: number; client: string }>(),
       ]);
+      const connected = env.live?.() ?? new Set<string>();
+      const state = (s: { member: string; session_id: string; last_seen: number }) =>
+        connected.has(`${s.member}/${s.session_id}`) ? "● connected" : Date.now() - s.last_seen < GONE_MS ? `active ${ago(s.last_seen)}` : `not connected, last seen ${ago(s.last_seen)}`;
       const mineFirst = [...results.filter((r) => r.name === me), ...results.filter((r) => r.name !== me)];
       const out = mineFirst
         .map((r) => {
@@ -592,7 +607,7 @@ export const tools: Tool[] = [
           const live = sessions.filter((s) => s.member === r.name && s.project && mine.has(s.project));
           const hidden = r.name !== me && sessions.some((s) => s.member === r.name && s.project && !mine.has(s.project));
           const head = `${who}: active ${ago(r.updated_at)}${!live.length && r.project && mine.has(r.project) ? ` — ${workingOn(r.project, r.branch, r.note)}` : ""}`;
-          const lines = live.map((s) => `    ${address(s.member, s.label)}${s.client === "codex" ? " [Codex]" : ""}: ${workingOn(s.project, s.branch, s.note)} (${ago(s.last_seen)})`);
+          const lines = live.map((s) => `    ${address(s.member, s.label)}${s.client === "codex" ? " [Codex]" : ""}: ${workingOn(s.project, s.branch, s.note)} (${state(s)})`);
           if (hidden) lines.push("    (also active in projects you're not in)");
           if (r.name === me && !lines.length) return `${who}: none connected through intercom right now`;
           return [r.name === me ? who : head, ...lines].join("\n");
@@ -651,6 +666,7 @@ export const tools: Tool[] = [
       }
       const label = await freeLabel(env, me, s.session_id, name);
       await env.DB.prepare("UPDATE sessions SET label = ? WHERE member = ? AND session_id = ?").bind(label, me, s.session_id).run();
+      await inheritMailbox(env, me, s.session_id, label); // DMs sent to this name while no session had it
       const role = str(a, "role")?.slice(0, 120) ?? "";
       const remember = a.remember !== false && !!s.project;
       if (remember) {

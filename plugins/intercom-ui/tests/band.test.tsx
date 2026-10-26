@@ -7,6 +7,7 @@ const later = Date.now() + 30 * 60_000
 
 const SNAP: Snapshot = {
   me: 'edvin',
+  label: 'loxodon-core',
   project: 'billing',
   origin: 'https://hub.example',
   unread: 2,
@@ -52,7 +53,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     const clock = world(on, SNAP, urls)
     await $.session.start({ cwd: '/work/billing-api', surface } as never)
     await clock.advance(1) // the first snapshot loads in the background
-    expect(urls[0]).toBe('https://hub.example/api/ui?project=billing-api')
+    expect(urls[0]).toBe('https://hub.example/api/ui?project=billing-api&session=sess-1')
     const ui = await $.ui.mount({ plugin: 'intercom-ui', surface, component: 'AbovePrompt', props: { hasSurvey: false } as never })
     expect(await ui.findAll({ type: 'Text', text: /deploy:billing:prod/ })).toHaveLength(1)
     // A lock on another project stays out of the band.

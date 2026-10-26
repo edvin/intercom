@@ -15,6 +15,8 @@ export interface Env {
   github?: { client_id: string; client_secret: string };
   /** Caller's IP (for rate limits). */
   ip?: string;
+  /** Sessions with a live connection to the hub right now ("member/session_id"); undefined outside the hub. */
+  live?: () => Set<string>;
 }
 
 export interface Message {
@@ -257,8 +259,10 @@ export const cleanName = (raw: unknown): string | null => {
 export async function freeLabel(env: Env, me: string, sessionId: string, name: string): Promise<string> {
   for (let i = 1; i < 50; i++) {
     const label = i === 1 ? name : `${name}-${i}`;
-    const taken = await env.DB.prepare("SELECT 1 FROM sessions WHERE member = ? AND label = ? AND session_id != ? AND last_seen > ?")
-      .bind(me, label, sessionId, Date.now() - 6 * 3600_000)
+    const taken = await env.DB.prepare(
+      "SELECT 1 FROM sessions WHERE member = ?1 AND label = ?2 AND session_id != ?3 AND (last_seen > ?4 OR session_id IN (SELECT value FROM json_each(?5)))",
+    )
+      .bind(me, label, sessionId, Date.now() - GONE_MS, JSON.stringify(liveIds(env, me)))
       .first();
     if (!taken) return label;
   }
@@ -285,10 +289,11 @@ export async function touchSession(
       // The member's crew for this agent in this project: take the first name no live session is using.
       const { results: crew } = await env.DB.prepare(
         `SELECT a.name, a.role FROM agent_names a WHERE a.member = ?1 AND a.project = ?2 AND a.client = ?3
-           AND NOT EXISTS (SELECT 1 FROM sessions s WHERE s.member = ?1 AND s.label = a.name AND s.last_seen > ?4)
+           AND NOT EXISTS (SELECT 1 FROM sessions s WHERE s.member = ?1 AND s.label = a.name
+                             AND (s.last_seen > ?4 OR s.session_id IN (SELECT value FROM json_each(?5))))
          ORDER BY a.updated_at`,
       )
-        .bind(me, project, client ?? "claude", Date.now() - 6 * 3600_000)
+        .bind(me, project, client ?? "claude", Date.now() - GONE_MS, JSON.stringify(liveIds(env, me)))
         .all<{ name: string; role: string }>();
       if (crew[0]) {
         label = crew[0].name;
@@ -306,6 +311,7 @@ export async function touchSession(
   )
     .bind(me, sessionId, label, project, base, now, branch, client, role)
     .first<{ label: string; cursor: number }>();
+  if (!known && row && !label.startsWith(`${project || "session"}-`)) await inheritMailbox(env, me, sessionId, label);
   return { session_id: sessionId, project, ...row! };
 }
 
@@ -461,4 +467,26 @@ export async function freeHandle(env: Env, login: string): Promise<string> {
     if (!(await env.DB.prepare("SELECT 1 FROM members WHERE name = ?").bind(name).first())) return name;
   }
   return `${base}-${newToken().slice(0, 6)}`;
+}
+
+/** How long without a connection or hook call before a session counts as gone (its name free for others). */
+export const GONE_MS = 10 * 60_000;
+
+/** Sessions of `member` that are connected now, or were active in the last few minutes. */
+export function liveIds(env: Env, member: string): string[] {
+  const live = env.live?.();
+  return live ? [...live].filter((k) => k.startsWith(`${member}/`)).map((k) => k.slice(member.length + 1)) : [];
+}
+
+/**
+ * A named session taking over from an earlier one with the same name (an agent that ended or was killed)
+ * starts reading where that one stopped, so DMs sent to the name in between reach it. Returns the new cursor.
+ */
+export async function inheritMailbox(env: Env, me: string, sessionId: string, label: string): Promise<void> {
+  const prev = await env.DB.prepare("SELECT cursor FROM sessions WHERE member = ? AND label = ? AND session_id != ? ORDER BY last_seen DESC LIMIT 1")
+    .bind(me, label, sessionId)
+    .first<{ cursor: number }>();
+  const ended = await env.DB.prepare("SELECT cursor FROM ended_sessions WHERE member = ? AND label = ?").bind(me, label).first<{ cursor: number }>();
+  const from = Math.min(prev?.cursor ?? Infinity, ended?.cursor ?? Infinity);
+  if (Number.isFinite(from)) await env.DB.prepare("UPDATE sessions SET cursor = MIN(cursor, ?) WHERE member = ? AND session_id = ?").bind(from, me, sessionId).run();
 }
