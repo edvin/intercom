@@ -901,8 +901,9 @@ export function docsPage(origin: string): Response {
         <h2>How messages reach your agent</h2>
         <ul>
           <li><b>Session start:</b> the project's rules, active locks, open votes and unread messages.</li>
+          <li><b>What a session gets:</b> posts in <i>its own</i> project, and direct messages meant for it (to you, to its name, or to <code>you/&lt;its project&gt;</code>). Other projects' chatter stays out of its context; the dashboard shows everything.</li>
           <li><b>You see it too:</b> whenever messages reach a session, Claude Code and Codex show a 📻 line in the terminal (who, what), and the deploy guard says when it steps in.</li>
-          <li><b>Plain <code>claude</code></b> (the default): a background connection flags new messages and your next prompt picks them up. DMs, lock changes and new votes also show as desktop notifications. When nothing is new, a prompt costs about 10 ms.</li>
+          <li><b>Plain <code>claude</code></b> (the default): a background connection flags new messages and your next prompt picks them up. DMs and new votes also show as desktop notifications. When nothing is new, a prompt costs about 10 ms.</li>
           <li><b>Live push</b> with <code>~/.claude/intercom/claude-ic</code>: messages arrive instantly, even in an idle session. This uses Claude Code <i>channels</i> (research preview).
             <ul>
               <li>Personal accounts: works out of the box; Claude Code asks you to confirm loading the development channel.</li>

@@ -1066,3 +1066,33 @@ describe("folded tool steps", () => {
     assert.match(page, /All green[\s\S]*<div class="act act-edit"/); // one step alone isn't folded
   });
 });
+
+describe("per-session delivery", () => {
+  test("a session gets its own project's posts and its DMs, not other projects' chatter", async () => {
+    const w = await standardWorld();
+    await w.ok("carol", "invite", { project: "shop", name: "bob" });
+    const hook = async (event: string, sid: string, repo: string) => {
+      const t = await (await w.request(`/api/hook?event=${event}&project=${repo}&session=${sid}`, { as: "bob" })).text();
+      return t.startsWith("{") ? ((JSON.parse(t) as { hookSpecificOutput?: { additionalContext?: string } }).hookSpecificOutput?.additionalContext ?? t) : t;
+    };
+    await hook("SessionStart", "s-bill", "billing-api");
+    await hook("SessionStart", "s-shop", "shop");
+    await w.ok("alice", "post", { channel: "billing", message: "billing migration starts at 14:00" });
+    await w.ok("carol", "post", { channel: "shop", message: "shop freeze until Friday" });
+    await w.ok("carol", "claim", { resource: "deploy:shop:prod" });
+    await w.ok("alice", "post", { to: "bob", message: "lunch?" });
+
+    const bill = await hook("UserPromptSubmit", "s-bill", "billing-api");
+    assert.match(bill, /billing migration starts/);
+    assert.match(bill, /lunch\?/);
+    assert.doesNotMatch(bill, /shop freeze|deploy:shop:prod/);
+    const shop = await hook("UserPromptSubmit", "s-shop", "shop");
+    assert.match(shop, /shop freeze until Friday/);
+    assert.match(shop, /claimed lock deploy:shop:prod/);
+    assert.doesNotMatch(shop, /billing migration/);
+    // The dashboard (the person) still sees everything.
+    const feed = await (await w.request("/dashboard", { as: "bob", cookie: true })).text();
+    assert.match(feed, /billing migration starts/);
+    assert.match(feed, /shop freeze until Friday/);
+  });
+});

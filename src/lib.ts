@@ -356,7 +356,11 @@ export async function unread(
   session?: Session & { cursor: number },
 ): Promise<{ messages: Message[]; more: boolean }> {
   const cursor = session ? session.cursor : await getCursor(env, me);
-  const agentOk = session ? "(recipient IS NULL OR recipient_agent IS NULL OR recipient_agent IN (?4, ?5))" : "?4 IS NULL AND ?5 IS NULL";
+  // A session gets the posts of its own project only (another project's lock claims are noise there), and the DMs
+  // meant for it. The person-level view (dashboard, no session) still has everything.
+  const agentOk = session
+    ? "(recipient IS NULL OR recipient_agent IS NULL OR recipient_agent IN (?4, ?5)) AND (recipient IS NOT NULL OR channel = ?5)"
+    : "?4 IS NULL AND ?5 IS NULL";
   // A session skips only what it sent itself: the member's other sessions (say Claude Code and Codex in one
   // project) and their posts from the dashboard reach it. Without a session it's the person's view: skip all their own.
   // An agent writing to its own person without naming a session ("edvin") is answering the human in the dashboard;

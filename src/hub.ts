@@ -197,7 +197,7 @@ export class TeamHub extends DurableObject<WorkerEnv> {
       if (s.member === m.sender && (!m.sender_agent ? false : m.sender_agent === s.label)) continue;
       const receives = m.recipient
         ? m.recipient === s.member && !mutedSender.has(s.member) && (!m.recipient_agent || m.recipient_agent === s.label || m.recipient_agent === s.project)
-        : members!.has(s.member) && (m.broadcast === 1 || (!mutedSender.has(s.member) && !mutedChannel!.has(s.member)));
+        : members!.has(s.member) && s.project === m.channel && (m.broadcast === 1 || (!mutedSender.has(s.member) && !mutedChannel!.has(s.member)));
       if (!receives) continue;
       try {
         if (s.mode === "peek") {
