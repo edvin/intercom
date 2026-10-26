@@ -345,7 +345,7 @@ label.field>input,label.field>textarea,label.field>select{width:100%}
 .act .aic{text-align:center;color:var(--ink-2)}.act .atx{overflow-wrap:anywhere;white-space:pre-wrap}.act .when{font-size:11px;opacity:.6}
 .act-cmd .atx{color:var(--ink-2)}.act-cmd .aic{color:var(--green)}
 .act-edit .aic{color:var(--amber)}.act-edit .atx{color:var(--ink-2)}
-.act-text{color:var(--ink-2)}.act-text .atx{white-space:normal}.act-text .aic{color:var(--accent)}
+.act-text{color:var(--ink-2)}.act-text .atx{white-space:normal}.act .atx>:first-child{margin-top:0}.act .atx>:last-child{margin-bottom:0}.act-text .aic{color:var(--accent)}
 .act-prompt .aic{color:var(--green)}
 .act-read{opacity:.75}
 a.ref{color:var(--accent);text-decoration:none;border-bottom:1px dotted color-mix(in srgb,var(--accent) 45%,transparent)}a.ref:hover{border-bottom-style:solid}a.ref code{color:inherit}
