@@ -41,7 +41,7 @@ export const clientBadge = (client: string, named = false) =>
     : `<span class="client cl" title="Claude Code">${CLAUDE_MARK}${named ? "Claude Code" : ""}</span>`;
 
 const LOOP_CHIPS = ["Stop your loop.", "Run your loop every 30 minutes instead."];
-const QUICK = ["What's your status?", "Pause and check in with me first.", "Stop, summarize, and wait.", "Commit and push what you have."];
+const QUICK = ["What's your status?", "Stop, summarize, and wait.", "Commit and push what you have."];
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
