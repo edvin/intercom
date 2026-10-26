@@ -324,17 +324,23 @@ async function handleUi(url: URL, env: Env, me: string): Promise<Response> {
     : { results: [] };
   const votedIds = new Set(voted.map((v) => v.proposal_id));
   const cursor = cursorRow?.last_read_id ?? 0;
-  const { results: recent } = await env.DB.prepare(`SELECT * FROM messages WHERE id > ?1 AND sender != ?2 AND ${RECEIVES} ORDER BY id DESC LIMIT 8`).bind(cursor, me).all<Message>();
-  const unreadCount = (await env.DB.prepare(`SELECT COUNT(*) AS n FROM messages WHERE id > ?1 AND sender != ?2 AND ${RECEIVES}`).bind(cursor, me).first<{ n: number }>())!.n;
-  const latest = (await env.DB.prepare(`SELECT COALESCE(MAX(id), 0) AS id FROM messages WHERE sender != ?2 AND ${RECEIVES} AND ?1 IS NULL`).bind(null, me).first<{ id: number }>())!.id;
   const sid = url.searchParams.get("session");
   const mySession = sid
     ? await env.DB.prepare("SELECT session_id, label, project, cursor FROM sessions WHERE member = ? AND session_id = ?").bind(me, sid).first<Session & { cursor: number }>()
     : null;
+  // A session counts what it receives (its project's posts and its DMs); without one, the person's view.
+  const pending = mySession ? (await unread(env, me, 99, false, mySession)).messages : null;
+  const recent = pending
+    ? pending.slice(-8).reverse()
+    : (await env.DB.prepare(`SELECT * FROM messages WHERE id > ?1 AND sender != ?2 AND ${RECEIVES} ORDER BY id DESC LIMIT 8`).bind(cursor, me).all<Message>()).results;
+  const unreadCount = pending
+    ? pending.length
+    : (await env.DB.prepare(`SELECT COUNT(*) AS n FROM messages WHERE id > ?1 AND sender != ?2 AND ${RECEIVES}`).bind(cursor, me).first<{ n: number }>())!.n;
+  const latest = (await env.DB.prepare(`SELECT COALESCE(MAX(id), 0) AS id FROM messages WHERE sender != ?2 AND ${RECEIVES} AND ?1 IS NULL`).bind(null, me).first<{ id: number }>())!.id;
   // What the user typed to this session in the dashboard and it hasn't read: the mod submits these when it's idle.
-  const prompts = mySession
-    ? (await unread(env, me, 20, false, mySession)).messages
-        .filter((m) => fromOwnUser(m, me) && m.kind !== "event" && m.recipient === me && (m.recipient_agent === mySession.label || m.recipient_agent === mySession.project))
+  const prompts = pending
+    ? pending
+        .filter((m) => fromOwnUser(m, me) && m.kind !== "event" && m.recipient === me && (m.recipient_agent === mySession!.label || m.recipient_agent === mySession!.project))
         .map((m) => ({ id: m.id, body: m.body }))
     : [];
   return json({
@@ -358,9 +364,10 @@ async function handleStatusline(url: URL, env: Env, me: string): Promise<Respons
   const text = (t: string) => new Response(t, { headers: { "content-type": "text/plain; charset=utf-8" } });
   if (url.searchParams.get("session")) {
     // One session's line, the same as the intercom-ui mod shows: its name, its unread, this project's locks, votes.
-    type Snap = { label?: string; me: string; unread: number; locks: { resource: string; holder: string; here: boolean; mine: boolean }[]; votes: unknown[] };
+    type Snap = { label?: string; project?: string | null; me: string; unread: number; locks: { resource: string; holder: string; here: boolean; mine: boolean }[]; votes: unknown[] };
     const s = (await (await handleUi(url, env, me)).json()) as Snap;
-    const parts = [`📻 ${s.label ?? s.me}`, `${s.unread} unread`];
+    // Full address and project: which agent this is, and where it coordinates (it can differ from the repo).
+    const parts = [`📻 ${s.label ? address(s.me, s.label) : s.me}`, s.project ? `#${s.project}` : "no project", `${s.unread >= 99 ? "99+" : s.unread} unread`];
     const others = s.locks.filter((l) => l.here && !l.mine);
     const mine = s.locks.filter((l) => l.here && l.mine);
     if (others.length) parts.push(`🔒 ${others.map((l) => `${l.resource} (${l.holder})`).join(", ")}`);

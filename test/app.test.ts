@@ -1105,7 +1105,7 @@ describe("status line", () => {
     await w.ok("alice", "claim", { resource: "deploy:billing:prod" });
     await w.ok("carol", "claim", { resource: "deploy:shop:prod" });
     const line = await (await w.request("/api/statusline?session=sl1&project=billing-api", { as: "bob" })).text();
-    assert.match(line, /^📻 alder · \d+ unread · 🔒 deploy:billing:prod \(alice\)$/);
+    assert.match(line, /^📻 bob\/alder · #billing · \d+ unread · 🔒 deploy:billing:prod \(alice\)$/);
   });
 });
 
