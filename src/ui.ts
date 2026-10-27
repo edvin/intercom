@@ -769,7 +769,9 @@ export const SCRIPT = `
     });
     $$("[data-dm]", root).forEach((b) => b.onclick = () => { const s = $("#compose-to"), c = $("#compose"); if (s && c) { s.value = b.dataset.dm; c.focus(); c.scrollIntoView({ block: "center", behavior: "smooth" }); } });
     $$("[data-close]", root).forEach((b) => b.onclick = () => b.closest("dialog").close());
-    $$("form", root).forEach((f) => { if (!f.hasAttribute("data-native") || f.dataset.confirm) f.onsubmit = submit; });
+    // The redrawn piece can be a form itself (the chat composer is one): it needs its handler too, or it submits
+    // the plain way (no images, a page reload, the text restored from its draft).
+    [...(root.matches && root.matches("form") ? [root] : []), ...$$("form", root)].forEach((f) => { if (!f.hasAttribute("data-native") || f.dataset.confirm) f.onsubmit = submit; });
     [...(root.matches && root.matches("form[data-images]") ? [root] : []), ...$$("form[data-images]", root)].forEach(bindImages);
     [...(root.matches && root.matches("form[data-agent]") ? [root] : []), ...$$("form[data-agent]", root)].forEach(bindBtw);
     $$("input[data-noenter]", root).forEach((i) => i.onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); toast("Pick an option to vote"); } });
