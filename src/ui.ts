@@ -808,6 +808,8 @@ export const SCRIPT = `
     const f = e.target; if (f.dataset.confirm && !f.dataset.ok) { e.preventDefault(); const d = $("#confirm"); if (d) { $("#confirm-text").textContent = f.dataset.confirm; d.showModal(); $("#confirm-yes").onclick = () => { d.close(); f.dataset.ok = "1"; f.requestSubmit(); delete f.dataset.ok; }; } return; }
     if (f.hasAttribute("data-native")) return;
     e.preventDefault();
+    // One send at a time: a phone can fire a second submit for the same tap a few milliseconds later.
+    if (f._busy) return; f._busy = true;
     // A phone keyboard still composing a word puts it back after the field is cleared: finish it first.
     const typing = f.contains(document.activeElement) && document.activeElement.tagName === "TEXTAREA" ? document.activeElement : null;
     if (typing) typing.blur();
@@ -833,7 +835,7 @@ export const SCRIPT = `
       if (err) toast(err, true); else { if (!f.hasAttribute("data-quiet")) toast(ok); f.reset(); if (f._imgs) { f._imgs.forEach((it) => URL.revokeObjectURL(it.url)); f._imgs = []; drawTray(f); } const d = f.closest("dialog"); d && d.close(); const ci = f.querySelector("#chat-input"); ci && !touch && ci.focus(); }
       if (link) { $("#invite-link").textContent = link; $("#invite-copy").dataset.copy = link; $("#invite-dlg").showModal(); }
     } catch { restore(); toast("Network error — try again", true); }
-    btns.forEach((b) => (b.disabled = false));
+    btns.forEach((b) => (b.disabled = false)); f._busy = false;
   }
   async function swap(text) {
     const doc = new DOMParser().parseFromString(text, "text/html");

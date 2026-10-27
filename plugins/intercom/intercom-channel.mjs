@@ -20,7 +20,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const VERSION = "0.12.13"; // kept in step with .claude-plugin/plugin.json (a test checks)
+const VERSION = "0.12.14"; // kept in step with .claude-plugin/plugin.json (a test checks)
 const DIR = path.join(os.homedir(), ".claude", "intercom");
 const CONFIG = path.join(DIR, "config");
 function readConf() {
@@ -274,6 +274,9 @@ const clip = (t, n = 300) => {
   return s.length > n ? `${s.slice(0, n - 1)}…` : s;
 };
 const firstLine = (t) => String(t ?? "").split("\n").find((l) => l.trim()) ?? "";
+/** How much of the agent's own text the activity mirror keeps (the hub stores up to the same). */
+const TEXT_MAX = 6000;
+
 /** A command as one line: its first line, with … when there's more (heredocs, scripts). */
 const oneLine = (t) => {
   const s = String(t ?? "").trim();
@@ -307,7 +310,7 @@ function summarizeLine(line) {
     const c = d.message.content;
     const blocks = typeof c === "string" ? [{ type: "text", text: c }] : Array.isArray(c) ? c : [];
     for (const b of blocks) {
-      if (b.type === "text" && b.text?.trim() && !isNoise(b.text)) out.push({ at, kind: d.type === "assistant" ? "text" : "prompt", text: clip(b.text, d.type === "assistant" ? 600 : 240) });
+      if (b.type === "text" && b.text?.trim() && !isNoise(b.text)) out.push({ at, kind: d.type === "assistant" ? "text" : "prompt", text: clip(b.text, d.type === "assistant" ? TEXT_MAX : 240) });
       // Loops: the dashboard shows what the agent scheduled. A cron job's id comes in its tool result.
       // A command that runs in the background (asked for, or moved there after a while): a job until it ends.
       if (b.type === "tool_result" && bashCalls.has(b.tool_use_id)) {
@@ -356,7 +359,7 @@ function summarizeLine(line) {
   if (d.type === "response_item" && p) {
     if (p.type === "message" && Array.isArray(p.content)) {
       const text = p.content.filter((x) => x.type === "output_text" || x.type === "input_text").map((x) => x.text).join("\n");
-      if (text.trim() && !isNoise(text)) out.push({ at, kind: p.role === "assistant" ? "text" : "prompt", text: clip(text, p.role === "assistant" ? 600 : 240) });
+      if (text.trim() && !isNoise(text)) out.push({ at, kind: p.role === "assistant" ? "text" : "prompt", text: clip(text, p.role === "assistant" ? TEXT_MAX : 240) });
     } else if (p.type === "function_call" || p.type === "custom_tool_call" || p.type === "local_shell_call") {
       const name = p.name ?? "shell";
       let args = p.arguments ?? p.input ?? p.action;

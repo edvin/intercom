@@ -695,7 +695,7 @@ export async function addActivity(env: Env, me: string, sessionId: string, items
     ...items.slice(-100).flatMap((it) => {
       const i = it as { at?: unknown; kind?: unknown; text?: unknown };
       const kind = String(i.kind ?? "");
-      const text = String(i.text ?? "").replace(/\s+$/g, "").slice(0, 600);
+      const text = String(i.text ?? "").replace(/\s+$/g, "").slice(0, 6000); // the agent's text in full, up to a long answer
       if (!ACTIVITY_KINDS.has(kind) || kind === "loop" || kind === "job" || !text) return [];
       return [{ kind, text, at: when(i.at) }];
     }),
