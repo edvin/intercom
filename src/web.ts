@@ -15,7 +15,7 @@ const SETUP = (origin: string, token: string) => `curl -fsSL ${origin}/setup.sh 
 
 /** Everything someone needs after getting a token. */
 function setupSteps(origin: string, token: string): string {
-  return `<div><h3>Connect Claude Code</h3><p class="small muted">Run this in a terminal (macOS or Linux). It checks <code>node</code> (22 or newer), installs the Claude Code plugin and stores your token.</p>${codeBlock(SETUP(origin, token))}
+  return `<div><h3>Connect Claude Code</h3><p class="small muted">Run this in a terminal (macOS, Linux, or Git Bash on Windows). It checks <code>node</code> (22 or newer), installs the Claude Code plugin and stores your token.</p>${codeBlock(SETUP(origin, token))}
     <p class="tiny muted">Prefer not to have the token in your shell history? Run <code>curl -fsSL ${esc(origin)}/setup.sh | sh</code> and paste it when asked. No <code>claude</code> CLI on your PATH? In Claude Code: <code>/plugin install intercom --marketplace edvin/intercom</code>.</p></div>
     <div><h3>Then restart Claude Code</h3><p class="small muted">Type <code>/intercom</code> to see your team, locks and votes, and <code>/intercom dashboard</code> to open this dashboard signed in.</p></div>`;
 }
@@ -582,7 +582,7 @@ export async function dashboard(url: URL, env: Env, me: string, cookie = ""): Pr
     ? ""
     : `<section class="card"><div class="bd stack">
         <div class="row">${icon("terminal", 18)}<h2>Connect Claude Code</h2><span class="badge amber">not connected yet</span></div>
-        <p class="muted" style="margin:0">Run this in a terminal (macOS or Linux, Node 22+). It installs the plugin and signs in through this browser; no token to copy.</p>
+        <p class="muted" style="margin:0">Run this in a terminal (macOS, Linux, or Git Bash on Windows; Node 22+). It installs the plugin and signs in through this browser; no token to copy.</p>
         ${codeBlock(`curl -fsSL ${url.origin}/setup.sh | sh`)}
         <p class="small muted" style="margin:0">Then restart Claude Code and type <code>/intercom</code>.</p>
       </div></section>`;
@@ -786,11 +786,11 @@ export function docsPage(origin: string): Response {
         <h2>Get started</h2>
         <ol class="steps">
           <li><b>Get an account.</b> Sign up with GitHub on the <a href="/">home page</a> (if this instance allows it), or open an invite link a teammate sent you.</li>
-          <li><b>Run the setup</b> in a terminal (macOS or Linux):${codeBlock(`curl -fsSL ${origin}/setup.sh | sh`)}
+          <li><b>Run the setup</b> in a terminal (macOS, Linux, or Git Bash on Windows):${codeBlock(`curl -fsSL ${origin}/setup.sh | sh`)}
             <span class="small muted">It checks for <code>node</code> 22 or newer, installs the Claude Code plugin, and opens your browser to approve the terminal; no token to copy. The token it receives lives in <code>~/.claude/intercom/config</code>, readable only by you. Safe to re-run: it keeps your sign-in and just updates everything. Prefer a token? <code>… | sh -s -- &lt;token&gt;</code>.</span></li>
           <li><b>Restart Claude Code</b> and type <code>/intercom</code> to see your team, locks and votes.</li>
         </ol>
-        <p class="small muted">No <code>claude</code> command in your terminal? Install the plugin from inside Claude Code instead: <code>/plugin install intercom --marketplace edvin/intercom</code>. Without the plugin system at all, <code>curl -fsSL ${esc(origin)}/install.sh | sh</code> installs the same pieces into <code>~/.claude</code>. Windows isn't supported yet (WSL works).</p>
+        <p class="small muted">No <code>claude</code> command in your terminal? Install the plugin from inside Claude Code instead: <code>/plugin install intercom --marketplace edvin/intercom</code>. Without the plugin system at all, <code>curl -fsSL ${esc(origin)}/install.sh | sh</code> installs the same pieces into <code>~/.claude</code>. On Windows, install <a href="https://gitforwindows.org">Git for Windows</a> first: Claude Code runs the intercom's hooks in its Git Bash, so without it they don't run (WSL works too).</p>
       </section>
 
       <section>

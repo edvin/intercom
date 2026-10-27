@@ -4,6 +4,7 @@
 #   curl -fsSL https://__INTERCOM_URL_HOST__/setup.sh | sh -s -- <token>   # or with a token
 #   curl -fsSL https://__INTERCOM_URL_HOST__/setup.sh | INTERCOM_PASTE_TOKEN=1 sh   # paste a token instead
 # It checks node, installs the Claude Code plugin (if the claude CLI is on PATH), and stores your token.
+# Windows: run it in Git Bash (Git for Windows), which is also what Claude Code runs the intercom's hooks in.
 set -e
 
 URL="__INTERCOM_URL__"
@@ -17,7 +18,7 @@ echo "Intercom setup"
 
 # 1. node >= 22 (the plugin's local server needs it, with built-in WebSocket).
 if ! command -v node >/dev/null 2>&1; then
-  fail "node is not installed. Install Node.js 22 or newer (https://nodejs.org, or: brew install node), then run this again."
+  fail "node is not installed. Install Node.js 22 or newer (https://nodejs.org, or: brew install node; Windows: winget install OpenJS.NodeJS), then run this again."
 fi
 NODE_MAJOR=$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)
 [ "$NODE_MAJOR" -ge 22 ] || fail "node $(node -v) is too old; Intercom needs 22 or newer. Upgrade (e.g. brew upgrade node), then run this again."
@@ -39,7 +40,7 @@ if [ -z "$TOKEN" ] && [ -z "$INTERCOM_PASTE_TOKEN" ]; then
   if [ -n "$CODE" ]; then
     LINK=$(json "$START" url)
     printf '  Approve this terminal in your browser (code \033[1m%s\033[0m):\n    %s\n' "$(json "$START" user_code)" "$LINK"
-    if command -v open >/dev/null 2>&1; then open "$LINK" >/dev/null 2>&1 || true; elif command -v xdg-open >/dev/null 2>&1; then xdg-open "$LINK" >/dev/null 2>&1 || true; fi
+    if command -v open >/dev/null 2>&1; then open "$LINK" >/dev/null 2>&1 || true; elif command -v xdg-open >/dev/null 2>&1; then xdg-open "$LINK" >/dev/null 2>&1 || true; elif command -v start >/dev/null 2>&1; then start "$LINK" >/dev/null 2>&1 || true; fi
     printf '  Waiting for approval'
     i=0
     while [ $i -lt 300 ]; do
@@ -79,28 +80,20 @@ if command -v claude >/dev/null 2>&1; then
   # An older script install (user-scope MCP server + hooks in settings.json) would duplicate the plugin.
   if claude mcp get intercom 2>/dev/null | grep -q "intercom-channel.mjs"; then
     claude mcp remove --scope user intercom >/dev/null 2>&1 || true
-    if [ -f "$HOME/.claude/settings.json" ] && command -v python3 >/dev/null 2>&1; then
-      python3 -I - "$HOME/.claude/settings.json" <<'PY' || true
-import json, os, sys
-path = sys.argv[1]
-s = json.load(open(path))
-hooks = s.get("hooks", {})
-for ev in list(hooks):
-    groups = []
-    for g in hooks[ev]:
-        g["hooks"] = [h for h in g.get("hooks", []) if "/.claude/intercom/hook.sh" not in h.get("command", "")]
-        if g["hooks"]:
-            groups.append(g)
-    if groups:
-        hooks[ev] = groups
-    else:
-        del hooks[ev]
-tmp = path + ".intercom.tmp"
-with open(tmp, "w") as f:
-    json.dump(s, f, indent=2)
-    f.write("\n")
-os.replace(tmp, path)
-PY
+    if [ -f "$HOME/.claude/settings.json" ]; then
+      node - "$HOME/.claude/settings.json" <<'JS' || true
+const fs = require("fs");
+const path = process.argv[2];
+const s = JSON.parse(fs.readFileSync(path, "utf8"));
+const hooks = s.hooks ?? {};
+for (const ev of Object.keys(hooks)) {
+  const groups = hooks[ev].map((g) => ({ ...g, hooks: (g.hooks ?? []).filter((h) => !(h.command ?? "").includes("/.claude/intercom/hook.sh")) })).filter((g) => g.hooks.length);
+  if (groups.length) hooks[ev] = groups;
+  else delete hooks[ev];
+}
+fs.writeFileSync(path + ".intercom.tmp", JSON.stringify(s, null, 2) + "\n");
+fs.renameSync(path + ".intercom.tmp", path);
+JS
     fi
     ok "removed the older script install (the plugin replaces it)"
   fi
@@ -137,24 +130,21 @@ fi
 if [ "$INTERCOM_STATUSLINE" != "0" ] && command -v claude >/dev/null 2>&1; then
   curl -fsSL "$URL/client/statusline.sh" -o "$DIR/statusline.sh" 2>/dev/null && chmod +x "$DIR/statusline.sh"
   if [ -f "$DIR/statusline.sh" ]; then
-    sl=$(python3 -I - "$HOME/.claude/settings.json" "$DIR/statusline.sh" <<'PY' 2>/dev/null
-import json, os, sys
-path, script = sys.argv[1], sys.argv[2]
-cfg = json.load(open(path)) if os.path.exists(path) else {}
-cur = (cfg.get("statusLine") or {}).get("command", "")
-if "intercom/statusline.sh" in cur:
-    print("ours")
-elif cur:
-    print("other")
-else:
-    cfg["statusLine"] = {"type": "command", "command": f'sh "{script}"', "padding": 0}
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path + ".tmp", "w") as f:
-        json.dump(cfg, f, indent=2)
-        f.write("\n")
-    os.replace(path + ".tmp", path)
-    print("set")
-PY
+    sl=$(node - "$HOME/.claude/settings.json" "$DIR/statusline.sh" <<'JS' 2>/dev/null
+const fs = require("fs");
+const [path, script] = process.argv.slice(2);
+const cfg = fs.existsSync(path) ? JSON.parse(fs.readFileSync(path, "utf8")) : {};
+const cur = cfg.statusLine?.command ?? "";
+if (cur.includes("intercom/statusline.sh")) console.log("ours");
+else if (cur) console.log("other");
+else {
+  cfg.statusLine = { type: "command", command: `sh "${script}"`, padding: 0 };
+  fs.mkdirSync(require("path").dirname(path), { recursive: true });
+  fs.writeFileSync(path + ".tmp", JSON.stringify(cfg, null, 2) + "\n");
+  fs.renameSync(path + ".tmp", path);
+  console.log("set");
+}
+JS
 )
     case "$sl" in
       set) ok "status line: this session's intercom name, unread, locks and votes (restart Claude Code to see it)" ;;
@@ -172,24 +162,21 @@ if [ "$INTERCOM_CODEX" != "0" ] && command -v codex >/dev/null 2>&1; then
   mkdir -p "$CX"
   codex mcp remove intercom >/dev/null 2>&1 || true
   if codex mcp add intercom -- node "$DIR/intercom-channel.mjs" >/dev/null 2>&1; then
-    python3 -I - "$CX/hooks.json" "$DIR/hook.sh" <<'PY' && HOOKS_OK=1
-import json, os, sys
-path, hook = sys.argv[1], sys.argv[2]
-cfg = json.load(open(path)) if os.path.exists(path) else {}
-hooks = cfg.setdefault("hooks", {})
-for event in ("SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop", "PermissionRequest", "SessionEnd"):
-    groups = [g for g in hooks.get(event, []) if not any("intercom/hook.sh" in h.get("command", "") for h in g.get("hooks", []))]
-    entry = {"hooks": [{"type": "command", "command": f'sh "{hook}" {event} codex', "timeout": 3660 if event == "PermissionRequest" else 5}]}
-    if event == "PreToolUse":
-        entry["matcher"] = "^Bash$"
-    groups.append(entry)
-    hooks[event] = groups
-tmp = path + ".intercom.tmp"
-with open(tmp, "w") as f:
-    json.dump(cfg, f, indent=2)
-    f.write("\n")
-os.replace(tmp, path)
-PY
+    node - "$CX/hooks.json" "$DIR/hook.sh" <<'JS' && HOOKS_OK=1
+const fs = require("fs");
+const [path, hook] = process.argv.slice(2);
+const cfg = fs.existsSync(path) ? JSON.parse(fs.readFileSync(path, "utf8")) : {};
+const hooks = (cfg.hooks ??= {});
+for (const event of ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop", "PermissionRequest", "SessionEnd"]) {
+  const groups = (hooks[event] ?? []).filter((g) => !(g.hooks ?? []).some((h) => (h.command ?? "").includes("intercom/hook.sh")));
+  const entry = { hooks: [{ type: "command", command: `sh "${hook}" ${event} codex`, timeout: event === "PermissionRequest" ? 3660 : 5 }] };
+  if (event === "PreToolUse") entry.matcher = "^Bash$";
+  groups.push(entry);
+  hooks[event] = groups;
+}
+fs.writeFileSync(path + ".intercom.tmp", JSON.stringify(cfg, null, 2) + "\n");
+fs.renameSync(path + ".intercom.tmp", path);
+JS
     mkdir -p "$HOME/.agents/skills/intercom" && curl -fsSL "$URL/client/codex-skill.md" -o "$HOME/.agents/skills/intercom/SKILL.md"
     ok "Codex: MCP server, hooks and \$intercom skill"
     [ -n "$HOOKS_OK" ] && warn "Codex asks you to trust new hooks once: open Codex, type /hooks and trust the intercom ones."

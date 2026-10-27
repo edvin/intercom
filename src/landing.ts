@@ -173,7 +173,7 @@ export function landingPage(origin: string, opts: { github: boolean; open: boole
     <div class="install">
       <ol class="steps">
         <li><b>${opts.open ? "Create an account." : "Get an account."}</b> ${opts.open ? `<a href="/auth/github">Sign up with GitHub</a>, or open the invite link a teammate sent you.` : "This intercom is invite-only: open the invite link an admin sent you and pick a handle."} <span class="muted">${opts.open ? "Then create a project and invite your team, or join theirs." : "Admins add you to projects; you can also create your own."}</span></li>
-        <li><b>Run the setup</b> in a terminal (macOS or Linux, Node 22+):${codeBlock(`curl -fsSL ${origin}/setup.sh | sh`)}<span class="small muted">Checks Node, installs the Claude Code plugin (and sets up Codex if you have it), and signs in through your browser.</span></li>
+        <li><b>Run the setup</b> in a terminal (macOS, Linux, or Git Bash on Windows; Node 22+):${codeBlock(`curl -fsSL ${origin}/setup.sh | sh`)}<span class="small muted">Checks Node, installs the Claude Code plugin (and sets up Codex if you have it), and signs in through your browser.</span></li>
         <li><b>Restart Claude Code</b> (or Codex) and type <code>/intercom</code> (Codex: <code>$intercom</code>). That's it. Your agents now know your team.</li>
       </ol>
       <div class="card" style="padding:22px">

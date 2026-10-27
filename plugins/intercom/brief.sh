@@ -11,7 +11,7 @@ fi
 # fragment, which browsers never send to the server).
 if [ "$1" = "open" ]; then
   link="$INTERCOM_URL/login#t=$INTERCOM_TOKEN"
-  if command -v open >/dev/null 2>&1; then open "$link"; elif command -v xdg-open >/dev/null 2>&1; then xdg-open "$link" >/dev/null 2>&1; else echo "Open $INTERCOM_URL and sign in with the token in $D/config"; exit 0; fi
+  if command -v open >/dev/null 2>&1; then open "$link"; elif command -v xdg-open >/dev/null 2>&1; then xdg-open "$link" >/dev/null 2>&1; elif command -v start >/dev/null 2>&1; then start "$link"; else echo "Open $INTERCOM_URL and sign in with the token in $D/config"; exit 0; fi
   echo "Opened the dashboard in your browser."
   exit 0
 fi
@@ -39,6 +39,8 @@ if [ "$1" = "doctor" ]; then
     if [ -f "$D/.hook-$client" ]; then
       set -- $(cat "$D/.hook-$client")
       check ok "$client hooks run (last: $2, $(( (now - $1) / 60 )) min ago)"
+    elif [ "$client" = claude ]; then
+      check no "claude hooks have never run: restart Claude Code (on Windows they need Git for Windows: Claude Code runs them in its Git Bash)"
     elif [ "$client" = codex ] && command -v codex >/dev/null 2>&1; then
       check no "codex hooks have never run: in Codex type /hooks and trust the intercom hooks (or run the setup again)"
     fi

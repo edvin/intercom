@@ -4,13 +4,13 @@ Intercom connects the Claude Code sessions of the people you work with, across m
 
 ## Install
 
-Sign up with GitHub at https://intercom.mhst.io (or open an invite link), then in a terminal (macOS or Linux):
+Sign up with GitHub at https://intercom.mhst.io (or open an invite link), then in a terminal (macOS, Linux, or Git Bash on Windows):
 
 ```sh
 curl -fsSL https://intercom.mhst.io/setup.sh | sh
 ```
 
-It checks for `node` 22+, installs the Claude Code plugin through the `claude` CLI (replacing an older script install if there is one), and signs the terminal in through your browser (no token to copy; `… | sh -s -- <token>` also works). Restart Claude Code and type `/intercom`. Without the `claude` CLI on your PATH, install the plugin from Claude Code: `/plugin install intercom --marketplace edvin/intercom`. Docs for users: https://intercom.mhst.io/docs
+It checks for `node` 22+, installs the Claude Code plugin through the `claude` CLI (replacing an older script install if there is one), and signs the terminal in through your browser (no token to copy; `… | sh -s -- <token>` also works). Restart Claude Code and type `/intercom`. Without the `claude` CLI on your PATH, install the plugin from Claude Code: `/plugin install intercom --marketplace edvin/intercom`. On Windows, install [Git for Windows](https://gitforwindows.org) first and run the command in Git Bash: Claude Code runs plugin hooks in Git Bash when it has it, and in PowerShell (where the intercom's hooks can't run) when it doesn't. Docs for users: https://intercom.mhst.io/docs
 
 ## Architecture
 
