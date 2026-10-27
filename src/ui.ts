@@ -549,14 +549,14 @@ body:has(.ide) .top .in{max-width:none;padding:8px 14px}
   .chatmode .chatpane{padding:0;gap:0}
   .chatmode .chatpane>.updatebar{margin:6px 8px 0}.chatmode .chatpane>.approvals{margin:6px 8px 0;border-radius:12px}
   .chatmode .chat{border:0;border-radius:0;box-shadow:none;background:var(--bg)}
-  .chatmode .chat>.hd{flex-wrap:nowrap;align-items:center;gap:8px;padding:8px 10px 8px 4px;padding-top:max(8px,env(safe-area-inset-top));background:color-mix(in srgb,var(--surface) 82%,transparent);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
+  .chatmode .chat>.hd{flex-wrap:nowrap;align-items:center;gap:8px;padding:8px 10px 8px 4px;padding-top:max(8px,env(safe-area-inset-top));background:var(--surface)}
   .chatmode .mtree{display:inline-flex;flex:none}.chatmode>.tree{padding-top:env(safe-area-inset-top)}
   .chatmode .chat>.hd .av-m{width:32px;height:32px;font-size:12px}
   .chatmode .chat>.hd h2{font-size:15px}
   .chatmode .chat>.hd .fsz,.chatmode .chat>.hd .renamebtn,.chatmode .chat>.hd .client,.chatmode .chat>.hd .meta-row>.badge{display:none}
   .chatmode .chat>.hd .meta-row{margin-top:0;font-size:12px;flex-wrap:nowrap;white-space:nowrap;overflow:hidden}.chatmode .chat>.hd .meta-row>span{overflow:hidden;text-overflow:ellipsis}
   .chatmode .thread.term{padding:12px 14px 6px;font-size:13px}.chatmode .thread>:first-child{margin-top:auto}
-  .chatmode .chatbox{border-top:1px solid var(--line);padding:8px 8px max(8px,calc(env(safe-area-inset-bottom) - 18px));gap:6px;background:color-mix(in srgb,var(--surface) 82%,transparent)}
+  .chatmode .chatbox{border-top:1px solid var(--line);padding:8px 8px max(8px,calc(env(safe-area-inset-bottom) - 18px));gap:6px;background:var(--surface)}
   .chatmode .chatbox .chips{display:none}
   .chatmode .chatbox .row{gap:6px;align-items:flex-end}
   .chatmode .chatbox textarea{min-height:40px;height:40px;padding:8px 14px;border-radius:20px;line-height:1.4}
@@ -645,7 +645,7 @@ export const SCRIPT = `
   }
   async function addImages(f, files) {
     const imgs = [...files].filter((x) => /^image[/](png|jpeg|webp|gif)$/.test(x.type));
-    if (!imgs.length) return false;
+    if (!imgs.length) { if (files.length) toast("Only PNG, JPEG, WebP or GIF images", true); return false; }
     for (const x of imgs) {
       if (f._imgs.length >= MAX_IMGS) { toast("At most " + MAX_IMGS + " images per message", true); break; }
       const file = await shrink(x); f._imgs.push({ file, url: URL.createObjectURL(file) });
@@ -656,7 +656,7 @@ export const SCRIPT = `
     if (f._imgsBound) return; f._imgsBound = true; f._imgs = f._imgs || [];
     const t = f.querySelector("textarea"), pick = f.querySelector("[data-imgpick]"), btn = f.querySelector("[data-imgbtn]");
     if (btn && pick) { btn.onclick = () => pick.click(); pick.onchange = async () => { await addImages(f, pick.files); pick.value = ""; }; }
-    if (t) t.addEventListener("paste", async (e) => { const files = [...(e.clipboardData ? e.clipboardData.files : [])]; if (files.length && files.some((x) => x.type.startsWith("image/"))) { e.preventDefault(); await addImages(f, files); } });
+    if (t) f.addEventListener("paste", async (e) => { const files = [...(e.clipboardData ? e.clipboardData.files : [])]; if (files.length && files.some((x) => x.type.startsWith("image/"))) { e.preventDefault(); await addImages(f, files); } });
     f.addEventListener("dragover", (e) => { if (e.dataTransfer && [...e.dataTransfer.items].some((i) => i.type.startsWith("image/"))) { e.preventDefault(); f.classList.add("dropping"); } });
     f.addEventListener("dragleave", () => f.classList.remove("dropping"));
     f.addEventListener("drop", async (e) => { f.classList.remove("dropping"); if (e.dataTransfer && e.dataTransfer.files.length) { e.preventDefault(); await addImages(f, e.dataTransfer.files); } });
@@ -667,18 +667,18 @@ export const SCRIPT = `
   // agent while the page is open, so live redraws keep it.
   const btwOn = {}, btwFresh = {};
   function bindBtw(f) {
-    const key = f.dataset.agent, btn = f.querySelector("[data-btwtoggle]"), bar = f.querySelector(".btwbar"), t = f.querySelector("textarea");
+    const key = f.dataset.agent, btn = f.querySelector("[data-btwtoggle]"), bar = f.querySelector(".btwbar"), field = () => f.querySelector("textarea"); // looked up each time: a send replaces it
     const mode = f.querySelector("input[name=mode]"), thread = f.querySelector("input[name=thread]");
     if (!btn || !mode) return;
     const apply = () => {
       const on = !!btwOn[key];
       mode.value = on ? "btw" : ""; thread.value = on && btwFresh[key] ? "new" : "";
       btn.classList.toggle("on", on); f.classList.toggle("btwmode", on); if (bar) bar.hidden = !on;
-      if (t) t.placeholder = on ? "Side question for " + f.dataset.label + " (btw)" : "Message " + f.dataset.label;
+      const t = field(); if (t) t.placeholder = on ? "Side question for " + f.dataset.label + " (btw)" : "Message " + f.dataset.label;
     };
-    btn.onclick = () => { btwOn[key] = !btwOn[key]; apply(); t && t.focus(); };
+    btn.onclick = () => { btwOn[key] = !btwOn[key]; apply(); field()?.focus(); };
     const nw = f.querySelector("[data-btwnew]");
-    if (nw) nw.onclick = (e) => { e.preventDefault(); btwFresh[key] = true; apply(); toast("Your next side question starts a new thread"); t && t.focus(); };
+    if (nw) nw.onclick = (e) => { e.preventDefault(); btwFresh[key] = true; apply(); toast("Your next side question starts a new thread"); field()?.focus(); };
     f.addEventListener("submit", () => { btwFresh[key] = false; });
     apply();
   }
@@ -700,9 +700,18 @@ export const SCRIPT = `
   // in this browser, cleared when the message is sent.
   const draftKey = (t) => { const u = new URL(location.href); return "ic_draft:" + t.id + ":" + (u.searchParams.get("agent") || u.searchParams.get("channel") || ""); };
   const drafts = { get: (t) => { try { return localStorage.getItem(draftKey(t)) || ""; } catch { return ""; } },
-    set: (t) => { try { t.value.trim() ? localStorage.setItem(draftKey(t), t.value) : localStorage.removeItem(draftKey(t)); } catch {} } };
+    set: (t) => { if (!t.isConnected) return; try { t.value.trim() ? localStorage.setItem(draftKey(t), t.value) : localStorage.removeItem(draftKey(t)); } catch {} } };
+  // The chat field: its draft, growing with its text, Enter to send.
+  function chatField(t) {
+    if (!t.value) t.value = drafts.get(t);
+    t.addEventListener("input", () => drafts.set(t));
+    const grow = () => { t.style.height = ""; const base = t.offsetHeight; t.style.height = "0"; const h = t.scrollHeight + 2; t.style.height = h > base ? h + "px" : ""; };
+    t.oninput = grow; if (t.value) grow();
+    t.onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); if (t.value.trim() || (t.form._imgs && t.form._imgs.length)) t.form.requestSubmit(); } };
+  }
   function bind(root = document) {
-    $$("#chat-input, #compose", root).forEach((t) => { if (!t.value) t.value = drafts.get(t); t.addEventListener("input", () => drafts.set(t)); });
+    $$("#compose", root).forEach((t) => { if (!t.value) t.value = drafts.get(t); t.addEventListener("input", () => drafts.set(t)); });
+    $$("textarea[data-chat]", root).forEach(chatField);
     // The tree: hide/show (⌘B; on phones it slides over), folded projects remembered, the drawer on feeds.
     const ide = document.getElementById("ide");
     $$("[data-treetoggle]", root).forEach((b) => b.onclick = () => toggleTree());
@@ -746,8 +755,6 @@ export const SCRIPT = `
     [...(root.matches && root.matches("form[data-images]") ? [root] : []), ...$$("form[data-images]", root)].forEach(bindImages);
     [...(root.matches && root.matches("form[data-agent]") ? [root] : []), ...$$("form[data-agent]", root)].forEach(bindBtw);
     $$("input[data-noenter]", root).forEach((i) => i.onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); toast("Pick an option to vote"); } });
-    $$("textarea[data-chat]", root).forEach((t) => { const grow = () => { t.style.height = ""; const base = t.offsetHeight; t.style.height = "0"; const h = t.scrollHeight + 2; t.style.height = h > base ? h + "px" : ""; }; t.oninput = grow; if (t.value) grow(); });
-    $$("textarea[data-chat]", root).forEach((t) => t.onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); if (t.value.trim() || (t.form._imgs && t.form._imgs.length)) t.form.requestSubmit(); } });
     $$("[data-chip]", root).forEach((b) => b.onclick = () => { const t = $("#chat-input"); if (t) { t.value = b.dataset.chip; t.form.requestSubmit(); } });
     // Display choices live in cookies, so the server renders them and live redraws keep them.
     const cookie = (k) => { const c = document.cookie.split(";").map((x) => x.trim()).find((x) => x.startsWith(k + "=")); return c ? c.slice(k.length + 1) : undefined; };
@@ -786,10 +793,11 @@ export const SCRIPT = `
     if (typing) typing.blur();
     const btns = $$("button", f); btns.forEach((b) => (b.disabled = true));
     const data = new FormData(f); if (e.submitter && e.submitter.name) data.set(e.submitter.name, e.submitter.value);
-    // The chat clears at once, like a messaging app, and refocuses while still in the tap, so a phone keeps its
-    // keyboard up and forgets the old text; it comes back if sending fails.
+    // The chat clears at once, like a messaging app: a fresh, empty field takes the old one's place, because a phone
+    // keyboard puts the word it was composing back into the field it typed in. Focused while still in the tap, the
+    // keyboard stays up. The text comes back if sending fails.
     const chat = f.querySelector("textarea[data-chat]"), unsent = chat ? chat.value : "";
-    if (chat) { chat.value = ""; chat.style.height = ""; drafts.set(chat); if (typing === chat) chat.focus(); }
+    if (chat) { const fresh = chat.cloneNode(); fresh.value = ""; fresh.style.height = ""; chat.replaceWith(fresh); drafts.set(fresh); chatField(fresh); if (typing === chat) fresh.focus(); }
     const restore = () => { const t = chat && (document.getElementById(chat.id) || chat); if (t && !t.value) { t.value = unsent; drafts.set(t); } };
     (f._imgs || []).forEach((it) => data.append("image", it.file, it.file.name));
     try {
