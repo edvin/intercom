@@ -578,6 +578,8 @@ body:has(.ide) .top .in{max-width:none;padding:8px 14px}
   .ide{grid-template-columns:minmax(0,1fr)}.pane{grid-column:1}.drawer{display:none}
   .tree{position:fixed;z-index:30;top:var(--toph,53px);bottom:0;left:0;width:284px;transform:translateX(-104%);transition:transform .2s;background:var(--surface);box-shadow:var(--shadow-lg,0 10px 40px rgba(0,0,0,.35))}
   .ide.treeopen>.tree,.ide.notree.treeopen>.tree{display:flex;transform:none}.ide.notree>.tree{display:flex}
+  .ide::after{content:"";position:fixed;inset:0;z-index:29;background:rgba(0,0,0,.5);opacity:0;pointer-events:none;transition:opacity .2s}
+  .ide.treeopen::after{opacity:1;pointer-events:auto}
 }
 `;
 
@@ -700,6 +702,10 @@ export const SCRIPT = `
     if (top) st.setProperty("--toph", top.offsetHeight + "px");
   };
   window.visualViewport?.addEventListener("resize", fit); window.visualViewport?.addEventListener("scroll", fit); addEventListener("resize", fit); addEventListener("DOMContentLoaded", fit); fit();
+  // On phones the tree slides over the page: a tap outside it (on the dimmed backdrop) or Escape closes it.
+  const closeTree = () => document.getElementById("ide")?.classList.remove("treeopen");
+  document.addEventListener("click", (e) => { const ide = document.getElementById("ide"); if (ide?.classList.contains("treeopen") && !e.target.closest(".tree, [data-treetoggle]")) { e.preventDefault(); e.stopPropagation(); closeTree(); } }, true);
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeTree(); });
   document.addEventListener("keydown", (e) => { if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "b") { e.preventDefault(); toggleTree(); } });
 
   // Folded tool steps you opened or closed stay that way when the thread redraws live.
