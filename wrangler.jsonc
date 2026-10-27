@@ -6,7 +6,7 @@
   // Client scripts and SQL migrations are bundled as text, fonts as binary.
   "rules": [
     { "type": "Text", "globs": ["**/*.sh", "**/*.md", "**/*.sql"], "fallthrough": false },
-    { "type": "Data", "globs": ["**/*.woff2"], "fallthrough": false }
+    { "type": "Data", "globs": ["**/*.woff2", "**/*.png"], "fallthrough": false }
   ],
   "durable_objects": {
     "bindings": [{ "name": "HUB", "class_name": "TeamHub" }]

@@ -173,7 +173,7 @@ p{margin:.5em 0}
 .stack>*+*{margin-top:12px}
 
 /* top bar */
-.top{position:sticky;top:0;z-index:20;backdrop-filter:saturate(1.6) blur(14px);-webkit-backdrop-filter:saturate(1.6) blur(14px);background:color-mix(in srgb,var(--bg) 72%,transparent);border-bottom:1px solid var(--line)}
+.top{padding-top:env(safe-area-inset-top);position:sticky;top:0;z-index:20;backdrop-filter:saturate(1.6) blur(14px);-webkit-backdrop-filter:saturate(1.6) blur(14px);background:color-mix(in srgb,var(--bg) 72%,transparent);border-bottom:1px solid var(--line)}
 .top .in{max-width:1440px;margin:0 auto;padding:10px 20px;display:flex;align-items:center;gap:14px}
 .brand{display:flex;align-items:center;gap:10px;font-weight:650;font-size:16px;letter-spacing:-.02em;color:var(--ink)}
 .brand:hover{text-decoration:none}
@@ -550,13 +550,13 @@ body:has(.ide) .top .in{max-width:none;padding:8px 14px}
   .chatmode .chatpane>.updatebar{margin:6px 8px 0}.chatmode .chatpane>.approvals{margin:6px 8px 0;border-radius:12px}
   .chatmode .chat{border:0;border-radius:0;box-shadow:none;background:var(--bg)}
   .chatmode .chat>.hd{flex-wrap:nowrap;align-items:center;gap:8px;padding:8px 10px 8px 4px;padding-top:max(8px,env(safe-area-inset-top));background:color-mix(in srgb,var(--surface) 82%,transparent);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
-  .chatmode .mtree{display:inline-flex;flex:none}
+  .chatmode .mtree{display:inline-flex;flex:none}.chatmode>.tree{padding-top:env(safe-area-inset-top)}
   .chatmode .chat>.hd .av-m{width:32px;height:32px;font-size:12px}
   .chatmode .chat>.hd h2{font-size:15px}
   .chatmode .chat>.hd .fsz,.chatmode .chat>.hd .renamebtn,.chatmode .chat>.hd .client,.chatmode .chat>.hd .meta-row>.badge{display:none}
   .chatmode .chat>.hd .meta-row{margin-top:0;font-size:12px;flex-wrap:nowrap;white-space:nowrap;overflow:hidden}.chatmode .chat>.hd .meta-row>span{overflow:hidden;text-overflow:ellipsis}
   .chatmode .thread.term{padding:12px 14px 6px;font-size:13px}.chatmode .thread>:first-child{margin-top:auto}
-  .chatmode .chatbox{border-top:1px solid var(--line);padding:8px 8px max(8px,env(safe-area-inset-bottom));gap:6px;background:color-mix(in srgb,var(--surface) 82%,transparent)}
+  .chatmode .chatbox{border-top:1px solid var(--line);padding:8px 8px max(8px,calc(env(safe-area-inset-bottom) - 18px));gap:6px;background:color-mix(in srgb,var(--surface) 82%,transparent)}
   .chatmode .chatbox .chips{display:none}
   .chatmode .chatbox .row{gap:6px;align-items:flex-end}
   .chatmode .chatbox textarea{min-height:40px;height:40px;padding:8px 14px;border-radius:20px;line-height:1.4}
@@ -850,6 +850,8 @@ export function page(title: string, body: string, opts: { top?: string } = {}): 
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>${esc(title)}</title><meta name="theme-color" content="#09090d" media="(prefers-color-scheme: dark)"><meta name="theme-color" content="#f6f6f8" media="(prefers-color-scheme: light)">
 <link rel="icon" href="data:image/svg+xml,${encodeURIComponent(LOGO.replace('width="28" height="28" ', ""))}">
+<link rel="manifest" href="/manifest.webmanifest"><link rel="apple-touch-icon" href="/assets/icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="Intercom"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="preload" href="/assets/geist.woff2" as="font" type="font/woff2" crossorigin>
 <style>${STYLE}</style></head><body>
 ${opts.top ?? `<header class="top"><div class="in"><a class="brand" href="/">${LOGO}<span>Intercom</span></a><span class="grow"></span><a class="btn ghost sm" href="/docs">${icon("book", 15)}Docs</a></div></header>`}
