@@ -889,6 +889,13 @@ describe("plugin versions", () => {
     assert.doesNotMatch(await msg(`version=${PLUGIN_VERSION}`), /⬆/);
   });
 
+  test("open dashboards can tell a new version is out: the page's build stamp matches /api/build", async () => {
+    const w = await standardWorld();
+    const page = await (await w.request("/dashboard", { as: "bob", cookie: true })).text();
+    const stamp = page.match(/<meta name="ic-build" content="([a-z0-9]+)">/)![1];
+    assert.equal(((await (await w.request("/api/build")).json()) as { build: string }).build, stamp);
+  });
+
   test("the dashboard's update line names the outdated sessions until dismissed for this version", async () => {
     const { PLUGIN_VERSION } = await import("../src/version.ts");
     const w = await standardWorld();

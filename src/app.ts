@@ -9,7 +9,7 @@ import { guard } from "./guard";
 import { PLUGIN_VERSION, outdated } from "./version";
 import { getSetting, githubRepo, openSignup, setSetting } from "./github";
 import { landingPage } from "./landing";
-import { redirect } from "./ui";
+import { BUILD, redirect } from "./ui";
 import { accountPage, dashboard, exportProject, sameOrigin, handleAction, handleAdminAction, handleJoin, handleLogin, handleLogout, loginPage } from "./web";
 
 const SUPPORTED_PROTOCOLS = ["2025-11-25", "2025-06-18", "2025-03-26"];
@@ -456,6 +456,7 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
     return handleLogout();
   }
   if (url.pathname === "/api/version") return json({ plugin: PLUGIN_VERSION });
+  if (url.pathname === "/api/build") return json({ build: BUILD });
   if (url.pathname === "/auth/github") return githubStart(req, env, url);
   if (url.pathname === "/auth/github/callback") return githubCallback(req, env, url);
   if (url.pathname === "/auth/github/create" && req.method === "POST") return githubCreate(req, env);

@@ -652,10 +652,14 @@ export const SCRIPT = `
   async function addImages(f, files) {
     const imgs = [...files].filter((x) => /^image[/](png|jpeg|webp|gif)$/.test(x.type));
     if (!imgs.length) { if (files.length) toast("Only PNG, JPEG, WebP or GIF images", true); return false; }
-    for (const x of imgs) {
-      if (f._imgs.length >= MAX_IMGS) { toast("At most " + MAX_IMGS + " images per message", true); break; }
-      const file = await shrink(x); f._imgs.push({ file, url: URL.createObjectURL(file) });
-    }
+    // Shrinking a big phone screenshot takes a moment; live redraws leave the composer alone meanwhile.
+    f._adding = (f._adding || 0) + 1;
+    try {
+      for (const x of imgs) {
+        if (f._imgs.length >= MAX_IMGS) { toast("At most " + MAX_IMGS + " images per message", true); break; }
+        const file = await shrink(x); f._imgs.push({ file, url: URL.createObjectURL(file) });
+      }
+    } finally { f._adding--; }
     drawTray(f); return true;
   }
   function bindImages(f) {
@@ -807,21 +811,24 @@ export const SCRIPT = `
     if (typing) typing.blur();
     const btns = $$("button", f); btns.forEach((b) => (b.disabled = true));
     const data = new FormData(f); if (e.submitter && e.submitter.name) data.set(e.submitter.name, e.submitter.value);
-    // The chat clears at once, like a messaging app: a fresh, empty field takes the old one's place, because a phone
-    // keyboard puts the word it was composing back into the field it typed in. Focused while still in the tap, the
-    // keyboard stays up. The text comes back if sending fails.
+    // The chat clears at once, like a messaging app: a fresh, empty field takes the old one's place. A phone keyboard
+    // puts the word it was composing back into whichever field has focus, so on phones the fresh one isn't focused
+    // (the keyboard closes). The text comes back if sending fails.
+    const touch = matchMedia("(pointer: coarse)").matches;
     const chat = f.querySelector("textarea[data-chat]"), unsent = chat ? chat.value : "";
-    if (chat) { const fresh = chat.cloneNode(); fresh.value = ""; fresh.style.height = ""; chat.replaceWith(fresh); drafts.set(fresh); chatField(fresh); if (typing === chat) fresh.focus(); }
+    if (chat) { const fresh = chat.cloneNode(); fresh.value = ""; fresh.style.height = ""; chat.replaceWith(fresh); drafts.set(fresh); chatField(fresh); if (typing === chat && !touch) fresh.focus(); }
     const restore = () => { const t = chat && (document.getElementById(chat.id) || chat); if (t && !t.value) { t.value = unsent; drafts.set(t); } };
     (f._imgs || []).forEach((it) => data.append("image", it.file, it.file.name));
     try {
       const res = await fetch(f.action, { method: "POST", body: data, credentials: "same-origin" });
-      const u = new URL(res.url), err = u.searchParams.get("err"), ok = u.searchParams.get("ok"), link = u.searchParams.get("link");
+      // Answers redirect back with ?ok= or ?err=; anything else that isn't a page (403, 413, 500…) failed too.
+      const u = new URL(res.url), ok = u.searchParams.get("ok"), link = u.searchParams.get("link");
+      const err = u.searchParams.get("err") || (res.ok ? null : "Couldn't send (HTTP " + res.status + "). Try again.");
       // Sent: the text goes before the redraw, which otherwise carries unsent text over.
       if (!err) $$("textarea[id]", f).forEach((t) => { t.value = ""; t.style.height = ""; drafts.set(t); });
-      await swap(await res.text());
+      if (res.ok) await swap(await res.text());
       if (err) restore();
-      if (err) toast(err, true); else { if (!f.hasAttribute("data-quiet")) toast(ok); f.reset(); if (f._imgs) { f._imgs.forEach((it) => URL.revokeObjectURL(it.url)); f._imgs = []; drawTray(f); } const d = f.closest("dialog"); d && d.close(); const ci = f.querySelector("#chat-input"); ci && (ci === typing || !matchMedia("(pointer: coarse)").matches) && ci.focus(); }
+      if (err) toast(err, true); else { if (!f.hasAttribute("data-quiet")) toast(ok); f.reset(); if (f._imgs) { f._imgs.forEach((it) => URL.revokeObjectURL(it.url)); f._imgs = []; drawTray(f); } const d = f.closest("dialog"); d && d.close(); const ci = f.querySelector("#chat-input"); ci && !touch && ci.focus(); }
       if (link) { $("#invite-link").textContent = link; $("#invite-copy").dataset.copy = link; $("#invite-dlg").showModal(); }
     } catch { restore(); toast("Network error — try again", true); }
     btns.forEach((b) => (b.disabled = false));
@@ -830,7 +837,7 @@ export const SCRIPT = `
     const doc = new DOMParser().parseFromString(text, "text/html");
     $$("[data-region]").forEach((el) => {
       const next = doc.getElementById(el.id); if (!next || el.contains(document.activeElement) && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) return;
-      if (el._imgs && el._imgs.length) return; // images waiting to be sent
+      if ((el._imgs && el._imgs.length) || el._adding) return; // images waiting to be sent, or being added
       const open = new Set($$("details[open]", el).map((d) => d.id).filter(Boolean));
       // A thread you've scrolled up in stays where you are; one at the bottom follows new messages.
       const th = el.classList.contains("thread") ? el : null;
@@ -871,9 +878,28 @@ export const SCRIPT = `
   const q = new URL(location.href);
   if (q.searchParams.has("ok") || q.searchParams.has("err")) { toast(q.searchParams.get("ok") || q.searchParams.get("err"), q.searchParams.has("err")); q.searchParams.delete("ok"); q.searchParams.delete("err"); history.replaceState(null, "", q); }
   document.addEventListener("keydown", (e) => { if (e.key === "/" && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) { const c = $("#compose"); if (c) { e.preventDefault(); c.focus(); } } });
+  // An open dashboard (an installed phone app above all, which has no reload button) picks up a new version by
+  // itself: when it comes back into view, it reloads if the hub serves different styles or script, unless something
+  // is typed or attached.
+  const build = document.querySelector("meta[name=ic-build]")?.content;
+  document.addEventListener("visibilitychange", async () => {
+    if (document.hidden || !build) return;
+    try {
+      const now = (await (await fetch("/api/build", { cache: "no-store" })).json()).build;
+      const busy = $$("textarea, input[type=text]").some((t) => t.value) || $$("form").some((f) => f._imgs && f._imgs.length);
+      if (now && now !== build && !busy) location.reload();
+    } catch {}
+  });
   bind(); days(); tick(); setInterval(tick, 20000); connect();
 })();
 `;
+
+/** Identifies the dashboard's styles and script, so open pages notice a new version (FNV-1a). */
+export const BUILD = (() => {
+  let h = 0x811c9dc5;
+  for (const c of STYLE + SCRIPT) h = Math.imul(h ^ c.charCodeAt(0), 0x01000193);
+  return (h >>> 0).toString(36);
+})();
 
 /** Full HTML document. */
 export function page(title: string, body: string, opts: { top?: string } = {}): string {
@@ -882,7 +908,7 @@ export function page(title: string, body: string, opts: { top?: string } = {}): 
 <link rel="icon" href="data:image/svg+xml,${encodeURIComponent(LOGO.replace('width="28" height="28" ', ""))}">
 <link rel="manifest" href="/manifest.webmanifest"><link rel="apple-touch-icon" href="/assets/icon-180.png">
 <meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="Intercom"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<link rel="preload" href="/assets/geist.woff2" as="font" type="font/woff2" crossorigin>
+<meta name="ic-build" content="${BUILD}"><link rel="preload" href="/assets/geist.woff2" as="font" type="font/woff2" crossorigin>
 <style>${STYLE}</style></head><body>
 ${opts.top ?? `<header class="top"><div class="in"><a class="brand" href="/">${LOGO}<span>Intercom</span></a><span class="grow"></span><a class="btn ghost sm" href="/docs">${icon("book", 15)}Docs</a></div></header>`}
 ${body}
