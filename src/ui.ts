@@ -317,7 +317,7 @@ label.field>input,label.field>textarea,label.field>select{width:100%}
 .alist details[open]>summary{padding-bottom:4px}
 .dot{width:8px;height:8px;border-radius:50%;background:var(--mute);flex:none}.dot.on{background:var(--green);box-shadow:0 0 0 3px var(--green-soft)}
 .chat{display:flex;flex-direction:column;min-height:0;height:100%;overflow:hidden}
-.chat>.hd{flex-wrap:wrap;flex:none}
+.chat>.hd{flex-wrap:wrap;flex:none}.chat>.hd .aname{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.chat>.hd .client{flex:none}
 .thread{flex:1;min-height:0;overflow-y:auto;padding:18px;display:flex;flex-direction:column;gap:10px;overscroll-behavior:contain}
 .thread>.empty{margin:auto}
 .bubble{max-width:min(86%,1100px);padding:10px 14px;border-radius:16px;background:var(--surface-2);border:1px solid var(--line);overflow-wrap:anywhere;line-height:1.5;align-self:flex-start;border-bottom-left-radius:6px}
@@ -355,7 +355,7 @@ a.ref{color:var(--accent);text-decoration:none;border-bottom:1px dotted color-mi
 .btwbtn.on{background:color-mix(in srgb,var(--amber) 18%,transparent);color:var(--amber);border-color:var(--amber)}
 form.btwmode textarea{border-color:color-mix(in srgb,var(--amber) 60%,transparent)}.btwbar{padding:2px 4px 0}
 .act .adesc{display:block;color:var(--ink)}.act .acmd{display:block;opacity:.6;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.imgtray{display:flex;gap:8px;flex-wrap:wrap;padding:6px 6px 8px}.imgthumb{position:relative}.imgthumb img{height:64px;max-width:120px;object-fit:cover;border-radius:8px;border:1px solid var(--line);display:block}
+.imgtray{display:flex;gap:8px;flex-wrap:wrap;padding:6px 6px 8px}.imgtray[hidden]{display:none}.imgthumb{position:relative}.imgthumb img{height:64px;max-width:120px;object-fit:cover;border-radius:8px;border:1px solid var(--line);display:block}
 .imgthumb button{position:absolute;top:-6px;right:-6px;width:20px;height:20px;border-radius:50%;border:0;background:var(--ink);color:var(--bg);font-size:13px;line-height:20px;padding:0;cursor:pointer}
 form.dropping{outline:2px dashed var(--accent);outline-offset:4px;border-radius:12px}
 .attf{display:inline-flex;align-items:center;gap:8px;margin:6px 8px 2px 0;padding:6px 11px 6px 8px;border:1px solid var(--line);border-radius:8px;background:var(--surface-2);color:var(--ink);text-decoration:none;font-family:"JetBrains Mono","Geist Mono",ui-monospace,monospace;font-size:12.5px;max-width:100%}
@@ -370,7 +370,7 @@ form.dropping{outline:2px dashed var(--accent);outline-offset:4px;border-radius:
 .actgroup>summary{list-style:none;cursor:pointer;display:grid;grid-template-columns:18px minmax(0,1fr) auto;gap:8px;align-items:start;font-size:12.5px;color:var(--mute);padding:2px 0;font-family:"JetBrains Mono","Geist Mono",ui-monospace,monospace;border-radius:6px}
 .actgroup>summary::-webkit-details-marker{display:none}
 .actgroup>summary:hover{color:var(--ink-2)}.actgroup>summary .aic{text-align:center;transition:transform .15s}.actgroup[open]>summary .aic{transform:rotate(90deg)}
-.actgroup>summary .alast{opacity:.6}.actgroup[open]>summary .alast{display:none}.actgroup>summary .when{font-size:11px;opacity:.6}
+.actgroup>summary .atx{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.actgroup>summary .alast{opacity:.6}.actgroup[open]>summary .alast{display:none}.actgroup>summary .when{font-size:11px;opacity:.6}
 .actgroup>.act{padding-left:14px;border-left:1px solid var(--line);margin-left:8px}
 .thread.norelay .relay{display:none}
 .dlv{font-size:11px;margin-left:6px;white-space:nowrap}.dlv.ok{color:var(--green)}.dlv.wait{opacity:.7}.dlv.off{color:var(--amber)}
@@ -387,7 +387,8 @@ form.dropping{outline:2px dashed var(--accent);outline-offset:4px;border-radius:
 .viewtoggle button.on{background:var(--accent-soft);color:var(--accent);font-weight:600}
 .chatbox{flex:none;border-top:1px solid var(--line);padding:12px 14px;display:flex;flex-direction:column;gap:8px;background:var(--surface)}
 .chatbox textarea{min-height:48px;max-height:30vh;font:13.5px/1.55 "JetBrains Mono","Geist Mono",ui-monospace,Menlo,monospace;resize:none}
-.updatebar{padding:10px 16px;flex:none;border-color:color-mix(in srgb,var(--amber) 45%,transparent);background:var(--amber-soft)}
+.updatebar{flex:none;display:flex;align-items:center;gap:8px;padding:4px 4px 4px 12px;border:1px solid color-mix(in srgb,var(--amber) 40%,transparent);border-radius:10px;background:var(--amber-soft);font-size:12.5px;color:var(--ink-2)}
+.updatebar>.grow{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.updatebar b{color:var(--ink);font-weight:600}.updatebar code{font-size:11.5px}.updatebar svg{flex:none;color:var(--amber)}
 .chatbox .chips{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}.chatbox .chip{white-space:nowrap}
 .chips{display:flex;gap:6px;flex-wrap:wrap}
 .chip{font-size:12px;padding:3px 10px;border-radius:99px;border:1px solid var(--line-strong);background:var(--surface);color:var(--ink-2);cursor:pointer}
@@ -506,7 +507,7 @@ details>summary{cursor:pointer;list-style:none}details>summary::-webkit-details-
 
 /* ---- IDE layout: tree | pane | drawer ---- */
 body:has(.ide) .top .in{max-width:none;padding:8px 14px}
-.ide{--tw:272px;--dw:372px;display:grid;grid-template-columns:var(--tw) minmax(0,1fr) var(--dw);height:calc(100dvh - 53px);overflow:hidden}
+.ide{--tw:272px;--dw:372px;display:grid;grid-template-columns:var(--tw) minmax(0,1fr) var(--dw);height:calc(var(--vvh,100dvh) - var(--toph,53px));overflow:hidden}
 .ide:not(.feedmode),.ide.nodrawer{--dw:0px}.ide.notree{--tw:0px}
 .ide.notree>.tree,.ide.nodrawer>.drawer{display:none}
 .tree{grid-column:1;min-height:0;display:flex;flex-direction:column;border-right:1px solid var(--line);background:color-mix(in srgb,var(--surface) 55%,transparent);font-size:13px}
@@ -546,10 +547,10 @@ body:has(.ide) .top .in{max-width:none;padding:8px 14px}
 .approvals .hd{display:flex;align-items:baseline;gap:10px;padding:12px 14px}
 @media (max-width:1180px){.ide.feedmode:not(.nodrawer){--dw:320px}}
 .chatbox .chips{flex:none;align-items:center}.chatbox .chip{flex:none;height:auto}
-@media (max-width:640px){.chatpane{padding:8px}.chatbox .chips{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}.chatbox .chips::-webkit-scrollbar{display:none}.chatbox .chip{flex:none;white-space:nowrap}.chatbox textarea{min-width:0}}
+@media (max-width:640px){.chatpane{padding:8px;gap:8px}.chat>.hd{padding:10px 12px;gap:10px}.chat>.hd .cname,.chatbox .lbl,.updatebar .uphint{display:none}.chat>.hd .client{padding:0 6px}.chat>.hd .cwd{display:none}.thread.term{padding:12px 14px}.chatbox{padding:10px}.chatbox .chips{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}.chatbox .chips::-webkit-scrollbar{display:none}.chatbox .chip{flex:none;white-space:nowrap}.chatbox textarea{min-width:0}}
 @media (max-width:900px){
   .ide{grid-template-columns:minmax(0,1fr)}.pane{grid-column:1}.drawer{display:none}
-  .tree{position:fixed;z-index:30;top:53px;bottom:0;left:0;width:284px;transform:translateX(-104%);transition:transform .2s;background:var(--surface);box-shadow:var(--shadow-lg,0 10px 40px rgba(0,0,0,.35))}
+  .tree{position:fixed;z-index:30;top:var(--toph,53px);bottom:0;left:0;width:284px;transform:translateX(-104%);transition:transform .2s;background:var(--surface);box-shadow:var(--shadow-lg,0 10px 40px rgba(0,0,0,.35))}
   .ide.treeopen>.tree,.ide.notree.treeopen>.tree{display:flex;transform:none}.ide.notree>.tree{display:flex}
 }
 `;
@@ -666,6 +667,9 @@ export const SCRIPT = `
     const hide = !ide.classList.contains("notree"); ide.classList.toggle("notree", hide);
     document.cookie = "ic_tree=" + (hide ? "hidden" : "shown") + "; path=/; max-age=31536000; samesite=lax";
   }
+  // The workspace fills what's visible: with a phone keyboard open, that's the part above it, so the composer stays in view.
+  const fit = () => { const st = document.documentElement.style, top = $(".top"); if (window.visualViewport) st.setProperty("--vvh", visualViewport.height + "px"); if (top) st.setProperty("--toph", top.offsetHeight + "px"); };
+  window.visualViewport?.addEventListener("resize", fit); addEventListener("resize", fit); addEventListener("DOMContentLoaded", fit); fit();
   document.addEventListener("keydown", (e) => { if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "b") { e.preventDefault(); toggleTree(); } });
 
   // Folded tool steps you opened or closed stay that way when the thread redraws live.
@@ -732,9 +736,11 @@ export const SCRIPT = `
     const FS = [0.85, 0.92, 1, 1.08, 1.16, 1.25, 1.35, 1.5];
     const fs = Math.min(FS.length - 1, Math.max(0, +(cookie("ic_fs") ?? 2) || 0));
     within(".thread").forEach((th) => (th.style.zoom = FS[fs]));
-    $$("#chat-input").forEach((t) => (t.style.fontSize = (13.5 * FS[fs]).toFixed(1) + "px"));
+    // Phones zoom the whole page into a field under 16px, so on touch screens it never goes below that.
+    $$("#chat-input").forEach((t) => (t.style.fontSize = Math.max(matchMedia("(pointer: coarse)").matches ? 16 : 0, 13.5 * FS[fs]).toFixed(1) + "px"));
     $$("[data-fs]").forEach((b) => { b.disabled = fs + +b.dataset.fs < 0 || fs + +b.dataset.fs >= FS.length; b.onclick = () => { setCookie("ic_fs", Math.min(FS.length - 1, Math.max(0, fs + +b.dataset.fs))); bind(document); }; });
     within(".thread").forEach((th) => { th.classList.toggle("noact", !acts); th.classList.toggle("norelay", !relay); th.style.scrollBehavior = "auto"; if (th.dataset.stuck !== "no") th.scrollTop = th.scrollHeight; });
+    $$("[data-dismiss]", root).forEach((b) => b.onclick = () => { const [k, v] = b.dataset.dismiss.split("="); setCookie(k, v); b.closest("[data-region]")?.remove(); });
     $$("[data-relaytoggle]").forEach((b) => { b.classList.toggle("on", relay); b.onclick = () => { setCookie("ic_relay", relay ? "off" : "on"); bind(document); }; });
     $$("[data-acttoggle]").forEach((b) => { b.classList.toggle("on", acts); b.onclick = () => { setCookie("ic_activity", acts ? "off" : "on"); bind(document); }; });
     $$("[data-rulecount]", root).forEach((c) => { const t = c.closest("label").querySelector("textarea"); const n = () => { const k = t.value.split("\\n").filter((l) => l.trim()).length; c.textContent = k === 1 ? "1 rule" : k + " rules"; }; n(); t.addEventListener("input", n); });
@@ -744,6 +750,9 @@ export const SCRIPT = `
     const f = e.target; if (f.dataset.confirm && !f.dataset.ok) { e.preventDefault(); const d = $("#confirm"); if (d) { $("#confirm-text").textContent = f.dataset.confirm; d.showModal(); $("#confirm-yes").onclick = () => { d.close(); f.dataset.ok = "1"; f.requestSubmit(); delete f.dataset.ok; }; } return; }
     if (f.hasAttribute("data-native")) return;
     e.preventDefault();
+    // A phone keyboard still composing a word puts it back after the field is cleared: finish it first.
+    const typing = f.contains(document.activeElement) && document.activeElement.tagName === "TEXTAREA" ? document.activeElement : null;
+    if (typing) typing.blur();
     const btns = $$("button", f); btns.forEach((b) => (b.disabled = true));
     const data = new FormData(f); if (e.submitter && e.submitter.name) data.set(e.submitter.name, e.submitter.value);
     (f._imgs || []).forEach((it) => data.append("image", it.file, it.file.name));
@@ -753,7 +762,7 @@ export const SCRIPT = `
       // Sent: the text goes before the redraw, which otherwise carries unsent text over.
       if (!err) $$("textarea[id]", f).forEach((t) => { t.value = ""; drafts.set(t); });
       await swap(await res.text());
-      if (err) toast(err, true); else { if (!f.hasAttribute("data-quiet")) toast(ok); f.reset(); if (f._imgs) { f._imgs.forEach((it) => URL.revokeObjectURL(it.url)); f._imgs = []; drawTray(f); } const d = f.closest("dialog"); d && d.close(); const ci = f.querySelector("#chat-input"); ci && ci.focus(); }
+      if (err) toast(err, true); else { if (!f.hasAttribute("data-quiet")) toast(ok); f.reset(); if (f._imgs) { f._imgs.forEach((it) => URL.revokeObjectURL(it.url)); f._imgs = []; drawTray(f); } const d = f.closest("dialog"); d && d.close(); const ci = f.querySelector("#chat-input"); ci && (ci === typing || !matchMedia("(pointer: coarse)").matches) && ci.focus(); }
       if (link) { $("#invite-link").textContent = link; $("#invite-copy").dataset.copy = link; $("#invite-dlg").showModal(); }
     } catch { toast("Network error — try again", true); }
     btns.forEach((b) => (b.disabled = false));

@@ -888,6 +888,17 @@ describe("plugin versions", () => {
     assert.match(await msg(`version=0.1.0&updated=${PLUGIN_VERSION}`), /is installed; restart this session/);
     assert.doesNotMatch(await msg(`version=${PLUGIN_VERSION}`), /⬆/);
   });
+
+  test("the dashboard's update line names the outdated sessions until dismissed for this version", async () => {
+    const { PLUGIN_VERSION } = await import("../src/version.ts");
+    const w = await standardWorld();
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=u1&name=core&version=0.1.0", { as: "bob" });
+    const page = async (extra = "") =>
+      (await w.request("/dashboard?view=agents", { headers: { cookie: `intercom_token=${w.tokens.bob}${extra}` } })).text();
+    assert.match(await page(), /id="updatebar"[^>]*title="Outdated: core\.[^"]*"[\s\S]*1 session on an older version[\s\S]*data-dismiss="ic_upd=/);
+    assert.doesNotMatch(await page(`; ic_upd=${PLUGIN_VERSION}`), /id="updatebar"/);
+    assert.match(await page("; ic_upd=0.0.1"), /id="updatebar"/); // an older dismissal doesn't hide a newer version
+  });
 });
 
 describe("locks per project", () => {
