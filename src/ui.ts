@@ -541,7 +541,29 @@ body:has(.ide) .top .in{max-width:none;padding:8px 14px}
 .pane-in{max-width:1180px;margin:0 auto;padding:18px 24px 40px;display:flex;flex-direction:column;gap:16px}
 .chatpane{display:flex;flex-direction:column;gap:10px;padding:12px 16px 14px;overflow:hidden}
 .chatpane .agents{display:flex;flex:1;min-height:0}.chatpane .chat{flex:1;min-width:0;height:auto}
-.chatpane>.card{flex:none}
+.chatpane>.card{flex:none}.mtree{display:none}
+/* Phones: the agent chat works like a messaging app. One slim header (the list button opens the agents), the thread
+   edge to edge with messages settling at the bottom, and a composer that grows from one line. */
+@media (max-width:640px){
+  body:has(.ide.chatmode) .top{display:none}
+  .chatmode .chatpane{padding:0;gap:0}
+  .chatmode .chatpane>.updatebar{margin:6px 8px 0}.chatmode .chatpane>.approvals{margin:6px 8px 0;border-radius:12px}
+  .chatmode .chat{border:0;border-radius:0;box-shadow:none;background:var(--bg)}
+  .chatmode .chat>.hd{flex-wrap:nowrap;align-items:center;gap:8px;padding:8px 10px 8px 4px;padding-top:max(8px,env(safe-area-inset-top));background:color-mix(in srgb,var(--surface) 82%,transparent);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
+  .chatmode .mtree{display:inline-flex;flex:none}
+  .chatmode .chat>.hd .av-m{width:32px;height:32px;font-size:12px}
+  .chatmode .chat>.hd h2{font-size:15px}
+  .chatmode .chat>.hd .fsz,.chatmode .chat>.hd .renamebtn,.chatmode .chat>.hd .client,.chatmode .chat>.hd .meta-row>.badge{display:none}
+  .chatmode .chat>.hd .meta-row{margin-top:0;font-size:12px;flex-wrap:nowrap;white-space:nowrap;overflow:hidden}.chatmode .chat>.hd .meta-row>span{overflow:hidden;text-overflow:ellipsis}
+  .chatmode .thread.term{padding:12px 14px 6px;font-size:13px}.chatmode .thread>:first-child{margin-top:auto}
+  .chatmode .chatbox{border-top:1px solid var(--line);padding:8px 8px max(8px,env(safe-area-inset-bottom));gap:6px;background:color-mix(in srgb,var(--surface) 82%,transparent)}
+  .chatmode .chatbox .chips{display:none}
+  .chatmode .chatbox .row{gap:6px;align-items:flex-end}
+  .chatmode .chatbox textarea{min-height:40px;height:40px;padding:8px 14px;border-radius:20px;line-height:1.4}
+  .chatmode .chatbox .btn{height:40px!important}.chatmode .chatbox [data-imgbtn]{width:36px;padding:0}
+  .chatmode .chatbox .btn.primary{width:40px;padding:0;border-radius:50%;justify-content:center}
+  .chatmode .chatbox .btwbtn{padding:0 8px}
+}
 .drawer{grid-column:3;min-height:0;overflow:auto;border-left:1px solid var(--line);padding:14px;display:flex;flex-direction:column;gap:14px;background:color-mix(in srgb,var(--surface) 35%,transparent)}
 .treebtn{margin-left:-4px}
 .approvals .hd{display:flex;align-items:baseline;gap:10px;padding:12px 14px}
@@ -724,6 +746,7 @@ export const SCRIPT = `
     [...(root.matches && root.matches("form[data-images]") ? [root] : []), ...$$("form[data-images]", root)].forEach(bindImages);
     [...(root.matches && root.matches("form[data-agent]") ? [root] : []), ...$$("form[data-agent]", root)].forEach(bindBtw);
     $$("input[data-noenter]", root).forEach((i) => i.onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); toast("Pick an option to vote"); } });
+    $$("textarea[data-chat]", root).forEach((t) => { const grow = () => { t.style.height = ""; const base = t.offsetHeight; t.style.height = "0"; const h = t.scrollHeight + 2; t.style.height = h > base ? h + "px" : ""; }; t.oninput = grow; if (t.value) grow(); });
     $$("textarea[data-chat]", root).forEach((t) => t.onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); if (t.value.trim() || (t.form._imgs && t.form._imgs.length)) t.form.requestSubmit(); } });
     $$("[data-chip]", root).forEach((b) => b.onclick = () => { const t = $("#chat-input"); if (t) { t.value = b.dataset.chip; t.form.requestSubmit(); } });
     // Display choices live in cookies, so the server renders them and live redraws keep them.
@@ -755,16 +778,22 @@ export const SCRIPT = `
     if (typing) typing.blur();
     const btns = $$("button", f); btns.forEach((b) => (b.disabled = true));
     const data = new FormData(f); if (e.submitter && e.submitter.name) data.set(e.submitter.name, e.submitter.value);
+    // The chat clears at once, like a messaging app, and refocuses while still in the tap, so a phone keeps its
+    // keyboard up and forgets the old text; it comes back if sending fails.
+    const chat = f.querySelector("textarea[data-chat]"), unsent = chat ? chat.value : "";
+    if (chat) { chat.value = ""; chat.style.height = ""; drafts.set(chat); if (typing === chat) chat.focus(); }
+    const restore = () => { const t = chat && (document.getElementById(chat.id) || chat); if (t && !t.value) { t.value = unsent; drafts.set(t); } };
     (f._imgs || []).forEach((it) => data.append("image", it.file, it.file.name));
     try {
       const res = await fetch(f.action, { method: "POST", body: data, credentials: "same-origin" });
       const u = new URL(res.url), err = u.searchParams.get("err"), ok = u.searchParams.get("ok"), link = u.searchParams.get("link");
       // Sent: the text goes before the redraw, which otherwise carries unsent text over.
-      if (!err) $$("textarea[id]", f).forEach((t) => { t.value = ""; drafts.set(t); });
+      if (!err) $$("textarea[id]", f).forEach((t) => { t.value = ""; t.style.height = ""; drafts.set(t); });
       await swap(await res.text());
+      if (err) restore();
       if (err) toast(err, true); else { if (!f.hasAttribute("data-quiet")) toast(ok); f.reset(); if (f._imgs) { f._imgs.forEach((it) => URL.revokeObjectURL(it.url)); f._imgs = []; drawTray(f); } const d = f.closest("dialog"); d && d.close(); const ci = f.querySelector("#chat-input"); ci && (ci === typing || !matchMedia("(pointer: coarse)").matches) && ci.focus(); }
       if (link) { $("#invite-link").textContent = link; $("#invite-copy").dataset.copy = link; $("#invite-dlg").showModal(); }
-    } catch { toast("Network error — try again", true); }
+    } catch { restore(); toast("Network error — try again", true); }
     btns.forEach((b) => (b.disabled = false));
   }
   async function swap(text) {
@@ -818,7 +847,7 @@ export const SCRIPT = `
 
 /** Full HTML document. */
 export function page(title: string, body: string, opts: { top?: string } = {}): string {
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>${esc(title)}</title><meta name="theme-color" content="#09090d" media="(prefers-color-scheme: dark)"><meta name="theme-color" content="#f6f6f8" media="(prefers-color-scheme: light)">
 <link rel="icon" href="data:image/svg+xml,${encodeURIComponent(LOGO.replace('width="28" height="28" ', ""))}">
 <link rel="preload" href="/assets/geist.woff2" as="font" type="font/woff2" crossorigin>
