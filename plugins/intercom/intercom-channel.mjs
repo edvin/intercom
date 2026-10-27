@@ -20,7 +20,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const VERSION = "0.12.12"; // kept in step with .claude-plugin/plugin.json (a test checks)
+const VERSION = "0.12.13"; // kept in step with .claude-plugin/plugin.json (a test checks)
 const DIR = path.join(os.homedir(), ".claude", "intercom");
 const CONFIG = path.join(DIR, "config");
 function readConf() {
@@ -184,6 +184,33 @@ async function shareFile(params) {
   const mime = MIME[path.extname(name).slice(1).toLowerCase()] ?? "application/octet-stream";
   const data = fs.readFileSync(file).toString("base64");
   return await remote("tools/call", { ...params, arguments: { ...args, path: file, _file: { name, mime, data } } }, 60_000);
+}
+
+// ---- save_attachment: the attachment is fetched from the hub and written on this machine ----
+
+async function saveAttachment(params) {
+  const args = params.arguments ?? {};
+  const fail = (text) => ({ content: [{ type: "text", text }], isError: true });
+  const id = Number(args.id);
+  const raw = String(args.path ?? "").trim();
+  if (!Number.isInteger(id) || id <= 0) return fail("Give the attachment number, e.g. 13 for [📎 file #13].");
+  if (!raw) return fail("Give the path to save it to.");
+  const res = await fetch(`${BASE}/attachment/${id}`, { headers: { authorization: headers.authorization }, signal: AbortSignal.timeout(60_000) });
+  if (res.status === 404) return fail(`No attachment #${id} that you can see.`);
+  if (res.status === 410) return fail(`Attachment #${id} has expired.`);
+  if (!res.ok) throw new Error(`hub returned HTTP ${res.status}`);
+  const name = path.basename(res.headers.get("content-disposition")?.match(/filename="([^"]*)"/)?.[1] || `attachment-${id}`);
+  let file = path.resolve(process.cwd(), raw.replace(/^~(?=$|\/)/, os.homedir()));
+  let isDir = /[\\/]$/.test(raw);
+  try {
+    isDir ||= fs.statSync(file).isDirectory();
+  } catch {}
+  if (isDir) file = path.join(file, name);
+  if (!args.overwrite && fs.existsSync(file)) return fail(`${file} already exists; pick another path, or set overwrite.`);
+  const buf = Buffer.from(await res.arrayBuffer());
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, buf);
+  return { content: [{ type: "text", text: `Saved attachment #${id} to ${file} (${buf.length} bytes).` }] };
 }
 
 // ---- local settings (this machine's ~/.claude/intercom/config), changed by asking the agent ----
@@ -488,6 +515,7 @@ async function onRequest(msg) {
       if (msg.params?.name === SETTINGS_TOOL.name) return localSettings(msg.params?.arguments ?? {});
       try {
         if (msg.params?.name === "share_file") return await shareFile(msg.params);
+        if (msg.params?.name === "save_attachment") return await saveAttachment(msg.params);
         return await remote("tools/call", msg.params);
       } catch (e) {
         return { content: [{ type: "text", text: `Intercom hub unreachable: ${e.message}` }], isError: true };

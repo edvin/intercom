@@ -587,7 +587,7 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
     return new Response(buf, {
       headers: {
         "content-type": image ? a.mime : "application/octet-stream",
-        ...(image ? {} : { "content-disposition": `attachment; filename="${a.name.replace(/"/g, "")}"` }),
+        "content-disposition": `${image ? "inline" : "attachment"}; filename="${a.name.replace(/"/g, "")}"`,
         "cache-control": "private, max-age=86400",
         "x-content-type-options": "nosniff",
         "content-security-policy": "default-src 'none'; sandbox",

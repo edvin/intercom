@@ -1284,6 +1284,23 @@ describe("share_file", () => {
     await w.ok("bob", "share_file", { path: "shot.png", _file: { name: "shot.png", mime: "image/png", data: b64("png") }, channel: "billing" }, s);
     assert.match(await (await w.request("/dashboard?channel=billing", { as: "alice", cookie: true })).text(), /<a class="att" href="\/attachment\/3"/);
     assert.equal((await w.request("/attachment/3", { as: "alice", cookie: true })).headers.get("content-type"), "image/png");
+    assert.match((await w.request("/attachment/3", { as: "alice", cookie: true })).headers.get("content-disposition")!, /inline; filename="shot\.png"/);
+  });
+
+  test("agent to agent: a file shared to another agent's address reaches it, and its local server fetches the bytes to save them", async () => {
+    const w = await standardWorld();
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=sf2&name=core", { as: "bob" });
+    const s = { id: "sf2", project: "billing-api" };
+    const zip = Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x00, 0xff]);
+    await w.ok("bob", "share_file", { path: "dist.zip", message: "The build:", _file: { name: "dist.zip", mime: "application/zip", data: zip.toString("base64") }, to: "alice/billing" }, s);
+    assert.match((await w.tool("alice", "inbox", {})).text, /The build:[\s\S]*\[📎 file #1: dist\.zip · 6 B\]/);
+    // Binary, so the attachment tool doesn't show it; save_attachment does (the local server fetches it with the agent's token).
+    assert.match(await w.ok("alice", "attachment", { id: 1 }), /isn't text or an image/);
+    assert.match((await w.tool("alice", "save_attachment", { id: 1, path: "/tmp/" })).text, /needs the intercom's local server/);
+    const dl = await w.request("/attachment/1", { as: "alice" });
+    assert.match(dl.headers.get("content-disposition")!, /filename="dist\.zip"/);
+    assert.deepEqual(Buffer.from(await dl.arrayBuffer()), zip);
+    assert.equal((await w.request("/attachment/1", { as: "carol" })).status, 404);
   });
 });
 
