@@ -11,7 +11,7 @@ export const html = (body: string, status = 200, headers: Record<string, string>
     headers: {
       "content-type": "text/html; charset=utf-8",
       "content-security-policy":
-        "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+        "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
       "x-content-type-options": "nosniff",
       "referrer-policy": "same-origin",
       ...headers,
