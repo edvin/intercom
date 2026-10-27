@@ -546,6 +546,10 @@ body:has(.ide) .top .in{max-width:none;padding:8px 14px}
    edge to edge with messages settling at the bottom, and a composer that grows from one line. */
 @media (max-width:640px){
   body:has(.ide.chatmode) .top{display:none}
+  /* Pinned to what's visible (above the keyboard), with nothing behind it to scroll: iOS otherwise also scrolls the
+     page to reveal the field, pushing the composer up out of sight. */
+  html:has(.ide.chatmode),body:has(.ide.chatmode){height:100%;min-height:0;overflow:hidden;overscroll-behavior:none}
+  .ide.chatmode{position:fixed;left:0;right:0;top:var(--vvt,0px);height:var(--vvh,100dvh)}
   .chatmode .chatpane{padding:0;gap:0}
   .chatmode .chatpane>.updatebar{margin:6px 8px 0}.chatmode .chatpane>.approvals{margin:6px 8px 0;border-radius:12px}
   .chatmode .chat{border:0;border-radius:0;box-shadow:none;background:var(--bg)}
@@ -690,8 +694,12 @@ export const SCRIPT = `
     document.cookie = "ic_tree=" + (hide ? "hidden" : "shown") + "; path=/; max-age=31536000; samesite=lax";
   }
   // The workspace fills what's visible: with a phone keyboard open, that's the part above it, so the composer stays in view.
-  const fit = () => { const st = document.documentElement.style, top = $(".top"); if (window.visualViewport) st.setProperty("--vvh", visualViewport.height + "px"); if (top) st.setProperty("--toph", top.offsetHeight + "px"); };
-  window.visualViewport?.addEventListener("resize", fit); addEventListener("resize", fit); addEventListener("DOMContentLoaded", fit); fit();
+  const fit = () => {
+    const st = document.documentElement.style, top = $(".top"), vv = window.visualViewport;
+    if (vv) { st.setProperty("--vvh", vv.height + "px"); st.setProperty("--vvt", vv.offsetTop + "px"); }
+    if (top) st.setProperty("--toph", top.offsetHeight + "px");
+  };
+  window.visualViewport?.addEventListener("resize", fit); window.visualViewport?.addEventListener("scroll", fit); addEventListener("resize", fit); addEventListener("DOMContentLoaded", fit); fit();
   document.addEventListener("keydown", (e) => { if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "b") { e.preventDefault(); toggleTree(); } });
 
   // Folded tool steps you opened or closed stay that way when the thread redraws live.
