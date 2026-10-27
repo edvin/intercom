@@ -22,6 +22,8 @@ export const redirect = (to: string, headers: Record<string, string> = {}) => ne
 
 // Icons: 24×24 stroke paths (Lucide-style, ISC licensed shapes).
 const ICONS: Record<string, string> = {
+  volume: '<path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z"/><path d="M16 9a5 5 0 0 1 0 6"/><path d="M19.364 18.364a9 9 0 0 0 0-12.728"/>',
+  square: '<rect width="14" height="14" x="5" y="5" rx="2"/>',
   lock: '<rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
   monitor: '<rect width="20" height="14" x="2" y="3" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/>',
   pencil: '<path d="M21.17 6.81a1 1 0 0 0-3.99-3.99L3.84 16.17a2 2 0 0 0-.5.83l-1.32 4.35a.5.5 0 0 0 .62.62l4.35-1.32a2 2 0 0 0 .83-.5z"/><path d="m15 5 4 4"/>',
@@ -336,6 +338,8 @@ label.field>input,label.field>textarea,label.field>select{width:100%}
 .thread.term .bubble.mine a{color:inherit;text-decoration:underline}
 .thread.term .bubble.mine code{background:var(--surface-2);border:1px solid var(--line);text-decoration:none}
 .thread.term .bubble .when{display:inline;margin:0 0 0 .6em;font-size:11px;opacity:.5}
+.speak{display:inline-grid;place-items:center;width:22px;height:22px;margin-left:4px;vertical-align:-6px;border:0;border-radius:6px;background:none;color:var(--mute);cursor:pointer;opacity:.7}
+.speak:hover{opacity:1;color:var(--ink);background:var(--surface-2)}.speak.on{opacity:1;color:var(--accent)}
 .thread.term .activity{align-self:stretch;display:grid;grid-template-columns:18px minmax(0,1fr) auto;gap:8px;text-align:left;max-width:none;padding:2px 0;font-size:12.5px}
 .thread.term .activity .i{justify-self:center}
 .thread.term .md code{font-size:1em}.thread.term .mdpre{font-size:12.6px}
@@ -559,7 +563,7 @@ body:has(.ide) .top .in{max-width:none;padding:8px 14px}
   .chatmode .chat>.hd h2{font-size:15px}
   .chatmode .chat>.hd .fsz,.chatmode .chat>.hd .renamebtn,.chatmode .chat>.hd .client,.chatmode .chat>.hd .meta-row>.badge{display:none}
   .chatmode .chat>.hd .meta-row{margin-top:0;font-size:12px;flex-wrap:nowrap;white-space:nowrap;overflow:hidden}.chatmode .chat>.hd .meta-row>span{overflow:hidden;text-overflow:ellipsis}
-  .chatmode .thread.term{padding:12px 14px 6px;font-size:13px}.chatmode .thread>:first-child{margin-top:auto}
+  .chatmode .thread.term{padding:12px 14px 6px;font-size:13px}.chatmode .thread::before{content:"";margin-top:auto}
   .chatmode .chatbox{border-top:1px solid var(--line);padding:8px 8px max(8px,calc(env(safe-area-inset-bottom) - 18px));gap:6px;background:var(--surface)}
   .chatmode .chatbox .chips{display:none}
   .chatmode .chatbox .row{gap:6px;align-items:flex-end}
@@ -588,6 +592,7 @@ body:has(.ide) .top .in{max-width:none;padding:8px 14px}
 export const SCRIPT = `
 (() => {
   const $ = (s, r = document) => r.querySelector(s), $$ = (s, r = document) => [...r.querySelectorAll(s)];
+  const ICON_SPEAK = ${JSON.stringify(icon("volume", 13))}, ICON_STOP = ${JSON.stringify(icon("square", 13))};
   const rel = (ts) => { const s = Math.round((Date.now() - ts) / 1000);
     if (s < 45) return "just now"; if (s < 3600) return Math.max(1, Math.round(s / 60)) + "m ago";
     if (s < 86400) return Math.round(s / 3600) + "h ago"; return Math.round(s / 86400) + "d ago"; };
@@ -706,6 +711,20 @@ export const SCRIPT = `
     if (top) st.setProperty("--toph", top.offsetHeight + "px");
   };
   window.visualViewport?.addEventListener("resize", fit); window.visualViewport?.addEventListener("scroll", fit); addEventListener("resize", fit); addEventListener("DOMContentLoaded", fit); fit();
+  // Read an agent's reply aloud with the device's own voice (prose only: code blocks, times and buttons are skipped).
+  // Tapping again, or another reply, stops it.
+  let speaking = null;
+  document.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-speak]"); if (!b || !window.speechSynthesis) return;
+    const was = speaking; speechSynthesis.cancel(); $$(".speak.on").forEach((x) => { x.classList.remove("on"); x.innerHTML = ICON_SPEAK; });
+    if (was === b) { speaking = null; return; }
+    const copy = b.closest(".bubble").cloneNode(true); copy.querySelectorAll("pre, .when, .speak, .rhd").forEach((x) => x.remove());
+    copy.querySelectorAll("p, li, h1, h2, h3, h4, tr, br").forEach((x) => x.after(" ")); // paragraphs read as separate sentences
+    const u = new SpeechSynthesisUtterance(copy.textContent.replace(/\\s+/g, " ").trim()); u.lang = document.documentElement.lang === "en" ? navigator.language || "en" : document.documentElement.lang;
+    const done = () => { if (speaking === b) { speaking = null; b.classList.remove("on"); b.innerHTML = ICON_SPEAK; } };
+    u.onend = done; u.onerror = done;
+    speaking = b; b.classList.add("on"); b.innerHTML = ICON_STOP; speechSynthesis.speak(u);
+  });
   // On phones the tree slides over the page: a tap outside it (on the dimmed backdrop) or Escape closes it.
   const closeTree = () => document.getElementById("ide")?.classList.remove("treeopen");
   document.addEventListener("click", (e) => { const ide = document.getElementById("ide"); if (ide?.classList.contains("treeopen") && !e.target.closest(".tree, [data-treetoggle]")) { e.preventDefault(); e.stopPropagation(); closeTree(); } }, true);

@@ -1378,6 +1378,13 @@ describe("background jobs", () => {
     assert.doesNotMatch(page, /⧗ Run the dev server <span class="muted">· running/);
     assert.match(page, /✓ finished: Deploy and wait until live after/);
     assert.match(page, /✗ failed: Run the dev server \(exit 1\) after/);
+
+    // One the agent stops itself (TaskStop): no notice from Claude Code, the mirror ends it with "stopped".
+    await post([ev({ op: "start", id: "b3", description: "Tail the logs", command: "npx wrangler tail" })]);
+    await post([ev({ op: "end", id: "b3", status: "stopped" })]);
+    page = await view("bob");
+    assert.doesNotMatch(page, /⧗ Tail the logs/);
+    assert.match(page, /■ stopped: Tail the logs after/);
   });
 });
 

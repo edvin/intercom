@@ -61,10 +61,11 @@ function foldSteps(steps: Activity[], open: boolean, row: (a: Activity) => strin
     n("read") ? `read ${plural(n("read"), "file", "files")}` : "",
     n("edit") ? `edited ${plural(n("edit"), "file", "files")}` : "",
     n("tool") ? plural(n("tool"), "tool call", "tool calls") : "",
+    n("text") ? "a note in its terminal" : "",
   ].filter(Boolean);
   const summary = parts.join(", ").replace(/^./, (c) => c.toUpperCase());
-  const last = steps[steps.length - 1]!;
-  return `<details class="actgroup" data-gid="g${steps[0]!.id}"${open ? " open data-live" : ""}><summary><span class="aic">▸</span><span class="atx">${summary}<span class="alast"> · ${esc(plainSpaces(last.text).split("\n")[0]!.slice(0, 90))}</span></span><span class="when">${time(last.at)}</span></summary>${steps.map(row).join("")}</details>`;
+  const last = [...steps].reverse().find((a) => a.kind !== "text");
+  return `<details class="actgroup" data-gid="g${steps[0]!.id}"${open ? " open data-live" : ""}><summary><span class="aic">▸</span><span class="atx">${summary}${last ? `<span class="alast"> · ${esc(plainSpaces(last.text).split("\n")[0]!.slice(0, 90))}</span>` : ""}</span><span class="when">${time(steps[steps.length - 1]!.at)}</span></summary>${steps.map(row).join("")}</details>`;
 }
 
 /** What the tree needs from the page: where you are, and the per-project counts the dashboard already has. */
@@ -241,7 +242,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
               `<span class="adesc">${esc(plainSpaces(a.text.split("\n")[0]!))}</span><span class="acmd">${esc(plainSpaces(a.text.split("\n").slice(1).join(" ")))}</span>`
             : esc(plainSpaces(a.text))
     }</span><span class="when">${time(a.at)}</span></div>`;
-  type Item = { at: number; html: string; act?: Activity };
+  type Item = { at: number; html: string; act?: Activity; you?: boolean; reply?: boolean };
   const items: Item[] = [];
   const thread0 = rows
     .reverse()
@@ -259,9 +260,17 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
         const named = (member: string, agentLabel: string | null, text: string) => (agentLabel ? agentName(member, agentLabel, text) : esc(text));
         return `<div class="bubble md relay" data-mid="${m.id}"><span class="rhd">${named(m.sender, m.sender_agent, from)} → ${named(m.recipient!, m.recipient_agent, to)}</span>${md(m.body, originOf(m.sender, m.sender_agent))}<span class="when">${time(m.created_at)}${mark}</span></div>`;
       }
-      return `<div class="bubble md ${fromMe ? "mine" : ""}" data-mid="${m.id}" data-who="${esc(agent.label)}" style="--h:${agentHue(agent.member, agent.label)}">${md(m.body, fromMe ? agent.origin : originOf(m.sender, m.sender_agent))}<span class="when">${time(m.created_at)}${mark}</span></div>`;
+      const speak = fromMe ? "" : `<button type="button" class="speak" data-speak title="Read aloud">${icon("volume", 13)}</button>`;
+      return `<div class="bubble md ${fromMe ? "mine" : ""}" data-mid="${m.id}" data-who="${esc(agent.label)}" style="--h:${agentHue(agent.member, agent.label)}">${md(m.body, fromMe ? agent.origin : originOf(m.sender, m.sender_agent))}<span class="when">${time(m.created_at)}${mark}</span>${speak}</div>`;
     });
-  rows.forEach((m, i) => items.push({ at: m.created_at, html: thread0[i]! }));
+  rows.forEach((m, i) =>
+    items.push({
+      at: m.created_at,
+      html: thread0[i]!,
+      you: m.sender === me && !m.sender_agent && !!m.recipient,
+      reply: m.sender === agent.member && m.sender_agent === agent.label && m.recipient === me,
+    }),
+  );
   // A dashboard message handed to the agent as a prompt (the mod's prompt.submit, codex queue) is also in its
   // transcript, so the mirror would show it twice. The "you" bubble already has it: skip the mirrored copy.
   const flat = (t: string) => plainSpaces(t).replace(/^The intercom-ui plugin sent a message:\s*/i, "").replace(/…$/, "").replace(/\s+/g, " ").trim().toLowerCase();
@@ -289,22 +298,27 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   }
   // Like Claude Code, consecutive tool steps (commands, reads, edits, tool calls) fold into one line; the agent's
   // text, your messages and typed prompts stay out. A working agent's latest run stays open to watch it live.
+  // Once it has answered you here, what it goes on to write in its terminal that turn (a closing line about the
+  // reply) folds in with the steps: the reply already said it.
   const STEP = new Set(["cmd", "edit", "read", "tool"]);
   const sorted = items.sort((x, y) => x.at - y.at);
   const out: string[] = [];
   let run: Activity[] = [];
   const working = isOn(agent) && agent.state === "working";
   const flush = (tail: boolean) => {
-    if (run.length === 1) out.push(actRow(run[0]!));
-    else if (run.length > 1) out.push(foldSteps(run, tail && working, actRow));
+    if (run.length === 1 && run[0]!.kind !== "text") out.push(actRow(run[0]!));
+    else if (run.length) out.push(foldSteps(run, tail && working, actRow));
     run = [];
   };
+  let answered = false;
   for (const it of sorted) {
-    if (it.act && STEP.has(it.act.kind)) run.push(it.act);
+    if (it.you || it.act?.kind === "prompt") answered = false;
+    if (it.act && (STEP.has(it.act.kind) || (answered && it.act.kind === "text"))) run.push(it.act);
     else {
       flush(false);
       out.push(it.html);
     }
+    if (it.reply) answered = true;
   }
   flush(true);
   const thread = out.join("");

@@ -20,7 +20,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const VERSION = "0.12.14"; // kept in step with .claude-plugin/plugin.json (a test checks)
+const VERSION = "0.12.15"; // kept in step with .claude-plugin/plugin.json (a test checks)
 const DIR = path.join(os.homedir(), ".claude", "intercom");
 const CONFIG = path.join(DIR, "config");
 function readConf() {
@@ -341,6 +341,8 @@ function summarizeLine(line) {
           out.push({ at, kind: "loop", text: JSON.stringify(i.stop ? { op: "wakeup_stop" } : { op: "wakeup", delay: Number(i.delaySeconds) || 0, prompt: clip(i.prompt ?? "", 200) }) });
           continue;
         }
+        // A background job the agent stops itself: Claude Code queues no notice for it, so it ends here.
+        if ((n === "TaskStop" || n === "KillShell") && (i.task_id || i.shell_id)) out.push({ at, kind: "job", text: JSON.stringify({ op: "end", id: i.task_id || i.shell_id, status: "stopped" }) });
         // The agent's own one-line description, when it gave one, then the command itself.
         if (n === "Bash") {
           bashCalls.set(b.id, { description: clip(oneLine(i.description ?? ""), 160), command: clip(oneLine(i.command ?? ""), 200) });
