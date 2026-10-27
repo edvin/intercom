@@ -714,13 +714,32 @@ export const SCRIPT = `
   // Read an agent's reply aloud with the device's own voice (prose only: code blocks, times and buttons are skipped).
   // Tapping again, or another reply, stops it.
   let speaking = null;
+  // The reply's language, not the phone's: a Norwegian phone reading an English reply needs an English voice.
+  // Common words decide; English unless the text is clearly Norwegian, Swedish or Danish.
+  const WORDS = { en: "the and is to of that it you this with for not are be have",
+    nb: "og ikke det jeg er på som med til av har en et vi du kan skal",
+    sv: "och inte det jag är på som med till av har en ett vi du kan ska",
+    da: "og ikke det jeg er på som med til af har en et vi du kan skal" };
+  function textLang(text) {
+    const words = text.toLowerCase().match(/[a-zæøåäö]+/g) || [], score = {};
+    for (const [l, list] of Object.entries(WORDS)) { const set = new Set(list.split(" ")); score[l] = words.filter((w) => set.has(w)).length; }
+    if (/[æø]/.test(text)) score.nb += 1; if (/[äö]/.test(text)) score.sv += 1; if (/\\baf\\b/i.test(text)) score.da += 2;
+    const best = Object.keys(score).sort((a, b) => score[b] - score[a])[0];
+    return best === "en" || score[best] <= score.en ? "en" : best;
+  }
+  // A voice for that language, in the phone's own region when it has one (en-GB on a British phone).
+  function voiceFor(lang) {
+    const vs = speechSynthesis.getVoices(), mine = (navigator.language || "").toLowerCase();
+    const ok = vs.filter((v) => (lang === "nb" ? /^(nb|no|nn)/ : new RegExp("^" + lang)).test(v.lang.toLowerCase()));
+    return ok.find((v) => v.lang.toLowerCase() === mine) || ok.find((v) => v.default) || ok[0] || null;
+  }
   document.addEventListener("click", (e) => {
     const b = e.target.closest("[data-speak]"); if (!b || !window.speechSynthesis) return;
     const was = speaking; speechSynthesis.cancel(); $$(".speak.on").forEach((x) => { x.classList.remove("on"); x.innerHTML = ICON_SPEAK; });
     if (was === b) { speaking = null; return; }
     const copy = b.closest(".bubble").cloneNode(true); copy.querySelectorAll("pre, .when, .speak, .rhd").forEach((x) => x.remove());
     copy.querySelectorAll("p, li, h1, h2, h3, h4, tr, br").forEach((x) => x.after(" ")); // paragraphs read as separate sentences
-    const u = new SpeechSynthesisUtterance(copy.textContent.replace(/\\s+/g, " ").trim()); u.lang = document.documentElement.lang === "en" ? navigator.language || "en" : document.documentElement.lang;
+    const u = new SpeechSynthesisUtterance(copy.textContent.replace(/\\s+/g, " ").trim()); const lang = textLang(u.text); u.lang = lang; const v = voiceFor(lang); if (v) u.voice = v;
     const done = () => { if (speaking === b) { speaking = null; b.classList.remove("on"); b.innerHTML = ICON_SPEAK; } };
     u.onend = done; u.onerror = done;
     speaking = b; b.classList.add("on"); b.innerHTML = ICON_STOP; speechSynthesis.speak(u);
