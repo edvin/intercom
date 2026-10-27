@@ -54,7 +54,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     const clock = world(on, SNAP, urls)
     await $.session.start({ cwd: '/work/billing-api', surface } as never)
     await clock.advance(1) // the first snapshot loads in the background
-    expect(urls[0]).toBe('https://hub.example/api/ui?project=billing-api&session=sess-1&mod=0.2.5')
+    expect(urls[0]).toBe('https://hub.example/api/ui?project=billing-api&session=sess-1&mod=0.2.6')
     const ui = await $.ui.mount({ plugin: 'intercom-ui', surface, component: 'AbovePrompt', props: { hasSurvey: false } as never })
     expect(await ui.findAll({ type: 'Text', text: /deploy:billing:prod/ })).toHaveLength(1)
     // A lock on another project stays out of the band.
