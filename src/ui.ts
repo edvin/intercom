@@ -762,6 +762,14 @@ export const SCRIPT = `
     // Phones zoom the whole page into a field under 16px, so on touch screens it never goes below that.
     $$("#chat-input").forEach((t) => (t.style.fontSize = Math.max(matchMedia("(pointer: coarse)").matches ? 16 : 0, 13.5 * FS[fs]).toFixed(1) + "px"));
     $$("[data-fs]").forEach((b) => { b.disabled = fs + +b.dataset.fs < 0 || fs + +b.dataset.fs >= FS.length; b.onclick = () => { setCookie("ic_fs", Math.min(FS.length - 1, Math.max(0, fs + +b.dataset.fs))); bind(document); }; });
+    // A thread at the bottom stays there when it changes size (a phone keyboard opening, images or fonts loading).
+    within(".thread").forEach((th) => {
+      if (th._pinned) return; th._pinned = true;
+      let atEnd = th.dataset.stuck !== "no";
+      th.addEventListener("scroll", () => { atEnd = th.scrollHeight - th.scrollTop - th.clientHeight < 80; }, { passive: true });
+      const keep = () => { if (atEnd) th.scrollTop = th.scrollHeight; };
+      new ResizeObserver(keep).observe(th); th.addEventListener("load", keep, true); document.fonts?.ready.then(keep);
+    });
     within(".thread").forEach((th) => { th.classList.toggle("noact", !acts); th.classList.toggle("norelay", !relay); th.style.scrollBehavior = "auto"; if (th.dataset.stuck !== "no") th.scrollTop = th.scrollHeight; });
     $$("[data-dismiss]", root).forEach((b) => b.onclick = () => { const [k, v] = b.dataset.dismiss.split("="); setCookie(k, v); b.closest("[data-region]")?.remove(); });
     $$("[data-relaytoggle]").forEach((b) => { b.classList.toggle("on", relay); b.onclick = () => { setCookie("ic_relay", relay ? "off" : "on"); bind(document); }; });
