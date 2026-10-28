@@ -549,16 +549,17 @@ export async function dashboard(url: URL, env: Env, me: string, cookie = ""): Pr
   const locksBy = new Map(mine.map((c) => [c, locks.filter((l) => l.channel === c).length]));
 
   // Who the composer can address: each person, and each of their agent sessions (yours too) in your projects.
-  const { results: agentRows } = await env.DB.prepare(
+  const { results: seenRows } = await env.DB.prepare(
     `SELECT member, session_id, label, project, note, client, last_seen FROM sessions
      WHERE member IN (${people.map(() => "?").join(",") || "NULL"}) AND project IN (${ph}) AND last_seen > ? ORDER BY member = ? DESC, member, label`,
   )
     .bind(...people, ...mine, Date.now() - 24 * 3600_000, me)
     .all<{ member: string; session_id: string; label: string; project: string; note: string; client: string; last_seen: number }>();
+  // Only connected ones: a disconnected session is still reachable from its chat in the Agents view.
   const connectedNow = env.live?.() ?? new Set<string>();
+  const agentRows = seenRows.filter((a) => connectedNow.has(`${a.member}/${a.session_id}`) || Date.now() - a.last_seen < 10 * 60_000);
   const agentOption = (a: (typeof agentRows)[number]) => {
-    const on = connectedNow.has(`${a.member}/${a.session_id}`) || Date.now() - a.last_seen < 10 * 60_000;
-    const label = `${a.member === me ? a.label : `${a.member}/${a.label}`} · ${a.client === "codex" ? "Codex" : "Claude"}${on ? "" : " · not connected"}`;
+    const label = `${a.member === me ? a.label : `${a.member}/${a.label}`} · ${a.client === "codex" ? "Codex" : "Claude"}`;
     return `<option value="${esc(`${a.member}/${a.label}`)}" data-p="${esc(a.project)}">${esc(label)}</option>`;
   };
   const recipients = [

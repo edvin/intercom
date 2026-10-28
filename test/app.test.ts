@@ -694,6 +694,16 @@ describe("dead agents", () => {
     await w.db.prepare("UPDATE sessions SET last_seen = ? WHERE session_id = 'k1'").bind(Date.now() - 11 * 60_000).run();
     assert.equal(await start(w, "k3"), "birch");
   });
+
+  test("the composer's recipients list connected agents only", async () => {
+    const w = await standardWorld();
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=r1&name=core", { as: "bob" });
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=r2&name=shop", { as: "bob" });
+    await w.db.prepare("UPDATE sessions SET last_seen = ? WHERE session_id = 'r2'").bind(Date.now() - 11 * 60_000).run();
+    const to = (await (await w.request("/dashboard", { as: "bob", cookie: true })).text()).match(/<select name="to"[\s\S]*?<\/select>/)![0];
+    assert.match(to, /value="bob\/core"/);
+    assert.doesNotMatch(to, /bob\/shop|not connected/);
+  });
 });
 
 describe("managing your agents from the dashboard", () => {
