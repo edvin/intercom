@@ -16,7 +16,7 @@ const error = atom({ plugin: 'intercom-ui', key: 'error' } as const, null)
 const hidden = atom({ plugin: 'intercom-ui', key: 'hidden' } as const, [])
 
 const POLL_MS = 8_000
-const MOD_VERSION = '0.2.7' // kept in step with ../.claude-plugin/plugin.json; the hub knows from it that this session answers side questions
+const MOD_VERSION = '0.2.8' // kept in step with ../.claude-plugin/plugin.json; the hub knows from it that this session answers side questions
 
 type Conf = { url: string; token: string }
 
@@ -34,7 +34,7 @@ const left = (ts: number, now: number) => {
 const short = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s)
 
 /** Module state; a reload starts it over (the snapshot itself lives in $.state). */
-const ctx = { conf: null as Conf | null, repo: '', sessionId: '', seen: -1, busy: false, turning: false, submitted: new Set<number>(), ownLine: false, btwBusy: false, btwDone: new Set<number>() }
+const ctx = { conf: null as Conf | null, repo: '', sessionId: '', seen: -1, busy: false, turning: false, submitted: new Set<number>(), ownLine: false, btwBusy: false, btwDone: new Set<number>(), compacting: false, compacted: new Set<string>() }
 
 /** Claude Code's own status line already shows the intercom (the setup sets it): then the mod adds no line of its own. */
 async function hasOwnLine($: Engine): Promise<boolean> {
@@ -103,7 +103,11 @@ async function refresh($: Engine): Promise<void> {
   ctx.busy = true
   let got: Snapshot | null = null
   try {
-    const res = await $.http.fetch(`${ctx.conf.url}/api/ui?project=${encodeURIComponent(ctx.repo)}&session=${encodeURIComponent(ctx.sessionId)}&mod=${MOD_VERSION}`, {
+    // How full this session's context is, for the dashboard (the status line's figures; costs nothing to read).
+    const usage = await $.session.usage().catch(() => null)
+    const c = usage?.context
+    const fill = c && c.percent != null ? `&ctx=${c.percent}&tok=${c.tokens ?? ''}&win=${c.window}` : ''
+    const res = await $.http.fetch(`${ctx.conf.url}/api/ui?project=${encodeURIComponent(ctx.repo)}&session=${encodeURIComponent(ctx.sessionId)}&mod=${MOD_VERSION}${fill}`, {
       headers: { authorization: `Bearer ${ctx.conf.token}` },
     })
     if (!res.ok) {
@@ -134,6 +138,34 @@ async function refresh($: Engine): Promise<void> {
   }
   // After the poll, so a slow answer doesn't hold up the next one.
   if (got) await sideQuestions($, got)
+  if (got) await compactIfAsked($, got)
+}
+
+/**
+ * A compaction asked for from the dashboard: run between turns, like /compact, then tell the hub it's done
+ * (or why not), which clears the request. Each request once.
+ */
+async function compactIfAsked($: Engine, s: Snapshot): Promise<void> {
+  const want = s.compact
+  if (!ctx.conf || !want || ctx.turning || ctx.compacting || ctx.compacted.has(want.id)) return
+  ctx.compacting = true
+  ctx.compacted.add(want.id)
+  let error: string | undefined
+  try {
+    $.ui.toast(`📻 ${s.label ?? 'intercom'}: compacting, as asked from the dashboard`)
+    const { skip } = await $.session.compact(want.instructions ? { instructions: want.instructions } : undefined)
+    if (skip) error = `skipped: ${skip}`
+  } catch (e) {
+    error = e instanceof Error ? e.message : String(e)
+  } finally {
+    ctx.compacting = false
+  }
+  await $.http.fetch(`${ctx.conf.url}/api/compact/${encodeURIComponent(want.id)}`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${ctx.conf.token}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ session: ctx.sessionId, error }),
+  })
+  void refresh($)
 }
 
 /**

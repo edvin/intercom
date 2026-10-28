@@ -590,6 +590,10 @@ body:has(.ide) .top .in{max-width:none;padding:8px 14px}
 .tw{display:grid;place-items:center;width:15px;height:15px;border-radius:50%;background:var(--red);color:#fff;font-size:10px;font-weight:800}
 .tt{min-width:22px;text-align:right;font-size:10.5px;color:var(--mute);font-variant-numeric:tabular-nums}.ta.on .tt,.ta:hover .tt{color:var(--ink-2)}
 .tcx{font-size:9px;font-weight:700;color:var(--mute);border:1px solid var(--line);border-radius:4px;padding:0 3px}
+.tctx{font-size:10px;font-weight:650;font-variant-numeric:tabular-nums;color:var(--amber)}.tctx.red{color:var(--red)}
+.ctxb{font-variant-numeric:tabular-nums}.ctxb:not(.amber):not(.red){background:var(--surface-2);color:var(--ink-2)}
+.compacting{display:inline-flex;gap:4px;align-items:center;margin:0}
+.meta-row .btn.compactbtn,.meta-row .compacting .btn{padding:1px 8px;font-size:11.5px;font-weight:500;color:var(--mute)}.meta-row .btn.compactbtn:hover,.meta-row .compacting .btn:hover{color:var(--ink)}
 .tdot{position:absolute;left:11px;width:6px;height:6px;border-radius:50%;background:var(--mute)}
 .tdot.idle{background:var(--green)}.tdot.work{background:var(--accent);animation:pulse 1.8s infinite}.tdot.wait{background:var(--red)}.tdot.off{background:transparent;box-shadow:inset 0 0 0 1px var(--mute)}
 .toff>summary{list-style:none;padding:3px 8px 3px 24px;font-size:11.5px;color:var(--mute);cursor:pointer}.toff>summary:hover{color:var(--ink-2)}
@@ -617,6 +621,8 @@ body:has(.ide) .top .in{max-width:none;padding:8px 14px}
   .chatmode .chat>.hd .av-m{width:32px;height:32px;font-size:12px}
   .chatmode .chat>.hd h2{font-size:15px}
   .chatmode .chat>.hd .fsz,.chatmode .chat>.hd .renamebtn,.chatmode .chat>.hd .client,.chatmode .chat>.hd .meta-row>.badge{display:none}
+  .chatmode .chat>.hd .compactbtn{display:none}
+  .chatmode .chat>.hd .meta-row>.ctxb.amber,.chatmode .chat>.hd .meta-row>.ctxb.red,.chatmode .chat>.hd .ctxb.amber~.compactbtn,.chatmode .chat>.hd .ctxb.red~.compactbtn{display:inline-flex;flex:none}
   .chatmode .chat>.hd .meta-row{margin-top:0;font-size:12px;flex-wrap:nowrap;white-space:nowrap;overflow:hidden}.chatmode .chat>.hd .meta-row>span{overflow:hidden;text-overflow:ellipsis}
   .chatmode .thread.term{padding:12px 14px 6px;font-size:13px}.chatmode .thread::before{content:"";margin-top:auto}
   .chatmode .chatbox{border-top:1px solid var(--line);padding:8px 8px max(8px,calc(env(safe-area-inset-bottom) - 18px));gap:6px;background:var(--surface)}

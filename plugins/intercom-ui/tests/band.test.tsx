@@ -54,7 +54,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     const clock = world(on, SNAP, urls)
     await $.session.start({ cwd: '/work/billing-api', surface } as never)
     await clock.advance(1) // the first snapshot loads in the background
-    expect(urls[0]).toBe('https://hub.example/api/ui?project=billing-api&session=sess-1&mod=0.2.7')
+    expect(urls[0]).toBe('https://hub.example/api/ui?project=billing-api&session=sess-1&mod=0.2.8')
     const ui = await $.ui.mount({ plugin: 'intercom-ui', surface, component: 'AbovePrompt', props: { hasSurvey: false } as never })
     expect(await ui.findAll({ type: 'Text', text: /deploy:billing:prod/ })).toHaveLength(1)
     // A lock on another project stays out of the band.
@@ -106,4 +106,27 @@ test('a side question from the dashboard is answered with a fork of the context,
   // The next poll still lists it until the hub has it: not asked twice.
   await clock.advance(8_000)
   expect(forks).toHaveLength(1)
+})
+
+test('the poll reports how full the context is, and a compaction asked for from the dashboard runs once', async ($, on) => {
+  on('session.usage', async () => ({ value: { startedAt: 0, context: { tokens: 124_000, window: 200_000, percent: 62 }, rateLimits: [] } }) as never)
+  const compactions: (string | undefined)[] = []
+  on('session.compact', async (_$, e) => {
+    compactions.push((e as { instructions?: string }).instructions)
+    return { skip: 'test: recorded' } as never
+  })
+  on('ui.toast', async () => ({ value: undefined }) as never)
+  const seen: string[] = []
+  const clock = world(on, { ...SNAP, locks: [], votes: [], compact: { id: 'c1', instructions: 'keep the deploy plan' } }, seen)
+  await $.session.start({ cwd: '/work/billing-api', surface: 'terminal' } as never)
+  await clock.advance(1)
+  expect(seen[0]).toContain('&ctx=62&tok=124000&win=200000')
+  expect(compactions).toEqual(['keep the deploy plan'])
+  // The hub hears back either way (here a hook declined it, so it says why).
+  const done = seen.filter(u => u.startsWith('POST https://hub.example/api/compact/c1'))
+  expect(done).toHaveLength(1)
+  expect(done[0]).toContain('skipped: test: recorded')
+  // Still listed until the hub has cleared it: not compacted twice.
+  await clock.advance(8_000)
+  expect(compactions).toHaveLength(1)
 })

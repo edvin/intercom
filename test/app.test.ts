@@ -1786,3 +1786,29 @@ describe("codex edits", () => {
     assert.doesNotMatch(page, /onpointermove|End Patch/);
   });
 });
+
+describe("context and compaction", () => {
+  test("the mod's poll shows how full the context is; Compact asks the mod, which clears the request when done", async () => {
+    const w = await standardWorld();
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=cc1&name=core", { as: "bob" });
+    const poll = async (q = "") => (await (await w.request(`/api/ui?project=billing-api&session=cc1&mod=0.2.8${q}`, { as: "bob" })).json()) as { compact: { id: string; instructions: string } | null };
+    assert.equal((await poll("&ctx=82&tok=164000&win=200000")).compact, null);
+    const page = async () => (await w.request("/dashboard?view=agents&agent=bob/core", { as: "bob", cookie: true })).text();
+    const html = await page();
+    assert.match(html, /<span class="badge ctxb amber" title="Context: 164k of 200k tokens[^"]*">82% context<\/span>/);
+    assert.match(html, /<span class="tctx amber"[^>]*>82%<\/span>/);
+    assert.match(html, /data-open="dlg-compact"/);
+    const form = new URLSearchParams({ session: "cc1", instructions: "keep the deploy plan", back: "/dashboard?view=agents&agent=bob/core" });
+    const res = await w.request("/agent/compact", { as: "bob", cookie: true, method: "POST", headers: { origin: ORIGIN, "content-type": "application/x-www-form-urlencoded" }, body: form });
+    assert.equal(new URL(res.headers.get("location")!, ORIGIN).searchParams.get("ok"), "core compacts when its turn ends");
+    const asked = (await poll()).compact!;
+    assert.equal(asked.instructions, "keep the deploy plan");
+    assert.match(await page(), /compacting when idle/);
+    await w.request(`/api/compact/${asked.id}`, { as: "bob", method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ session: "cc1" }) });
+    assert.equal((await poll()).compact, null);
+    // Someone else's agent: the request is refused.
+    const other = new URLSearchParams({ session: "cc1" });
+    const refused = await w.request("/agent/compact", { as: "alice", cookie: true, method: "POST", headers: { origin: ORIGIN, "content-type": "application/x-www-form-urlencoded" }, body: other });
+    assert.equal(new URL(refused.headers.get("location")!, ORIGIN).searchParams.get("err"), "No such agent of yours");
+  });
+});

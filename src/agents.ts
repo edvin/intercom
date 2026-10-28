@@ -33,6 +33,11 @@ interface Agent {
   cwd?: string;
   ui_at?: number | null;
   ui_version?: string;
+  ctx_pct?: number | null;
+  ctx_tokens?: number | null;
+  ctx_window?: number | null;
+  ctx_at?: number | null;
+  compact_req?: string | null;
 }
 
 /** Which agent runs the session, in each tool's own colours. */
@@ -90,7 +95,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   const ph = (n: number) => Array.from({ length: n }, () => "?").join(",") || "NULL";
   const everyone = people.includes(me) ? people : [...people, me];
   const { results: agents } = await env.DB.prepare(
-    `SELECT member, session_id, label, project, project_pin, repo, loops, jobs, origin, branch, note, client, host, version, last_seen, state, state_detail, state_at, active_at, cwd, ui_at, ui_version FROM sessions
+    `SELECT member, session_id, label, project, project_pin, repo, loops, jobs, origin, branch, note, client, host, version, last_seen, state, state_detail, state_at, active_at, cwd, ui_at, ui_version, ctx_pct, ctx_tokens, ctx_window, ctx_at, compact_req FROM sessions
      WHERE member IN (${ph(everyone.length)}) AND (member = ? OR project IN (${ph(mine.length)})) AND last_seen > ?
      ORDER BY member = ? DESC, last_seen DESC`,
   )
@@ -134,9 +139,14 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   // When it last did something (a prompt, a step, a post), as a quiet "2m" on the row; working agents show their dot instead.
   const activeAt = (a: Agent) => a.active_at ?? a.state_at ?? a.last_seen;
   const since = (a: Agent) => (isOn(a) && a.state === "working" ? "" : `<time class="tt" data-ts="${activeAt(a)}" data-short title="last active ${ago(activeAt(a))}">${short(activeAt(a))}</time>`);
+  // How full a Claude Code session's context is (its intercom-ui mod reports it): amber from 75%, red from 90%.
+  const kTok = (n: number | null | undefined) => (n == null ? "?" : n >= 1000 ? `${Math.round(n / 1000)}k` : String(n));
+  const ctxLevel = (a: Agent) => (a.ctx_pct == null || a.client === "codex" ? null : a.ctx_pct >= 90 ? "red" : a.ctx_pct >= 75 ? "amber" : "");
+  const ctxBadge = (a: Agent) =>
+    ctxLevel(a) === null ? "" : `<span class="badge ctxb ${ctxLevel(a)}" title="Context: ${kTok(a.ctx_tokens)} of ${kTok(a.ctx_window)} tokens · ${ago(a.ctx_at ?? 0)}">${a.ctx_pct}% context</span>`;
   const tRow = (a: Agent) => `<a class="ta${sel(a) ? " on" : ""}${isOn(a) ? "" : " gone"}" data-k="${esc(key(a))}"${isOn(a) && a.state === "waiting" ? " data-w" : ""} href="/dashboard?view=agents&agent=${encodeURIComponent(key(a))}" title="${esc(tip(a))}">
       <span class="tdot ${dot(a)}"></span>${agentAvatar(a.member, a.label, "s")}<span class="tn">${agentName(a.member, a.label, a.member === me ? a.label : `${a.member}/${a.label}`)}</span>
-      <span class="tb">${isOn(a) && a.state === "waiting" ? '<span class="tw" title="needs you">!</span>' : ""}${loopsOf(a).length ? '<span title="running a loop">🔁</span>' : ""}${jobsOf(a).length ? '<span title="background jobs">⧗</span>' : ""}${a.member === me && isOn(a) && outdated(a.version) ? '<span title="update available">⬆</span>' : ""}${a.client === "codex" ? '<span class="tcx" title="Codex">cx</span>' : ""}${since(a)}</span></a>`;
+      <span class="tb">${isOn(a) && a.state === "waiting" ? '<span class="tw" title="needs you">!</span>' : ""}${loopsOf(a).length ? '<span title="running a loop">🔁</span>' : ""}${jobsOf(a).length ? '<span title="background jobs">⧗</span>' : ""}${a.member === me && isOn(a) && outdated(a.version) ? '<span title="update available">⬆</span>' : ""}${isOn(a) && ctxLevel(a) ? `<span class="tctx ${ctxLevel(a)}" title="Context ${a.ctx_pct}% full">${a.ctx_pct}%</span>` : ""}${a.client === "codex" ? '<span class="tcx" title="Codex">cx</span>' : ""}${since(a)}</span></a>`;
   const branch = (id: string, title: string, href: string | null, list: Agent[], badges: string, on: boolean) => {
     // Needs you, then working, then the rest by when they last did something. Live redraws keep the order the
     // page loaded with (see the script), so rows don't move under the pointer.
@@ -340,6 +350,15 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   const on = isOn(agent);
   const ownAgent = agent.member === me;
   const canBtw = ownAgent && agent.client !== "codex";
+  // Compact from the dashboard: the session's intercom-ui mod runs it when its turn ends (Claude Code only).
+  const [ma = 0, mb = 0, mc = 0] = (agent.ui_version || "0").split(".").map(Number);
+  const canCompact = canBtw && isOn(agent) && modAnswers(agent) && ma * 1e6 + mb * 1e3 + mc >= 2008; // intercom-ui 0.2.8
+  const here = `/dashboard?view=agents&agent=${encodeURIComponent(key(agent))}`;
+  const compactCtl = !canCompact
+    ? ""
+    : agent.compact_req
+      ? `<form method="post" action="/agent/compact" class="compacting" data-native>${hidden({ session: agent.session_id, back: here, cancel: "1" })}<span class="badge amber" title="Its intercom-ui mod compacts it when the current turn ends">compacting when idle…</span><button class="btn ghost xs">Call off</button></form>`
+      : `<button type="button" class="btn ghost xs compactbtn" data-open="dlg-compact" title="Compact its context (like /compact)">Compact</button>`;
   const btwOff = canBtw && !modAnswers(agent) ? NO_MOD(agent.label, hostOf(agent)) : "";
   const back = `/dashboard?view=agents&agent=${encodeURIComponent(key(agent))}`;
   const chat = `<section class="card chat">
@@ -351,7 +370,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
           <h2 style="display:flex;gap:8px;align-items:center"><span class="grow" style="display:flex;gap:8px;align-items:center"><span class="aname">${esc(key(agent))}</span>${ownAgent ? `<button type="button" class="btn ghost xs icon renamebtn" data-open="dlg-rename" title="Rename this agent">${icon("pencil", 12)}</button>` : ""}${clientBadge(agent.client, true)}</span>
             <span class="fsz" title="Text size in the chat"><button type="button" class="btn ghost xs icon" data-fs="-1" title="Smaller text">A</button><button type="button" class="btn ghost xs icon" data-fs="1" title="Larger text">A</button></span>
             <button type="button" class="btn ghost xs icon ttog" data-relaytoggle title="Messages between agents: click to show or hide">${icon("messages", 14)}</button>${ownAgent ? `<button type="button" class="btn ghost xs icon ttog" data-acttoggle title="Follow what the agent is doing (commands, edits, its text; only you see this): click to turn on or off"><span class="when-on">${icon("eye", 14)}</span><span class="when-off">${icon("eyeOff", 14)}</span></button>` : ""}</h2>
-          <div class="meta-row">${stateBadge(agent)}<span>${agent.host ? `on <b style="color:var(--ink-2)">${esc(hostOf(agent))}</b>${ownAgent ? `<button type="button" class="btn ghost xs icon renamebtn" data-open="dlg-host" title="Rename this machine">${icon("pencil", 11)}</button>` : ""} · ` : ""}${agent.project ? `#${esc(agent.project)}` : "no project"}${ownAgent && agent.project_pin ? ` <span class="badge" title="Set from the dashboard for this session; its repo would put it in ${esc(agent.repo ? `whatever ${agent.repo} maps to` : "no project")}">pinned</span>` : ""}${ownAgent ? `<button type="button" class="btn ghost xs icon renamebtn" data-open="dlg-project" title="Choose its project">${icon("pencil", 11)}</button>` : ""}${agent.branch ? ` · ${icon("branch", 12)} ${esc(agent.branch)}` : ""}${ownAgent && agent.cwd ? `<span class="cwd" title="Working directory"> · ${icon("folder", 12)} ${esc(agent.cwd)}</span>` : ""}${on ? "" : ` · last seen ${ago(agent.last_seen)}`}${agent.note ? ` · “${esc(plainSpaces(agent.note))}”` : ""}</span></div>${loopsOf(agent).map((l) => `<div class="meta-row looprow"><span>🔁 ${esc(describe(l))}</span></div>`).join("")}${jobsOf(agent).map((j) => `<div class="meta-row jobrow" title="${esc(j.command)}"><span>⧗ ${esc(jobName(j))} <span class="muted">· running ${duration(Date.now() - j.at)}</span></span></div>`).join("")}
+          <div class="meta-row">${stateBadge(agent)}${ctxBadge(agent)}${compactCtl}<span>${agent.host ? `on <b style="color:var(--ink-2)">${esc(hostOf(agent))}</b>${ownAgent ? `<button type="button" class="btn ghost xs icon renamebtn" data-open="dlg-host" title="Rename this machine">${icon("pencil", 11)}</button>` : ""} · ` : ""}${agent.project ? `#${esc(agent.project)}` : "no project"}${ownAgent && agent.project_pin ? ` <span class="badge" title="Set from the dashboard for this session; its repo would put it in ${esc(agent.repo ? `whatever ${agent.repo} maps to` : "no project")}">pinned</span>` : ""}${ownAgent ? `<button type="button" class="btn ghost xs icon renamebtn" data-open="dlg-project" title="Choose its project">${icon("pencil", 11)}</button>` : ""}${agent.branch ? ` · ${icon("branch", 12)} ${esc(agent.branch)}` : ""}${ownAgent && agent.cwd ? `<span class="cwd" title="Working directory"> · ${icon("folder", 12)} ${esc(agent.cwd)}</span>` : ""}${on ? "" : ` · last seen ${ago(agent.last_seen)}`}${agent.note ? ` · “${esc(plainSpaces(agent.note))}”` : ""}</span></div>${loopsOf(agent).map((l) => `<div class="meta-row looprow"><span>🔁 ${esc(describe(l))}</span></div>`).join("")}${jobsOf(agent).map((j) => `<div class="meta-row jobrow" title="${esc(j.command)}"><span>⧗ ${esc(jobName(j))} <span class="muted">· running ${duration(Date.now() - j.at)}</span></span></div>`).join("")}
         </div>
       </div>
       ${on && agent.state === "waiting" ? `<div class="toast err" style="box-shadow:none;margin:10px 14px 0">${icon("x")}<span><b>${esc(agent.label)} is waiting:</b> ${esc(agent.state_detail || "for approval or input")}. That can only be answered in its terminal (or with Claude's Remote Control); for unattended runs, start agents in a mode that doesn't stop to ask.</span></div>` : ""}
@@ -370,7 +389,12 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
       </form>
     </section>`;
   const dialogs = ownAgent
-    ? `<dialog id="dlg-rename"><div class="hd">${icon("pencil", 18)}<h2>Rename ${esc(agent.label)}</h2></div>
+    ? `${canCompact ? `<dialog id="dlg-compact"><div class="hd">${icon("layers", 18)}<h2>Compact ${esc(agent.label)}</h2></div>
+        <form method="post" action="/agent/compact" data-native>${hidden({ session: agent.session_id, back: here })}<div class="bd stack">
+          <p class="small muted" style="margin:0">Like /compact: the conversation so far becomes a summary, freeing its context${agent.ctx_pct != null ? ` (now ${agent.ctx_pct}% full)` : ""}. It runs when the current turn ends.</p>
+          <label class="field">What the summary should keep (optional)<textarea name="instructions" rows="3" maxlength="500" placeholder="e.g. the deploy plan and the open review comments"></textarea></label>
+        </div><div class="ft"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary">${icon("layers", 14)}Compact</button></div></form></dialog>` : ""}
+      <dialog id="dlg-rename"><div class="hd">${icon("pencil", 18)}<h2>Rename ${esc(agent.label)}</h2></div>
         <form method="post" action="/agent/rename" data-native>${hidden({ session: agent.session_id, back: "/dashboard?view=agents" })}<div class="bd stack">
           <label class="field">Name<input name="name" required value="${esc(agent.label)}" pattern="[A-Za-z][A-Za-z0-9-]{0,23}" autocomplete="off"></label>
           <label class="field">Role <span class="tiny">(optional; shown as its status)</span><input name="role" value="${esc(agent.note)}" placeholder="e.g. reviews migrations"></label>

@@ -39,6 +39,8 @@ export type Snapshot = {
   prompts: { id: number; body: string }[]
   /** How the session answers them (it depends on its intercom plugin version); added to the submitted prompt. */
   reply?: string
+  /** A compaction its user asked for from the dashboard: run between turns, then reported back. */
+  compact?: { id: string; instructions: string } | null
   /** Side questions (/btw) from the dashboard: answered with a fork of this session's context, then posted back. */
   btw?: { id: number; prompt: string }[]
   project: string | null

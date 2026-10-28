@@ -388,13 +388,21 @@ async function handleUi(url: URL, env: Env, me: string): Promise<Response> {
   const cursor = cursorRow?.last_read_id ?? 0;
   const sid = url.searchParams.get("session");
   const mySession = sid
-    ? await env.DB.prepare("SELECT session_id, label, project, cursor, version FROM sessions WHERE member = ? AND session_id = ?").bind(me, sid).first<Session & { cursor: number; version: string }>()
+    ? await env.DB.prepare("SELECT session_id, label, project, cursor, version, compact_req FROM sessions WHERE member = ? AND session_id = ?").bind(me, sid).first<Session & { cursor: number; version: string; compact_req: string | null }>()
     : null;
   // The mod polling for this session: side questions can go to it.
   if (mySession) {
     const mod = (url.searchParams.get("mod") ?? "").replace(/[^\d.]/g, "").slice(0, 20);
     await env.DB.prepare("UPDATE sessions SET ui_at = ?, ui_version = ? WHERE member = ? AND session_id = ? AND (ui_at IS NULL OR ui_at < ? OR ui_version != ?)")
       .bind(Date.now(), mod, me, mySession.session_id, Date.now() - 60_000, mod)
+      .run();
+  }
+  // The mod reports how full the session's context is: shown on the agent in the dashboard.
+  const pct = Number(url.searchParams.get("ctx"));
+  if (mySession && url.searchParams.has("ctx") && Number.isFinite(pct)) {
+    const int = (k: string) => (Number.isFinite(Number(url.searchParams.get(k))) ? Math.round(Number(url.searchParams.get(k))) : null);
+    await env.DB.prepare("UPDATE sessions SET ctx_pct = ?, ctx_tokens = ?, ctx_window = ?, ctx_at = ? WHERE member = ? AND session_id = ?")
+      .bind(Math.max(0, Math.min(100, Math.round(pct))), int("tok"), int("win"), Date.now(), me, mySession.session_id)
       .run();
   }
   // A session counts what it receives (its project's posts and its DMs); without one, the person's view.
@@ -421,6 +429,8 @@ async function handleUi(url: URL, env: Env, me: string): Promise<Response> {
     me,
     label: mySession?.label ?? null,
     prompts,
+    // A compaction you asked for from the dashboard: the mod runs it once the session is idle.
+    compact: mySession?.compact_req ? (JSON.parse(mySession.compact_req) as { id: string; instructions: string }) : null,
     // How to answer them (it depends on the session's plugin version); the mod adds it to the prompt it submits.
     reply: replyHow(mySession?.version, me),
     // Side questions for the mod to answer with a fork of this session's context.
@@ -674,6 +684,26 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
       back.searchParams.set("err", (e as Error).message);
     }
     return redirect(back.pathname + back.search);
+  }
+  if (url.pathname === "/agent/compact" && req.method === "POST") {
+    // Compact one of your agents from the dashboard: its intercom-ui mod runs it between turns (see handleUi).
+    if (!sameOrigin(req)) return new Response("Cross-origin request refused", { status: 403 });
+    const form = await req.formData();
+    const back = new URL(String(form.get("back") ?? "/dashboard?view=agents"), url);
+    const req_ = form.get("cancel") ? null : JSON.stringify({ id: crypto.randomUUID(), instructions: String(form.get("instructions") ?? "").trim().slice(0, 500) });
+    const done = await env.DB.prepare("UPDATE sessions SET compact_req = ? WHERE member = ? AND session_id = ? AND client != 'codex' RETURNING label")
+      .bind(req_, me, String(form.get("session") ?? ""))
+      .first<{ label: string }>();
+    back.searchParams.set(done ? "ok" : "err", done ? (req_ ? `${done.label} compacts when its turn ends` : "Compaction called off") : "No such agent of yours");
+    return redirect(back.pathname + back.search);
+  }
+  if (url.pathname.startsWith("/api/compact/") && req.method === "POST") {
+    // The mod ran (or couldn't run) the compaction: the request is done either way, and the dashboard redraws.
+    const id = decodeURIComponent(url.pathname.slice(13));
+    const body = (await req.json().catch(() => ({}))) as { session?: unknown; error?: unknown };
+    await env.DB.prepare("UPDATE sessions SET compact_req = NULL WHERE member = ? AND session_id = ? AND json_extract(compact_req, '$.id') = ?").bind(me, String(body.session ?? ""), id).run();
+    env.refreshWeb?.(me);
+    return json({ ok: true });
   }
   if (url.pathname === "/away" && req.method === "POST") {
     if (!sameOrigin(req)) return new Response("Cross-origin request refused", { status: 403 });
