@@ -20,7 +20,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const VERSION = "0.12.17"; // kept in step with .claude-plugin/plugin.json (a test checks)
+const VERSION = "0.12.18"; // kept in step with .claude-plugin/plugin.json (a test checks)
 const DIR = path.join(os.homedir(), ".claude", "intercom");
 const CONFIG = path.join(DIR, "config");
 function readConf() {
@@ -374,7 +374,11 @@ function summarizeLine(line) {
         if (n === "Bash") out.push({ at, kind: "cmd", text: i.description ? `${clip(oneLine(i.description), 160)}\n${oneLine(i.command)}` : oneLine(i.command) });
         else if (/^(Edit|Write|MultiEdit|NotebookEdit)$/.test(n)) out.push({ at, kind: "edit", text: `${n === "Write" ? "write" : "edit"} ${i.file_path ?? i.notebook_path ?? ""}` });
         else if (/^(Read|Grep|Glob|LS)$/.test(n)) out.push({ at, kind: "read", text: `${n.toLowerCase()} ${clip(i.file_path ?? i.pattern ?? i.path ?? "", 160)}` });
-        else if (!/^mcp__.*intercom/.test(n)) out.push({ at, kind: "tool", text: `${n.replace(/^mcp__/, "")}${i.description ? `: ${clip(i.description, 120)}` : ""}` });
+        else if (!/^mcp__.*intercom/.test(n)) {
+          // What the call is about: the agent's description, else the skill it loads, the search or the address.
+          const what = i.description || (n === "Skill" ? [i.skill, i.args].filter(Boolean).join(" ") : "") || i.query || i.url || "";
+          out.push({ at, kind: "tool", text: `${n.replace(/^mcp__/, "")}${what ? `: ${clip(oneLine(String(what)), 120)}` : ""}` });
+        }
       }
     }
     return out;
