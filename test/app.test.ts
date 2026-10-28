@@ -3,6 +3,7 @@ import { describe, test } from "node:test";
 import { conflicting, riskyCommand } from "../src/guard.ts";
 import { prune, resolveProject } from "../src/lib.ts";
 import { ORIGIN, World, standardWorld } from "./harness.ts";
+import { PLUGIN_VERSION } from "../src/version.ts";
 
 describe("privacy between projects", () => {
   test("non-members can't read a project's messages, locks or votes", async () => {
@@ -1810,5 +1811,97 @@ describe("context and compaction", () => {
     const other = new URLSearchParams({ session: "cc1" });
     const refused = await w.request("/agent/compact", { as: "alice", cookie: true, method: "POST", headers: { origin: ORIGIN, "content-type": "application/x-www-form-urlencoded" }, body: other });
     assert.equal(new URL(refused.headers.get("location")!, ORIGIN).searchParams.get("err"), "No such agent of yours");
+  });
+});
+
+describe("Claude.ai connector", () => {
+  const b64url = (b: ArrayBuffer) => Buffer.from(b).toString("base64url");
+  /** Register a client, sign in as `as` in the browser, approve, and trade the code: the full OAuth dance. */
+  const connect = async (w: World, as = "bob") => {
+    const reg = await w.request("/oauth/register", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ client_name: "Claude", redirect_uris: ["https://claude.ai/api/mcp/auth_callback"] }) });
+    assert.equal(reg.status, 201);
+    const { client_id } = (await reg.json()) as { client_id: string };
+    const verifier = "v".repeat(50);
+    const challenge = b64url(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier)));
+    const params = { client_id, redirect_uri: "https://claude.ai/api/mcp/auth_callback", response_type: "code", state: "xyz", code_challenge: challenge, code_challenge_method: "S256", resource: `${ORIGIN}/connector` };
+    const consent = await (await w.request(`/oauth/authorize?${new URLSearchParams(params)}`, { as, cookie: true })).text();
+    assert.match(consent, /Allow Claude\?/);
+    const ok = await w.form("/oauth/authorize", as, { ...params, action: "allow" });
+    const back = new URL(ok.headers.get("location")!);
+    assert.equal(back.origin + back.pathname, "https://claude.ai/api/mcp/auth_callback");
+    assert.equal(back.searchParams.get("state"), "xyz");
+    const code = back.searchParams.get("code")!;
+    const trade = (v: string) =>
+      w.request("/oauth/token", { method: "POST", body: new URLSearchParams({ grant_type: "authorization_code", code, client_id, redirect_uri: params.redirect_uri, code_verifier: v }) });
+    assert.equal((await trade("wrong")).status, 400); // the code is spent either way
+    return { client_id, params, trade, verifier };
+  };
+  const rpc = async (w: World, token: string, method: string, params: object = {}) => {
+    const r = await w.request("/connector", { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) });
+    return { status: r.status, body: r.status === 200 ? ((await r.json()) as any) : null, auth: r.headers.get("www-authenticate") };
+  };
+  const call = async (w: World, token: string, name: string, args: object = {}) => (await rpc(w, token, "tools/call", { name, arguments: args })).body.result.content[0].text as string;
+
+  test("signs in with OAuth (PKCE), and its token works only on /connector", async () => {
+    const w = await standardWorld();
+    const unsigned = await rpc(w, "nope", "initialize");
+    assert.equal(unsigned.status, 401);
+    assert.match(unsigned.auth!, /resource_metadata="https:\/\/intercom\.test\/\.well-known\/oauth-protected-resource"/);
+    const meta = (await (await w.request("/.well-known/oauth-authorization-server")).json()) as { registration_endpoint: string };
+    assert.equal(meta.registration_endpoint, `${ORIGIN}/oauth/register`);
+    // Only Claude's callback or loopback: a look-alike can't register.
+    const evil = await w.request("/oauth/register", { method: "POST", body: JSON.stringify({ redirect_uris: ["https://claude.ai.evil.example/cb"] }) });
+    assert.equal(evil.status, 400);
+
+    const { client_id, verifier, params } = await connect(w);
+    // A fresh code with the right verifier.
+    const again = new URL((await w.form("/oauth/authorize", "bob", { ...params, action: "allow" })).headers.get("location")!).searchParams.get("code")!;
+    const tok = await w.request("/oauth/token", { method: "POST", body: new URLSearchParams({ grant_type: "authorization_code", code: again, client_id, code_verifier: verifier }) });
+    const { access_token } = (await tok.json()) as { access_token: string };
+    assert.ok(access_token);
+    // Refused elsewhere: not the plugin's tools, not the dashboard.
+    assert.equal((await w.request("/mcp", { method: "POST", headers: { authorization: `Bearer ${access_token}` }, body: "{}" })).status, 401);
+    assert.equal((await w.request("/api/whoami", { headers: { authorization: `Bearer ${access_token}` } })).status, 401);
+    const names = (await rpc(w, access_token, "tools/list")).body.result.tools.map((t: { name: string }) => t.name);
+    assert.deepEqual(names, ["agents", "agent_status", "ask", "conversation", "locks", "decisions", "proposals", "handoffs"]);
+    assert.equal((await rpc(w, access_token, "tools/call", { name: "invite", arguments: {} })).body.error.code, -32602);
+    // Denying sends the error back; the account page lists it, and Disconnect revokes it.
+    const denied = new URL((await w.form("/oauth/authorize", "bob", { ...params, action: "deny" })).headers.get("location")!);
+    assert.equal(denied.searchParams.get("error"), "access_denied");
+    const account = await (await w.request("/account", { as: "bob", cookie: true })).text();
+    assert.match(account, /Claude \(connector: talks to your agents\)/);
+    const id = (await w.db.prepare("SELECT token_hash FROM tokens WHERE kind = 'connector'").first<{ token_hash: string }>())!.token_hash;
+    await w.form("/account", "bob", { action: "revoke", id });
+    assert.equal((await rpc(w, access_token, "tools/list")).status, 401);
+  });
+
+  test("lists your agents, finds one by a spoken name, asks it and waits for the reply", async () => {
+    const w = await standardWorld();
+    const { client_id, params, verifier } = await connect(w);
+    const code = new URL((await w.form("/oauth/authorize", "bob", { ...params, action: "allow" })).headers.get("location")!).searchParams.get("code")!;
+    const { access_token: t } = (await (await w.request("/oauth/token", { method: "POST", body: new URLSearchParams({ grant_type: "authorization_code", code, client_id, code_verifier: verifier }) })).json()) as { access_token: string };
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=k1&name=fabricate-kernel", { as: "bob" });
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=k2&name=docs", { as: "bob" });
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=a1&name=kernel", { as: "alice" });
+    await w.db.prepare("UPDATE sessions SET version = ?, note = 'fixing the scheduler' WHERE session_id = 'k1'").bind(PLUGIN_VERSION).run();
+
+    const list = await call(w, t, "agents");
+    assert.match(list, /- fabricate-kernel \(#billing[^)]*\): .*“fixing the scheduler”/);
+    assert.doesNotMatch(list, /alice|- kernel/); // only your own
+    assert.match(await call(w, t, "agent_status", { agent: "my kernel agent" }), /^fabricate-kernel/);
+    assert.match(await call(w, t, "agent_status", { agent: "billing" }), /could be any of these/);
+    assert.match(await call(w, t, "agent_status", { agent: "frontend" }), /No agent matches "frontend". Yours: .*docs/);
+
+    // Ask, and answer while it waits: the agent gets it as its user, marked as sent from Claude.ai.
+    const asking = call(w, t, "ask", { agent: "kernel", message: "run the scheduler tests", wait_seconds: 5 });
+    await new Promise((r) => setTimeout(r, 50));
+    const got = await (await w.request("/api/hook?event=UserPromptSubmit&project=billing-api&session=k1", { as: "bob" })).text();
+    assert.match(got, /bob \(YOUR USER, sent from Claude\.ai\) → bob\/fabricate-kernel[^:]*: run the scheduler tests/);
+    await w.request("/api/hook?event=Stop&project=billing-api&session=k1", { as: "bob", method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ hook_event_name: "Stop", last_assistant_message: "All 42 scheduler tests pass." }) });
+    assert.match(await asking, /Sent \[\d+\] to fabricate-kernel\. Reply:\n\n\[\d+\] fabricate-kernel · just now:\nAll 42 scheduler tests pass\./);
+    assert.match(await call(w, t, "conversation", { agent: "fabricate-kernel" }), /you \(via Claude\.ai\) · just now:\nrun the scheduler tests[\s\S]*All 42/);
+    assert.match(await (await w.request("/dashboard?view=agents&agent=bob/fabricate-kernel", { as: "bob", cookie: true })).text(), /<span class="via">via Claude\.ai<\/span>/);
+    // No wait: sent, and says when it gets it.
+    assert.match(await call(w, t, "ask", { agent: "docs", message: "update the README", wait_seconds: 0 }), /Sent \[\d+\] to docs\. It gets the message at its next step; no reply yet/);
   });
 });

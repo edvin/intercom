@@ -282,7 +282,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
       const unsend = open
         ? `<span class="unsend">${st === "held" ? ub("send", "Send", "Send it as it is") : ""}${ub("edit", "Edit", "Edit it: no agent gets it until you send it again")}${ub("cancel", "Cancel", "Take it back: it won't be delivered")}</span>`
         : "";
-      return `<div class="bubble md ${fromMe ? "mine" : ""}${st === "held" || st === "cancelled" ? ` ${st}` : ""}" data-mid="${m.id}"${open ? ` data-raw="${esc(m.body)}"` : ""} data-who="${esc(agent.label)}" style="--h:${agentHue(agent.member, agent.label)}">${md(m.body, fromMe ? agent.origin : originOf(m.sender, m.sender_agent), m.sender === me && m.sender_agent === agent.label ? files : null)}<span class="when">${time(m.created_at)}${mark}${speak}${unsend}</span></div>`;
+      return `<div class="bubble md ${fromMe ? "mine" : ""}${st === "held" || st === "cancelled" ? ` ${st}` : ""}" data-mid="${m.id}"${open ? ` data-raw="${esc(m.body)}"` : ""} data-who="${esc(agent.label)}" style="--h:${agentHue(agent.member, agent.label)}">${md(m.body, fromMe ? agent.origin : originOf(m.sender, m.sender_agent), m.sender === me && m.sender_agent === agent.label ? files : null)}<span class="when">${m.via ? `<span class="via">via ${esc(m.via)}</span>` : ""}${time(m.created_at)}${mark}${speak}${unsend}</span></div>`;
     });
   rows.forEach((m, i) =>
     items.push({

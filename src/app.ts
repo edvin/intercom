@@ -3,7 +3,8 @@ import { answerBtw, pendingBtw } from "./btw";
 import { getAttachment, isImage, readImage } from "./attachments";
 import { fetchLocalFile, fileReply } from "./localfiles";
 import { type Env, type Message, type Proposal, type Session, LIVE, MEMBER_OF, postMessage, RECEIVES, UserError, activeLocks, address, isMyLock, ago, addActivity, lockIn, scopedLocks, cleanBranch, cleanClient, fromOwnUser, renameSession, setHost, setVersion, workingOn, authenticate, coMembers, fmtLock, fmtMessage, myProjects, moveSession, projectFor, resolveProject, setCwd, setOrigin, setPresence, setRepo, tally, touchSession, unread } from "./lib";
-import { instructions, tools } from "./tools";
+import { type Tool, instructions, tools } from "./tools";
+import { CONNECTOR, authorize, connectorMember, preflight, register, resourceMetadata, serverMetadata, token, unauthorized } from "./connector";
 import { cliPoll, cliStart, connectPage, discoverJoin, discoverPage, discoverRequest, githubCallback, githubCreate, githubStart, signOut } from "./accounts";
 import { approvalStatus, decide, requestApproval, setAway } from "./approvals";
 import { guard } from "./guard";
@@ -31,7 +32,19 @@ export const text = (body: string) => new Response(body, { headers: { "content-t
 const rpcResult = (id: RpcRequest["id"], result: unknown) => ({ jsonrpc: "2.0", id, result });
 const rpcError = (id: RpcRequest["id"], code: number, message: string) => ({ jsonrpc: "2.0", id: id ?? null, error: { code, message } });
 
-async function handleRpc(msg: RpcRequest, env: Env, me: string) {
+/** What an MCP endpoint offers: the plugin's full tool set on /mcp, the connector's on /connector. */
+export interface McpServer {
+  tools: Tool[];
+  instructions(env: Env, me: string): Promise<string>;
+}
+
+const PLUGIN_SERVER: McpServer = {
+  tools,
+  instructions: async (env, me) =>
+    `${instructions(replyHow(env.session ? (await env.DB.prepare("SELECT version FROM sessions WHERE member = ? AND session_id = ?").bind(me, env.session.session_id).first<{ version: string }>())?.version : null, me))}\n\nYou are connected as team member "${me}".`,
+};
+
+async function handleRpc(msg: RpcRequest, env: Env, me: string, server: McpServer) {
   // Notifications (no id) and responses get no reply.
   if (msg.id === undefined || !msg.method) return null;
   switch (msg.method) {
@@ -41,17 +54,17 @@ async function handleRpc(msg: RpcRequest, env: Env, me: string) {
         protocolVersion: SUPPORTED_PROTOCOLS.includes(asked) ? asked : SUPPORTED_PROTOCOLS[0],
         capabilities: { tools: {} },
         serverInfo: SERVER_INFO,
-        instructions: `${instructions(replyHow(env.session ? (await env.DB.prepare("SELECT version FROM sessions WHERE member = ? AND session_id = ?").bind(me, env.session.session_id).first<{ version: string }>())?.version : null, me))}\n\nYou are connected as team member "${me}".`,
+        instructions: await server.instructions(env, me),
       });
     }
     case "ping":
       return rpcResult(msg.id, {});
     case "tools/list":
       return rpcResult(msg.id, {
-        tools: tools.map(({ name, description, inputSchema, annotations }) => ({ name, description, inputSchema, annotations })),
+        tools: server.tools.map(({ name, description, inputSchema, annotations }) => ({ name, description, inputSchema, annotations })),
       });
     case "tools/call": {
-      const tool = tools.find((t) => t.name === msg.params?.name);
+      const tool = server.tools.find((t) => t.name === msg.params?.name);
       if (!tool) return rpcError(msg.id, -32602, `Unknown tool: ${msg.params?.name}`);
       await setPresence(env, me, null, null);
       try {
@@ -69,7 +82,7 @@ async function handleRpc(msg: RpcRequest, env: Env, me: string) {
   }
 }
 
-async function handleMcp(req: Request, env: Env, me: string): Promise<Response> {
+export async function handleMcp(req: Request, env: Env, me: string, server: McpServer = PLUGIN_SERVER): Promise<Response> {
   if (req.method !== "POST") return new Response("Method Not Allowed", { status: 405, headers: { allow: "POST" } });
   let payload: RpcRequest | RpcRequest[];
   try {
@@ -80,7 +93,7 @@ async function handleMcp(req: Request, env: Env, me: string): Promise<Response> 
   const batch = Array.isArray(payload);
   const replies = [];
   for (const msg of (batch ? payload : [payload]) as RpcRequest[]) {
-    const reply = await handleRpc(msg, env, me);
+    const reply = await handleRpc(msg, env, me, server);
     if (reply) replies.push(reply);
   }
   if (!replies.length) return new Response(null, { status: 202 });
@@ -526,8 +539,19 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
   if (url.pathname === "/auth/github/create" && req.method === "POST") return githubCreate(req, env);
   if (url.pathname === "/api/cli/start" && req.method === "POST") return cliStart(env, url.origin);
   if (url.pathname === "/api/cli/poll") return cliPoll(env, url.searchParams.get("code") ?? "");
+  // Claude.ai and other remote MCP clients: OAuth sign-in, and the connector's own endpoint (connector.ts).
+  if (req.method === "OPTIONS" && /^\/(oauth\/|connector$|\.well-known\/)/.test(url.pathname)) return preflight();
+  if (url.pathname.startsWith("/.well-known/oauth-protected-resource")) return resourceMetadata(url.origin);
+  if (url.pathname === "/.well-known/oauth-authorization-server") return serverMetadata(url.origin);
+  if (url.pathname === "/oauth/register" && req.method === "POST") return register(req, env);
+  if (url.pathname === "/oauth/token" && req.method === "POST") return token(req, env);
+  if (url.pathname === "/connector") {
+    const member = await connectorMember(req, env);
+    return member ? handleMcp(req, env, member, CONNECTOR) : unauthorized(url.origin);
+  }
 
   const me = await authenticate(req, env);
+  if (url.pathname === "/oauth/authorize") return authorize(req, env, me, url);
   // "/" is the overview for everyone; the dashboard lives at /dashboard. Old dashboard links (/?channel=…) still work.
   if (url.pathname === "/welcome") return redirect("/");
   if (url.pathname === "/" && me && /(^|&)(channel|view|ok|err|welcome)=/.test(url.search.slice(1))) return redirect(`/dashboard${url.search}`);

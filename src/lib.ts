@@ -42,6 +42,8 @@ export interface Message {
   /** A dashboard DM being edited, or one its sender took back before an agent got it (unsend). */
   held_at?: number | null;
   cancelled_at?: number | null;
+  /** Sent through a connector (e.g. "Claude.ai"), not typed in the dashboard. */
+  via?: string | null;
 }
 
 /** One Claude Code session of a member, as reported by the hooks. */
@@ -118,7 +120,8 @@ export async function authenticate(req: Request, env: Env): Promise<string | nul
   const token = bearer ?? (cookie ? decodeURIComponent(cookie) : undefined);
   if (!token) return null;
   const hash = await sha256(token);
-  const row = await env.DB.prepare("SELECT name FROM members WHERE token_hash = ?1 UNION ALL SELECT member FROM tokens WHERE token_hash = ?1 LIMIT 1")
+  // Connector tokens (Claude.ai) only work on /connector: see connector.ts.
+  const row = await env.DB.prepare("SELECT name FROM members WHERE token_hash = ?1 UNION ALL SELECT member FROM tokens WHERE token_hash = ?1 AND kind != 'connector' LIMIT 1")
     .bind(hash)
     .first<{ name: string }>();
   return row?.name ?? null;
@@ -163,7 +166,7 @@ export const fromOwnUser = (m: Message, viewer?: string) => !!viewer && m.sender
 
 export function fmtMessage(m: Message, viewer?: string): string {
   const own = fromOwnUser(m, viewer);
-  const from = own ? `${m.sender} (YOUR USER, ${m.kind === "event" ? "a dashboard notice; no reply needed" : "from the dashboard"})` : address(m.sender, m.sender_agent);
+  const from = own ? `${m.sender} (YOUR USER, ${m.kind === "event" ? "a dashboard notice; no reply needed" : m.via ? `sent from ${m.via}` : "from the dashboard"})` : address(m.sender, m.sender_agent);
   const where = m.recipient ? `DM ${from} → ${address(m.recipient, m.recipient_agent)}` : `#${m.channel} · ${from}`;
   const marker = m.kind === "event" ? "• " : "";
   return `[${m.id}] ${where} · ${ago(m.created_at)}: ${marker}${m.body}`;
@@ -299,11 +302,12 @@ export async function postMessage(
     broadcast?: boolean;
     /** Longer than MAX_BODY: an agent's reply taken from its terminal. */
     max?: number;
+    via?: string | null;
   },
 ): Promise<number> {
   const row = await env.DB.prepare(
-    `INSERT INTO messages (channel, sender, sender_agent, recipient, recipient_agent, kind, body, created_at, broadcast)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
+    `INSERT INTO messages (channel, sender, sender_agent, recipient, recipient_agent, kind, body, created_at, broadcast, via)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
   )
     .bind(
       m.channel,
@@ -315,6 +319,7 @@ export async function postMessage(
       m.body.slice(0, m.max ?? MAX_BODY),
       Date.now(),
       m.broadcast ? 1 : 0,
+      m.via ?? null,
     )
     .first<Message>();
   // A post from a session counts as it being active.
@@ -518,6 +523,8 @@ export async function prune(env: Env, retentionDays = RETENTION_DAYS, now = Date
     invites: await run("DELETE FROM invites WHERE expires_at < ? OR uses_left <= 0", now - 7 * day),
     sessions: await run("DELETE FROM sessions WHERE last_seen < ?", now - 14 * day),
     states: await run("DELETE FROM oauth_states WHERE expires_at < ?", now),
+    // Anyone can register an OAuth client; one that never signed anyone in lapses after a day.
+    clients: await run("DELETE FROM oauth_clients WHERE used_at IS NULL AND created_at < ?", now - day),
     devices: await run("DELETE FROM device_codes WHERE expires_at < ?", now),
     access: await run("DELETE FROM repo_access WHERE expires_at < ?", now),
     limits: await run("DELETE FROM rate_limits WHERE window_start < ?", now - 2 * day),
@@ -538,8 +545,8 @@ export async function prune(env: Env, retentionDays = RETENTION_DAYS, now = Date
 /** A fresh random token (48 hex chars). */
 export const newToken = () => [...crypto.getRandomValues(new Uint8Array(24))].map((b) => b.toString(16).padStart(2, "0")).join("");
 
-/** Issue an extra token for a member: a browser session ('web') or a device approved in the browser ('cli'). */
-export async function issueToken(env: Env, member: string, kind: "web" | "cli", label: string): Promise<string> {
+/** Issue an extra token for a member: a browser session ('web'), a device approved in the browser ('cli') or a connector such as Claude.ai ('connector'). */
+export async function issueToken(env: Env, member: string, kind: "web" | "cli" | "connector", label: string): Promise<string> {
   const token = newToken();
   await env.DB.prepare("INSERT INTO tokens (token_hash, member, kind, label, created_at) VALUES (?, ?, ?, ?, ?)").bind(await sha256(token), member, kind, label.slice(0, 80), Date.now()).run();
   return token;

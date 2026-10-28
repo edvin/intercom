@@ -40,10 +40,10 @@ import {
   workingOn,
 } from "./lib";
 
-type Args = Record<string, unknown>;
-type ToolContent = { type: "text"; text: string } | { type: "image"; data: string; mimeType: string };
+export type Args = Record<string, unknown>;
+export type ToolContent = { type: "text"; text: string } | { type: "image"; data: string; mimeType: string };
 
-interface Tool {
+export interface Tool {
   name: string;
   description: string;
   inputSchema: object;
@@ -51,9 +51,9 @@ interface Tool {
   run(env: Env, me: string, args: Args): Promise<string | ToolContent[]>;
 }
 
-function str(args: Args, key: string, required: true): string;
-function str(args: Args, key: string, required?: false): string | undefined;
-function str(args: Args, key: string, required = false): string | undefined {
+export function str(args: Args, key: string, required: true): string;
+export function str(args: Args, key: string, required?: false): string | undefined;
+export function str(args: Args, key: string, required = false): string | undefined {
   const v = args[key];
   if (v === undefined || v === null || v === "") {
     if (required) throw new UserError(`Missing required argument: ${key}`);
@@ -63,7 +63,7 @@ function str(args: Args, key: string, required = false): string | undefined {
   return v.trim();
 }
 
-function num(args: Args, key: string, def: number, min: number, max: number): number {
+export function num(args: Args, key: string, def: number, min: number, max: number): number {
   const v = args[key];
   if (v === undefined || v === null) return def;
   const n = Number(v);

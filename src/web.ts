@@ -23,7 +23,7 @@ function setupSteps(origin: string, token: string): string {
 // ---------- sign in / out ----------
 
 /** Where sign-in may send you afterwards: only our own invite, device-approval and discovery pages. */
-export const safeNext = (next: string | null | undefined) => (next && /^\/(join\/|connect\?|discover|account$|dashboard)/.test(next) ? next : "");
+export const safeNext = (next: string | null | undefined) => (next && /^\/(join\/|connect\?|oauth\/authorize\?|discover|account$|dashboard)/.test(next) ? next : "");
 
 export function loginPage(error = "", next = "", github = false): Response {
   const safeNext_ = safeNext(next);
@@ -927,6 +927,17 @@ export function docsPage(origin: string): Response {
       </section>
 
       <section>
+        <h2>Talking to your agents from Claude.ai (and your phone)</h2>
+        <p>Add the intercom to Claude.ai as a custom connector and ask Claude things like “what is my billing agent doing?”, “does any agent need me?” or “ask my kernel agent to run the tests”. In Claude.ai: <b>Settings → Connectors → Add custom connector</b>, name it Intercom, URL <code>${origin}/connector</code>, then <b>Connect</b> and approve it on the intercom page that opens. It then works in the Claude apps on your phone too.</p>
+        <ul>
+          <li><b>What it can do:</b> list your agents with what they're doing, show one agent's recent steps and your chat with it, send it a message as you (it acts on it like a prompt you typed, and your chat shows <i>via Claude.ai</i>), wait a little for the reply, and read locks, decisions, votes and handoffs.</li>
+          <li><b>What it can't:</b> its token only works for that. It can't invite people, change rules, claim locks, vote, or open the dashboard.</li>
+          <li><b>Names:</b> say an agent's name, part of it, or its project; if that fits several running agents, Claude asks which.</li>
+          <li><b>Disconnect</b> it under Account, next to your signed-in browsers and terminals.</li>
+        </ul>
+      </section>
+
+      <section>
         <h2>When an agent ends, or is killed</h2>
         <ul>
           <li>A session counts as connected while its local intercom server is connected to the hub; <code>team</code> and the dashboard show ● connected or when it was last seen.</li>
@@ -1013,7 +1024,7 @@ export async function accountPage(req: Request, env: Env, me: string): Promise<R
     }
     if (form.get("action") === "revoke") {
       await env.DB.prepare("DELETE FROM tokens WHERE member = ? AND token_hash = ?").bind(me, String(form.get("id") ?? "")).run();
-      return redirect("/account?ok=Device signed out");
+      return redirect("/account?ok=Signed out");
     }
     if (form.get("action") === "unlink") {
       await env.DB.prepare("UPDATE members SET github_id = NULL, github_login = NULL WHERE name = ?").bind(me).run();
@@ -1037,10 +1048,10 @@ export async function accountPage(req: Request, env: Env, me: string): Promise<R
       }</div>`
     : "";
   const deviceList = devices.length
-    ? `<div><h3>Signed-in browsers and terminals</h3>${devices
+    ? `<div><h3>Signed-in browsers, terminals and connectors</h3>${devices
         .map(
-          (d) => `<div class="member">${icon(d.kind === "web" ? "layers" : "terminal", 15)}<span class="grow small">${esc(d.kind === "web" ? "Browser" : d.label || "Terminal")} <span class="muted">· ${time(d.created_at)}</span></span>
-          <form method="post" data-native>${hidden({ action: "revoke", id: d.token_hash })}<button class="btn ghost xs">Sign out</button></form></div>`,
+          (d) => `<div class="member">${icon(d.kind === "web" ? "layers" : d.kind === "connector" ? "link" : "terminal", 15)}<span class="grow small">${esc(d.kind === "web" ? "Browser" : d.kind === "connector" ? `${d.label || "Connector"} (connector: talks to your agents)` : d.label || "Terminal")} <span class="muted">· ${time(d.created_at)}</span></span>
+          <form method="post" data-native>${hidden({ action: "revoke", id: d.token_hash })}<button class="btn ghost xs">${d.kind === "connector" ? "Disconnect" : "Sign out"}</button></form></div>`,
         )
         .join("")}</div>`
     : "";
