@@ -1088,10 +1088,16 @@ export const SCRIPT = `
       a.append(ic, nm, sb);
       if (it.when) { const wh = document.createElement("span"); wh.className = "kw"; wh.textContent = it.when; wh.title = it.whenTip; a.append(wh); }
       a.onmousemove = () => { if (kSel !== n) { kSel = n; kMark(); } };
+      a.onclick = (e) => { if (!e.metaKey && !e.ctrlKey) kFocus(); };
       box.append(a);
     });
   };
   const kMark = () => kd.querySelectorAll(".kit").forEach((a) => { const on = Number(a.dataset.n) === kSel; a.classList.toggle("on", on); if (on) a.scrollIntoView({ block: "nearest" }); });
+  // An agent opened from search is ready to write to: the page it loads puts the cursor in its message field.
+  const kFocus = () => { try { sessionStorage.setItem("ic_kfocus", "1"); } catch {} };
+  try {
+    if (sessionStorage.getItem("ic_kfocus")) { sessionStorage.removeItem("ic_kfocus"); const t = document.getElementById("chat-input"); if (t) { t.focus(); t.setSelectionRange(t.value.length, t.value.length); } }
+  } catch {}
   const kOpen = () => {
     if (!kd) {
       kd = document.createElement("dialog");
@@ -1110,7 +1116,7 @@ export const SCRIPT = `
           kSel = Math.min(kList.length - 1, Math.max(0, kSel + (e.key === "PageDown" ? page : -page)));
           kMark();
         }
-        else if (e.key === "Enter" && kList[kSel]) { e.preventDefault(); if (e.metaKey || e.ctrlKey) window.open(kList[kSel].href, "_blank"); else { kd.close(); location.href = kList[kSel].href; } }
+        else if (e.key === "Enter" && kList[kSel]) { e.preventDefault(); if (e.metaKey || e.ctrlKey) window.open(kList[kSel].href, "_blank"); else { kd.close(); kFocus(); location.href = kList[kSel].href; } }
       };
       kd.addEventListener("click", (e) => { if (e.target === kd) kd.close(); });
     }
