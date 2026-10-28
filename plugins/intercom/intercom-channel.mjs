@@ -20,7 +20,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const VERSION = "0.12.19"; // kept in step with .claude-plugin/plugin.json (a test checks)
+const VERSION = "0.12.20"; // kept in step with .claude-plugin/plugin.json (a test checks)
 const DIR = path.join(os.homedir(), ".claude", "intercom");
 const CONFIG = path.join(DIR, "config");
 function readConf() {
@@ -311,6 +311,7 @@ const isNoise = (t) => /^\s*(<|# AGENTS\.md|\[intercom|Caveat:)/.test(t) || /\(S
 
 /** One transcript line (Claude Code or Codex) → zero or more {at, kind, text}. */
 const pendingCron = new Map(); // CronCreate tool_use id → job, until its result names the job id
+const endedJobs = new Set(); // job ids already reported ended (the queue record and the message both say so)
 const bashCalls = new Map(); // Bash tool_use id → what it does, until its result says whether it went to the background
 const xmlTag = (text, name) => text.match(new RegExp(`<${name}>([\\s\\S]*?)</${name}>`))?.[1]?.trim() ?? "";
 function summarizeLine(line) {
@@ -322,10 +323,16 @@ function summarizeLine(line) {
   }
   const at = Date.parse(d.timestamp ?? "") || Date.now();
   const out = [];
-  // A background job ended: Claude Code queues a <task-notification> for the agent.
-  if (d.type === "queue-operation" && d.operation === "enqueue" && typeof d.content === "string" && d.content.includes("<task-notification>")) {
-    const id = xmlTag(d.content, "task-id");
-    if (id) out.push({ at, kind: "job", text: JSON.stringify({ op: "end", id, status: xmlTag(d.content, "status"), summary: clip(xmlTag(d.content, "summary"), 200) }) });
+  // A background job ended: Claude Code queues a <task-notification> for the agent, then hands it over as a user
+  // message. A resumed session's transcript carries only the message (the queue records stay in the old one), so
+  // both count; a second end for the same job changes nothing.
+  const note = d.type === "queue-operation" && d.operation === "enqueue" ? d.content : d.type === "user" && typeof d.message?.content === "string" ? d.message.content : null;
+  if (typeof note === "string" && note.trimStart().startsWith("<task-notification>")) {
+    const id = xmlTag(note, "task-id");
+    if (id && endedJobs.has(id)) return out;
+    if (id) endedJobs.add(id);
+    if (endedJobs.size > 500) endedJobs.delete(endedJobs.values().next().value);
+    if (id) out.push({ at, kind: "job", text: JSON.stringify({ op: "end", id, status: xmlTag(note, "status"), summary: clip(xmlTag(note, "summary"), 200) }) });
     return out;
   }
   // Claude Code: {type: "assistant"|"user", message: {content: [...]}}
