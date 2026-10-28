@@ -238,7 +238,7 @@ describe("hooks, status and export", () => {
 });
 
 describe("retention", () => {
-  test("old messages are pruned; decisions stay", async () => {
+  test("old messages are pruned; open votes stay", async () => {
     const w = await standardWorld();
     await w.ok("alice", "post", { channel: "billing", message: "old news" });
     await w.ok("alice", "propose", { channel: "billing", question: "Keep me?" });
@@ -249,7 +249,7 @@ describe("retention", () => {
     assert.match(await w.ok("bob", "proposals"), /Keep me\?/);
   });
 
-  test("closed votes, settled handoffs, old approvals and unanswered join requests roll off; open ones and the decision log stay", async () => {
+  test("closed votes, settled handoffs, decisions, old approvals and unanswered join requests roll off; open ones stay", async () => {
     const w = await standardWorld();
     const id = Number((await w.ok("alice", "propose", { channel: "billing", question: "Freeze Friday?" })).match(/#(\d+)/)![1]);
     await w.ok("bob", "vote", { proposal_id: id, choice: "yes" });
@@ -261,9 +261,9 @@ describe("retention", () => {
     await w.db.prepare("INSERT INTO join_requests (project, member, created_at) VALUES ('billing', 'carol', ?)").bind(now).run();
     await w.db.prepare("INSERT INTO handoffs (project, author, ref, summary, status, created_at, updated_at) VALUES ('billing', 'bob', 'abc123', 'done', 'integrated', ?, ?), ('billing', 'bob', 'def456', 'waiting', 'pending', ?, ?)").bind(now, now, now, now).run();
     const removed = await prune(w.env(), 90, now + 91 * 86400_000);
-    assert.deepEqual([removed.votes, removed.proposals, removed.handoffs, removed.approvals, removed.joinRequests], [1, 1, 1, 1, 1]);
+    assert.deepEqual([removed.votes, removed.proposals, removed.handoffs, removed.decisions, removed.approvals, removed.joinRequests], [1, 1, 1, 1, 1, 1]);
     const count = async (t: string) => (await w.db.prepare(`SELECT COUNT(*) AS n FROM ${t}`).first<{ n: number }>())!.n;
-    assert.deepEqual([await count("proposals"), await count("handoffs"), await count("decisions")], [1, 1, 1]);
+    assert.deepEqual([await count("proposals"), await count("handoffs"), await count("decisions")], [1, 1, 0]);
   });
 });
 
