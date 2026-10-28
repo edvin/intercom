@@ -721,6 +721,15 @@ export async function addActivity(env: Env, me: string, sessionId: string, items
       "DELETE FROM activity WHERE member = ?1 AND session_id = ?2 AND id <= (SELECT id FROM activity WHERE member = ?1 AND session_id = ?2 ORDER BY id DESC LIMIT 1 OFFSET ?3)",
     ).bind(me, sessionId, ACTIVITY_KEEP),
     env.DB.prepare("UPDATE sessions SET active_at = MAX(COALESCE(active_at, 0), ?) WHERE member = ? AND session_id = ?").bind(Math.max(...rows.map((r) => r.at)), me, sessionId),
+    // A step after it started waiting: the question was answered in the terminal, so it no longer needs you. A channel
+    // session's tool calls never reach the hub (its hooks take the fast path), so the mirror is what tells. The step the
+    // prompt was about is written just before it, so a little slack keeps a clock difference from clearing it too early.
+    env.DB.prepare("UPDATE sessions SET state = 'working', state_detail = '', state_at = ?1 WHERE member = ?2 AND session_id = ?3 AND state = 'waiting' AND state_at + 1500 < ?4").bind(
+      now,
+      me,
+      sessionId,
+      Math.max(...rows.map((r) => r.at)),
+    ),
   ]);
   env.refreshWeb?.(me);
   return rows.length;

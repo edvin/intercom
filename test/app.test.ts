@@ -744,6 +744,14 @@ describe("managing your agents from the dashboard", () => {
     const waiting = await state();
     assert.equal(waiting.state, "waiting");
     assert.equal(waiting.state_detail, "Claude needs your permission to use Bash");
+    // Answered in the terminal: the mirror's next step shows it got going again. The step the prompt was about,
+    // written just before it, doesn't count.
+    const step = (at: number) =>
+      w.request("/api/activity?session=st1", { as: "bob", method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ items: [{ at, kind: "cmd", text: "npm test" }] }) });
+    await step(Date.now() - 200);
+    assert.equal((await state()).state, "waiting");
+    await step(Date.now() + 5000);
+    assert.deepEqual({ ...(await state()) }, { state: "working", state_detail: "" });
     await w.request("/api/hook?event=Notification&session=st1&kind=idle_prompt", { as: "bob" });
     assert.equal((await state()).state, "idle");
   });
