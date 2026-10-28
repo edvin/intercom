@@ -403,7 +403,7 @@ form.dropping{outline:2px dashed var(--accent);outline-offset:4px;border-radius:
 /* ↑ in an empty message field picks your latest message no agent has yet; its keys show on the buttons */
 .bubble.picked{outline:2px solid color-mix(in srgb,var(--accent) 70%,transparent);outline-offset:3px;border-radius:10px}
 .thread.term .bubble.mine.picked{outline:0;border-left-color:var(--accent);background:var(--accent-soft)}
-.bubble.picked [data-unsend=edit]::after{content:" ↵";opacity:.7}.bubble.picked [data-unsend=cancel]::after{content:" ⌫";opacity:.7}
+.bubble.picked [data-unsend=edit]::after{content:" E";opacity:.7}.bubble.picked [data-unsend=cancel]::after{content:" ⌫";opacity:.7}
 @media (hover:none){.unsend{opacity:1}}
 .unsend button{border:0;background:none;color:var(--mute);font:inherit;font-size:11px;font-weight:560;padding:3px 7px;border-radius:6px;cursor:pointer}
 .unsend button:hover{color:var(--ink);background:var(--surface-2)}
@@ -506,6 +506,10 @@ button.opt.mine .pick{background:var(--grad);border-color:transparent;color:#fff
 /* dialogs & toast */
 dialog{border:1px solid var(--line-strong);background:var(--surface);color:var(--ink);border-radius:18px;padding:0;width:min(560px,calc(100vw - 32px));box-shadow:var(--shadow-lg)}
 dialog::backdrop{background:rgba(8,8,14,.45);backdrop-filter:blur(3px)}
+/* ↓ back to the latest in a scrolled-up chat */
+.tojump{position:fixed;z-index:30;width:40px;height:40px;border-radius:50%;display:grid;place-items:center;border:1px solid var(--line-strong);background:color-mix(in srgb,var(--surface) 92%,transparent);color:var(--ink-2);box-shadow:var(--shadow-lg);cursor:pointer;opacity:0;transform:translateY(8px) scale(.9);pointer-events:none;transition:opacity .16s,transform .16s,color .16s;backdrop-filter:blur(8px)}
+.tojump svg{transform:rotate(90deg)}.tojump.on{opacity:1;transform:none;pointer-events:auto}.tojump:hover{color:var(--accent)}
+.tojump .jdot{position:absolute;top:2px;right:2px;width:9px;height:9px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 2px var(--surface);transform:scale(0);transition:transform .16s}.tojump.new .jdot{transform:scale(1)}
 /* ⌘K: find an agent, project or page */
 .kpal{width:min(620px,calc(100vw - 24px));margin-top:12vh;border-radius:16px;overflow:hidden}
 .kpal[open]{display:flex;flex-direction:column;max-height:min(560px,76vh)}
@@ -877,6 +881,30 @@ export const SCRIPT = `
     t.oninput = grow; if (t.value) grow();
     t.onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); if (t.value.trim() || (t.form._imgs && t.form._imgs.length)) t.form.requestSubmit(); } };
   }
+  // Scrolled up in a chat: a round ↓ button over its foot jumps back to the latest, with a dot once something new
+  // has arrived meanwhile. One button for the page, placed over whichever thread is showing.
+  var jumpBtn = null, jumpNew = false;
+  function jumpShow() {
+    const th = document.getElementById("thread");
+    if (!jumpBtn) {
+      jumpBtn = document.createElement("button");
+      jumpBtn.type = "button"; jumpBtn.className = "tojump"; jumpBtn.title = "Jump to the latest (Ctrl+PageDown, Ctrl/⌘+End)"; jumpBtn.setAttribute("aria-label", "Jump to the latest");
+      jumpBtn.innerHTML = ${JSON.stringify(icon("chevron", 18))} + '<span class="jdot"></span>';
+      jumpBtn.onclick = () => { const t = document.getElementById("thread"); if (t) t.scrollTo({ top: t.scrollHeight, behavior: "smooth" }); };
+      document.body.append(jumpBtn);
+      addEventListener("resize", jumpShow, { passive: true });
+      // The keys for it: Ctrl+PageDown where the browser doesn't keep that for switching tabs, and Ctrl/⌘+End.
+      document.addEventListener("keydown", (e) => {
+        if (!((e.ctrlKey && e.key === "PageDown") || ((e.ctrlKey || e.metaKey) && e.key === "End")) || !document.getElementById("thread")) return;
+        e.preventDefault(); jumpBtn.onclick();
+      });
+    }
+    const far = !!th && th.scrollHeight - th.scrollTop - th.clientHeight > 240;
+    if (!far) jumpNew = false;
+    jumpBtn.classList.toggle("on", far); jumpBtn.classList.toggle("new", far && jumpNew);
+    if (th) { const r = th.getBoundingClientRect(); jumpBtn.style.left = Math.round(r.left + r.width / 2 - 20) + "px"; jumpBtn.style.top = Math.round(r.bottom - 56) + "px"; }
+  }
+
   // The trail: the agents you've had open, most recent first (kept in this browser). The chat's back button
   // returns to the one before, and ⌘K lists them under Recent, like Slack's recent conversations.
   function trail() { try { return JSON.parse(localStorage.getItem("ic_trail") || "[]"); } catch { return []; } }
@@ -891,7 +919,7 @@ export const SCRIPT = `
   }
   if (shownAgent()) { try { localStorage.setItem("ic_trail", JSON.stringify([shownAgent(), ...trail().filter((k) => k !== shownAgent())].slice(0, 15))); } catch {} }
   // ↑ in an empty message field picks your latest message no agent has taken yet (↑ again: the one before); then
-  // Enter edits it, Backspace or Delete cancels it, and Esc, ↓ past the newest or typing lets go. Like Slack's edit-last.
+  // Enter or E edits it (E as in Slack), Backspace or Delete cancels it, and Esc, ↓ past the newest or typing lets go. Like Slack's edit-last.
   var picked = null;
   function pickables() { return $$("#thread .bubble.mine").filter((b) => b.querySelector('[data-unsend="edit"]')); }
   function pick(b) {
@@ -913,7 +941,7 @@ export const SCRIPT = `
     if (e.key === "ArrowUp") { e.preventDefault(); if (i > 0) pick(list[i - 1]); }
     else if (e.key === "ArrowDown") { e.preventDefault(); pick(list[i + 1] || null); }
     else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); pick(null); }
-    else if (e.key === "Enter") key("edit");
+    else if (e.key === "Enter" || e.key === "e") key("edit");
     else if (e.key === "Backspace" || e.key === "Delete") key("cancel");
     else pick(null);
   }, true);
@@ -987,7 +1015,7 @@ export const SCRIPT = `
     within(".thread").forEach((th) => {
       if (th._pinned) return; th._pinned = true;
       let atEnd = th.dataset.stuck !== "no";
-      th.addEventListener("scroll", () => { atEnd = th.scrollHeight - th.scrollTop - th.clientHeight < 80; }, { passive: true });
+      th.addEventListener("scroll", () => { atEnd = th.scrollHeight - th.scrollTop - th.clientHeight < 80; jumpShow(); }, { passive: true });
       const keep = () => { if (atEnd) th.scrollTop = th.scrollHeight; };
       new ResizeObserver(keep).observe(th); th.addEventListener("load", keep, true); document.fonts?.ready.then(keep);
     });
@@ -1058,8 +1086,9 @@ export const SCRIPT = `
       if (known.size) $$("[data-mid]", next).forEach((m) => !known.has(m.dataset.mid) && m.classList.add("fresh"));
       if (th && !stick) next.dataset.stuck = "no";
       bind(next); days(next);
-      if (th && !stick) next.scrollTop = keep;
+      if (th && !stick) { next.scrollTop = keep; if (known.size && $$("[data-mid]", next).some((m) => !known.has(m.dataset.mid))) jumpNew = true; }
     });
+    jumpShow();
     tick();
   }
   let refreshTimer, live = $("#live");
