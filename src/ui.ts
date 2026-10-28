@@ -888,14 +888,23 @@ export const SCRIPT = `
     const th = document.getElementById("thread");
     if (!jumpBtn) {
       jumpBtn = document.createElement("button");
-      jumpBtn.type = "button"; jumpBtn.className = "tojump"; jumpBtn.title = "Jump to the latest (Ctrl+PageDown, Ctrl/⌘+End)"; jumpBtn.setAttribute("aria-label", "Jump to the latest");
+      jumpBtn.type = "button"; jumpBtn.className = "tojump"; jumpBtn.title = "Jump to the latest (End, or Ctrl/⌘+End while typing)"; jumpBtn.setAttribute("aria-label", "Jump to the latest");
       jumpBtn.innerHTML = ${JSON.stringify(icon("chevron", 18))} + '<span class="jdot"></span>';
       jumpBtn.onclick = () => { const t = document.getElementById("thread"); if (t) t.scrollTo({ top: t.scrollHeight, behavior: "smooth" }); };
       document.body.append(jumpBtn);
       addEventListener("resize", jumpShow, { passive: true });
-      // The keys for it: Ctrl+PageDown where the browser doesn't keep that for switching tabs, and Ctrl/⌘+End.
+      // The keys for it: End, unless you're in a field with text (there it moves the cursor), and Ctrl/⌘+End anywhere.
+      // Not Ctrl+PageDown: browsers keep that for switching tabs.
+      // Page Up / Page Down scroll the chat a page from the message box too, as in Slack (the page itself already does).
       document.addEventListener("keydown", (e) => {
-        if (!((e.ctrlKey && e.key === "PageDown") || ((e.ctrlKey || e.metaKey) && e.key === "End")) || !document.getElementById("thread")) return;
+        const t = document.getElementById("thread");
+        if ((e.key !== "PageUp" && e.key !== "PageDown") || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey || !t || e.target.id !== "chat-input") return;
+        e.preventDefault(); t.scrollBy({ top: (e.key === "PageDown" ? 1 : -1) * (t.clientHeight - 60), behavior: "smooth" });
+      });
+      document.addEventListener("keydown", (e) => {
+        if (e.key !== "End" || e.shiftKey || e.altKey || !document.getElementById("thread")) return;
+        const f = e.target.closest?.("input, textarea, select, [contenteditable]");
+        if (!(e.ctrlKey || e.metaKey) && f && !(f.id === "chat-input" && !f.value)) return;
         e.preventDefault(); jumpBtn.onclick();
       });
     }
