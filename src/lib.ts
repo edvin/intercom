@@ -524,6 +524,14 @@ export async function prune(env: Env, retentionDays = RETENTION_DAYS, now = Date
     webTokens: await run("DELETE FROM tokens WHERE kind = 'web' AND created_at < ?", now - 365 * day),
     activity: await run("DELETE FROM activity WHERE at < ?", now - 14 * day),
     deliveries: await run("DELETE FROM deliveries WHERE at < ?", now - retentionDays * day),
+    // Away-mode questions are answered (or expire) within the hour; a request nobody answered within a month lapses.
+    approvals: await run("DELETE FROM approvals WHERE created_at < ?", now - 14 * day),
+    joinRequests: await run("DELETE FROM join_requests WHERE created_at < ?", now - 30 * day),
+    // Closed votes and settled handoffs go with the messages that announced them; open ones stay until settled.
+    // The decision log is kept: it's the record agents search before re-proposing work.
+    votes: await run("DELETE FROM votes WHERE proposal_id IN (SELECT id FROM proposals WHERE status != 'open' AND created_at < ?)", now - retentionDays * day),
+    proposals: await run("DELETE FROM proposals WHERE status != 'open' AND created_at < ?", now - retentionDays * day),
+    handoffs: await run("DELETE FROM handoffs WHERE status != 'pending' AND updated_at < ?", now - retentionDays * day),
   };
 }
 
