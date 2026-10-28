@@ -53,6 +53,7 @@ const ICONS: Record<string, string> = {
   userPlus: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6"/><path d="M22 11h-6"/>',
   layers: '<path d="m12 2 10 5-10 5L2 7z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/>',
   radio: '<circle cx="12" cy="12" r="2"/><path d="M16.24 7.76a6 6 0 0 1 0 8.49"/><path d="M7.76 16.24a6 6 0 0 1 0-8.49"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M4.93 19.07a10 10 0 0 1 0-14.14"/>',
+  back: '<path d="m15 18-6-6 6-6"/>',
   arrow: '<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>',
   copy: '<rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>',
   clock: '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
@@ -566,7 +567,7 @@ body:has(.ide) .top .in{max-width:none;padding:8px 14px}
 .pane-in{max-width:1180px;margin:0 auto;padding:18px 24px 40px;display:flex;flex-direction:column;gap:16px}
 .chatpane{display:flex;flex-direction:column;gap:10px;padding:12px 16px 14px;overflow:hidden}
 .chatpane .agents{display:flex;flex:1;min-height:0}.chatpane .chat{flex:1;min-width:0;height:auto}
-.chatpane>.card{flex:none}.mtree{display:none}
+.chatpane>.card{flex:none}.mtree{display:none}.trailback{flex:none}.trailback[hidden]{display:none}
 /* Phones: the agent chat works like a messaging app. One slim header (the list button opens the agents), the thread
    edge to edge with messages settling at the bottom, and a composer that grows from one line. */
 @media (max-width:640px){
@@ -792,7 +793,21 @@ export const SCRIPT = `
     t.oninput = grow; if (t.value) grow();
     t.onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); if (t.value.trim() || (t.form._imgs && t.form._imgs.length)) t.form.requestSubmit(); } };
   }
+  // The trail: the agents you've had open, most recent first (kept in this browser). The chat's back button
+  // returns to the one before, and ⌘K lists them under Recent, like Slack's recent conversations.
+  function trail() { try { return JSON.parse(localStorage.getItem("ic_trail") || "[]"); } catch { return []; } }
+  function shownAgent() { const f = document.getElementById("chatform"); return f ? f.dataset.agent : ""; }
+  function trailBack() {
+    const b = document.querySelector("[data-trailback]");
+    if (!b) return;
+    const known = new Set($$("#tree a.ta").map((a) => a.dataset.k));
+    const prev = trail().find((k) => k !== shownAgent() && known.has(k));
+    b.hidden = !prev;
+    if (prev) { b.href = "/dashboard?view=agents&agent=" + encodeURIComponent(prev); b.title = "Back to " + prev; }
+  }
+  if (shownAgent()) { try { localStorage.setItem("ic_trail", JSON.stringify([shownAgent(), ...trail().filter((k) => k !== shownAgent())].slice(0, 15))); } catch {} }
   function bind(root = document) {
+    trailBack();
     $$("#compose", root).forEach((t) => { if (!t.value) t.value = drafts.get(t); t.addEventListener("input", () => drafts.set(t)); });
     $$("textarea[data-chat]", root).forEach(chatField);
     // The tree: hide/show (⌘B; on phones it slides over), folded projects remembered, the drawer on feeds.
@@ -977,7 +992,9 @@ export const SCRIPT = `
   const kDraw = () => {
     const q = kd.querySelector("input").value.trim().toLowerCase();
     const all = kItems();
-    kList = q ? all.map((it) => ({ it, s: Math.max(kScore(q, it.name) * 2, kScore(q, it.sub), kScore(q, it.more) / 2) - (it.gone ? 50 : 0) })).filter((x) => x.s > 0).sort((x, y) => y.s - x.s).map((x) => x.it).slice(0, 40) : all.filter((it) => !it.gone);
+    // No query: the agents you had open most recently come first, so ⌘K then Enter goes back to the last one.
+    const recent = q ? [] : trail().filter((k) => k !== shownAgent()).map((k) => all.find((it) => it.group === "Agents" && it.name === k)).filter(Boolean).slice(0, 5).map((it) => Object.assign({}, it, { group: "Recent" }));
+    kList = q ? all.map((it) => ({ it, s: Math.max(kScore(q, it.name) * 2, kScore(q, it.sub), kScore(q, it.more) / 2) - (it.gone ? 50 : 0) })).filter((x) => x.s > 0).sort((x, y) => y.s - x.s).map((x) => x.it).slice(0, 40) : [...recent, ...all.filter((it) => !it.gone && !recent.some((r) => r.name === it.name))];
     kSel = Math.min(kSel, Math.max(0, kList.length - 1));
     const box = kd.querySelector(".klist");
     box.textContent = "";

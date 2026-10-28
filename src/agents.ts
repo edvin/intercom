@@ -337,6 +337,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   const chat = `<section class="card chat">
       <div class="hd">
         <button type="button" class="btn ghost icon sm mtree" data-treetoggle title="Agents">${icon("sidebar", 17)}</button>
+        <a class="btn ghost icon sm trailback" data-trailback hidden title="Back">${icon("back", 17)}</a>
         <span class="presence ${on ? "on" : ""}">${agentAvatar(agent.member, agent.label, "m")}</span>
         <div class="grow" style="min-width:0">
           <h2 style="display:flex;gap:8px;align-items:center"><span class="grow" style="display:flex;gap:8px;align-items:center"><span class="aname">${esc(key(agent))}</span>${ownAgent ? `<button type="button" class="btn ghost xs icon renamebtn" data-open="dlg-rename" title="Rename this agent">${icon("pencil", 12)}</button>` : ""}${clientBadge(agent.client, true)}</span>
