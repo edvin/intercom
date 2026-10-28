@@ -1004,12 +1004,20 @@ export const SCRIPT = `
     if (!kd) {
       kd = document.createElement("dialog");
       kd.className = "kpal";
-      kd.innerHTML = '<div class="kin">' + ${JSON.stringify(icon("search", 18))} + '<input type="search" placeholder="Find an agent, project or page" aria-label="Search" autocomplete="off" spellcheck="false"><span class="kbd">esc</span></div><div class="klist" role="listbox"></div><div class="kft"><span><span class="kbd">↑</span><span class="kbd">↓</span> move</span><span><span class="kbd">↵</span> open</span><span><span class="kbd">⌘</span><span class="kbd">↵</span> new tab</span></div>';
+      kd.innerHTML = '<div class="kin">' + ${JSON.stringify(icon("search", 18))} + '<input type="search" placeholder="Find an agent, project or page" aria-label="Search" autocomplete="off" spellcheck="false"><span class="kbd">esc</span></div><div class="klist" role="listbox"></div><div class="kft"><span><span class="kbd">↑</span><span class="kbd">↓</span> move</span><span><span class="kbd">PgUp</span><span class="kbd">PgDn</span> page</span><span><span class="kbd">↵</span> open</span><span><span class="kbd">⌘</span><span class="kbd">↵</span> new tab</span></div>';
       document.body.append(kd);
       const input = kd.querySelector("input");
       input.oninput = () => { kSel = 0; kDraw(); };
       input.onkeydown = (e) => {
         if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); if (kList.length) { kSel = (kSel + (e.key === "ArrowDown" ? 1 : kList.length - 1)) % kList.length; kMark(); } }
+        else if ((e.key === "PageDown" || e.key === "PageUp") && kList.length) {
+          // A page is as many results as the list shows at once.
+          e.preventDefault();
+          const box = kd.querySelector(".klist"), row = kd.querySelector(".kit");
+          const page = Math.max(1, Math.floor(box.clientHeight / (row ? row.offsetHeight : 40)) - 1);
+          kSel = Math.min(kList.length - 1, Math.max(0, kSel + (e.key === "PageDown" ? page : -page)));
+          kMark();
+        }
         else if (e.key === "Enter" && kList[kSel]) { e.preventDefault(); if (e.metaKey || e.ctrlKey) window.open(kList[kSel].href, "_blank"); else { kd.close(); location.href = kList[kSel].href; } }
       };
       kd.addEventListener("click", (e) => { if (e.target === kd) kd.close(); });
