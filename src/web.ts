@@ -699,6 +699,7 @@ export async function dashboard(url: URL, env: Env, me: string, cookie = ""): Pr
     <span class="live" id="live" title="Updates arrive live while this is green"><span class="dot"></span>Connecting</span>
     <span class="grow"></span>
     ${view === "feed" ? `<button type="button" class="btn ghost sm" data-drawertoggle title="Show or hide the panels: project, locks, handoffs, decisions, votes">${icon("layers", 15)}<span class="lbl">Panels</span></button>` : ""}
+    <button type="button" class="btn ghost sm" data-kopen title="Find an agent, project or page">${icon("search", 15)}<span class="lbl">Search</span><span class="kbd kbd-k">⌘K</span></button>
     <a class="btn ghost sm" href="/">${icon("sparkles", 15)}<span class="lbl">About</span></a>
     <a class="btn ghost sm" href="/docs">${icon("book", 15)}Docs</a>
     <a class="me" href="/account" title="Your account">${avatar(me, "s")}<b>${esc(me)}</b>${meRow?.org ? `<span class="muted">· ${esc(meRow.org)}</span>` : ""}${admin ? '<span class="badge accent">admin</span>' : ""}</a>

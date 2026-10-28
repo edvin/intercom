@@ -164,6 +164,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   const pending = await pendingApprovals(env, me);
   const tree = `<aside class="tree" id="tree" data-region>
     <nav class="ttop">
+      <button type="button" class="tl" data-kopen>${icon("search", 14)}<span>Search</span><span class="kbd kbd-k" style="margin-left:auto">⌘K</span></button>
       <a class="tl${nav.view === "feed" && !nav.channel ? " on" : ""}" href="/dashboard">${icon("layers", 14)}<span>Everything</span>${nav.votesTotal ? `<span class="badge accent">${nav.votesTotal}</span>` : ""}</a>
       ${pending.length ? `<a class="tl warn" href="/dashboard?view=agents#approvals">${icon("shield", 14)}<span>Approvals</span><span class="badge red">${pending.length}</span></a>` : ""}
     </nav>

@@ -22,6 +22,8 @@ export const redirect = (to: string, headers: Record<string, string> = {}) => ne
 
 // Icons: 24×24 stroke paths (Lucide-style, ISC licensed shapes).
 const ICONS: Record<string, string> = {
+  user: '<circle cx="12" cy="8" r="5"/><path d="M20 21a8 8 0 0 0-16 0"/>',
+  search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
   volume: '<path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z"/><path d="M16 9a5 5 0 0 1 0 6"/><path d="M19.364 18.364a9 9 0 0 0 0-12.728"/>',
   square: '<rect width="14" height="14" x="5" y="5" rx="2"/>',
   lock: '<rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
@@ -470,6 +472,23 @@ button.opt.mine .pick{background:var(--grad);border-color:transparent;color:#fff
 /* dialogs & toast */
 dialog{border:1px solid var(--line-strong);background:var(--surface);color:var(--ink);border-radius:18px;padding:0;width:min(560px,calc(100vw - 32px));box-shadow:var(--shadow-lg)}
 dialog::backdrop{background:rgba(8,8,14,.45);backdrop-filter:blur(3px)}
+/* ⌘K: find an agent, project or page */
+.kpal{width:min(620px,calc(100vw - 24px));margin-top:12vh;border-radius:16px;overflow:hidden}
+.kpal[open]{display:flex;flex-direction:column;max-height:min(560px,76vh)}
+.kin{display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--line);color:var(--mute)}
+.kin input{flex:1;min-width:0;border:0;outline:0;background:none;color:var(--ink);font:inherit;font-size:16px;padding:0}
+.klist{overflow:auto;padding:6px;flex:1;min-height:0}
+.kgrp{padding:10px 10px 4px;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--mute)}
+.kit{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:10px;color:var(--ink);text-decoration:none;cursor:pointer}
+.kit:hover{text-decoration:none}.kit.on{background:var(--accent-soft)}.kit.on .kn{color:var(--accent)}
+.kit .kic{display:flex;align-items:center;gap:6px;flex:none;color:var(--ink-2)}.kit .kic .th{width:22px;text-align:center;font-weight:600;color:var(--mute)}
+.kit .kn{font-weight:560;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.kit .ks{margin-left:auto;padding-left:12px;font-size:12px;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.kit.gone .kn{color:var(--ink-2)}
+.kit mark{background:none;color:var(--accent);font-weight:700}
+.kempty{padding:28px 12px;text-align:center;color:var(--mute)}
+.kft{display:flex;gap:16px;padding:9px 16px;border-top:1px solid var(--line);font-size:12px;color:var(--mute)}.kft .kbd{margin-right:3px}
+@media (max-width:640px){.kpal{margin-top:8px;max-height:calc(100dvh - 16px)}.kft,.kin .kbd{display:none}}
+
 dialog[open]{animation:pop .18s cubic-bezier(.2,.9,.3,1.2)}
 @keyframes pop{from{opacity:0;transform:translateY(8px) scale(.98)}}
 dialog .hd{display:flex;align-items:center;gap:10px;padding:18px 20px 0}dialog .hd h2{font-size:17px}
@@ -931,6 +950,77 @@ export const SCRIPT = `
   // on screen in the URL so live redraws (they fetch this URL) keep showing it.
   const shown = document.getElementById("chatform");
   if (shown && shown.dataset.agent && q.searchParams.get("view") === "agents" && !q.searchParams.has("agent")) { q.searchParams.set("agent", shown.dataset.agent); history.replaceState(null, "", q); }
+  // ⌘K / Ctrl+K: find an agent, project or page. What it searches is read from the tree when it opens (the tree is
+  // on every dashboard page, also when hidden), so it always matches what the hub just drew.
+  let kd = null, kSel = 0, kList = [];
+  const kItems = () => {
+    const out = [];
+    $$("#tree a.ta").forEach((a) => {
+      const proj = a.closest("details.tp") && a.closest("details.tp").querySelector(".tpn");
+      const state = a.classList.contains("gone") ? "not connected" : a.hasAttribute("data-w") ? "needs you" : (a.querySelector(".tdot") || {}).className.indexOf("work") >= 0 ? "working" : "";
+      out.push({ group: "Agents", name: a.dataset.k, sub: [proj ? proj.textContent.trim() : "", state].filter(Boolean).join(" · "), more: a.title || "", href: a.getAttribute("href"), icon: [...a.children].slice(0, 2).map((c) => c.outerHTML).join(""), gone: a.classList.contains("gone") });
+    });
+    $$("#tree a.tpn").forEach((a) => out.push({ group: "Projects", name: a.textContent.trim(), sub: "messages, locks, votes", href: a.getAttribute("href"), icon: ICONS_K.folder }));
+    [["Everything", "/dashboard", "every project and message", "layers"], ["Agents", "/dashboard?view=agents", "your agents' chats", "message"], ["Account", "/account", "tokens, browsers, GitHub", "user"], ["Docs", "/docs", "how intercom works", "book"]].forEach(([name, href, sub, ic]) => out.push({ group: "Pages", name, sub, href, icon: ICONS_K[ic] || "" }));
+    return out;
+  };
+  const ICONS_K = { folder: ${JSON.stringify(icon("folder", 16))}, layers: ${JSON.stringify(icon("layers", 16))}, message: ${JSON.stringify(icon("message", 16))}, user: ${JSON.stringify(icon("user", 16))}, book: ${JSON.stringify(icon("book", 16))} };
+  // Higher is better: a match at the start of the name or of a word in it, then anywhere, then the letters in order.
+  const kScore = (q, text) => {
+    const t = (text || "").toLowerCase();
+    const i = t.indexOf(q);
+    if (i >= 0) return 1000 - i + (i === 0 || " /#._-".includes(t[i - 1]) ? 500 : 0);
+    let j = 0;
+    for (let k = 0; k < t.length && j < q.length; k++) if (t[k] === q[j]) j++;
+    return j === q.length ? 100 - t.length / 10 : 0;
+  };
+  const kDraw = () => {
+    const q = kd.querySelector("input").value.trim().toLowerCase();
+    const all = kItems();
+    kList = q ? all.map((it) => ({ it, s: Math.max(kScore(q, it.name) * 2, kScore(q, it.sub), kScore(q, it.more) / 2) - (it.gone ? 50 : 0) })).filter((x) => x.s > 0).sort((x, y) => y.s - x.s).map((x) => x.it).slice(0, 40) : all.filter((it) => !it.gone);
+    kSel = Math.min(kSel, Math.max(0, kList.length - 1));
+    const box = kd.querySelector(".klist");
+    box.textContent = "";
+    if (!kList.length) { const e = document.createElement("div"); e.className = "kempty"; e.textContent = "Nothing matches “" + q + "”"; box.append(e); return; }
+    let group = "";
+    kList.forEach((it, n) => {
+      if (!q && it.group !== group) { group = it.group; const g = document.createElement("div"); g.className = "kgrp"; g.textContent = group; box.append(g); }
+      const a = document.createElement("a");
+      a.className = "kit" + (n === kSel ? " on" : "") + (it.gone ? " gone" : "");
+      a.href = it.href; a.dataset.n = n; a.setAttribute("role", "option");
+      const ic = document.createElement("span"); ic.className = "kic"; ic.innerHTML = it.icon;
+      const nm = document.createElement("span"); nm.className = "kn";
+      const at = q ? it.name.toLowerCase().indexOf(q) : -1;
+      if (at >= 0) { const m = document.createElement("mark"); m.textContent = it.name.slice(at, at + q.length); nm.append(it.name.slice(0, at), m, it.name.slice(at + q.length)); } else nm.textContent = it.name;
+      const sb = document.createElement("span"); sb.className = "ks"; sb.textContent = it.sub;
+      a.append(ic, nm, sb);
+      a.onmousemove = () => { if (kSel !== n) { kSel = n; kMark(); } };
+      box.append(a);
+    });
+  };
+  const kMark = () => kd.querySelectorAll(".kit").forEach((a) => { const on = Number(a.dataset.n) === kSel; a.classList.toggle("on", on); if (on) a.scrollIntoView({ block: "nearest" }); });
+  const kOpen = () => {
+    if (!kd) {
+      kd = document.createElement("dialog");
+      kd.className = "kpal";
+      kd.innerHTML = '<div class="kin">' + ${JSON.stringify(icon("search", 18))} + '<input type="search" placeholder="Find an agent, project or page" aria-label="Search" autocomplete="off" spellcheck="false"><span class="kbd">esc</span></div><div class="klist" role="listbox"></div><div class="kft"><span><span class="kbd">↑</span><span class="kbd">↓</span> move</span><span><span class="kbd">↵</span> open</span><span><span class="kbd">⌘</span><span class="kbd">↵</span> new tab</span></div>';
+      document.body.append(kd);
+      const input = kd.querySelector("input");
+      input.oninput = () => { kSel = 0; kDraw(); };
+      input.onkeydown = (e) => {
+        if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); if (kList.length) { kSel = (kSel + (e.key === "ArrowDown" ? 1 : kList.length - 1)) % kList.length; kMark(); } }
+        else if (e.key === "Enter" && kList[kSel]) { e.preventDefault(); if (e.metaKey || e.ctrlKey) window.open(kList[kSel].href, "_blank"); else { kd.close(); location.href = kList[kSel].href; } }
+      };
+      kd.addEventListener("click", (e) => { if (e.target === kd) kd.close(); });
+    }
+    if (kd.open) return kd.close();
+    kd.querySelector("input").value = ""; kSel = 0; kDraw();
+    kd.showModal();
+    kd.querySelector("input").focus();
+  };
+  if (!/Mac|iPhone|iPad/.test(navigator.platform)) $$(".kbd-k").forEach((k) => (k.textContent = "Ctrl K"));
+  document.addEventListener("keydown", (e) => { if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "k") { e.preventDefault(); kOpen(); } });
+  document.addEventListener("click", (e) => { if (e.target.closest && e.target.closest("[data-kopen]")) { e.preventDefault(); kOpen(); } });
   document.addEventListener("keydown", (e) => { if (e.key === "/" && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) { const c = $("#compose"); if (c) { e.preventDefault(); c.focus(); } } });
   // An open dashboard (an installed phone app above all, which has no reload button) picks up a new version by
   // itself: when it comes back into view, it reloads if the hub serves different styles or script, unless something
