@@ -1532,3 +1532,61 @@ describe("dashboard script", () => {
     assert.doesNotThrow(() => new Function(SCRIPT));
   });
 });
+
+describe("files your agents mention", () => {
+  const setup = async () => {
+    const w = await standardWorld();
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=lf&name=core", { as: "bob" });
+    await w.db.prepare("UPDATE sessions SET version = '0.12.16' WHERE session_id = 'lf'").run();
+    await w.request("/api/activity?session=lf", {
+      as: "bob",
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ items: [{ at: Date.now(), kind: "text", text: "Screenshot: /tmp/scratchpad/preview/step1.png" }] }),
+    });
+    return w;
+  };
+  const open = (w: World, as: string, path: string, agent = "bob/core") =>
+    w.request(`/agent-file?agent=${encodeURIComponent(agent)}&path=${encodeURIComponent(path)}`, { as, cookie: true });
+
+  test("a path in your agent's text links to the file; opening it fetches it from the agent's machine", async () => {
+    const w = await setup();
+    const page = await (await w.request("/dashboard?view=agents&agent=bob/core", { as: "bob", cookie: true })).text();
+    assert.match(page, /<a class="lfile" href="\/agent-file\?agent=bob%2Fcore&amp;path=%2Ftmp%2Fscratchpad%2Fpreview%2Fstep1\.png"/);
+    const res = open(w, "bob", "/tmp/scratchpad/preview/step1.png");
+    while (!w.asked.length) await new Promise((r) => setTimeout(r, 5));
+    assert.deepEqual({ ...w.asked[0], req: "" }, { member: "bob", sessionId: "lf", req: "", path: "/tmp/scratchpad/preview/step1.png" });
+    // Only the agent's owner (its local server signs in as them) can answer.
+    const body = (extra: object) => ({ method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ req: w.asked[0]!.req, ...extra }) });
+    assert.deepEqual(await (await w.request("/api/file-reply", { as: "alice", ...body({ error: "nope" }) })).json(), { ok: false });
+    const png = btoa("png bytes");
+    assert.deepEqual(await (await w.request("/api/file-reply", { as: "bob", ...body({ name: "step1.png", mime: "image/png", data: png }) })).json(), { ok: true });
+    const r = await res;
+    assert.equal(r.status, 303);
+    const img = await w.request(r.headers.get("location")!, { as: "bob", cookie: true });
+    assert.equal(img.headers.get("content-type"), "image/png");
+    assert.equal(await img.text(), "png bytes");
+  });
+
+  test("only paths the agent mentioned, only your own agents, and only while connected", async () => {
+    const w = await setup();
+    assert.match(await (await open(w, "bob", "/home/bob/.ssh/id_ed25519.pub")).text(), /hasn&#39;t mentioned that file/);
+    assert.match(await (await open(w, "alice", "/tmp/scratchpad/preview/step1.png")).text(), /only fetch files from your own agents/);
+    w.offline.add("lf");
+    assert.match(await (await open(w, "bob", "/tmp/scratchpad/preview/step1.png")).text(), /isn&#39;t connected right now/);
+    await w.db.prepare("UPDATE sessions SET version = '0.12.15' WHERE session_id = 'lf'").run();
+    assert.match(await (await open(w, "bob", "/tmp/scratchpad/preview/step1.png")).text(), /fetching files needs 0\.12\.16/);
+    assert.equal(w.asked.length, 0);
+    // A teammate's agent's paths aren't links.
+    const page = await (await w.request("/dashboard?view=agents&agent=bob/core", { as: "alice", cookie: true })).text();
+    assert.doesNotMatch(page, /class="lfile"/);
+  });
+
+  test("the agent's error reaches the browser", async () => {
+    const w = await setup();
+    const res = open(w, "bob", "/tmp/scratchpad/preview/step1.png");
+    while (!w.asked.length) await new Promise((r) => setTimeout(r, 5));
+    await w.request("/api/file-reply", { as: "bob", method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ req: w.asked[0]!.req, error: "/tmp/scratchpad/preview/step1.png doesn't exist (any more) on that machine." }) });
+    assert.match(await (await res).text(), /doesn&#39;t exist \(any more\)/);
+  });
+});

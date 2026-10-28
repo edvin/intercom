@@ -62,6 +62,9 @@ export const ADMIN = "admin-secret";
 export class World {
   db = new TestDb();
   pushed: Message[] = [];
+  /** File requests sent to local servers (askFile); `offline` sessions aren't connected. */
+  asked: { member: string; sessionId: string; req: string; path: string }[] = [];
+  offline = new Set<string>();
   tokens: Record<string, string> = {};
 
   github?: { client_id: string; client_secret: string };
@@ -80,7 +83,13 @@ export class World {
   } as unknown as R2Bucket;
 
   env(): Env {
-    return { DB: this.db, onMessage: (m) => this.pushed.push(m), github: this.github, files: this.files };
+    return {
+      DB: this.db,
+      onMessage: (m) => this.pushed.push(m),
+      github: this.github,
+      files: this.files,
+      askFile: (member, sessionId, req, path) => !this.offline.has(sessionId) && !!this.asked.push({ member, sessionId, req, path }),
+    };
   }
 
   async request(path: string, init: RequestInit & { as?: string; cookie?: boolean } = {}): Promise<Response> {

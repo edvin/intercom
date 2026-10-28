@@ -86,7 +86,7 @@ interface Invite {
   uses_left: number;
 }
 
-function soloCard(title: string, body: string, wide = false): string {
+export function soloCard(title: string, body: string, wide = false): string {
   return page(`Intercom · ${title}`, `<main class="solo"><div class="card${wide ? " wide" : ""}"><div class="bd stack" style="padding:32px">${body}</div></div></main>`);
 }
 

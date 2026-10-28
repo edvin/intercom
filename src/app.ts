@@ -1,6 +1,7 @@
 import { recordsBrief } from "./records";
 import { answerBtw, pendingBtw } from "./btw";
 import { getAttachment, isImage, readImage } from "./attachments";
+import { fetchLocalFile, fileReply } from "./localfiles";
 import { type Env, type Message, type Proposal, type Session, MEMBER_OF, RECEIVES, UserError, activeLocks, address, isMyLock, ago, addActivity, lockIn, scopedLocks, cleanBranch, cleanClient, fromOwnUser, renameSession, setHost, setVersion, workingOn, authenticate, coMembers, fmtLock, fmtMessage, myProjects, moveSession, projectFor, resolveProject, setCwd, setOrigin, setPresence, setRepo, tally, touchSession, unread } from "./lib";
 import { INSTRUCTIONS, tools } from "./tools";
 import { cliPoll, cliStart, connectPage, discoverJoin, discoverPage, discoverRequest, githubCallback, githubCreate, githubStart, signOut } from "./accounts";
@@ -9,8 +10,8 @@ import { guard } from "./guard";
 import { PLUGIN_VERSION, outdated } from "./version";
 import { getSetting, githubRepo, openSignup, setSetting } from "./github";
 import { landingPage } from "./landing";
-import { BUILD, redirect } from "./ui";
-import { accountPage, dashboard, exportProject, sameOrigin, handleAction, handleAdminAction, handleJoin, handleLogin, handleLogout, loginPage } from "./web";
+import { BUILD, esc, redirect } from "./ui";
+import { accountPage, dashboard, soloCard, exportProject, sameOrigin, handleAction, handleAdminAction, handleJoin, handleLogin, handleLogout, loginPage } from "./web";
 
 const SUPPORTED_PROTOCOLS = ["2025-11-25", "2025-06-18", "2025-03-26"];
 const SERVER_INFO = { name: "intercom", version: "0.1.0" };
@@ -595,6 +596,21 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
         "content-security-policy": "default-src 'none'; sandbox",
       },
     });
+  }
+  if (url.pathname === "/agent-file" && req.method === "GET") {
+    // A file one of your agents mentioned, fetched from its machine (localfiles.ts), then shown like an attachment.
+    const [member, label] = (url.searchParams.get("agent") ?? "").split("/");
+    try {
+      if (member !== me || !label) throw new UserError("You can only fetch files from your own agents.");
+      const a = await fetchLocalFile(env, me, label, url.searchParams.get("path") ?? "");
+      return redirect(`/attachment/${a.id}`);
+    } catch (e) {
+      if (!(e instanceof UserError)) throw e;
+      return new Response(soloCard("File", `<h1>Couldn't fetch the file</h1><p class="muted">${esc(e.message)}</p>`), { status: 404, headers: { "content-type": "text/html; charset=utf-8" } });
+    }
+  }
+  if (url.pathname === "/api/file-reply" && req.method === "POST") {
+    return json({ ok: await fileReply(env, me, (await req.json().catch(() => ({}))) as Record<string, unknown>) });
   }
   if (url.pathname === "/agent/project" && req.method === "POST") {
     if (!sameOrigin(req)) return new Response("Cross-origin request refused", { status: 403 });

@@ -22,6 +22,8 @@ export interface Env {
   live?: () => Set<string>;
   /** Redraw a member's open dashboards; undefined outside the hub. */
   refreshWeb?: (member: string) => void;
+  /** Ask a session's local server for a file on its machine (localfiles.ts); false when it isn't connected. */
+  askFile?: (member: string, sessionId: string, req: string, path: string) => boolean;
   /** Where message images live (R2). */
   files?: R2Bucket;
 }

@@ -149,6 +149,7 @@ export class TeamHub extends DurableObject<WorkerEnv> {
       onMessage: (m) => this.fanout(m),
       live: () => this.liveSessions(),
       refreshWeb: (member: string) => this.refreshWeb(member),
+      askFile: (member, sessionId, req, path) => this.askFile(member, sessionId, req, path),
       files: this.env.FILES,
       github: id && secret ? { client_id: id, client_secret: secret } : undefined,
     };
@@ -263,6 +264,21 @@ export class TeamHub extends DurableObject<WorkerEnv> {
       const s = ws.deserializeAttachment() as SocketInfo | null;
       if (s?.mode === "web") this.safeSend(ws, '{"type":"refresh"}');
     }
+  }
+
+  /** Send a file request to a session's local server; false when none is connected. */
+  private askFile(member: string, sessionId: string, req: string, path: string): boolean {
+    for (const ws of this.ctx.getWebSockets(member)) {
+      const s = ws.deserializeAttachment() as SocketInfo | null;
+      if (s?.mode === "web" || s?.session_id !== sessionId) continue;
+      try {
+        ws.send(JSON.stringify({ type: "file-request", req, path }));
+        return true;
+      } catch {
+        // closing; try another socket of the session
+      }
+    }
+    return false;
   }
 
   private safeSend(ws: WebSocket, data: string): void {

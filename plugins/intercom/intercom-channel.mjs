@@ -20,7 +20,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const VERSION = "0.12.15"; // kept in step with .claude-plugin/plugin.json (a test checks)
+const VERSION = "0.12.16"; // kept in step with .claude-plugin/plugin.json (a test checks)
 const DIR = path.join(os.homedir(), ".claude", "intercom");
 const CONFIG = path.join(DIR, "config");
 function readConf() {
@@ -184,6 +184,29 @@ async function shareFile(params) {
   const mime = MIME[path.extname(name).slice(1).toLowerCase()] ?? "application/octet-stream";
   const data = fs.readFileSync(file).toString("base64");
   return await remote("tools/call", { ...params, arguments: { ...args, path: file, _file: { name, mime, data } } }, 60_000);
+}
+
+// ---- file requests: the owner opened a path this session mentioned, in the dashboard; send them the file ----
+
+async function answerFileRequest(f) {
+  const reply = (body) =>
+    fetch(`${BASE}/api/file-reply`, { method: "POST", headers: { authorization: headers.authorization, "content-type": "application/json" }, body: JSON.stringify({ req: f.req, ...body }), signal: AbortSignal.timeout(60_000) });
+  try {
+    const raw = String(f.path ?? "");
+    const file = path.resolve(process.cwd(), raw.replace(/^~(?=$|[\\/])/, os.homedir()));
+    let st;
+    try {
+      st = fs.statSync(file);
+    } catch {
+      return await reply({ error: `${raw} doesn't exist (any more) on that machine.` });
+    }
+    if (!st.isFile()) return await reply({ error: `${raw} isn't a file.` });
+    if (st.size > SHARE_MAX) return await reply({ error: `${raw} is ${(st.size / 1024 / 1024).toFixed(1)} MB; the limit is 10 MB.` });
+    const name = path.basename(file);
+    await reply({ name, mime: MIME[path.extname(name).slice(1).toLowerCase()] ?? "application/octet-stream", data: fs.readFileSync(file).toString("base64") });
+  } catch (e) {
+    log("file request failed:", e.message);
+  }
 }
 
 // ---- save_attachment: the attachment is fetched from the hub and written on this machine ----
@@ -643,6 +666,8 @@ function connect() {
     } else if (f.type === "message") {
       pushToClaude(f.message);
       notify(f.message);
+    } else if (f.type === "file-request") {
+      answerFileRequest(f);
     } else if (f.type === "peek") {
       for (const m of markers("pending")) touch(m);
       notify(f.message);

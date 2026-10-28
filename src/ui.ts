@@ -362,6 +362,7 @@ form.btwmode textarea{border-color:color-mix(in srgb,var(--amber) 60%,transparen
 .imgtray{display:flex;gap:8px;flex-wrap:wrap;padding:6px 6px 8px}.imgtray[hidden]{display:none}.imgthumb{position:relative}.imgthumb img{height:64px;max-width:120px;object-fit:cover;border-radius:8px;border:1px solid var(--line);display:block}
 .imgthumb button{position:absolute;top:-6px;right:-6px;width:20px;height:20px;border-radius:50%;border:0;background:var(--ink);color:var(--bg);font-size:13px;line-height:20px;padding:0;cursor:pointer}
 form.dropping{outline:2px dashed var(--accent);outline-offset:4px;border-radius:12px}
+.lfile{overflow-wrap:anywhere;text-decoration:underline dotted;text-underline-offset:3px}.lfile code{color:inherit}
 .attf{display:inline-flex;align-items:center;gap:8px;margin:6px 8px 2px 0;padding:6px 11px 6px 8px;border:1px solid var(--line);border-radius:8px;background:var(--surface-2);color:var(--ink);text-decoration:none;font-family:"JetBrains Mono","Geist Mono",ui-monospace,monospace;font-size:12.5px;max-width:100%}
 .attf:hover{border-color:var(--accent);color:var(--ink)}.attf-i{display:grid;place-items:center;width:22px;height:22px;border-radius:6px;background:var(--accent-soft);color:var(--accent);font-size:13px}
 .attf-n{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.attf-s{color:var(--mute);font-size:11px;white-space:nowrap}

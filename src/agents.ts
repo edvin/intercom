@@ -231,10 +231,12 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   const origins = new Map(agents.map((a) => [`${a.member}/${a.label}`, a.origin ?? ""]));
   const originOf = (member: string, label: string | null) => (label && origins.get(`${member}/${label}`)) || agent.origin || null;
   const ACT_ICON: Record<string, string> = { cmd: "$", edit: "✎", read: "·", tool: "⚙", text: "●", prompt: "›", loop: "↻", job: "" };
+  // Paths your own agent mentions link to the file on its machine (localfiles.ts).
+  const files = agent.member === me ? `${agent.member}/${agent.label}` : null;
   const actRow = (a: Activity) =>
     `<div class="act act-${a.kind}" data-mid="a${a.id}"><span class="aic">${ACT_ICON[a.kind] ?? "·"}</span><span class="atx${a.kind === "text" ? " md" : ""}">${
       a.kind === "text"
-        ? md(a.text, agent.origin)
+        ? md(a.text, agent.origin, files)
         : a.kind === "prompt"
           ? `<span class="muted">typed in the terminal:</span> ${esc(plainSpaces(a.text))}`
           : a.kind === "cmd" && a.text.includes("\n")
@@ -261,7 +263,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
         return `<div class="bubble md relay" data-mid="${m.id}"><span class="rhd">${named(m.sender, m.sender_agent, from)} → ${named(m.recipient!, m.recipient_agent, to)}</span>${md(m.body, originOf(m.sender, m.sender_agent))}<span class="when">${time(m.created_at)}${mark}</span></div>`;
       }
       const speak = fromMe ? "" : `<button type="button" class="speak" data-speak title="Read aloud">${icon("volume", 13)}</button>`;
-      return `<div class="bubble md ${fromMe ? "mine" : ""}" data-mid="${m.id}" data-who="${esc(agent.label)}" style="--h:${agentHue(agent.member, agent.label)}">${md(m.body, fromMe ? agent.origin : originOf(m.sender, m.sender_agent))}<span class="when">${time(m.created_at)}${mark}</span>${speak}</div>`;
+      return `<div class="bubble md ${fromMe ? "mine" : ""}" data-mid="${m.id}" data-who="${esc(agent.label)}" style="--h:${agentHue(agent.member, agent.label)}">${md(m.body, fromMe ? agent.origin : originOf(m.sender, m.sender_agent), m.sender === me && m.sender_agent === agent.label ? files : null)}<span class="when">${time(m.created_at)}${mark}</span>${speak}</div>`;
     });
   rows.forEach((m, i) =>
     items.push({
