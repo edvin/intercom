@@ -291,6 +291,8 @@ export async function postMessage(
     kind?: string;
     body: string;
     broadcast?: boolean;
+    /** Longer than MAX_BODY: an agent's reply taken from its terminal. */
+    max?: number;
   },
 ): Promise<number> {
   const row = await env.DB.prepare(
@@ -304,7 +306,7 @@ export async function postMessage(
       m.recipient ?? null,
       m.recipient_agent ?? null,
       m.kind ?? "message",
-      m.body.slice(0, MAX_BODY),
+      m.body.slice(0, m.max ?? MAX_BODY),
       Date.now(),
       m.broadcast ? 1 : 0,
     )

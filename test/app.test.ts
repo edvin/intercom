@@ -1597,3 +1597,69 @@ describe("files your agents mention", () => {
     assert.match(await (await res).text(), /doesn&#39;t exist \(any more\)/);
   });
 });
+
+describe("replies from the terminal", () => {
+  const world = async (version: string) => {
+    const w = await standardWorld();
+    const core = { id: "tr1", project: "billing-api" };
+    await w.ok("bob", "inbox", {}, core);
+    await w.ok("bob", "set_name", { name: "core" }, core);
+    await w.db.prepare("UPDATE sessions SET version = ? WHERE session_id = 'tr1'").bind(version).run();
+    const stop = async (said: string) => {
+      const r = await w.request("/api/hook?event=Stop&project=billing-api&session=tr1", {
+        as: "bob",
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ hook_event_name: "Stop", last_assistant_message: said }),
+      });
+      const t = await r.text();
+      return t ? JSON.parse(t) : null;
+    };
+    const replies = async () =>
+      (await w.db.prepare("SELECT body FROM messages WHERE sender = 'bob' AND sender_agent = 'core' AND recipient = 'bob' ORDER BY id").all<{ body: string }>()).results.map((m) => m.body);
+    return { w, core, stop, replies };
+  };
+
+  test("the final message of a turn that answered the dashboard becomes the reply, once", async () => {
+    const { w, core, stop, replies } = await world("0.12.17");
+    await w.ok("bob", "post", { to: "bob/core", message: "Is the ledger fix deployed?" });
+    assert.match(await w.ok("bob", "inbox", {}, core), /Is the ledger fix deployed\?/); // the agent reads it
+    assert.equal(await stop("Yes: deployed at 14:02, **all green**."), null);
+    assert.deepEqual(await replies(), ["Yes: deployed at 14:02, **all green**."]);
+    await stop("Idle chatter after a terminal prompt."); // a later turn that didn't come from the dashboard
+    assert.deepEqual(await replies(), ["Yes: deployed at 14:02, **all green**."]);
+    // The agent's chat shows it once: as the reply, not also as mirrored terminal text.
+    await w.request("/api/activity?session=tr1", {
+      as: "bob",
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ items: [{ at: Date.now() - 1000, kind: "text", text: "Yes: deployed at 14:02, **all green**." }] }),
+    });
+    const page = await (await w.request("/dashboard?view=agents&agent=bob/core", { as: "bob", cookie: true })).text();
+    assert.equal(page.match(/deployed at 14:02/g)?.length, 1);
+  });
+
+  test("a message that arrived during the turn is answered by the next turn, and a reply the agent posted isn't repeated", async () => {
+    const { w, core, stop, replies } = await world("0.12.17");
+    await w.ok("bob", "post", { to: "bob/core", message: "Run the tests." });
+    await w.ok("bob", "inbox", {}, core);
+    await w.ok("bob", "post", { to: "bob/core", message: "And then the linter." }); // unread at Stop
+    const cont = await stop("Tests pass (84).");
+    assert.equal(cont.decision, "block");
+    assert.match(cont.reason, /And then the linter\.[\s\S]*your final message goes to the dashboard/);
+    assert.doesNotMatch(cont.reason, /post tool to your user/);
+    assert.deepEqual(await replies(), ["Tests pass (84)."]);
+    await w.ok("bob", "post", { to: "bob", message: "Linter clean." }, core); // posted by itself
+    await stop("Linter clean.");
+    assert.deepEqual(await replies(), ["Tests pass (84).", "Linter clean."]);
+  });
+
+  test("older plugins are still told to reply with the post tool", async () => {
+    const { w, stop, replies } = await world("0.12.16");
+    await w.ok("bob", "post", { to: "bob/core", message: "Status?" });
+    const ctx = await (await w.request("/api/hook?event=UserPromptSubmit&project=billing-api&session=tr1&version=0.12.16", { as: "bob" })).json() as { hookSpecificOutput: { additionalContext: string } };
+    assert.match(ctx.hookSpecificOutput.additionalContext, /Answer them with the intercom post tool to your user's handle/);
+    await stop(""); // an old hook sends no final message: nothing to post
+    assert.deepEqual(await replies(), []);
+  });
+});

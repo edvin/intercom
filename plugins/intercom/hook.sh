@@ -7,7 +7,7 @@
 # lets the user decide to go ahead. It never blocks on its own in Claude Code.
 # Never fails: any error just means no intercom context this time.
 
-VERSION=0.12.16 # kept in step with .claude-plugin/plugin.json (a test checks)
+VERSION=0.12.17 # kept in step with .claude-plugin/plugin.json (a test checks)
 D="$HOME/.claude/intercom"
 event="${1:-UserPromptSubmit}"
 client="${2:-claude}"
@@ -56,6 +56,12 @@ case "$event" in
     [ -n "$session" ] || session=$(printf '%s' "$input" | json_field session_id)
     [ -f "$D/config" ] && . "$D/config"
     [ -n "$INTERCOM_URL" ] && [ -n "$INTERCOM_TOKEN" ] && [ -n "$session" ] || exit 0
+    if [ "$event" = "Stop" ]; then
+      # The hook's input goes along: its last_assistant_message is the reply when the turn answered the dashboard.
+      printf '%s' "$input" | curl -sf --max-time 5 -X POST "$INTERCOM_URL/api/hook?event=Stop&session=$session&client=$client&show=${INTERCOM_SHOW:-1}&project=$(cat "$D/.project-$session" 2>/dev/null | sed 's/[^A-Za-z0-9._-]/-/g')" \
+        -H "Authorization: Bearer $INTERCOM_TOKEN" -H "Content-Type: application/json" --data-binary @- 2>/dev/null
+      exit 0
+    fi
     kind=$(printf '%s' "$input" | json_field notification_type)
     detail=$(printf '%s' "$input" | json_field message)
     [ -n "$detail" ] || detail=$(printf '%s' "$input" | json_field tool_name)

@@ -283,7 +283,11 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
     const t = flat(a.text);
     return t.length >= 8 && sentByYou.some((b) => t.includes(b.slice(0, Math.min(b.length, t.length))));
   };
-  for (const a of [...acts].reverse()) if (!echo(a)) items.push({ at: a.at, html: actRow(a), act: a }); // oldest first; sort is stable
+  // The agent's final message of a turn that answered you becomes its reply (replyFromTurn): the reply bubble has it,
+  // so the mirrored copy of that text stays out too.
+  const replies = rows.filter((m) => m.sender === agent.member && m.sender_agent === agent.label && m.recipient === me).map((m) => flat(m.body).slice(0, 120));
+  const said = (a: Activity) => a.kind === "text" && replies.includes(flat(a.text).slice(0, 120));
+  for (const a of [...acts].reverse()) if (!echo(a) && !said(a)) items.push({ at: a.at, html: actRow(a), act: a }); // oldest first; sort is stable
   // Side questions (/btw) to your own agent: shown apart, never part of its context.
   if (agent.member === me) {
     for (const b of await btwFor(env, me, agent.session_id)) {

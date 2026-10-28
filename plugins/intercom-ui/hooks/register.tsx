@@ -16,7 +16,7 @@ const error = atom({ plugin: 'intercom-ui', key: 'error' } as const, null)
 const hidden = atom({ plugin: 'intercom-ui', key: 'hidden' } as const, [])
 
 const POLL_MS = 8_000
-const MOD_VERSION = '0.2.6' // kept in step with ../.claude-plugin/plugin.json; the hub knows from it that this session answers side questions
+const MOD_VERSION = '0.2.7' // kept in step with ../.claude-plugin/plugin.json; the hub knows from it that this session answers side questions
 
 type Conf = { url: string; token: string }
 
@@ -191,7 +191,7 @@ async function wake($: Engine, s: Snapshot): Promise<void> {
   const body = fresh.map(p => p.body).join('\n\n---\n\n')
   $.ui.toast(`📻 ${s.label ?? 'intercom'}: your message from the dashboard`)
   await $.prompt.submit({
-    text: `${body}\n\n(Sent by you from the intercom dashboard. Reply there with the intercom post tool, to: "${s.me}". The dashboard also shows what you write here, so don't repeat that reply: end with one short line.)`,
+    text: `${body}\n\n(Sent by you from the intercom dashboard. ${s.reply ?? `Reply there with the intercom post tool, to: "${s.me}". The dashboard also shows what you write here, so don't repeat that reply: end with one short line.`})`,
   })
 }
 
