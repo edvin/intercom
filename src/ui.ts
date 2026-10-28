@@ -399,7 +399,11 @@ form.dropping{outline:2px dashed var(--accent);outline-offset:4px;border-radius:
 .dlv.held{color:var(--amber)}.dlv.cancel{color:var(--mute)}.bubble.mine .dlv.held{color:#fff}.thread.term .bubble.mine .dlv.held{color:var(--amber)}
 /* Edit / Cancel on a message no agent has yet: shown on hover (always on touch screens, and while it's on hold) */
 .unsend{display:inline-flex;gap:2px;margin:-4px 0 -4px 6px;vertical-align:middle;opacity:0;transition:opacity .12s}
-.bubble:hover .unsend,.bubble.held .unsend,.unsend:focus-within{opacity:1}
+.bubble:hover .unsend,.bubble.held .unsend,.unsend:focus-within,.bubble.picked .unsend{opacity:1}
+/* ↑ in an empty message field picks your latest message no agent has yet; its keys show on the buttons */
+.bubble.picked{outline:2px solid color-mix(in srgb,var(--accent) 70%,transparent);outline-offset:3px;border-radius:10px}
+.thread.term .bubble.mine.picked{outline:0;border-left-color:var(--accent);background:var(--accent-soft)}
+.bubble.picked [data-unsend=edit]::after{content:" ↵";opacity:.7}.bubble.picked [data-unsend=cancel]::after{content:" ⌫";opacity:.7}
 @media (hover:none){.unsend{opacity:1}}
 .unsend button{border:0;background:none;color:var(--mute);font:inherit;font-size:11px;font-weight:560;padding:3px 7px;border-radius:6px;cursor:pointer}
 .unsend button:hover{color:var(--ink);background:var(--surface-2)}
@@ -880,7 +884,36 @@ export const SCRIPT = `
     if (prev) { b.href = "/dashboard?view=agents&agent=" + encodeURIComponent(prev); b.title = "Back to " + prev; }
   }
   if (shownAgent()) { try { localStorage.setItem("ic_trail", JSON.stringify([shownAgent(), ...trail().filter((k) => k !== shownAgent())].slice(0, 15))); } catch {} }
+  // ↑ in an empty message field picks your latest message no agent has taken yet (↑ again: the one before); then
+  // Enter edits it, Backspace or Delete cancels it, and Esc, ↓ past the newest or typing lets go. Like Slack's edit-last.
+  var picked = null;
+  function pickables() { return $$("#thread .bubble.mine").filter((b) => b.querySelector('[data-unsend="edit"]')); }
+  function pick(b) {
+    $$(".bubble.picked").forEach((x) => x.classList.remove("picked"));
+    picked = b ? b.dataset.mid : null;
+    if (b) { b.classList.add("picked"); b.scrollIntoView({ block: "nearest" }); }
+  }
+  document.addEventListener("keydown", (e) => {
+    const t = e.target;
+    if (!t.matches || !t.matches("#chat-input") || e.isComposing || e.metaKey || e.ctrlKey || e.altKey) return;
+    const list = pickables();
+    if (!picked) {
+      if (e.key !== "ArrowUp" || t.value || !list.length || (t.form && t.form.classList.contains("editmode"))) return;
+      e.preventDefault(); pick(list[list.length - 1]); return;
+    }
+    const cur = list.find((b) => b.dataset.mid === picked), i = list.indexOf(cur);
+    if (!cur) return pick(null);
+    const key = (op) => { e.preventDefault(); e.stopPropagation(); pick(null); const b = cur.querySelector('[data-unsend="' + op + '"]'); if (b) b.click(); };
+    if (e.key === "ArrowUp") { e.preventDefault(); if (i > 0) pick(list[i - 1]); }
+    else if (e.key === "ArrowDown") { e.preventDefault(); pick(list[i + 1] || null); }
+    else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); pick(null); }
+    else if (e.key === "Enter") key("edit");
+    else if (e.key === "Backspace" || e.key === "Delete") key("cancel");
+    else pick(null);
+  }, true);
+
   function bind(root = document) {
+    if (picked) { const b = document.querySelector('.bubble[data-mid="' + picked + '"]'); if (b && b.querySelector('[data-unsend="edit"]')) b.classList.add("picked"); else picked = null; }
     trailBack();
     $$("#compose", root).forEach((t) => { if (!t.value) t.value = drafts.get(t); t.addEventListener("input", () => drafts.set(t)); });
     $$("textarea[data-chat]", root).forEach(chatField);
