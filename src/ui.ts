@@ -516,7 +516,7 @@ dialog::backdrop{background:rgba(8,8,14,.45);backdrop-filter:blur(3px)}
 .kpal[open]{display:flex;flex-direction:column;max-height:min(560px,76vh)}
 .kin{display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--line);color:var(--mute)}
 .kin input,.kin input:focus{flex:1;min-width:0;height:auto;border:0;outline:0;box-shadow:none;background:none;color:var(--ink);font:inherit;font-size:16px;padding:2px 8px}
-.klist{overflow:auto;padding:6px;flex:1;min-height:0}
+.klist{overflow:auto;padding:6px;flex:1 1 auto;min-height:0}
 .kgrp{padding:10px 10px 4px;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--mute)}
 .kit{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:10px;color:var(--ink);text-decoration:none;cursor:pointer}
 .kit:hover{text-decoration:none}.kit.on{background:var(--accent-soft)}.kit.on .kn{color:var(--accent)}
