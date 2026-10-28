@@ -91,6 +91,8 @@ export async function handleMcp(req: Request, env: Env, me: string, server: McpS
     return json(rpcError(null, -32700, "Parse error"), 400);
   }
   const batch = Array.isArray(payload);
+  // A batch runs its calls one after another; a long one would hold the hub (connector asks wait for replies).
+  if (batch && (payload as RpcRequest[]).length > 20) return json(rpcError(null, -32600, "Batch too large (max 20)"), 400);
   const replies = [];
   for (const msg of (batch ? payload : [payload]) as RpcRequest[]) {
     const reply = await handleRpc(msg, env, me, server);

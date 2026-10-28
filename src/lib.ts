@@ -523,6 +523,8 @@ export async function prune(env: Env, retentionDays = RETENTION_DAYS, now = Date
     invites: await run("DELETE FROM invites WHERE expires_at < ? OR uses_left <= 0", now - 7 * day),
     sessions: await run("DELETE FROM sessions WHERE last_seen < ?", now - 14 * day),
     states: await run("DELETE FROM oauth_states WHERE expires_at < ?", now),
+    // A connector (Claude.ai) nobody has used for 30 days is signed out; connecting again takes one click.
+    connectors: await run("DELETE FROM tokens WHERE kind = 'connector' AND COALESCE(used_at, created_at) < ?", now - 30 * day),
     // Anyone can register an OAuth client; one that never signed anyone in lapses after a day.
     clients: await run("DELETE FROM oauth_clients WHERE used_at IS NULL AND created_at < ?", now - day),
     devices: await run("DELETE FROM device_codes WHERE expires_at < ?", now),

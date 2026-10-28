@@ -37,6 +37,7 @@ import m0029 from "../migrations/0029_session_answered.sql";
 import m0030 from "../migrations/0030_message_unsend.sql";
 import m0031 from "../migrations/0031_session_context.sql";
 import m0032 from "../migrations/0032_connector.sql";
+import m0033 from "../migrations/0033_token_used.sql";
 
 /** A short fingerprint of the MCP tools (names, descriptions, schemas) this code offers. */
 const TOOLS_TAG = (() => {
@@ -78,6 +79,7 @@ const MIGRATIONS: [string, string][] = [
   ["0030_message_unsend", m0030],
   ["0031_session_context", m0031],
   ["0032_connector", m0032],
+  ["0033_token_used", m0033],
 ];
 
 const DAY = 86400_000;

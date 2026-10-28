@@ -21,16 +21,20 @@ const json = (body: unknown, status = 200, headers: Record<string, string> = {})
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", "cache-control": "no-store", ...cors, ...headers } });
 const oauthError = (error: string, description: string, status = 400) => json({ error, error_description: description }, status);
 
+/** Claude's OAuth callbacks: the only https pages a code may be sent to. */
+const CLAUDE_CALLBACKS = ["https://claude.ai/api/mcp/auth_callback", "https://claude.com/api/mcp/auth_callback"];
+
 /**
- * Where a registered client may send you back with a code: Claude's own callback, or a loopback address (a desktop
- * client on your machine). Anything else is refused at registration, so a look-alike client can't collect codes.
+ * Where a registered client may send you back with a code: exactly Claude's own callback, or a loopback address (a
+ * desktop client on your machine). Any other page, even on claude.ai, could leak the code (Referer, analytics), so
+ * it's refused at registration and again at sign-in.
  */
 export function allowedRedirect(uri: string): boolean {
+  if (uri.length > 512) return false;
+  if (CLAUDE_CALLBACKS.includes(uri)) return true;
   try {
     const u = new URL(uri);
-    if (u.hash) return false;
-    if (u.protocol === "https:" && ["claude.ai", "claude.com"].includes(u.hostname)) return true;
-    return u.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(u.hostname);
+    return !u.hash && u.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(u.hostname);
   } catch {
     return false;
   }
@@ -73,8 +77,17 @@ interface Client {
 
 /** POST /oauth/register (RFC 7591): open, like the spec expects, but only for Claude's or loopback redirects. */
 export async function register(req: Request, env: Env): Promise<Response> {
-  if (!(await rateLimit(env, `oauth:register:${env.ip ?? "?"}`, 20, 60 * MIN))) return oauthError("slow_down", "Too many registrations; try again later.", 429);
-  const body = (await req.json().catch(() => null)) as { redirect_uris?: unknown; client_name?: unknown; token_endpoint_auth_method?: unknown } | null;
+  if (!(await rateLimit(env, `oauth:register:${env.ip ?? "?"}`, 20, 60 * MIN)) || !(await rateLimit(env, "oauth:register", 200, 60 * MIN)))
+    return oauthError("slow_down", "Too many registrations; try again later.", 429);
+  const raw = await req.text();
+  if (raw.length > 8192) return oauthError("invalid_client_metadata", "Too large.");
+  const body = (() => {
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  })() as { redirect_uris?: unknown; client_name?: unknown; token_endpoint_auth_method?: unknown } | null;
   const uris = Array.isArray(body?.redirect_uris) ? body.redirect_uris.filter((u): u is string => typeof u === "string") : [];
   if (!uris.length || uris.length > 5) return oauthError("invalid_redirect_uri", "Give one to five redirect_uris.");
   const bad = uris.find((u) => !allowedRedirect(u));
@@ -119,7 +132,7 @@ export async function authorize(req: Request, env: Env, me: string | null, url: 
   const client = await env.DB.prepare("SELECT * FROM oauth_clients WHERE client_id = ?").bind(p.client_id).first<Client>();
   const uris: string[] = client ? JSON.parse(client.redirect_uris) : [];
   const redirectUri = p.redirect_uri || (uris.length === 1 ? uris[0]! : "");
-  if (!client || !uris.includes(redirectUri)) return problem("This sign-in link isn't valid", "The app that sent you here isn't registered with this intercom, or asked to send you somewhere else. Start connecting again from Claude.", 400);
+  if (!client || !uris.includes(redirectUri) || !allowedRedirect(redirectUri)) return problem("This sign-in link isn't valid", "The app that sent you here isn't registered with this intercom, or asked to send you somewhere else. Start connecting again from Claude.", 400);
   const back = (q: Record<string, string>) => {
     const u = new URL(redirectUri);
     for (const [k, v] of Object.entries({ ...q, ...(p.state ? { state: p.state } : {}) })) u.searchParams.set(k, v);
@@ -153,6 +166,7 @@ export async function authorize(req: Request, env: Env, me: string | null, url: 
         <li>read locks, decisions, votes and handoffs in your projects</li>
       </ul>
       <p class="small muted" style="margin:0">It can't invite people, change project rules, claim locks or vote. You can disconnect it any time under Account.</p>
+      <p class="small" style="margin:0"><b>Only allow if you just pressed Connect in Claude yourself.</b> A link someone sent you can connect their Claude to your agents.</p>
       <form method="post" data-native class="row">${hidden({ ...p, redirect_uri: redirectUri, action: "allow" })}<button class="btn primary">${icon("check", 15)}Allow</button></form>
       <form method="post" data-native>${hidden({ ...p, redirect_uri: redirectUri, action: "deny" })}<button class="btn ghost sm">Don't allow</button></form>`,
     ),
@@ -175,7 +189,12 @@ export async function token(req: Request, env: Env): Promise<Response> {
   if (f("grant_type") !== "authorization_code") return oauthError("unsupported_grant_type", "Only authorization_code is supported.");
   // Client credentials: in the form, or as HTTP Basic.
   const basic = (req.headers.get("authorization") ?? "").match(/^Basic\s+(\S+)$/i)?.[1];
-  const [basicId, basicSecret] = basic ? atob(basic).split(":").map(decodeURIComponent) : [];
+  let basicId: string | undefined, basicSecret: string | undefined;
+  try {
+    if (basic) [basicId, basicSecret] = atob(basic).split(":").map(decodeURIComponent);
+  } catch {
+    return oauthError("invalid_client", "Malformed client credentials.", 401);
+  }
   const clientId = basicId ?? f("client_id");
   const client = await env.DB.prepare("SELECT * FROM oauth_clients WHERE client_id = ?").bind(clientId).first<Client>();
   if (!client) return oauthError("invalid_client", "Unknown client.", 401);
@@ -186,7 +205,7 @@ export async function token(req: Request, env: Env): Promise<Response> {
     .first<{ data: string; member: string; expires_at: number }>();
   const grant = row ? (JSON.parse(row.data) as { client_id: string; redirect_uri: string; challenge: string }) : null;
   if (!row || !grant || row.expires_at < Date.now() || grant.client_id !== client.client_id) return oauthError("invalid_grant", "This code is expired, used or not yours.");
-  if (f("redirect_uri") && f("redirect_uri") !== grant.redirect_uri) return oauthError("invalid_grant", "redirect_uri doesn't match.");
+  if (f("redirect_uri") !== grant.redirect_uri) return oauthError("invalid_grant", "redirect_uri doesn't match.");
   if ((await s256(f("code_verifier"))) !== grant.challenge) return oauthError("invalid_grant", "The code_verifier doesn't match.");
 
   await env.DB.prepare("UPDATE oauth_clients SET used_at = ? WHERE client_id = ?").bind(Date.now(), client.client_id).run();
@@ -203,8 +222,12 @@ async function s256(verifier: string): Promise<string> {
 export async function connectorMember(req: Request, env: Env): Promise<string | null> {
   const bearer = (req.headers.get("authorization") ?? "").match(/^Bearer\s+(\S+)$/i)?.[1];
   if (!bearer) return null;
-  const row = await env.DB.prepare("SELECT member FROM tokens WHERE token_hash = ? AND kind = 'connector'").bind(await sha256(bearer)).first<{ member: string }>();
-  return row?.member ?? null;
+  const hash = await sha256(bearer);
+  const row = await env.DB.prepare("SELECT member, used_at FROM tokens WHERE token_hash = ? AND kind = 'connector'").bind(hash).first<{ member: string; used_at: number | null }>();
+  if (!row) return null;
+  // Last use, for the 30-day lapse (prune); written at most hourly.
+  if ((row.used_at ?? 0) < Date.now() - 60 * MIN) await env.DB.prepare("UPDATE tokens SET used_at = ? WHERE token_hash = ?").bind(Date.now(), hash).run();
+  return row.member;
 }
 
 // ---------- the tools ----------
@@ -338,6 +361,8 @@ const connectorTools: Tool[] = [
       },
       required: ["agent", "message"],
     },
+    // It prompts an agent that may run without permission checks: clients should confirm it, not auto-run it.
+    annotations: { destructiveHint: true, openWorldHint: false },
     async run(env, me, args) {
       const { agent, on } = await findAgent(env, me, str(args, "agent", true));
       const body = str(args, "message", true);

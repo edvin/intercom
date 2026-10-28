@@ -1850,13 +1850,20 @@ describe("Claude.ai connector", () => {
     const meta = (await (await w.request("/.well-known/oauth-authorization-server")).json()) as { registration_endpoint: string };
     assert.equal(meta.registration_endpoint, `${ORIGIN}/oauth/register`);
     // Only Claude's callback or loopback: a look-alike can't register.
-    const evil = await w.request("/oauth/register", { method: "POST", body: JSON.stringify({ redirect_uris: ["https://claude.ai.evil.example/cb"] }) });
-    assert.equal(evil.status, 400);
+    for (const uri of ["https://claude.ai.evil.example/cb", "https://claude.ai/some/page/that/leaks", `https://claude.ai/api/mcp/auth_callback?x=${"a".repeat(600)}`]) {
+      assert.equal((await w.request("/oauth/register", { method: "POST", body: JSON.stringify({ redirect_uris: [uri] }) })).status, 400, uri);
+    }
+    // Malformed client credentials are refused, not a crash.
+    assert.equal((await w.request("/oauth/token", { method: "POST", headers: { authorization: "Basic %%%" }, body: new URLSearchParams({ grant_type: "authorization_code" }) })).status, 401);
 
     const { client_id, verifier, params } = await connect(w);
     // A fresh code with the right verifier.
     const again = new URL((await w.form("/oauth/authorize", "bob", { ...params, action: "allow" })).headers.get("location")!).searchParams.get("code")!;
-    const tok = await w.request("/oauth/token", { method: "POST", body: new URLSearchParams({ grant_type: "authorization_code", code: again, client_id, code_verifier: verifier }) });
+    // The token request must name the same redirect as the sign-in (and that spends the code).
+    const missing = await w.request("/oauth/token", { method: "POST", body: new URLSearchParams({ grant_type: "authorization_code", code: again, client_id, code_verifier: verifier }) });
+    assert.equal(missing.status, 400);
+    const again2 = new URL((await w.form("/oauth/authorize", "bob", { ...params, action: "allow" })).headers.get("location")!).searchParams.get("code")!;
+    const tok = await w.request("/oauth/token", { method: "POST", body: new URLSearchParams({ grant_type: "authorization_code", code: again2, client_id, redirect_uri: params.redirect_uri, code_verifier: verifier }) });
     const { access_token } = (await tok.json()) as { access_token: string };
     assert.ok(access_token);
     // Refused elsewhere: not the plugin's tools, not the dashboard.
@@ -1865,6 +1872,8 @@ describe("Claude.ai connector", () => {
     const names = (await rpc(w, access_token, "tools/list")).body.result.tools.map((t: { name: string }) => t.name);
     assert.deepEqual(names, ["agents", "agent_status", "ask", "conversation", "locks", "decisions", "proposals", "handoffs"]);
     assert.equal((await rpc(w, access_token, "tools/call", { name: "invite", arguments: {} })).body.error.code, -32602);
+    const ask = (await rpc(w, access_token, "tools/list")).body.result.tools.find((t: { name: string }) => t.name === "ask");
+    assert.equal(ask.annotations.destructiveHint, true);
     // Denying sends the error back; the account page lists it, and Disconnect revokes it.
     const denied = new URL((await w.form("/oauth/authorize", "bob", { ...params, action: "deny" })).headers.get("location")!);
     assert.equal(denied.searchParams.get("error"), "access_denied");
@@ -1879,7 +1888,7 @@ describe("Claude.ai connector", () => {
     const w = await standardWorld();
     const { client_id, params, verifier } = await connect(w);
     const code = new URL((await w.form("/oauth/authorize", "bob", { ...params, action: "allow" })).headers.get("location")!).searchParams.get("code")!;
-    const { access_token: t } = (await (await w.request("/oauth/token", { method: "POST", body: new URLSearchParams({ grant_type: "authorization_code", code, client_id, code_verifier: verifier }) })).json()) as { access_token: string };
+    const { access_token: t } = (await (await w.request("/oauth/token", { method: "POST", body: new URLSearchParams({ grant_type: "authorization_code", code, client_id, redirect_uri: params.redirect_uri, code_verifier: verifier }) })).json()) as { access_token: string };
     await w.request("/api/hook?event=SessionStart&project=billing-api&session=k1&name=fabricate-kernel", { as: "bob" });
     await w.request("/api/hook?event=SessionStart&project=billing-api&session=k2&name=docs", { as: "bob" });
     await w.request("/api/hook?event=SessionStart&project=billing-api&session=a1&name=kernel", { as: "alice" });
@@ -1908,5 +1917,9 @@ describe("Claude.ai connector", () => {
     assert.match(await call(w, t, "ask", { agent: "docs", message: "update the README", wait_seconds: 0, resend: true }), /^Sent \[\d+\] to docs\./);
     const readme = await w.db.prepare("SELECT COUNT(*) AS n FROM messages WHERE body = 'update the README'").first<{ n: number }>();
     assert.equal(readme!.n, 2);
+    // Unused for 30 days (counting from its last use): signed out by the daily cleanup.
+    assert.equal((await prune(w.env(), undefined, Date.now() + 29 * 86400_000)).connectors, 0);
+    assert.equal((await prune(w.env(), undefined, Date.now() + 31 * 86400_000)).connectors, 1);
+    assert.equal((await rpc(w, t, "tools/list")).status, 401);
   });
 });
