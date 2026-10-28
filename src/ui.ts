@@ -925,6 +925,10 @@ export const SCRIPT = `
   document.addEventListener("visibilitychange", () => { if (!document.hidden && live) refresh(); });
   const q = new URL(location.href);
   if (q.searchParams.has("ok") || q.searchParams.has("err")) { toast(q.searchParams.get("ok") || q.searchParams.get("err"), q.searchParams.has("err")); q.searchParams.delete("ok"); q.searchParams.delete("err"); history.replaceState(null, "", q); }
+  // Without ?agent= the server shows the first connected agent, which changes as agents come and go; pin the one
+  // on screen in the URL so live redraws (they fetch this URL) keep showing it.
+  const shown = document.getElementById("chatform");
+  if (shown && shown.dataset.agent && q.searchParams.get("view") === "agents" && !q.searchParams.has("agent")) { q.searchParams.set("agent", shown.dataset.agent); history.replaceState(null, "", q); }
   document.addEventListener("keydown", (e) => { if (e.key === "/" && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) { const c = $("#compose"); if (c) { e.preventDefault(); c.focus(); } } });
   // An open dashboard (an installed phone app above all, which has no reload button) picks up a new version by
   // itself: when it comes back into view, it reloads if the hub serves different styles or script, unless something
