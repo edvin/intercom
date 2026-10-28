@@ -20,7 +20,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const VERSION = "0.12.21"; // kept in step with .claude-plugin/plugin.json (a test checks)
+const VERSION = "0.12.22"; // kept in step with .claude-plugin/plugin.json (a test checks)
 const DIR = path.join(os.homedir(), ".claude", "intercom");
 const CONFIG = path.join(DIR, "config");
 function readConf() {
@@ -347,7 +347,8 @@ function summarizeLine(line) {
         const call = bashCalls.get(b.tool_use_id);
         bashCalls.delete(b.tool_use_id);
         const res = typeof b.content === "string" ? b.content : Array.isArray(b.content) ? b.content.map((x) => x.text ?? "").join(" ") : "";
-        const id = res.match(/running in background with ID: ([\w-]+)|moved to the background \(ID: ([\w-]+)/);
+        // Claude Code's own short notice, not a command whose output happens to quote one (a grep through transcripts).
+        const id = res.length < 600 && res.match(/^\s*Command running in background with ID: ([\w-]+)|moved to the background \(ID: ([\w-]+)/);
         if (id) out.push({ at, kind: "job", text: JSON.stringify({ op: "start", id: id[1] ?? id[2], description: call.description, command: call.command }) });
       }
       if (b.type === "tool_result" && pendingCron.has(b.tool_use_id)) {

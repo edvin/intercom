@@ -597,7 +597,7 @@ body:has(.ide) .top .in{max-width:none;padding:8px 14px}
 .tcx{font-size:9px;font-weight:700;color:var(--mute);border:1px solid var(--line);border-radius:4px;padding:0 3px}
 .tctx{font-size:10px;font-weight:650;font-variant-numeric:tabular-nums;color:var(--amber)}.tctx.red{color:var(--red)}
 .ctxb{font-variant-numeric:tabular-nums}.ctxb:not(.amber):not(.red){background:var(--surface-2);color:var(--ink-2)}
-.compacting{display:inline-flex;gap:4px;align-items:center;margin:0}
+.compacting{display:inline-flex;gap:4px;align-items:center;margin:0}.jobrow form{display:inline;margin:0}.jobrow .jobx{opacity:0;transition:opacity .12s}.jobrow:hover .jobx,.jobrow .jobx:focus{opacity:1}@media (hover:none){.jobrow .jobx{opacity:.7}}
 .meta-row .btn.compactbtn,.meta-row .compacting .btn{padding:1px 8px;font-size:11.5px;font-weight:500;color:var(--mute)}.meta-row .btn.compactbtn:hover,.meta-row .compacting .btn:hover{color:var(--ink)}
 .tdot{position:absolute;left:11px;width:6px;height:6px;border-radius:50%;background:var(--mute)}
 .tdot.idle{background:var(--green)}.tdot.work{background:var(--accent);animation:pulse 1.8s infinite}.tdot.wait{background:var(--red)}.tdot.off{background:transparent;box-shadow:inset 0 0 0 1px var(--mute)}

@@ -1923,3 +1923,21 @@ describe("Claude.ai connector", () => {
     assert.equal((await rpc(w, t, "tools/list")).status, 401);
   });
 });
+
+describe("stale background jobs", () => {
+  test("a job the mirror never saw end can be taken off the list", async () => {
+    const w = await standardWorld();
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=jd1&name=core", { as: "bob" });
+    await w.request("/api/activity?session=jd1", {
+      as: "bob",
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ items: [{ at: Date.now(), kind: "job", text: JSON.stringify({ op: "start", id: "b1", description: "Poll the hub until live", command: "curl …" }) }] }),
+    });
+    const page = async () => (await w.request("/dashboard?view=agents&agent=bob/core", { as: "bob", cookie: true })).text();
+    assert.match(await page(), /⧗ Poll the hub until live/);
+    const form = new URLSearchParams({ session: "jd1", id: "b1", back: "/dashboard?view=agents&agent=bob/core" });
+    await w.request("/agent/job-dismiss", { as: "bob", cookie: true, method: "POST", headers: { origin: ORIGIN, "content-type": "application/x-www-form-urlencoded" }, body: form });
+    assert.doesNotMatch(await page(), /⧗ Poll the hub until live/);
+  });
+});

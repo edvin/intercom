@@ -2,6 +2,7 @@ import { recordsBrief } from "./records";
 import { answerBtw, pendingBtw } from "./btw";
 import { getAttachment, isImage, readImage } from "./attachments";
 import { fetchLocalFile, fileReply } from "./localfiles";
+import { parseJobs } from "./jobs";
 import { type Env, type Message, type Proposal, type Session, LIVE, MEMBER_OF, postMessage, RECEIVES, UserError, activeLocks, address, isMyLock, ago, addActivity, lockIn, scopedLocks, cleanBranch, cleanClient, fromOwnUser, renameSession, setHost, setVersion, workingOn, authenticate, coMembers, fmtLock, fmtMessage, myProjects, moveSession, projectFor, resolveProject, setCwd, setOrigin, setPresence, setRepo, tally, touchSession, unread } from "./lib";
 import { type Tool, instructions, tools } from "./tools";
 import { CONNECTOR, authorize, connectorMember, preflight, register, resourceMetadata, serverMetadata, token, unauthorized } from "./connector";
@@ -708,6 +709,19 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
       back.searchParams.set("ok", await moveSession(env, me, String(form.get("session") ?? ""), String(form.get("project") ?? ""), form.get("scope") === "repo" ? "repo" : "session"));
     } catch (e) {
       back.searchParams.set("err", (e as Error).message);
+    }
+    return redirect(back.pathname + back.search);
+  }
+  if (url.pathname === "/agent/job-dismiss" && req.method === "POST") {
+    // A background job the mirror never saw end (an older plugin, a session resumed elsewhere): you take it off the list.
+    if (!sameOrigin(req)) return new Response("Cross-origin request refused", { status: 403 });
+    const form = await req.formData();
+    const back = new URL(String(form.get("back") ?? "/dashboard?view=agents"), url);
+    const row = await env.DB.prepare("SELECT jobs FROM sessions WHERE member = ? AND session_id = ?").bind(me, String(form.get("session") ?? "")).first<{ jobs: string | null }>();
+    if (row) {
+      const id = String(form.get("id") ?? "");
+      const jobs = parseJobs(row.jobs).filter((j) => j.id !== id);
+      await env.DB.prepare("UPDATE sessions SET jobs = ? WHERE member = ? AND session_id = ?").bind(JSON.stringify(jobs), me, String(form.get("session"))).run();
     }
     return redirect(back.pathname + back.search);
   }
