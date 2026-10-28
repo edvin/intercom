@@ -263,7 +263,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
         return `<div class="bubble md relay" data-mid="${m.id}"><span class="rhd">${named(m.sender, m.sender_agent, from)} → ${named(m.recipient!, m.recipient_agent, to)}</span>${md(m.body, originOf(m.sender, m.sender_agent))}<span class="when">${time(m.created_at)}${mark}</span></div>`;
       }
       const speak = fromMe ? "" : `<button type="button" class="speak" data-speak title="Read aloud">${icon("volume", 13)}</button>`;
-      return `<div class="bubble md ${fromMe ? "mine" : ""}" data-mid="${m.id}" data-who="${esc(agent.label)}" style="--h:${agentHue(agent.member, agent.label)}">${md(m.body, fromMe ? agent.origin : originOf(m.sender, m.sender_agent), m.sender === me && m.sender_agent === agent.label ? files : null)}<span class="when">${time(m.created_at)}${mark}</span>${speak}</div>`;
+      return `<div class="bubble md ${fromMe ? "mine" : ""}" data-mid="${m.id}" data-who="${esc(agent.label)}" style="--h:${agentHue(agent.member, agent.label)}">${md(m.body, fromMe ? agent.origin : originOf(m.sender, m.sender_agent), m.sender === me && m.sender_agent === agent.label ? files : null)}<span class="when">${time(m.created_at)}${mark}${speak}</span></div>`;
     });
   rows.forEach((m, i) =>
     items.push({

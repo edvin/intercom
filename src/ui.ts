@@ -338,7 +338,7 @@ label.field>input,label.field>textarea,label.field>select{width:100%}
 .thread.term .bubble.mine a{color:inherit;text-decoration:underline}
 .thread.term .bubble.mine code{background:var(--surface-2);border:1px solid var(--line);text-decoration:none}
 .thread.term .bubble .when{display:inline;margin:0 0 0 .6em;font-size:11px;color:var(--mute)}
-.speak{display:inline-grid;place-items:center;width:22px;height:22px;margin-left:4px;vertical-align:-6px;border:0;border-radius:6px;background:none;color:var(--mute);cursor:pointer;opacity:.7}
+.speak{display:inline-grid;place-items:center;width:22px;height:22px;margin:-6px 0 -6px 4px;vertical-align:middle;border:0;border-radius:6px;background:none;color:var(--mute);cursor:pointer;opacity:.7}
 .speak:hover{opacity:1;color:var(--ink);background:var(--surface-2)}.speak.on{opacity:1;color:var(--accent)}
 .thread.term .activity{align-self:stretch;display:grid;grid-template-columns:18px minmax(0,1fr) auto;gap:8px;text-align:left;max-width:none;padding:2px 0;font-size:12.5px}
 .thread.term .activity .i{justify-self:center}
