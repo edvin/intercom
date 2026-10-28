@@ -39,6 +39,9 @@ export interface Message {
   sender_agent: string | null;
   recipient_agent: string | null;
   broadcast: number;
+  /** A dashboard DM being edited, or one its sender took back before an agent got it (unsend). */
+  held_at?: number | null;
+  cancelled_at?: number | null;
 }
 
 /** One Claude Code session of a member, as reported by the hooks. */
@@ -93,8 +96,11 @@ const NOT_MUTED_SENDER = "(sender NOT IN (SELECT muted FROM mutes WHERE member =
  * - DMs to them, unless they muted the sender.
  * - Posts in their projects, unless they muted the project or the sender; lock activity (broadcast) always.
  */
+/** Not held or cancelled by its sender: what anyone but the sender (and every agent) may see. */
+export const LIVE = "(held_at IS NULL AND cancelled_at IS NULL)";
+
 export const RECEIVES = `(
-  (recipient = ?2 AND ${NOT_MUTED_SENDER})
+  (recipient = ?2 AND ${NOT_MUTED_SENDER} AND ${LIVE})
   OR (recipient IS NULL AND ${MEMBER_OF} AND (broadcast = 1 OR (${NOT_MUTED_SENDER}
       AND channel NOT IN (SELECT channel FROM follows WHERE member = ?2 AND mode = 'mute'))))
 )`;
@@ -751,7 +757,7 @@ export const recordDelivery = (env: Env, messageId: number, member: string, sess
  * Where a direct message stands: taken into an agent's context, waiting for a connected one to pick it up, or with
  * nobody connected to take it. Senders see only delivered or not for teammates' agents; details are for the recipient.
  */
-export type Delivery = { state: "delivered" | "waiting" | "offline"; at?: number; label?: string; detail: boolean };
+export type Delivery = { state: "delivered" | "waiting" | "offline" | "held" | "cancelled"; at?: number; label?: string; detail: boolean };
 
 export async function deliveryMarks(env: Env, me: string, msgs: Message[]): Promise<Map<number, Delivery>> {
   const out = new Map<number, Delivery>();
@@ -776,6 +782,10 @@ export async function deliveryMarks(env: Env, me: string, msgs: Message[]): Prom
   const recent = Date.now() - GONE_MS;
   for (const m of dms) {
     const detail = m.recipient === me;
+    if (m.cancelled_at || m.held_at) {
+      out.set(m.id, { state: m.cancelled_at ? "cancelled" : "held", detail });
+      continue;
+    }
     const d = got.get(m.id);
     if (d) {
       out.set(m.id, detail ? { state: "delivered", at: d.at, label: d.label, detail } : { state: "delivered", detail });
@@ -790,6 +800,38 @@ export async function deliveryMarks(env: Env, me: string, msgs: Message[]): Prom
     out.set(m.id, { state: up ? "waiting" : "offline", detail });
   }
   return out;
+}
+
+/**
+ * Take back a direct message you wrote in the dashboard, while no agent has it yet: hold it while you edit it, send it
+ * (as it was or edited), or cancel it. A held message is skipped by deliveries, and a later one can move a session's
+ * cursor past it, so sending posts it again as a new message (its images follow) instead of releasing the old row.
+ * The hub runs one request at a time and its SQL is synchronous, so a delivery can't slip in between the check and the change.
+ */
+export async function unsend(env: Env, me: string, id: number, op: "hold" | "send" | "edit" | "cancel", body?: string): Promise<{ id: number; text: string }> {
+  const m = await env.DB.prepare("SELECT * FROM messages WHERE id = ? AND sender = ? AND sender_agent IS NULL AND recipient IS NOT NULL AND cancelled_at IS NULL")
+    .bind(id, me)
+    .first<Message>();
+  if (!m) throw new UserError("That message can't be changed any more.");
+  const took = await env.DB.prepare("SELECT label FROM deliveries WHERE message_id = ? ORDER BY at LIMIT 1").bind(id).first<{ label: string }>();
+  if (took) throw new UserError(`Already delivered${took.label ? ` to ${took.label}` : ""}: send a correction instead.`);
+  if (op === "hold") {
+    await env.DB.prepare("UPDATE messages SET held_at = ? WHERE id = ?").bind(Date.now(), id).run();
+    env.refreshWeb?.(me);
+    return { id, text: "On hold while you edit it" };
+  }
+  if (op === "cancel") {
+    await env.DB.prepare("UPDATE messages SET cancelled_at = ?, held_at = NULL WHERE id = ?").bind(Date.now(), id).run();
+    env.refreshWeb?.(me);
+    return { id, text: "Cancelled: it won't be delivered" };
+  }
+  const text = op === "edit" ? (body ?? "").trim() : m.body;
+  if (!text) throw new UserError("The message is empty: cancel it instead.");
+  if (text.length > MAX_BODY) throw new UserError(`Too long: ${text.length} characters (max ${MAX_BODY}).`);
+  await env.DB.prepare("DELETE FROM messages WHERE id = ?").bind(id).run();
+  const fresh = await postMessage(env, { channel: m.channel, sender: me, sender_agent: null, recipient: m.recipient, recipient_agent: m.recipient_agent, kind: m.kind, body: text });
+  await env.DB.prepare("UPDATE attachments SET message_id = ? WHERE message_id = ?").bind(fresh, id).run();
+  return { id: fresh, text: op === "edit" ? "Edited" : "Sent" };
 }
 
 /**

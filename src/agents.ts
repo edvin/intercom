@@ -7,7 +7,7 @@ import { PLUGIN_VERSION, outdated } from "./version";
 import { activeLoops, describe, parseLoops } from "./loops";
 import { activeJobs, duration, jobName, parseJobs } from "./jobs";
 import { BTW_TIMEOUT, NO_MOD, btwFor, modAnswers } from "./btw";
-import { type Activity, type Env, type Message, address, ago, deliveryMarks, short, hostNames, myProjects } from "./lib";
+import { type Activity, type Env, type Message, LIVE, address, ago, deliveryMarks, short, hostNames, myProjects } from "./lib";
 import { agentAvatar, agentHue, agentName, avatar, deliveryMark, esc, hidden, icon, md, plainSpaces, time } from "./ui";
 
 interface Agent {
@@ -212,12 +212,13 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   const { results: rows } = await env.DB.prepare(
     // You (or your agents) → it, it → you (or your agents); for your own agents also every DM it sent or got,
     // so agent-to-agent conversations can be followed. A teammate's agent only ever shows what involves you.
-    `SELECT * FROM messages WHERE
+    // Held or cancelled messages (unsend) only ever show to the person who wrote them.
+    `SELECT * FROM messages WHERE (${LIVE} OR (sender = ?1 AND sender_agent IS NULL)) AND (
        (sender = ?1 AND recipient = ?2 AND recipient_agent = ?3)
        OR (sender = ?2 AND sender_agent = ?3 AND recipient = ?1 AND (recipient_agent IS NULL OR ?1 != ?2))
        OR (?1 = ?2 AND sender = ?2 AND sender_agent = ?3 AND recipient IS NOT NULL)
        OR (?1 = ?2 AND recipient = ?2 AND recipient_agent IN (?3, ?4))
-       OR (sender = ?2 AND sender_agent = ?3 AND recipient IS NULL AND kind != 'event' AND channel IN (${ph(mine.length)}))
+       OR (sender = ?2 AND sender_agent = ?3 AND recipient IS NULL AND kind != 'event' AND channel IN (${ph(mine.length)})))
      ORDER BY id DESC LIMIT 150`,
   )
     .bind(me, agent.member, agent.label, agent.project || "\u0000", ...mine)
@@ -264,7 +265,14 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
         return `<div class="bubble md relay" data-mid="${m.id}"><span class="rhd">${named(m.sender, m.sender_agent, from)} → ${named(m.recipient!, m.recipient_agent, to)}</span>${md(m.body, originOf(m.sender, m.sender_agent))}<span class="when">${time(m.created_at)}${mark}</span></div>`;
       }
       const speak = fromMe ? "" : `<button type="button" class="speak" data-speak title="Read aloud">${icon("volume", 13)}</button>`;
-      return `<div class="bubble md ${fromMe ? "mine" : ""}" data-mid="${m.id}" data-who="${esc(agent.label)}" style="--h:${agentHue(agent.member, agent.label)}">${md(m.body, fromMe ? agent.origin : originOf(m.sender, m.sender_agent), m.sender === me && m.sender_agent === agent.label ? files : null)}<span class="when">${time(m.created_at)}${mark}${speak}</span></div>`;
+      // Not taken by an agent yet: you can still edit or cancel it (lib.ts unsend). Held means you're editing it.
+      const st = marks.get(m.id)?.state;
+      const open = fromMe && (st === "waiting" || st === "offline" || st === "held");
+      const ub = (op: string, label: string, title: string) => `<button type="button" data-unsend="${op}" title="${title}">${label}</button>`;
+      const unsend = open
+        ? `<span class="unsend">${st === "held" ? ub("send", "Send", "Send it as it is") : ""}${ub("edit", "Edit", "Edit it: no agent gets it until you send it again")}${ub("cancel", "Cancel", "Take it back: it won't be delivered")}</span>`
+        : "";
+      return `<div class="bubble md ${fromMe ? "mine" : ""}${st === "held" || st === "cancelled" ? ` ${st}` : ""}" data-mid="${m.id}"${open ? ` data-raw="${esc(m.body)}"` : ""} data-who="${esc(agent.label)}" style="--h:${agentHue(agent.member, agent.label)}">${md(m.body, fromMe ? agent.origin : originOf(m.sender, m.sender_agent), m.sender === me && m.sender_agent === agent.label ? files : null)}<span class="when">${time(m.created_at)}${mark}${speak}${unsend}</span></div>`;
     });
   rows.forEach((m, i) =>
     items.push({
@@ -348,7 +356,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
       </div>
       ${on && agent.state === "waiting" ? `<div class="toast err" style="box-shadow:none;margin:10px 14px 0">${icon("x")}<span><b>${esc(agent.label)} is waiting:</b> ${esc(agent.state_detail || "for approval or input")}. That can only be answered in its terminal (or with Claude's Remote Control); for unattended runs, start agents in a mode that doesn't stop to ask.</span></div>` : ""}
       <div class="thread term${/(?:^|;\s*)ic_activity=off/.test(cookie) ? " noact" : ""}${/(?:^|;\s*)ic_relay=off/.test(cookie) ? " norelay" : ""}" id="thread" data-region>${thread || `<div class="empty" style="margin:auto">${icon("message", 28)}<div>No messages with ${esc(agent.label)} yet.</div><div class="small">${ownAgent ? "Ask a question or give it a new direction; it treats what you write here like a prompt you typed." : "Your message reaches this session; its owner's agent treats it as information from you."}</div></div>`}</div>
-      <form method="post" action="/action/post" class="chatbox" id="chatform" data-region data-quiet data-images data-agent="${esc(key(agent))}" data-label="${esc(agent.label)}">${hidden({ back, to: key(agent), channel: agent.project || "", session: agent.session_id, mode: "", thread: "" })}
+      <form method="post" action="/action/post" class="chatbox" id="chatform" data-region data-quiet data-images data-agent="${esc(key(agent))}" data-label="${esc(agent.label)}">${hidden({ back, to: key(agent), channel: agent.project || "", session: agent.session_id, mode: "", thread: "", edit: "" })}
         <div class="imgtray" hidden></div>
         <div class="row" style="align-items:flex-end;flex-wrap:nowrap">
           <button type="button" class="btn ghost icon" style="height:48px" data-imgbtn title="Attach images (or paste / drop them here)">${icon("image", 16)}</button><input type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden data-imgpick>
@@ -356,6 +364,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
           ${canBtw ? (btwOff ? `<button type="button" class="btn ghost btwbtn" style="height:48px" disabled title="${esc(btwOff)}">btw</button>` : `<button type="button" class="btn ghost btwbtn" style="height:48px" data-btwtoggle title="Ask on the side (like /btw): answered from its current context, without adding anything to it">btw</button>`) : ""}
           <button class="btn primary" style="height:48px" title="${on ? (ownAgent ? "It picks this up right away if it's idle, or after its current step." : "It sees this on its next step.") : "Not connected: the next session with this name gets it."}">${icon("send", 15)}<span class="lbl">Send</span></button>
         </div>
+        <div class="editbar tiny" hidden>${icon("pencil", 12)}<span>Editing your message: no agent gets it until you send it.</span><a href="#" data-editsend>Send it unchanged</a> · <a href="#" data-editcancel>Cancel it</a></div>
         <div class="btwbar tiny muted" hidden>Side question for ${esc(agent.label)}: answered from its current context, not added to it. Follow-ups continue the thread · <a href="#" data-btwnew>start a new side thread</a></div>
         <div class="chips">${[...QUICK, ...(loopsOf(agent).length ? LOOP_CHIPS : [])].map((q) => `<button type="button" class="chip" data-chip="${esc(q)}">${esc(q)}</button>`).join("")}${on ? "" : '<span class="tiny muted" style="align-self:center">· not connected: the next session with this name gets it</span>'}</div>
       </form>

@@ -964,6 +964,63 @@ describe("delivery marks", () => {
   });
 });
 
+describe("unsend", () => {
+  test("a dashboard message no agent has yet can be held while edited, sent, or cancelled; delivered ones can't", async () => {
+    const w = await standardWorld();
+    const turn = async (as = "bob") => (await w.request("/api/hook?event=UserPromptSubmit&project=billing-api&session=u1", { as })).text();
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=u1&name=video", { as: "bob" });
+    const say = async (message: string, as = "bob", extra: Record<string, string> = {}) => {
+      const r = await w.form("/action/post", as, { to: "bob/video", message, back: "/dashboard?view=agents", ...extra });
+      return new URL(r.headers.get("location")!, ORIGIN).searchParams;
+    };
+    const op = async (id: string, o: string) => new URL((await w.form("/action/unsend", "bob", { id, op: o, back: "/dashboard?view=agents" })).headers.get("location")!, ORIGIN).searchParams;
+    const idOf = (q: URLSearchParams) => q.get("ok")!.match(/\[(\d+)\]/)![1]!;
+    const chat = async (as = "bob") => (await w.request("/dashboard?view=agents&agent=bob/video", { as, cookie: true })).text();
+
+    // Held while you edit it: the agent's next turn skips it, even when a later message moves its cursor past it.
+    const first = idOf(await say("deploy the first draft"));
+    assert.match(await chat(), /data-unsend="edit"/);
+    assert.equal((await op(first, "hold")).get("ok"), "On hold while you edit it");
+    await say("unrelated: check the logs");
+    let got = await turn();
+    assert.match(got, /check the logs/);
+    assert.doesNotMatch(got, /first draft/);
+    assert.match(await chat(), /class="bubble md mine held"[\s\S]*?on hold[\s\S]*?data-unsend="send"/);
+    // Sending the edit replaces it with a new message, which the agent then gets.
+    assert.equal((await say("deploy the final draft", "bob", { edit: first })).get("ok"), "Edited");
+    got = await turn();
+    assert.match(got, /final draft/);
+    assert.doesNotMatch(got, /first draft/);
+    let page = await chat();
+    assert.doesNotMatch(page, /first draft/);
+    assert.match(page, /final draft[\s\S]*?class="dlv ok"/);
+    // Delivered: too late to change.
+    const final = page.match(/data-mid="(\d+)"[^>]*><p>deploy the final draft/)![1]!;
+    assert.match((await op(final, "hold")).get("err")!, /Already delivered to video/);
+
+    // Cancelled: never delivered, struck through for you, invisible to everyone else.
+    const oops = idOf(await say("drop the prod database"));
+    assert.equal((await op(oops, "cancel")).get("ok"), "Cancelled: it won't be delivered");
+    assert.doesNotMatch(await turn(), /prod database/);
+    assert.match(await chat(), /class="bubble md mine cancelled"[\s\S]*?drop the prod database[\s\S]*?cancelled/);
+    assert.match((await op(oops, "send")).get("err")!, /can't be changed/);
+
+    // Sent unchanged after a hold: delivered as it was.
+    const asIs = idOf(await say("run the gates"));
+    await op(asIs, "hold");
+    assert.equal((await op(asIs, "send")).get("ok"), "Sent");
+    assert.match(await turn(), /run the gates/);
+
+    // Only the sender can touch it, and a teammate never sees what was taken back.
+    const fromAlice = idOf(await say("hold the release", "alice"));
+    assert.match((await op(fromAlice, "cancel")).get("err")!, /can't be changed/);
+    const aliceOops = new URL((await w.form("/action/unsend", "alice", { id: fromAlice, op: "cancel", back: "/dashboard" })).headers.get("location")!, ORIGIN).searchParams;
+    assert.ok(aliceOops.get("ok"));
+    assert.doesNotMatch(await chat(), /hold the release/);
+    assert.doesNotMatch(await turn(), /hold the release/);
+  });
+});
+
 describe("decision log and handoffs", () => {
   test("handoff → integrated notifies the author, lands in the log, and shows at session start; others' projects stay private", async () => {
     const w = await standardWorld();
@@ -1066,7 +1123,8 @@ describe("activity mirror", () => {
       { at: Date.now(), kind: "prompt", text: 'The intercom-ui plugin sent a message:\nShip it\n\n(Sent by you from the intercom dashboard. Reply there with the intercom post tool, to: "bob".)' },
     ]);
     const page = await (await w.request("/dashboard?view=agents&agent=bob/video", { as: "bob", cookie: true })).text();
-    assert.equal(page.split("Andreas noted that").length - 1, 1);
+    // Shown once; the Edit button's copy of the raw text (data-raw) isn't shown.
+    assert.equal(page.replace(/ data-raw="[^"]*"/g, "").split("Andreas noted that").length - 1, 1);
     assert.match(page, /class="bubble md mine"[^>]*><p>Andreas noted that/);
     assert.match(page, /typed in the terminal:<\/span> yes, go ahead/);
     assert.match(page, /grep -rl brand web\/src/);

@@ -1,4 +1,4 @@
-import { type Delivery, type Env, type Lock, deliveryMarks, type Message, type Project, type Proposal, MAX_BODY, MEMBER_OF, RECEIVES, activeLocks, address, authenticate, coMembers, isAdmin, myProjects, normChannel, postMessage, roleIn, sha256, workingOn, newToken, HANDLE, limit, UserError } from "./lib";
+import { type Delivery, type Env, type Lock, deliveryMarks, type Message, type Project, type Proposal, LIVE, MAX_BODY, MEMBER_OF, RECEIVES, activeLocks, address, authenticate, coMembers, isAdmin, myProjects, normChannel, postMessage, roleIn, sha256, workingOn, newToken, HANDLE, limit, UserError, unsend } from "./lib";
 import { agentsView } from "./agents";
 import { askBtw } from "./btw";
 import { linkImages, marker, storeImages } from "./attachments";
@@ -211,6 +211,20 @@ export async function handleAction(req: Request, env: Env, me: string, action: s
     try {
       await askBtw(env, me, f("session")!, text.replace(/^\/btw\s+/i, ""), f("thread") === "new");
       u.searchParams.set("ok", "Asked on the side");
+    } catch (e) {
+      u.searchParams.set("err", (e as Error).message.split("\n")[0]);
+    }
+    return redirect(u.pathname + u.search);
+  }
+  // A DM you wrote that no agent has yet: held while you edit it, then sent edited (from the chat box) or as it was, or cancelled.
+  const op = action === "post" && f("edit") ? "edit" : action === "unsend" ? f("op") : undefined;
+  if (op === "edit" || op === "hold" || op === "send" || op === "cancel") {
+    const u = new URL(back, req.url);
+    try {
+      const stored = op === "edit" ? await storeImages(env, me, form.getAll("image").filter((v): v is File => typeof v !== "string" && v.size > 0)) : [];
+      const r = await unsend(env, me, Number(f("edit") ?? f("id")), op, [text, ...stored.map(marker)].filter(Boolean).join("\n"));
+      if (stored.length) await linkImages(env, me, stored.map((a) => a.id), r.id);
+      u.searchParams.set("ok", r.text);
     } catch (e) {
       u.searchParams.set("err", (e as Error).message.split("\n")[0]);
     }
@@ -490,7 +504,7 @@ export async function dashboard(url: URL, env: Env, me: string, cookie = ""): Pr
       .all<Vote>(),
     env.DB.prepare(
       channel
-        ? "SELECT * FROM messages WHERE channel = ?1 AND (recipient IS NULL OR recipient = ?2 OR sender = ?2) ORDER BY id DESC LIMIT 100"
+        ? `SELECT * FROM messages WHERE channel = ?1 AND (recipient IS NULL OR (recipient = ?2 AND ${LIVE}) OR sender = ?2) ORDER BY id DESC LIMIT 100`
         : `SELECT * FROM messages WHERE ?1 IS NULL AND (sender = ?2 OR ${RECEIVES}) ORDER BY id DESC LIMIT 100`,
     )
       .bind(channel, me)

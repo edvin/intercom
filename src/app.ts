@@ -2,7 +2,7 @@ import { recordsBrief } from "./records";
 import { answerBtw, pendingBtw } from "./btw";
 import { getAttachment, isImage, readImage } from "./attachments";
 import { fetchLocalFile, fileReply } from "./localfiles";
-import { type Env, type Message, type Proposal, type Session, MEMBER_OF, postMessage, RECEIVES, UserError, activeLocks, address, isMyLock, ago, addActivity, lockIn, scopedLocks, cleanBranch, cleanClient, fromOwnUser, renameSession, setHost, setVersion, workingOn, authenticate, coMembers, fmtLock, fmtMessage, myProjects, moveSession, projectFor, resolveProject, setCwd, setOrigin, setPresence, setRepo, tally, touchSession, unread } from "./lib";
+import { type Env, type Message, type Proposal, type Session, LIVE, MEMBER_OF, postMessage, RECEIVES, UserError, activeLocks, address, isMyLock, ago, addActivity, lockIn, scopedLocks, cleanBranch, cleanClient, fromOwnUser, renameSession, setHost, setVersion, workingOn, authenticate, coMembers, fmtLock, fmtMessage, myProjects, moveSession, projectFor, resolveProject, setCwd, setOrigin, setPresence, setRepo, tally, touchSession, unread } from "./lib";
 import { instructions, tools } from "./tools";
 import { cliPoll, cliStart, connectPage, discoverJoin, discoverPage, discoverRequest, githubCallback, githubCreate, githubStart, signOut } from "./accounts";
 import { approvalStatus, decide, requestApproval, setAway } from "./approvals";
@@ -102,7 +102,7 @@ async function replyFromTurn(env: Env, me: string, session: Session & { cursor: 
   const asked = await env.DB.prepare(
     `SELECT MAX(m.id) AS id FROM messages m JOIN sessions s ON s.member = ?1 AND s.session_id = ?2
      WHERE m.sender = ?1 AND m.sender_agent IS NULL AND m.recipient = ?1 AND m.kind != 'event' AND (m.recipient_agent = s.label OR m.recipient_agent = s.project)
-       AND m.id > s.answered AND m.id <= s.cursor AND m.created_at > ?3`,
+       AND m.id > s.answered AND m.id <= s.cursor AND m.created_at > ?3 AND ${LIVE}`,
   )
     .bind(me, session.session_id, Date.now() - 6 * 3600_000)
     .first<{ id: number | null }>();

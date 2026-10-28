@@ -118,6 +118,8 @@ export function deliveryMark(d: Delivery | undefined): string {
   }
   if (d.state === "waiting")
     return `<span class="dlv wait" title="${d.detail ? "A session that takes it is connected; it lands at its next turn or check-in" : "Not delivered yet"}">⏳</span>`;
+  if (d.state === "held") return `<span class="dlv held" title="On hold while you edit it: no agent gets it until you send it">on hold</span>`;
+  if (d.state === "cancelled") return `<span class="dlv cancel" title="You took it back before an agent got it; only you see it">cancelled</span>`;
   return `<span class="dlv off" title="No session with that name is connected; it's delivered when one starts">⚠ not connected</span>`;
 }
 
@@ -152,11 +154,13 @@ const STYLE = `
   --shadow:0 1px 2px rgba(16,18,30,.04),0 8px 24px -12px rgba(16,18,30,.12);
   --shadow-lg:0 24px 64px -16px rgba(16,18,30,.28);
   --grad:linear-gradient(135deg,var(--accent),var(--accent-2));
+  --scroll:rgba(16,18,30,.16);--scroll-hover:rgba(16,18,30,.30);
   --r:14px;--r-s:10px;color-scheme:light;
 }
 @media (prefers-color-scheme:dark){:root{
   --an-l:68%;--bg:#09090d;--bg-glow:rgba(124,92,255,.16);--surface:#111117;--surface-2:#17171f;--surface-3:#1f1f29;
   --line:rgba(255,255,255,.07);--line-strong:rgba(255,255,255,.13);--ink:#ececf3;--ink-2:#c3c4d0;--mute:#8a8c9d;
+  --scroll:rgba(255,255,255,.13);--scroll-hover:rgba(255,255,255,.26);
   --accent:#8b72ff;--accent-2:#35b0ff;--accent-soft:rgba(139,114,255,.14);
   --green:#3ddc97;--green-soft:rgba(61,220,151,.12);--amber:#ffb547;--amber-soft:rgba(255,181,71,.12);
   --red:#ff6b76;--red-soft:rgba(255,107,118,.12);
@@ -164,6 +168,14 @@ const STYLE = `
   --shadow-lg:0 24px 64px -12px rgba(0,0,0,.7);color-scheme:dark;
 }}
 *{box-sizing:border-box}
+/* Scrollbars in the theme's colors: a thin thumb on a clear track, darker while you point at it (macOS draws wide
+   light-gray ones when a mouse is attached). Browsers without scrollbar-color (Safari) get the same via ::-webkit-scrollbar. */
+*{scrollbar-width:thin;scrollbar-color:var(--scroll) transparent}*:hover{scrollbar-color:var(--scroll-hover) transparent}
+@supports not (scrollbar-color:auto){
+  ::-webkit-scrollbar{width:10px;height:10px}::-webkit-scrollbar-track,::-webkit-scrollbar-corner{background:transparent}
+  ::-webkit-scrollbar-thumb{background:var(--scroll);border:3px solid transparent;border-radius:10px;background-clip:padding-box}
+  ::-webkit-scrollbar-thumb:hover{background-color:var(--scroll-hover)}
+}
 html{-webkit-text-size-adjust:100%}
 body{margin:0;min-height:100vh;background:radial-gradient(1200px 500px at 15% -10%,var(--bg-glow),transparent 60%),radial-gradient(900px 400px at 100% 0,rgba(47,180,255,.07),transparent 60%),var(--bg);background-attachment:fixed;color:var(--ink);font:14.5px/1.55 Geist,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;-webkit-font-smoothing:antialiased;font-feature-settings:"ss01","cv11"}
 a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline;text-underline-offset:3px}
@@ -384,6 +396,21 @@ form.dropping{outline:2px dashed var(--accent);outline-offset:4px;border-radius:
 .thread.norelay .relay{display:none}
 .dlv{font-size:11px;margin-left:6px;white-space:nowrap}.dlv.ok{color:var(--green)}.dlv.wait{opacity:.7}.dlv.off{color:var(--amber)}
 .bubble.mine .dlv.ok{color:#fff;opacity:.9}.thread.term .bubble.mine .dlv.ok{color:var(--green)}
+.dlv.held{color:var(--amber)}.dlv.cancel{color:var(--mute)}.bubble.mine .dlv.held{color:#fff}.thread.term .bubble.mine .dlv.held{color:var(--amber)}
+/* Edit / Cancel on a message no agent has yet: shown on hover (always on touch screens, and while it's on hold) */
+.unsend{display:inline-flex;gap:2px;margin:-4px 0 -4px 6px;vertical-align:middle;opacity:0;transition:opacity .12s}
+.bubble:hover .unsend,.bubble.held .unsend,.unsend:focus-within{opacity:1}
+@media (hover:none){.unsend{opacity:1}}
+.unsend button{border:0;background:none;color:var(--mute);font:inherit;font-size:11px;font-weight:560;padding:3px 7px;border-radius:6px;cursor:pointer}
+.unsend button:hover{color:var(--ink);background:var(--surface-2)}
+.bubble.mine .unsend button{color:rgba(255,255,255,.85)}.bubble.mine .unsend button:hover{color:#fff;background:rgba(255,255,255,.16)}
+.thread.term .bubble.mine .unsend button{color:var(--mute)}.thread.term .bubble.mine .unsend button:hover{color:var(--ink);background:var(--surface-2)}
+.thread.term .bubble.mine.held{border-left:2px dashed var(--amber);background:color-mix(in srgb,var(--amber) 7%,transparent)}
+.thread.term .bubble.mine.held::before{color:var(--amber)}
+.bubble.cancelled{opacity:.6}.bubble.cancelled>:not(.when){text-decoration:line-through}
+.thread.term .bubble.mine.cancelled{border-left-color:var(--line-strong);background:none}.thread.term .bubble.mine.cancelled::before{color:var(--mute)}
+form.editmode textarea{border-color:color-mix(in srgb,var(--amber) 60%,transparent)}
+.editbar[hidden]{display:none}.editbar{display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:2px 4px 0;color:var(--amber)}.editbar span{color:var(--ink-2)}.editbar a{font-weight:560}
 .bubble.relay{align-self:stretch;max-width:none;background:color-mix(in srgb,var(--accent) 5%,transparent);border-style:dashed}
 .bubble.relay .rhd{display:block;font-size:12px;font-weight:600;color:var(--ink-2);margin-bottom:4px}
 .thread.term .bubble.relay{border-left:2px dashed var(--line);padding-left:12px;background:none}
@@ -726,6 +753,51 @@ export const SCRIPT = `
     apply();
   }
 
+  // Editing a message no agent has taken yet (Edit on your message): it's held on the hub meanwhile, so nothing
+  // delivers it; sending replaces it, Esc or "Send it unchanged" lets it go as it was. Per agent, kept across redraws.
+  const editing = {};
+  async function unsendOp(id, op) {
+    const data = new FormData(); data.set("id", id); data.set("op", op); data.set("back", location.pathname + location.search);
+    try {
+      const res = await fetch("/action/unsend", { method: "POST", body: data, credentials: "same-origin" });
+      const u = new URL(res.url), err = u.searchParams.get("err") || (res.ok ? null : "Couldn't change it (HTTP " + res.status + ")");
+      if (res.ok) await swap(await res.text());
+      if (err) toast(err, true);
+      return !err;
+    } catch { toast("Network error — try again", true); return false; }
+  }
+  function bindEdit(f) {
+    const key = f.dataset.agent, input = f.querySelector("input[name=edit]"), bar = f.querySelector(".editbar"), field = () => f.querySelector("textarea");
+    if (!input) return;
+    const ed = editing[key];
+    // Sent, cancelled or delivered meanwhile (here or in another tab): the edit is over, and what you had typed before comes back.
+    if (ed && !document.querySelector('.bubble.held[data-mid="' + ed.id + '"]')) {
+      delete editing[key];
+      const back = () => { const t = field(); if (t && (!t.value || t.value === ed.raw)) { t.value = ed.stash; drafts.set(t); t.oninput?.(); } };
+      if (f._busy) f._afterSend = back; else back(); // sending the edit: after the send has cleared the form
+    }
+    const on = editing[key];
+    input.value = on ? on.id : ""; f.classList.toggle("editmode", !!on); if (bar) bar.hidden = !on;
+    const t = field(); if (t && !f.classList.contains("btwmode")) t.placeholder = on ? "Edit your message" : "Message " + f.dataset.label;
+    const send = f.querySelector("[data-editsend]"), cancel = f.querySelector("[data-editcancel]");
+    if (send) send.onclick = (e) => { e.preventDefault(); on && unsendOp(on.id, "send"); };
+    if (cancel) cancel.onclick = (e) => { e.preventDefault(); on && unsendOp(on.id, "cancel"); };
+  }
+  document.addEventListener("click", async (e) => {
+    const b = e.target.closest("[data-unsend]"); if (!b) return;
+    const bubble = b.closest("[data-mid]"), id = bubble.dataset.mid, op = b.dataset.unsend;
+    if (op !== "edit") return unsendOp(id, op);
+    const raw = bubble.dataset.raw || "";
+    if (!$("#chatform") || !(await unsendOp(id, "hold"))) return;
+    const f = $("#chatform"), t = f.querySelector("textarea"), key = f.dataset.agent; // the redraw may have replaced the form
+    editing[key] = { id, raw, stash: editing[key] ? editing[key].stash : t.value };
+    t.value = raw; drafts.set(t); t.oninput?.(); bindEdit(f); t.focus(); t.setSelectionRange(t.value.length, t.value.length);
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape" || !e.target.matches?.("#chat-input")) return;
+    const ed = editing[e.target.form?.dataset.agent]; if (ed) { e.preventDefault(); unsendOp(ed.id, "send"); }
+  });
+
   function toggleTree() {
     const ide = document.getElementById("ide"); if (!ide) return;
     if (matchMedia("(max-width: 900px)").matches) { ide.classList.toggle("treeopen"); return; }
@@ -854,6 +926,7 @@ export const SCRIPT = `
     [...(root.matches && root.matches("form") ? [root] : []), ...$$("form", root)].forEach((f) => { if (!f.hasAttribute("data-native") || f.dataset.confirm) f.onsubmit = submit; });
     [...(root.matches && root.matches("form[data-images]") ? [root] : []), ...$$("form[data-images]", root)].forEach(bindImages);
     [...(root.matches && root.matches("form[data-agent]") ? [root] : []), ...$$("form[data-agent]", root)].forEach(bindBtw);
+    $$("form[data-agent]").forEach(bindEdit); // the whole page: a redrawn thread can end an edit the form shows
     $$("input[data-noenter]", root).forEach((i) => i.onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); toast("Pick an option to vote"); } });
     $$("[data-chip]", root).forEach((b) => b.onclick = () => { const t = $("#chat-input"); if (t) { t.value = b.dataset.chip; t.form.requestSubmit(); } });
     // Display choices live in cookies, so the server renders them and live redraws keep them.
@@ -912,7 +985,7 @@ export const SCRIPT = `
       if (!err) $$("textarea[id]", f).forEach((t) => { t.value = ""; t.style.height = ""; drafts.set(t); });
       if (res.ok) await swap(await res.text());
       if (err) restore();
-      if (err) toast(err, true); else { if (!f.hasAttribute("data-quiet")) toast(ok); f.reset(); if (f._imgs) { f._imgs.forEach((it) => URL.revokeObjectURL(it.url)); f._imgs = []; drawTray(f); } const d = f.closest("dialog"); d && d.close(); const ci = f.querySelector("#chat-input"); ci && !touch && ci.focus(); }
+      if (err) toast(err, true); else { if (!f.hasAttribute("data-quiet")) toast(ok); f.reset(); if (f._afterSend) { f._afterSend(); f._afterSend = null; } if (f._imgs) { f._imgs.forEach((it) => URL.revokeObjectURL(it.url)); f._imgs = []; drawTray(f); } const d = f.closest("dialog"); d && d.close(); const ci = f.querySelector("#chat-input"); ci && !touch && ci.focus(); }
       if (link) { $("#invite-link").textContent = link; $("#invite-copy").dataset.copy = link; $("#invite-dlg").showModal(); }
     } catch { restore(); toast("Network error — try again", true); }
     btns.forEach((b) => (b.disabled = false)); f._busy = false;

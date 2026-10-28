@@ -8,6 +8,7 @@ import {
   type Message,
   type Project,
   type Proposal,
+  LIVE,
   MAX_BODY,
   MEMBER_OF,
   UserError,
@@ -211,7 +212,7 @@ export const tools: Tool[] = [
         const agent = other.includes("/") ? normChannel(other.split("/")[1]) : null;
         rows = (
           await env.DB.prepare(
-            `SELECT * FROM messages WHERE ((sender = ?1 AND recipient = ?2) OR (sender = ?2 AND recipient = ?1))
+            `SELECT * FROM messages WHERE ((sender = ?1 AND recipient = ?2) OR (sender = ?2 AND recipient = ?1)) AND ${LIVE}
                AND (?4 IS NULL OR sender_agent = ?4 OR recipient_agent = ?4) ORDER BY id DESC LIMIT ?3`,
           )
             .bind(me, name, limit, agent)
