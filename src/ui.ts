@@ -368,6 +368,7 @@ form.dropping{outline:2px dashed var(--accent);outline-offset:4px;border-radius:
 .attf-n{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.attf-s{color:var(--mute);font-size:11px;white-space:nowrap}
 .att{display:inline-block;margin:6px 8px 2px 0;vertical-align:top}.att img{display:block;max-width:min(360px,100%);max-height:240px;border-radius:8px;border:1px solid var(--line);background:var(--surface-2)}
 .att:hover img{border-color:var(--accent)}
+.attl{display:inline-flex;align-items:center;gap:4px;vertical-align:-2px}.attl svg{flex:none}
 .act-loop .aic,.act-loop .atx{color:var(--accent)}
 .looprow{color:var(--accent);margin-top:2px}
 .jobrow{color:var(--ink-2);margin-top:2px}.act-job .aic{color:var(--amber)}.act-job .atx{color:var(--ink-2)}

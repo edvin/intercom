@@ -53,11 +53,19 @@ const PATH_IN = new RegExp(`(^|[\\s(\\[>"'])(${PATH})(?=[\\s&).,:;!?\\]'"<]|$)`,
 const fileLink = (path: string, agent: string, inner = path) =>
   `<a class="lfile" href="/agent-file?agent=${encodeURIComponent(agent)}&amp;path=${encodeURIComponent(path)}" target="_blank" rel="noopener" title="Open from ${agent.split("/")[1]}'s machine">${inner}</a>`;
 
+const ICON_IMAGE = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"/></svg>`;
+
 function inline(s: string, refs?: string | null, files?: string | null): string {
   const codes: string[] = [];
   const keep = (html: string) => `\u0001${codes.push(html) - 1}\u0001`;
   // Attachment markers stay as they are (md turns them into thumbnails and chips): their #12 is no issue reference.
-  s = s.replace(/\[📎 (?:image|file) #\d+[^\]\n]*\]/g, keep);
+  // Inside a sentence an image is a small link (a thumbnail there breaks the line apart); on a line of its own, a thumbnail.
+  const ATT = /\[📎 (?:image|file) #\d+[^\]\n]*\]/g;
+  const alone = !s.replace(ATT, "").trim();
+  s = s.replace(ATT, (m) => {
+    const img = !alone && m.match(/^\[📎 image #(\d+)(?::\s?([^\]]*))?\]$/);
+    return keep(img ? `<a class="attl" href="/attachment/${img[1]}" target="_blank" rel="noopener">${ICON_IMAGE}${img[2] || `image #${img[1]}`}</a>` : m);
+  });
   s = s.replace(/`([^`\n]+)`/g, (_, c: string) => keep(files && PATH_ONLY.test(c) ? fileLink(c, files, `<code>${c}</code>`) : (refs && linkCode(c, refs)) || `<code>${c}</code>`));
   if (files) s = s.replace(PATH_IN, (_, pre: string, p: string) => pre + keep(fileLink(p, files)));
   s = s

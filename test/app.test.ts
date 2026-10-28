@@ -1481,8 +1481,9 @@ describe("reference links", () => {
     assert.equal(linkRefs("&#39;quoted&#39; hello!3", gl), "&#39;quoted&#39; hello!3"); // entities and mid-word ! untouched
     // An attachment's number is no issue: the marker still becomes the thumbnail.
     const { md } = await import("../src/markdown.ts");
-    const att = md("See [📎 image #28: shot.png] for #7", "https://github.com/acme/shop");
-    assert.match(att, /<a class="att" href="\/attachment\/28"/);
+    const att = md("See [📎 image #27: a.png] for #7\n[📎 image #28: shot.png]", "https://github.com/acme/shop");
+    assert.match(att, /<a class="att" href="\/attachment\/28"/); // on its own line: a thumbnail
+    assert.match(att, /<a class="attl" href="\/attachment\/27"[^>]*><svg[^]*?<\/svg>a\.png<\/a>/); // in a sentence: a small link
     assert.match(att, /issues\/7"/);
     assert.doesNotMatch(att, /issues\/28/);
   });
