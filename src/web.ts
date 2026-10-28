@@ -6,7 +6,7 @@ import { type Decision, type Handoff, OPEN_HANDOFF, findDecisions, listHandoffs 
 import { pendingApprovals } from "./approvals";
 import { adminsInvite, openSignup, setSetting, usableInvite } from "./github";
 import { tools } from "./tools";
-import { GITHUB_ICON, LOGO, agentAvatar, agentName, avatar, codeBlock, deliveryMark, esc, hidden, html, icon, md, page, redirect, time } from "./ui";
+import { GITHUB_ICON, LOGO, agentAvatar, agentName, avatar, codeBlock, deliveryMark, esc, hidden, html, icon, md, page, plainSpaces, redirect, time } from "./ui";
 
 export const COOKIE = "intercom_token";
 
@@ -379,9 +379,10 @@ function handoffCard(h: Handoff, showProject: boolean): string {
 
 function decisionRow(d: Decision, showProject: boolean): string {
   return `<div class="recc${d.superseded_by ? " old" : ""}">
-    <div class="row" style="gap:8px;flex-wrap:wrap"><span class="tiny muted">D${d.id}</span><span class="badge ${VERDICT_PILL[d.verdict] ?? ""}">${esc(d.verdict)}</span><b class="grow" style="font-size:13.5px">${esc(d.subject)}</b>${showProject ? `<a class="tag" href="/dashboard?channel=${encodeURIComponent(d.project)}">#${esc(d.project)}</a>` : ""}</div>
-    ${d.reason ? `<div class="small" style="margin-top:3px">${esc(d.reason)}</div>` : ""}
-    <div class="tiny muted" style="margin-top:3px">${d.refs ? `<span class="mono">${esc(d.refs)}</span> · ` : ""}${esc(address(d.author, d.author_agent))} · ${time(d.created_at)}${d.superseded_by ? ` · replaced by D${d.superseded_by}` : ""}</div>
+    <div class="row" style="gap:8px"><span class="tiny muted">D${d.id}</span><span class="badge ${VERDICT_PILL[d.verdict] ?? ""}">${esc(d.verdict)}</span><span class="grow"></span>${showProject ? `<a class="tag" href="/dashboard?channel=${encodeURIComponent(d.project)}">#${esc(d.project)}</a>` : ""}</div>
+    <b class="dsub">${esc(plainSpaces(d.subject))}</b>
+    ${d.reason ? `<div class="small dtxt">${esc(plainSpaces(d.reason))}</div>` : ""}
+    <div class="tiny muted dtxt">${d.refs ? `<span class="mono">${esc(plainSpaces(d.refs))}</span> · ` : ""}${esc(address(d.author, d.author_agent))} · ${time(d.created_at)}${d.superseded_by ? ` · replaced by D${d.superseded_by}` : ""}</div>
   </div>`;
 }
 

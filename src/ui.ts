@@ -410,6 +410,8 @@ form.dropping{outline:2px dashed var(--accent);outline-offset:4px;border-radius:
 .bubble.cancelled{opacity:.6}.bubble.cancelled>:not(.when){text-decoration:line-through}
 .thread.term .bubble.mine.cancelled{border-left-color:var(--line-strong);background:none}.thread.term .bubble.mine.cancelled::before{color:var(--mute)}
 form.editmode textarea{border-color:color-mix(in srgb,var(--amber) 60%,transparent)}
+/* decision log: verdict line, then the subject at full width; long hashes and paths wrap instead of overflowing */
+.recc .dsub{display:block;font-size:13.5px;line-height:1.4;margin-top:5px;overflow-wrap:anywhere}.recc .dtxt{margin-top:3px;overflow-wrap:anywhere}
 .editbar[hidden]{display:none}.editbar{display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:2px 4px 0;color:var(--amber)}.editbar span{color:var(--ink-2)}.editbar a{font-weight:560}
 .bubble.relay{align-self:stretch;max-width:none;background:color-mix(in srgb,var(--accent) 5%,transparent);border-style:dashed}
 .bubble.relay .rhd{display:block;font-size:12px;font-weight:600;color:var(--ink-2);margin-bottom:4px}
