@@ -56,6 +56,8 @@ const fileLink = (path: string, agent: string, inner = path) =>
 function inline(s: string, refs?: string | null, files?: string | null): string {
   const codes: string[] = [];
   const keep = (html: string) => `\u0001${codes.push(html) - 1}\u0001`;
+  // Attachment markers stay as they are (md turns them into thumbnails and chips): their #12 is no issue reference.
+  s = s.replace(/\[📎 (?:image|file) #\d+[^\]\n]*\]/g, keep);
   s = s.replace(/`([^`\n]+)`/g, (_, c: string) => keep(files && PATH_ONLY.test(c) ? fileLink(c, files, `<code>${c}</code>`) : (refs && linkCode(c, refs)) || `<code>${c}</code>`));
   if (files) s = s.replace(PATH_IN, (_, pre: string, p: string) => pre + keep(fileLink(p, files)));
   s = s

@@ -1479,6 +1479,12 @@ describe("reference links", () => {
     assert.match(gh, /href="https:\/\/github\.com\/acme\/shop\/issues\/88"/);
     assert.doesNotMatch(gh, /deadbeef<\/a>|1234567<\/a>/); // words and plain numbers aren't commits
     assert.equal(linkRefs("&#39;quoted&#39; hello!3", gl), "&#39;quoted&#39; hello!3"); // entities and mid-word ! untouched
+    // An attachment's number is no issue: the marker still becomes the thumbnail.
+    const { md } = await import("../src/markdown.ts");
+    const att = md("See [📎 image #28: shot.png] for #7", "https://github.com/acme/shop");
+    assert.match(att, /<a class="att" href="\/attachment\/28"/);
+    assert.match(att, /issues\/7"/);
+    assert.doesNotMatch(att, /issues\/28/);
   });
 
   test("an agent's message links its MR refs to its own GitLab", async () => {
