@@ -336,13 +336,13 @@ label.field>input,label.field>textarea,label.field>select{width:100%}
 .dot{width:8px;height:8px;border-radius:50%;background:var(--mute);flex:none}.dot.on{background:var(--green);box-shadow:0 0 0 3px var(--green-soft)}
 .chat{display:flex;flex-direction:column;min-height:0;height:100%;overflow:hidden}
 .chat>.hd{flex-wrap:wrap;flex:none}.chat>.hd .aname{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.chat>.hd .client{flex:none}
-.thread{flex:1;min-height:0;overflow-y:auto;padding:18px;display:flex;flex-direction:column;gap:10px;overscroll-behavior:contain}
+.thread{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;padding:18px;display:flex;flex-direction:column;gap:10px;overscroll-behavior:contain}
 .thread>.empty{margin:auto}
 .bubble{max-width:min(86%,1100px);padding:10px 14px;border-radius:16px;background:var(--surface-2);border:1px solid var(--line);overflow-wrap:anywhere;line-height:1.5;align-self:flex-start;border-bottom-left-radius:6px}
 .bubble.mine{align-self:flex-end;background:var(--grad);color:#fff;border:0;border-bottom-left-radius:16px;border-bottom-right-radius:6px}
 .bubble.mine a{color:#fff;text-decoration:underline}.bubble.mine code{background:rgba(255,255,255,.18);border-color:transparent;color:#fff}
 .bubble .when{display:block;font-size:11px;color:var(--mute);margin-top:4px}.bubble .via{margin-right:.5em;padding:0 6px;border-radius:6px;background:var(--surface-2);color:var(--ink-2)}
-.activity{align-self:center;font-size:12.5px;color:var(--mute);text-align:center;max-width:80%;display:flex;gap:6px;align-items:baseline}
+.activity{align-self:center;font-size:12.5px;color:var(--mute);text-align:center;max-width:80%;display:flex;gap:6px;align-items:baseline;min-width:0}.activity>span{min-width:0;overflow-wrap:anywhere}
 .activity .i{align-self:flex-start;margin-top:2px}
 /* Terminal style (default): a full-width CLI transcript in JetBrains Mono */
 .thread.term{gap:0;padding:14px 22px;font-family:"JetBrains Mono","Geist Mono",ui-monospace,Menlo,monospace;font-size:13.2px;line-height:1.6}
