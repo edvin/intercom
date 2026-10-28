@@ -1770,3 +1770,19 @@ describe("failed turns", () => {
     assert.doesNotMatch(await page(), /usage limit · resets 2pm/);
   });
 });
+
+describe("codex edits", () => {
+  test("an edit row names the file, not the escaped patch an older local server sent along", async () => {
+    const w = await standardWorld();
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=cx1&name=alder&client=codex", { as: "bob" });
+    await w.request("/api/activity?session=cx1", {
+      as: "bob",
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ items: [{ at: Date.now(), kind: "edit", text: "edit /src/a.svelte\\n@@\\n+\\tonpointermove={() => {}}\\n*** End Patch" }] }),
+    });
+    const page = await (await w.request("/dashboard?view=agents&agent=bob/alder", { as: "bob", cookie: true })).text();
+    assert.match(page, /edit \/src\/a\.svelte/);
+    assert.doesNotMatch(page, /onpointermove|End Patch/);
+  });
+});

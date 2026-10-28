@@ -20,7 +20,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const VERSION = "0.12.20"; // kept in step with .claude-plugin/plugin.json (a test checks)
+const VERSION = "0.12.21"; // kept in step with .claude-plugin/plugin.json (a test checks)
 const DIR = path.join(os.homedir(), ".claude", "intercom");
 const CONFIG = path.join(DIR, "config");
 function readConf() {
@@ -405,8 +405,10 @@ function summarizeLine(line) {
       const cmd = Array.isArray(args?.command) ? args.command.slice(-1)[0] : args?.command;
       if (name === "wait" || name.includes("intercom")) return out;
       if (name === "apply_patch" || /\*\*\* (Update|Add|Delete) File:/.test(typeof args === "string" ? args : "")) {
-        const files = [...String(typeof args === "string" ? args : args?.input ?? "").matchAll(/\*\*\* (?:Update|Add|Delete) File: (.+)/g)].map((m) => m[1]);
-        out.push({ at, kind: "edit", text: `edit ${files.join(", ") || "files"}` });
+        // The path ends at the line break, which a patch passed inside a quoted command shows as a literal "\n".
+        const patch = String(typeof args === "string" ? args : args?.input ?? args?.command ?? "");
+        const files = [...new Set([...patch.matchAll(/\*\*\* (?:Update|Add|Delete) File: (.+?)(?=\\n|\n|\\?"|$)/g)].map((m) => m[1].trim()))];
+        out.push({ at, kind: "edit", text: `edit ${clip(files.join(", "), 300) || "files"}` });
       } else if (cmd) out.push({ at, kind: "cmd", text: oneLine(cmd) });
       else out.push({ at, kind: "tool", text: `${name}: ${clip(firstLine(typeof args === "string" ? args : JSON.stringify(args ?? "")), 160)}` });
     }

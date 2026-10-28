@@ -715,7 +715,8 @@ export async function addActivity(env: Env, me: string, sessionId: string, items
       const kind = String(i.kind ?? "");
       const text = String(i.text ?? "").replace(/\s+$/g, "").slice(0, 6000); // the agent's text in full, up to a long answer
       if (!ACTIVITY_KINDS.has(kind) || kind === "loop" || kind === "job" || !text) return [];
-      return [{ kind, text, at: when(i.at) }];
+      // An edit is a line naming the file; older local servers could pass a whole quoted patch (literal "\n"s) along.
+      return [{ kind, text: kind === "edit" ? text.split(/\\n|\n/)[0]!.slice(0, 400) : text, at: when(i.at) }];
     }),
     ...loopLines,
   ];
