@@ -295,7 +295,7 @@ label.field>input,label.field>textarea,label.field>select{width:100%}
 .md code{font-size:.86em}
 .mdpre{margin:.5em 0;background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:10px 12px;overflow-x:auto;white-space:pre;font-size:12.5px;line-height:1.55}
 .mdpre code{background:none;border:0;padding:0;font-size:inherit}
-.mdtable{overflow-x:auto;margin:.5em 0}.md table{border-collapse:collapse;font-size:.93em}.md th,.md td{border:1px solid var(--line-strong);padding:5px 10px;text-align:left;vertical-align:top}.md th{background:var(--surface-2);font-weight:600}
+.mdtable{overflow-x:auto;margin:.5em 0}.md table{border-collapse:collapse;font-size:.93em}.md th,.md td{border:1px solid var(--line-strong);padding:5px 10px;text-align:left;vertical-align:top;overflow-wrap:normal;word-break:normal}.md th{background:var(--surface-2);font-weight:600}
 /* ANSI colours (terminal output pasted into a message) */
 .a-b{font-weight:700}.a-dim{opacity:.6}.a-i{font-style:italic}.a-u{text-decoration:underline}
 .a-red{color:#e5534b}.a-green{color:#3fb950}.a-yellow{color:#d4a72c}.a-blue{color:#539bf5}.a-magenta{color:#c678dd}.a-cyan{color:#39c5cf}.a-white{color:var(--ink)}.a-black{color:var(--mute)}
@@ -670,7 +670,13 @@ export const SCRIPT = `
   function bindImages(f) {
     if (f._imgsBound) return; f._imgsBound = true; f._imgs = f._imgs || [];
     const t = f.querySelector("textarea"), pick = f.querySelector("[data-imgpick]"), btn = f.querySelector("[data-imgbtn]");
-    if (btn && pick) { btn.onclick = () => pick.click(); pick.onchange = async () => { await addImages(f, pick.files); pick.value = ""; }; }
+    // While the photo picker is open, live redraws leave this composer alone (on a phone the page is hidden meanwhile,
+    // and reconnecting redraws it); if it was replaced anyway, the images go to the composer on the page now.
+    if (btn && pick) {
+      btn.onclick = () => { f._picking = Date.now(); pick.click(); };
+      pick.oncancel = () => { f._picking = 0; };
+      pick.onchange = async () => { const live = (f.id && document.getElementById(f.id)) || f; f._picking = 0; await addImages(live, pick.files); pick.value = ""; };
+    }
     if (t) f.addEventListener("paste", async (e) => { const files = [...(e.clipboardData ? e.clipboardData.files : [])]; if (files.length && files.some((x) => x.type.startsWith("image/"))) { e.preventDefault(); await addImages(f, files); } });
     f.addEventListener("dragover", (e) => { if (e.dataTransfer && [...e.dataTransfer.items].some((i) => i.type.startsWith("image/"))) { e.preventDefault(); f.classList.add("dropping"); } });
     f.addEventListener("dragleave", () => f.classList.remove("dropping"));
@@ -879,7 +885,7 @@ export const SCRIPT = `
     const doc = new DOMParser().parseFromString(text, "text/html");
     $$("[data-region]").forEach((el) => {
       const next = doc.getElementById(el.id); if (!next || el.contains(document.activeElement) && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) return;
-      if ((el._imgs && el._imgs.length) || el._adding) return; // images waiting to be sent, or being added
+      if ((el._imgs && el._imgs.length) || el._adding || Date.now() - (el._picking || 0) < 120000) return; // images waiting to be sent, being added or picked
       const open = new Set($$("details[open]", el).map((d) => d.id).filter(Boolean));
       // A thread you've scrolled up in stays where you are; one at the bottom follows new messages.
       const th = el.classList.contains("thread") ? el : null;
@@ -928,7 +934,7 @@ export const SCRIPT = `
     if (document.hidden || !build) return;
     try {
       const now = (await (await fetch("/api/build", { cache: "no-store" })).json()).build;
-      const busy = $$("textarea, input[type=text]").some((t) => t.value) || $$("form").some((f) => f._imgs && f._imgs.length);
+      const busy = $$("textarea, input[type=text]").some((t) => t.value) || $$("form").some((f) => (f._imgs && f._imgs.length) || Date.now() - (f._picking || 0) < 120000);
       if (now && now !== build && !busy) location.reload();
     } catch {}
   });

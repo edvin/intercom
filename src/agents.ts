@@ -232,7 +232,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   const originOf = (member: string, label: string | null) => (label && origins.get(`${member}/${label}`)) || agent.origin || null;
   const ACT_ICON: Record<string, string> = { cmd: "$", edit: "✎", read: "·", tool: "⚙", text: "●", prompt: "›", loop: "↻", job: "" };
   const actRow = (a: Activity) =>
-    `<div class="act act-${a.kind}" data-mid="a${a.id}"><span class="aic">${ACT_ICON[a.kind] ?? "·"}</span><span class="atx">${
+    `<div class="act act-${a.kind}" data-mid="a${a.id}"><span class="aic">${ACT_ICON[a.kind] ?? "·"}</span><span class="atx${a.kind === "text" ? " md" : ""}">${
       a.kind === "text"
         ? md(a.text, agent.origin)
         : a.kind === "prompt"
