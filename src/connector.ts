@@ -12,6 +12,9 @@ import { sameOrigin, soloCard } from "./web";
 const MIN = 60_000;
 const VIA = "Claude.ai";
 const SCOPE = "agents";
+// How long ask waits for a reply: well inside an MCP client's timeout, so a slow agent never turns a sent message into a failed call.
+const ASK_WAIT = 15;
+const ASK_WAIT_MAX = 25;
 
 const cors = { "access-control-allow-origin": "*", "access-control-allow-headers": "authorization, content-type, mcp-protocol-version", "access-control-allow-methods": "GET, POST, OPTIONS" };
 const json = (body: unknown, status = 200, headers: Record<string, string> = {}) =>
@@ -324,34 +327,54 @@ const connectorTools: Tool[] = [
   {
     name: "ask",
     description:
-      "Send one of the user's agents a message from the user, e.g. 'ask my fabricate-kernel agent to run the tests'. It reaches the agent exactly like a prompt the user typed in the intercom dashboard, so pass the user's request faithfully and add nothing of your own. Waits a little for the agent's reply; if none comes in time, check back later with conversation.",
+      "Send one of the user's agents a message from the user, e.g. 'ask my fabricate-kernel agent to run the tests'. It reaches the agent exactly like a prompt the user typed in the intercom dashboard, so pass the user's request faithfully and add nothing of your own. Waits a little for the agent's reply; if none comes in time, check back later with conversation. Safe to retry: the same text to the same agent within 15 minutes isn't sent twice (unless resend is true), so after a failed or timed-out call, call ask again with the same text, or check conversation.",
     inputSchema: {
       type: "object",
       properties: {
         agent: agentProp,
         message: { type: "string", description: "What the user wants to tell or ask the agent, in their words." },
-        wait_seconds: { type: "number", description: "How long to wait for a reply (default 30, max 55; 0 to just send)." },
+        wait_seconds: { type: "number", description: `How long to wait for a reply (default ${ASK_WAIT}, max ${ASK_WAIT_MAX}; 0 to just send).` },
+        resend: { type: "boolean", description: "Send it again even if the same text went to this agent in the last 15 minutes. Only when the user asks to repeat it." },
       },
       required: ["agent", "message"],
     },
     async run(env, me, args) {
       const { agent, on } = await findAgent(env, me, str(args, "agent", true));
       const body = str(args, "message", true);
-      await limit(env, `post:${me}`, 300, 3600_000, "messages");
-      const id = await postMessage(env, { channel: "dm", sender: me, sender_agent: null, recipient: me, recipient_agent: agent.label, body, via: VIA });
-      const sent = `Sent [${id}] to ${agent.label}.`;
-      if (!on) return `${sent} It isn't connected right now (last seen ${ago(agent.last_seen)}); it gets the message when it's back.`;
-      const until = Date.now() + num(args, "wait_seconds", 30, 0, 55) * 1000;
-      for (;;) {
-        const replies = await chat(env, me, agent, 5, id);
-        const theirs = replies.filter((m) => m.sender_agent);
-        if (theirs.length) return `${sent} Reply:\n\n${fmtChat(agent, theirs)}`;
-        if (Date.now() >= until) break;
-        await new Promise((r) => setTimeout(r, 1000));
+      // A retry (the client gave up waiting, or the connection dropped) finds the message it already sent.
+      const earlier =
+        args.resend === true
+          ? null
+          : await env.DB.prepare(
+              `SELECT id, created_at FROM messages WHERE sender = ?1 AND sender_agent IS NULL AND recipient = ?1 AND recipient_agent = ?2 AND body = ?3 AND created_at > ?4 AND ${LIVE}
+               ORDER BY id DESC LIMIT 1`,
+            )
+              .bind(me, agent.label, body, Date.now() - 15 * MIN)
+              .first<{ id: number; created_at: number }>();
+      let id: number;
+      if (earlier) id = earlier.id;
+      else {
+        await limit(env, `post:${me}`, 300, 3600_000, "messages");
+        id = await postMessage(env, { channel: "dm", sender: me, sender_agent: null, recipient: me, recipient_agent: agent.label, body, via: VIA });
       }
-      const taken = await env.DB.prepare("SELECT 1 FROM deliveries WHERE message_id = ?").bind(id).first();
-      const now = (await env.DB.prepare("SELECT state FROM sessions WHERE member = ? AND session_id = ?").bind(me, agent.session_id).first<{ state: string | null }>())?.state;
-      return `${sent} ${taken ? "It has the message" : "It gets the message at its next step"}${now === "working" ? " and is working" : ""}; no reply yet. Check back with conversation.`;
+      const sent = earlier ? `Already sent [${id}] to ${agent.label} ${ago(earlier.created_at)}; not sent twice.` : `Sent [${id}] to ${agent.label}.`;
+      // From here on the message is out: whatever goes wrong while waiting, the answer says it was sent.
+      try {
+        if (!on) return `${sent} It isn't connected right now (last seen ${ago(agent.last_seen)}); it gets the message when it's back.`;
+        const until = Date.now() + num(args, "wait_seconds", ASK_WAIT, 0, ASK_WAIT_MAX) * 1000;
+        for (;;) {
+          const theirs = (await chat(env, me, agent, 5, id)).filter((m) => m.sender_agent);
+          if (theirs.length) return `${sent} Reply:\n\n${fmtChat(agent, theirs)}`;
+          if (Date.now() >= until) break;
+          await new Promise((r) => setTimeout(r, 1000));
+        }
+        const taken = await env.DB.prepare("SELECT 1 FROM deliveries WHERE message_id = ?").bind(id).first();
+        const now = (await env.DB.prepare("SELECT state FROM sessions WHERE member = ? AND session_id = ?").bind(me, agent.session_id).first<{ state: string | null }>())?.state;
+        return `${sent} ${taken ? "It has the message" : "It gets the message at its next step"}${now === "working" ? " and is working" : ""}; no reply yet. Check back with conversation.`;
+      } catch (e) {
+        console.error("connector ask", (e as Error).message);
+        return `${sent} Couldn't check for a reply; read it later with conversation.`;
+      }
     },
   },
   {

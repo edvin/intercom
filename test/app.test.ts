@@ -1903,5 +1903,10 @@ describe("Claude.ai connector", () => {
     assert.match(await (await w.request("/dashboard?view=agents&agent=bob/fabricate-kernel", { as: "bob", cookie: true })).text(), /<span class="via">via Claude\.ai<\/span>/);
     // No wait: sent, and says when it gets it.
     assert.match(await call(w, t, "ask", { agent: "docs", message: "update the README", wait_seconds: 0 }), /Sent \[\d+\] to docs\. It gets the message at its next step; no reply yet/);
+    // A retry (the client timed out) doesn't send it twice; resend does.
+    assert.match(await call(w, t, "ask", { agent: "docs", message: "update the README", wait_seconds: 0 }), /Already sent \[\d+\] to docs just now; not sent twice\./);
+    assert.match(await call(w, t, "ask", { agent: "docs", message: "update the README", wait_seconds: 0, resend: true }), /^Sent \[\d+\] to docs\./);
+    const readme = await w.db.prepare("SELECT COUNT(*) AS n FROM messages WHERE body = 'update the README'").first<{ n: number }>();
+    assert.equal(readme!.n, 2);
   });
 });
