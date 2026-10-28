@@ -325,7 +325,7 @@ label.field>input,label.field>textarea,label.field>select{width:100%}
 .bubble{max-width:min(86%,1100px);padding:10px 14px;border-radius:16px;background:var(--surface-2);border:1px solid var(--line);overflow-wrap:anywhere;line-height:1.5;align-self:flex-start;border-bottom-left-radius:6px}
 .bubble.mine{align-self:flex-end;background:var(--grad);color:#fff;border:0;border-bottom-left-radius:16px;border-bottom-right-radius:6px}
 .bubble.mine a{color:#fff;text-decoration:underline}.bubble.mine code{background:rgba(255,255,255,.18);border-color:transparent;color:#fff}
-.bubble .when{display:block;font-size:11px;opacity:.65;margin-top:4px}
+.bubble .when{display:block;font-size:11px;color:var(--mute);margin-top:4px}
 .activity{align-self:center;font-size:12.5px;color:var(--mute);text-align:center;max-width:80%;display:flex;gap:6px;align-items:baseline}
 .activity .i{align-self:flex-start;margin-top:2px}
 /* Terminal style (default): a full-width CLI transcript in JetBrains Mono */
@@ -337,7 +337,7 @@ label.field>input,label.field>textarea,label.field>select{width:100%}
 .thread.term .bubble.mine{border-left:2px solid var(--green);padding-left:12px;margin:6px 0;background:color-mix(in srgb,var(--green) 6%,transparent)}
 .thread.term .bubble.mine a{color:inherit;text-decoration:underline}
 .thread.term .bubble.mine code{background:var(--surface-2);border:1px solid var(--line);text-decoration:none}
-.thread.term .bubble .when{display:inline;margin:0 0 0 .6em;font-size:11px;opacity:.5}
+.thread.term .bubble .when{display:inline;margin:0 0 0 .6em;font-size:11px;color:var(--mute)}
 .speak{display:inline-grid;place-items:center;width:22px;height:22px;margin-left:4px;vertical-align:-6px;border:0;border-radius:6px;background:none;color:var(--mute);cursor:pointer;opacity:.7}
 .speak:hover{opacity:1;color:var(--ink);background:var(--surface-2)}.speak.on{opacity:1;color:var(--accent)}
 .thread.term .activity{align-self:stretch;display:grid;grid-template-columns:18px minmax(0,1fr) auto;gap:8px;text-align:left;max-width:none;padding:2px 0;font-size:12.5px}
@@ -346,19 +346,19 @@ label.field>input,label.field>textarea,label.field>select{width:100%}
 .thread.term .md .mdh{font-size:1em;color:var(--accent)}
 /* mirrored activity: what your own agent is doing */
 .act{display:grid;grid-template-columns:18px minmax(0,1fr) auto;gap:8px;align-items:start;font-size:12.5px;color:var(--mute);padding:2px 0;font-family:"JetBrains Mono","Geist Mono",ui-monospace,monospace}
-.act .aic{text-align:center;color:var(--ink-2)}.act .atx{overflow-wrap:anywhere;white-space:pre-wrap}.act .when{font-size:11px;opacity:.6}
+.act .aic{text-align:center;color:var(--ink-2)}.act .atx{overflow-wrap:anywhere;white-space:pre-wrap}.act .when{font-size:11px;color:var(--mute)}
 .act-cmd .atx{color:var(--ink-2)}.act-cmd .aic{color:var(--green)}
 .act-edit .aic{color:var(--amber)}.act-edit .atx{color:var(--ink-2)}
 .act-text{color:var(--ink-2)}.act-text .atx{white-space:normal}.act .atx>:first-child{margin-top:0}.act .atx>:last-child{margin-bottom:0}.act-text .aic{color:var(--accent)}
 .act-prompt .aic{color:var(--green)}
-.act-read{opacity:.75}
+.act-read .atx{color:var(--mute)}
 a.ref{color:var(--accent);text-decoration:none;border-bottom:1px dotted color-mix(in srgb,var(--accent) 45%,transparent)}a.ref:hover{border-bottom-style:solid}a.ref code{color:inherit}
 .btw{border:1px dashed color-mix(in srgb,var(--amber) 55%,transparent);border-radius:10px;padding:8px 12px;margin:6px 0;background:color-mix(in srgb,var(--amber) 5%,transparent)}
 .btwq{font-weight:600;color:var(--ink)}.btwtag{font-size:10.5px;font-weight:700;color:var(--amber);border:1px solid currentColor;border-radius:5px;padding:0 5px;margin-right:8px;vertical-align:1px}
 .btwa{margin-top:4px;color:var(--ink-2)}.btwa p{margin:0 0 4px}
 .btwbtn.on{background:color-mix(in srgb,var(--amber) 18%,transparent);color:var(--amber);border-color:var(--amber)}
 form.btwmode textarea{border-color:color-mix(in srgb,var(--amber) 60%,transparent)}.btwbar{padding:2px 4px 0}
-.act .adesc{display:block;color:var(--ink)}.act .acmd{display:block;opacity:.6;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.act .adesc{display:block;color:var(--ink)}.act .acmd{display:block;color:var(--mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .imgtray{display:flex;gap:8px;flex-wrap:wrap;padding:6px 6px 8px}.imgtray[hidden]{display:none}.imgthumb{position:relative}.imgthumb img{height:64px;max-width:120px;object-fit:cover;border-radius:8px;border:1px solid var(--line);display:block}
 .imgthumb button{position:absolute;top:-6px;right:-6px;width:20px;height:20px;border-radius:50%;border:0;background:var(--ink);color:var(--bg);font-size:13px;line-height:20px;padding:0;cursor:pointer}
 form.dropping{outline:2px dashed var(--accent);outline-offset:4px;border-radius:12px}
@@ -374,7 +374,7 @@ form.dropping{outline:2px dashed var(--accent);outline-offset:4px;border-radius:
 .actgroup>summary{list-style:none;cursor:pointer;display:grid;grid-template-columns:18px minmax(0,1fr) auto;gap:8px;align-items:start;font-size:12.5px;color:var(--mute);padding:2px 0;font-family:"JetBrains Mono","Geist Mono",ui-monospace,monospace;border-radius:6px}
 .actgroup>summary::-webkit-details-marker{display:none}
 .actgroup>summary:hover{color:var(--ink-2)}.actgroup>summary .aic{text-align:center;transition:transform .15s}.actgroup[open]>summary .aic{transform:rotate(90deg)}
-.actgroup>summary .atx{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.actgroup>summary .alast{opacity:.6}.actgroup[open]>summary .alast{display:none}.actgroup>summary .when{font-size:11px;opacity:.6}
+.actgroup>summary .atx{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.actgroup>summary .alast{color:var(--mute)}.actgroup[open]>summary .alast{display:none}.actgroup>summary .when{font-size:11px;color:var(--mute)}
 .actgroup>.act{padding-left:14px;border-left:1px solid var(--line);margin-left:8px}
 .thread.norelay .relay{display:none}
 .dlv{font-size:11px;margin-left:6px;white-space:nowrap}.dlv.ok{color:var(--green)}.dlv.wait{opacity:.7}.dlv.off{color:var(--amber)}
