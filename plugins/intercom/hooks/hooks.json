@@ -88,6 +88,17 @@
           }
         ]
       }
+    ],
+    "StopFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hook.sh\" StopFailure",
+            "timeout": 5
+          }
+        ]
+      }
     ]
   }
 }

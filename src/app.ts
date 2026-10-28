@@ -114,7 +114,26 @@ async function replyFromTurn(env: Env, me: string, session: Session & { cursor: 
   if (!posted) await postMessage(env, { channel: session.project || "dm", sender: me, sender_agent: session.label, recipient: me, body: reply, max: 20_000 });
 }
 
-async function handleHook(url: URL, env: Env, me: string, input: { last_assistant_message?: unknown } = {}): Promise<Response> {
+/** The dashboard state for a failed turn (StopFailure hook input): waiting with the reason, or idle. */
+export function stopFailure(input: { error?: unknown; error_details?: unknown; last_assistant_message?: unknown }): [string, string] {
+  const text = [input.error_details, input.last_assistant_message].filter((t) => typeof t === "string").join(" ");
+  const resets = text.match(/\bresets?\s+(?:at\s+)?([^.·\n()]{1,40}?)(?=\s*(?:[.·\n()]|$))/i)?.[1]?.trim();
+  switch (input.error) {
+    case "rate_limit":
+      return ["waiting", resets ? `usage limit · resets ${resets}` : /limit/i.test(text) ? "usage limit reached" : "rate limited"];
+    case "authentication_failed":
+    case "oauth_org_not_allowed":
+      return ["waiting", "needs login (/login)"];
+    case "billing_error":
+    case "account_on_hold":
+    case "verification_required":
+      return ["waiting", `account: ${String(input.error).replace(/_/g, " ")}`];
+    default:
+      return ["idle", ""];
+  }
+}
+
+async function handleHook(url: URL, env: Env, me: string, input: { last_assistant_message?: unknown; error?: unknown; error_details?: unknown } = {}): Promise<Response> {
   const event = url.searchParams.get("event") ?? "UserPromptSubmit";
   const raw = url.searchParams.get("project");
   const sessionId = url.searchParams.get("session");
@@ -162,6 +181,13 @@ async function handleHook(url: URL, env: Env, me: string, input: { last_assistan
     // Claude Code also notifies after a minute of plain idleness; that isn't waiting on anyone.
     if (url.searchParams.get("kind") === "idle_prompt") await setState("idle", "", false);
     else await setState("waiting", url.searchParams.get("detail") || (event === "PermissionRequest" ? "needs approval" : "waiting for input"));
+    return new Response("", { status: 200 });
+  }
+  if (event === "StopFailure") {
+    // A turn the API refused: when it needs you (a usage limit, a lapsed login, billing), the agent shows as waiting
+    // with the reason, and when a usage limit resets if the error says; anything else (overloaded, a server error) is
+    // just the end of the turn.
+    await setState(...stopFailure(input));
     return new Response("", { status: 200 });
   }
   if (event === "Stop") {

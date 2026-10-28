@@ -1,13 +1,13 @@
 #!/bin/sh
 # Claude Code / Codex hook for the team intercom.
-# Usage: hook.sh <SessionStart|UserPromptSubmit|PostToolUse|PreToolUse|SessionEnd> [claude|codex]
+# Usage: hook.sh <SessionStart|UserPromptSubmit|PostToolUse|PreToolUse|Stop|StopFailure|SessionEnd> [claude|codex]
 # Prints hook JSON that adds unread team messages (and, at session start, rules/locks/votes) to the agent's context.
 # PreToolUse (Bash) is the deploy guard: if a command looks like a deploy/migration and a teammate holds a
 # matching lock, Claude Code asks the user to confirm; Codex (whose hooks can't ask) refuses with the reason and
 # lets the user decide to go ahead. It never blocks on its own in Claude Code.
 # Never fails: any error just means no intercom context this time.
 
-VERSION=0.12.18 # kept in step with .claude-plugin/plugin.json (a test checks)
+VERSION=0.12.19 # kept in step with .claude-plugin/plugin.json (a test checks)
 D="$HOME/.claude/intercom"
 event="${1:-UserPromptSubmit}"
 client="${2:-claude}"
@@ -51,14 +51,15 @@ case "$event" in
     done
     exit 0
     ;;
-  Notification|Stop)
+  Notification|Stop|StopFailure)
     [ -z "$input" ] && input=$(cat)
     [ -n "$session" ] || session=$(printf '%s' "$input" | json_field session_id)
     [ -f "$D/config" ] && . "$D/config"
     [ -n "$INTERCOM_URL" ] && [ -n "$INTERCOM_TOKEN" ] && [ -n "$session" ] || exit 0
-    if [ "$event" = "Stop" ]; then
-      # The hook's input goes along: its last_assistant_message is the reply when the turn answered the dashboard.
-      printf '%s' "$input" | curl -sf --max-time 5 -X POST "$INTERCOM_URL/api/hook?event=Stop&session=$session&client=$client&show=${INTERCOM_SHOW:-1}&project=$(cat "$D/.project-$session" 2>/dev/null | sed 's/[^A-Za-z0-9._-]/-/g')" \
+    if [ "$event" = "Stop" ] || [ "$event" = "StopFailure" ]; then
+      # The hook's input goes along: its last_assistant_message is the reply when the turn answered the dashboard,
+      # and a failed turn's error says why the agent stopped (a usage limit and when it resets, a lapsed login).
+      printf '%s' "$input" | curl -sf --max-time 5 -X POST "$INTERCOM_URL/api/hook?event=$event&session=$session&client=$client&show=${INTERCOM_SHOW:-1}&project=$(cat "$D/.project-$session" 2>/dev/null | sed 's/[^A-Za-z0-9._-]/-/g')" \
         -H "Authorization: Bearer $INTERCOM_TOKEN" -H "Content-Type: application/json" --data-binary @- 2>/dev/null
       exit 0
     fi

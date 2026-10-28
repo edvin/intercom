@@ -1746,3 +1746,27 @@ describe("replies from the terminal", () => {
     assert.deepEqual(await replies(), []);
   });
 });
+
+describe("failed turns", () => {
+  test("a usage limit or a lapsed login shows on the agent, with when the limit resets; it clears on the next prompt", async () => {
+    const { stopFailure } = await import("../src/app.ts");
+    assert.deepEqual(stopFailure({ error: "rate_limit", error_details: "You've hit your limit · resets 2pm (Europe/Oslo)" }), ["waiting", "usage limit · resets 2pm"]);
+    assert.deepEqual(stopFailure({ error: "rate_limit", last_assistant_message: "5-hour limit reached ∙ resets at 9:30pm" }), ["waiting", "usage limit · resets 9:30pm"]);
+    assert.deepEqual(stopFailure({ error: "rate_limit" }), ["waiting", "rate limited"]);
+    assert.deepEqual(stopFailure({ error: "authentication_failed" }), ["waiting", "needs login (/login)"]);
+    assert.deepEqual(stopFailure({ error: "overloaded" }), ["idle", ""]);
+
+    const w = await standardWorld();
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=sf1&name=core", { as: "bob" });
+    await w.request("/api/hook?event=StopFailure&project=billing-api&session=sf1", {
+      as: "bob",
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ hook_event_name: "StopFailure", error: "rate_limit", error_details: "You've hit your limit · resets 2pm" }),
+    });
+    const page = async () => (await w.request("/dashboard?view=agents&agent=bob/core", { as: "bob", cookie: true })).text();
+    assert.match(await page(), /usage limit · resets 2pm/);
+    await w.request("/api/hook?event=UserPromptSubmit&project=billing-api&session=sf1", { as: "bob" });
+    assert.doesNotMatch(await page(), /usage limit · resets 2pm/);
+  });
+});
