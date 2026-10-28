@@ -483,7 +483,7 @@ dialog::backdrop{background:rgba(8,8,14,.45);backdrop-filter:blur(3px)}
 .kit:hover{text-decoration:none}.kit.on{background:var(--accent-soft)}.kit.on .kn{color:var(--accent)}
 .kit .kic{display:flex;align-items:center;gap:6px;flex:none;color:var(--ink-2)}.kit .kic .th{width:22px;text-align:center;font-weight:600;color:var(--mute)}
 .kit .kn{font-weight:560;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.kit .ks{margin-left:auto;padding-left:12px;font-size:12px;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
-.kit.gone .kn{color:var(--ink-2)}.kit .kic .tdot{position:static;flex:none}
+.kit.gone .kn{color:var(--ink-2)}.kit .kw{flex:none;min-width:30px;text-align:right;font-size:11.5px;color:var(--mute);font-variant-numeric:tabular-nums}.kit .kic .tdot{position:static;flex:none}
 .kit mark{background:none;color:var(--accent);font-weight:700}
 .kempty{padding:28px 12px;text-align:center;color:var(--mute)}
 .kft{display:flex;gap:16px;padding:9px 16px;border-top:1px solid var(--line);font-size:12px;color:var(--mute)}.kft .kbd{margin-right:3px}
@@ -958,7 +958,7 @@ export const SCRIPT = `
     $$("#tree a.ta").forEach((a) => {
       const proj = a.closest("details.tp") && a.closest("details.tp").querySelector(".tpn");
       const state = a.classList.contains("gone") ? "not connected" : a.hasAttribute("data-w") ? "needs you" : (a.querySelector(".tdot") || {}).className.indexOf("work") >= 0 ? "working" : "";
-      out.push({ group: "Agents", name: a.dataset.k, sub: [proj ? proj.textContent.trim() : "", state].filter(Boolean).join(" · "), more: a.title || "", href: a.getAttribute("href"), icon: [...a.children].slice(0, 2).map((c) => c.outerHTML).join(""), gone: a.classList.contains("gone") });
+      out.push({ group: "Agents", name: a.dataset.k, sub: [proj ? proj.textContent.trim() : "", state].filter(Boolean).join(" · "), more: a.title || "", href: a.getAttribute("href"), icon: [...a.children].slice(0, 2).map((c) => c.outerHTML).join(""), gone: a.classList.contains("gone"), when: (a.querySelector("time.tt") || {}).textContent || "", whenTip: (a.querySelector("time.tt") || {}).title || "" });
     });
     $$("#tree a.tpn").forEach((a) => out.push({ group: "Projects", name: a.textContent.trim(), sub: "messages, locks, votes", href: a.getAttribute("href"), icon: ICONS_K.folder }));
     [["Everything", "/dashboard", "every project and message", "layers"], ["Agents", "/dashboard?view=agents", "your agents' chats", "message"], ["Account", "/account", "tokens, browsers, GitHub", "user"], ["Docs", "/docs", "how intercom works", "book"]].forEach(([name, href, sub, ic]) => out.push({ group: "Pages", name, sub, href, icon: ICONS_K[ic] || "" }));
@@ -994,6 +994,7 @@ export const SCRIPT = `
       if (at >= 0) { const m = document.createElement("mark"); m.textContent = it.name.slice(at, at + q.length); nm.append(it.name.slice(0, at), m, it.name.slice(at + q.length)); } else nm.textContent = it.name;
       const sb = document.createElement("span"); sb.className = "ks"; sb.textContent = it.sub;
       a.append(ic, nm, sb);
+      if (it.when) { const wh = document.createElement("span"); wh.className = "kw"; wh.textContent = it.when; wh.title = it.whenTip; a.append(wh); }
       a.onmousemove = () => { if (kSel !== n) { kSel = n; kMark(); } };
       box.append(a);
     });
