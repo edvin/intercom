@@ -1,4 +1,4 @@
-import { type Delivery, type Env, type Lock, deliveryMarks, type Message, type Project, type Proposal, DELEGATE_PER_HOUR, LIVE, MAX_BODY, MEMBER_OF, RECEIVES, activeLocks, address, authenticate, coMembers, isAdmin, myProjects, normChannel, postMessage, roleIn, sha256, workingOn, newToken, HANDLE, limit, UserError, unsend } from "./lib";
+import { type Delivery, type Env, type Lock, deliveryMarks, issueToken, type Message, type Project, type Proposal, DELEGATE_PER_HOUR, LIVE, MAX_BODY, MEMBER_OF, RECEIVES, activeLocks, address, authenticate, coMembers, isAdmin, myProjects, normChannel, postMessage, roleIn, sha256, workingOn, newToken, HANDLE, limit, UserError, unsend } from "./lib";
 import { agentsView } from "./agents";
 import { askBtw } from "./btw";
 import { linkImages, markerFor, storeImages } from "./attachments";
@@ -33,21 +33,20 @@ export function loginPage(error = "", next = "", github = false): Response {
       `<main class="solo"><div class="card">
         <div class="bd stack" style="padding:32px">
           <div>${LOGO}</div>
-          <div><h1 class="headline">Welcome back</h1><p class="muted">${github ? "Sign in with GitHub, or with your personal token (the one your Claude Code uses)." : "Sign in with your personal token, the same one your Claude Code uses."}</p></div>
+          <div><h1 class="headline">Welcome back</h1><p class="muted">${github ? "Sign in with GitHub. (The token your agents use doesn't sign in here: the dashboard acts as you, and they mustn't.)" : "Sign in with your personal token, the same one your Claude Code uses."}</p></div>
           ${error ? `<div class="toast err" style="box-shadow:none">${icon("x")}<span>${esc(error)}</span></div>` : ""}
-          ${github ? `<a class="btn primary" style="width:100%;height:42px" href="/auth/github${safeNext_ ? `?next=${encodeURIComponent(safeNext_)}` : ""}">${GITHUB_ICON} Continue with GitHub</a><div class="row muted small" style="justify-content:center">or use your token</div>` : ""}
-          <form method="post" action="/login" id="f" data-native class="stack">
+          ${github ? `<a class="btn primary" style="width:100%;height:42px" href="/auth/github${safeNext_ ? `?next=${encodeURIComponent(safeNext_)}` : ""}">${GITHUB_ICON} Continue with GitHub</a>` : `<form method="post" action="/login" id="f" data-native class="stack">
             <label class="field">Token<input type="password" name="token" id="t" placeholder="paste your token" autocomplete="current-password" required autofocus></label>
             <input type="hidden" name="next" value="${esc(safeNext_)}">
-            <button class="btn ${github ? "" : "primary"}" style="width:100%;height:40px">Sign in ${icon("arrow")}</button>
-          </form>
+            <button class="btn primary" style="width:100%;height:40px">Sign in ${icon("arrow")}</button>
+          </form>`}
           <p class="small muted">${github ? "New here? Continue with GitHub to create an account." : "No token yet? You get one from an invite link or an admin."} <a href="/docs">How Intercom works</a></p>
         </div></div></main>
-      <script>
+      ${github ? "" : `<script>
         // One-click links of the form /login#t=TOKEN (the fragment never reaches server logs).
         const m = location.hash.match(/t=([^&]+)/);
         if (m) { history.replaceState(null, "", location.pathname + location.search); document.getElementById("t").value = decodeURIComponent(m[1]); document.getElementById("f").submit(); }
-      </script>`,
+      </script>`}`,
     ),
     error ? 401 : 200,
   );
@@ -61,10 +60,12 @@ export async function handleLogin(req: Request, env: Env): Promise<Response> {
   const form = await req.formData();
   const token = String(form.get("token") ?? "").trim();
   const next = String(form.get("next") ?? "");
-  // Any of the member's tokens: the original one, or one a terminal got through the browser-approved setup.
+  // With GitHub sign-in, agents' tokens don't open the dashboard: it acts as you, and a hijacked agent mustn't.
+  if (env.github) return loginPage("Sign in with GitHub; the token your agents use doesn't sign in to the dashboard.", next, true);
+  // Without it (a self-hosted hub), any of the member's tokens; the browser gets one of its own.
   const ok = token && (await authenticate(new Request("https://x/", { headers: { authorization: `Bearer ${token}` } }), env));
-  if (!ok) return loginPage("That token isn't valid.", next, !!env.github);
-  return redirect(safeNext(next) || "/dashboard", { "set-cookie": sessionCookie(token) });
+  if (!ok) return loginPage("That token isn't valid.", next, false);
+  return redirect(safeNext(next) || "/dashboard", { "set-cookie": sessionCookie(await issueToken(env, ok, "web", "browser")) });
 }
 
 export function handleLogout(): Response {
@@ -139,7 +140,7 @@ export async function handleJoin(req: Request, env: Env, code: string): Promise<
         true,
       ),
       200,
-      { "set-cookie": sessionCookie(token), "cache-control": "no-store" },
+      { "set-cookie": sessionCookie(await issueToken(env, name, "web", "browser")), "cache-control": "no-store" },
     );
   }
 
@@ -818,9 +819,8 @@ export function docsPage(origin: string): Response {
 
       <section>
         <h2>Signing in to the dashboard</h2>
-        <p><b>Continue with GitHub</b> on the sign-in page (connect GitHub once under <a href="/account">Account</a> if your account was created with a token). Or type <code>/intercom dashboard</code> in Claude Code, and your browser opens already signed in. You stay signed in for a year; Account lists your signed-in browsers and terminals, and signs them out.</p>
-        <p class="muted">Or from a terminal:</p>${codeBlock('. ~/.claude/intercom/config && open "$INTERCOM_URL/login#t=$INTERCOM_TOKEN"   # Linux: xdg-open')}
-        <p class="small muted">On another device, open <a href="/login">${esc(origin)}/login</a> and paste the token; <code>grep TOKEN ~/.claude/intercom/config</code> shows it. One-click links put the token after <code>#</code>, which browsers never send to the server, and the page removes it from the address bar at once. It may still appear in browser history, so don't share such a link.</p>
+        <p><b>Continue with GitHub</b> on the sign-in page (connect GitHub once under <a href="/account">Account</a> if your account was created with a token). <code>/intercom dashboard</code> in Claude Code opens it in your browser. You stay signed in for a year; Account lists your signed-in browsers and terminals, and signs them out.</p>
+        <p class="small muted"><b>Why not the token?</b> The dashboard acts as you: what you write there reaches your agents as YOUR USER, and it answers approvals. The token in <code>~/.claude/intercom/config</code> is on every machine your agents run on, so an agent talked into misbehaving by a web page or a repo could read it. That token therefore doesn't sign in to the dashboard, and a message sent with it reaches your agents marked as <i>not</i> from you. (A hub without GitHub sign-in falls back to signing in with the token.)</p>
         <p class="small muted"><b>Lost your token?</b> If you're still signed in somewhere, open <a href="/account">Account</a> and create a new one (then re-run the setup on your machines). Otherwise an admin can reset it.</p>
       </section>
 
@@ -1010,12 +1010,12 @@ function tokenPage(origin: string, name: string, token: string, what: string, se
       <p class="muted" style="margin:0">${self ? "Your old token stopped working. Run the setup again on each machine where you use Intercom." : "Shown <b>only once</b>. Send it to them privately, with the command below."}</p>
       ${setupSteps(origin, token)}
       <div><h3>Token</h3>${codeBlock(token)}</div>
-      <div><h3>One-click dashboard sign-in</h3>${codeBlock(`${origin}/login#t=${token}`)}</div>
+
       <a class="btn primary" href="${self ? "/dashboard" : "/dashboard?view=admin"}">${icon("arrow", 15)}${self ? "Back to the dashboard" : "Back to admin"}</a>`,
       true,
     ),
     200,
-    self ? { "cache-control": "no-store", "set-cookie": sessionCookie(token) } : { "cache-control": "no-store" },
+    { "cache-control": "no-store" },
   );
 }
 

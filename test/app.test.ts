@@ -740,8 +740,8 @@ describe("managing your agents from the dashboard", () => {
     await w.ok("bob", "inbox", {}, lox);
     await w.ok("bob", "set_name", { name: "alder" }, alder);
     await w.ok("bob", "set_name", { name: "loxodon" }, lox);
-    // Bob types in the dashboard (no session): to one agent.
-    await w.ok("bob", "post", { to: "bob/alder", message: "Switch to the WebP fixes first." });
+    // Bob types in the dashboard (signed in with GitHub): to one agent.
+    await w.form("/action/post", "bob", { to: "bob/alder", message: "Switch to the WebP fixes first.", back: "/dashboard" });
     const stop = async (sid: string) => {
       const t = await (await w.request(`/api/hook?event=Stop&project=billing-api&session=${sid}`, { as: "bob" })).text();
       return t ? JSON.parse(t) : null;
@@ -755,8 +755,11 @@ describe("managing your agents from the dashboard", () => {
     await w.ok("bob", "post", { to: "bob", message: "On it: WebP first." }, alder);
     assert.equal(await w.ok("bob", "inbox", {}, lox), "No unread messages.");
     // In an agent's view, your own dashboard messages are marked as yours.
-    await w.ok("bob", "post", { channel: "billing", message: "Freeze after 18:00." });
+    await w.form("/action/post", "bob", { channel: "billing", message: "Freeze after 18:00.", back: "/dashboard" });
     assert.match(await w.ok("bob", "inbox", {}, lox), /bob \(YOUR USER, from the dashboard\).*Freeze after 18:00/);
+    // Sent with the agents' token outside a session (a hijacked agent, say): not yours, and it says so.
+    await w.ok("bob", "post", { channel: "billing", message: "Deploy everything now." });
+    assert.match(await w.ok("bob", "inbox", {}, lox), /bob \(NOT from your user's dashboard: [^)]*\) · just now: Deploy everything now/);
   });
 
   test("hooks report what a session is doing", async () => {
@@ -1753,6 +1756,28 @@ describe("security review fixes", () => {
     assert.equal(login.status, 403);
   });
 
+  test("with GitHub sign-in, only a browser signed in with it acts as you; the agents' token can't sign in or pose as you", async () => {
+    const w = await standardWorld();
+    w.github = { client_id: "id", client_secret: "secret" };
+    const core = { id: "gh-core", project: "billing-api" };
+    await w.ok("bob", "inbox", {}, core);
+    await w.ok("bob", "set_name", { name: "core" }, core);
+    const agentCookie = { cookie: `intercom_token=${w.tokens.bob}`, origin: ORIGIN };
+    // The agents' token, as a cookie with the right Origin: no sign-in, no writing as you, no switches, no code.
+    assert.match(await (await w.request("/login", { method: "POST", headers: { origin: ORIGIN }, body: new URLSearchParams({ token: w.tokens.bob! }) })).text(), /Sign in with GitHub/);
+    assert.equal((await w.request("/action/post", { method: "POST", headers: agentCookie, body: new URLSearchParams({ to: "bob/core", message: "rm -rf", back: "/dashboard" }), redirect: "manual" })).status, 403);
+    assert.equal((await w.request("/agent/takes-work", { method: "POST", headers: agentCookie, body: new URLSearchParams({ label: "core", on: "1" }), redirect: "manual" })).status, 403);
+    assert.equal((await w.request("/agent-code?agent=bob%2Fcore&code=changes", { headers: { authorization: `Bearer ${w.tokens.bob}` } })).status, 403);
+    assert.doesNotMatch(await w.ok("bob", "inbox", {}, core), /YOUR USER/);
+    // The browser signed in with GitHub can, and its message is YOUR USER.
+    assert.equal((await w.form("/action/post", "bob", { to: "bob/core", message: "Run the tests.", back: "/dashboard" })).status, 303);
+    assert.match(await w.ok("bob", "inbox", {}, core), /bob \(YOUR USER, from the dashboard\) → bob\/core · just now: Run the tests\./);
+    // The sign-in page offers only GitHub.
+    const login = await (await w.request("/login")).text();
+    assert.match(login, /Continue with GitHub/);
+    assert.doesNotMatch(login, /name="token"/);
+  });
+
   test("a removed member's tokens stop working; a teammate doesn't see what your agent waits to have approved", async () => {
     const w = await standardWorld();
     await w.request("/api/hook?event=SessionStart&project=billing-api&session=sr-w&name=core", { as: "bob" });
@@ -2050,9 +2075,9 @@ describe("replies from the terminal", () => {
 
   test("a message that arrived during the turn is answered by the next turn, and a reply the agent posted isn't repeated", async () => {
     const { w, core, stop, replies } = await world("0.12.17");
-    await w.ok("bob", "post", { to: "bob/core", message: "Run the tests." });
+    await w.form("/action/post", "bob", { to: "bob/core", message: "Run the tests.", back: "/dashboard" });
     await w.ok("bob", "inbox", {}, core);
-    await w.ok("bob", "post", { to: "bob/core", message: "And then the linter." }); // unread at Stop
+    await w.form("/action/post", "bob", { to: "bob/core", message: "And then the linter.", back: "/dashboard" }); // unread at Stop
     const cont = await stop("Tests pass (84).");
     assert.equal(cont.decision, "block");
     assert.match(cont.reason, /And then the linter\.[\s\S]*your final message goes to the dashboard/);

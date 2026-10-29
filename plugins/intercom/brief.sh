@@ -7,10 +7,10 @@ if [ -z "$INTERCOM_URL" ] || [ -z "$INTERCOM_TOKEN" ]; then
   echo "INTERCOM NOT SET UP: get a token (invite link or admin), then run in a terminal: curl -fsSL https://intercom.mhst.io/setup.sh | sh"
   exit 0
 fi
-# "brief.sh open": open the dashboard in the browser, already signed in (the token travels in the URL
-# fragment, which browsers never send to the server).
+# "brief.sh open": open the dashboard in the browser. It signs in with GitHub: the token here (the one agents use)
+# doesn't open the dashboard, which acts as you.
 if [ "$1" = "open" ]; then
-  link="$INTERCOM_URL/login#t=$INTERCOM_TOKEN"
+  link="$INTERCOM_URL/dashboard"
   if command -v open >/dev/null 2>&1; then open "$link"; elif command -v xdg-open >/dev/null 2>&1; then xdg-open "$link" >/dev/null 2>&1; elif command -v start >/dev/null 2>&1; then start "$link"; else echo "Open $INTERCOM_URL and sign in with the token in $D/config"; exit 0; fi
   echo "Opened the dashboard in your browser."
   exit 0

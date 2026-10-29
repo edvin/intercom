@@ -1,5 +1,5 @@
 // The newest intercom plugin version (kept in step with plugins/intercom/.claude-plugin/plugin.json by a test).
-export const PLUGIN_VERSION = "0.12.28";
+export const PLUGIN_VERSION = "0.12.29";
 /** From this version the local server downloads new releases itself, so a restart is all a session needs. */
 export const AUTO_UPDATE_SINCE = "0.12.25";
 

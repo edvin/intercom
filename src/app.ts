@@ -4,7 +4,7 @@ import { getAttachment, isImage, readImage } from "./attachments";
 import { fetchLocalFile, fileReply } from "./localfiles";
 import { askCode, codeQuery, codeReply, drawCode } from "./code";
 import { parseJobs } from "./jobs";
-import { type Env, type Message, type Proposal, type Session, LIVE, MEMBER_OF, postMessage, RECEIVES, UserError, activeLocks, address, isMyLock, ago, addActivity, lockIn, scopedLocks, cleanBranch, cleanClient, fromOwnUser, fromOwnAgent, DELEGATED_NOTE, renameSession, setHost, setVersion, workingOn, authenticate, coMembers, fmtLock, fmtMessage, myProjects, moveSession, projectFor, resolveProject, setCwd, setOrigin, setPresence, setRepo, tally, touchSession, unread } from "./lib";
+import { type Env, type Message, type Proposal, type Session, LIVE, MEMBER_OF, postMessage, RECEIVES, UserError, activeLocks, address, isMyLock, ago, addActivity, lockIn, scopedLocks, cleanBranch, cleanClient, fromOwnUser, fromOwnAgent, DELEGATED_NOTE, renameSession, setHost, setVersion, workingOn, authenticate, coMembers, fmtLock, fmtMessage, myProjects, moveSession, projectFor, resolveProject, setCwd, setOrigin, setPresence, setRepo, signedIn, tally, touchSession, unread } from "./lib";
 import { type Tool, instructions, tools } from "./tools";
 import { CONNECTOR, authorize, connectorMember, preflight, register, resourceMetadata, serverMetadata, token, unauthorized } from "./connector";
 import { cliPoll, cliStart, connectPage, discoverJoin, discoverPage, discoverRequest, githubCallback, githubCreate, githubStart, signOut } from "./accounts";
@@ -573,11 +573,21 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
   if (url.pathname === "/oauth/token" && req.method === "POST") return token(req, env);
   if (url.pathname === "/connector") {
     const member = await connectorMember(req, env);
+    env.authKind = "connector";
     return member ? handleMcp(req, env, member, CONNECTOR) : unauthorized(url.origin);
   }
 
   // Machine endpoints take only a bearer token; the dashboard's cookie works on its own pages.
-  const me = await authenticate(req, env, { cookie: !(url.pathname === "/mcp" || url.pathname.startsWith("/api/")) });
+  const who = await signedIn(req, env, { cookie: !(url.pathname === "/mcp" || url.pathname.startsWith("/api/")) });
+  const me = who?.name ?? null;
+  env.authKind = who?.kind;
+  // Acting as you in the dashboard (writing as you, approving, switches, reading code and files off your machines)
+  // takes a browser signed in with GitHub: the token your agents and terminals carry can't, so a hijacked agent can't
+  // pose as you or reach your other machines through it.
+  const asYou =
+    (req.method === "POST" && !/^\/(mcp$|api\/|oauth\/|connector$|logout$|login$|auth\/)/.test(url.pathname)) || url.pathname === "/agent-code" || url.pathname === "/agent-file";
+  if (me && asYou && who?.kind !== "web" && env.github)
+    return new Response("This needs the dashboard, signed in with GitHub (an agent's or terminal's token can't do it).", { status: 403 });
   if (url.pathname === "/oauth/authorize") return authorize(req, env, me, url);
   // "/" is the overview for everyone; the dashboard lives at /dashboard. Old dashboard links (/?channel=…) still work.
   if (url.pathname === "/welcome") return redirect("/");

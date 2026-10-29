@@ -3,7 +3,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { DatabaseSync, type StatementSync } from "node:sqlite";
 import { handle } from "../src/app.ts";
 import { bindable, splitStatements, type Db, type Stmt } from "../src/db.ts";
-import { type Env, type Message, sha256 } from "../src/lib.ts";
+import { type Env, type Message, issueToken, sha256 } from "../src/lib.ts";
 
 class NodeStmt implements Stmt {
   db: DatabaseSync;
@@ -68,6 +68,8 @@ export class World {
   /** Code requests sent to local servers (askCode). */
   codeAsked: { member: string; sessionId: string; req: string; q: Record<string, string> }[] = [];
   tokens: Record<string, string> = {};
+  /** Each member's browser token (as if signed in with GitHub): what `cookie: true` requests carry. */
+  webTokens: Record<string, string> = {};
 
   github?: { client_id: string; client_secret: string };
 
@@ -97,7 +99,7 @@ export class World {
 
   async request(path: string, init: RequestInit & { as?: string; cookie?: boolean } = {}): Promise<Response> {
     const headers = new Headers(init.headers);
-    if (init.as) headers.set(init.cookie ? "cookie" : "authorization", init.cookie ? `intercom_token=${this.tokens[init.as]}` : `Bearer ${this.tokens[init.as]}`);
+    if (init.as) headers.set(init.cookie ? "cookie" : "authorization", init.cookie ? `intercom_token=${this.webTokens[init.as] ?? this.tokens[init.as]}` : `Bearer ${this.tokens[init.as]}`);
     return handle(new Request(ORIGIN + path, { ...init, headers }), this.env(), ADMIN);
   }
 
@@ -111,6 +113,7 @@ export class World {
       body: JSON.stringify({ name, token_hash: await sha256(token), admin: opts.admin, org: opts.org }),
     });
     if (!res.ok) throw new Error(`member ${name}: ${res.status}`);
+    this.webTokens[name] = await issueToken(this.env(), name, "web", "browser");
   }
 
   /** Call an MCP tool as a member. Returns the text and whether it was an error. */

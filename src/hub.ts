@@ -40,6 +40,7 @@ import m0032 from "../migrations/0032_connector.sql";
 import m0033 from "../migrations/0033_token_used.sql";
 import m0034 from "../migrations/0034_takes_work.sql";
 import m0035 from "../migrations/0035_took_work.sql";
+import m0036 from "../migrations/0036_from_user.sql";
 
 /** A short fingerprint of the MCP tools (names, descriptions, schemas) this code offers. */
 const TOOLS_TAG = (() => {
@@ -84,6 +85,7 @@ const MIGRATIONS: [string, string][] = [
   ["0033_token_used", m0033],
   ["0034_takes_work", m0034],
   ["0035_took_work", m0035],
+  ["0036_from_user", m0036],
 ];
 
 const DAY = 86400_000;
