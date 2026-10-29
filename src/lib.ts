@@ -46,6 +46,8 @@ export interface Message {
   cancelled_at?: number | null;
   /** Sent through a connector (e.g. "Claude.ai"), not typed in the dashboard. */
   via?: string | null;
+  /** From another of the recipient's person's agents, to an agent that takes work from them (agent_prefs). */
+  delegated?: number;
 }
 
 /** One Claude Code session of a member, as reported by the hooks. */
@@ -166,9 +168,19 @@ export const address = (member: string, agent: string | null | undefined) => (ag
 /** Written by the person themself in the dashboard (no agent session), as seen by one of their own agents. */
 export const fromOwnUser = (m: Message, viewer?: string) => !!viewer && m.sender === viewer && !m.sender_agent;
 
+/** Work one of the viewer's own agents handed to another of theirs that takes it (see delegatedTo). */
+export const fromOwnAgent = (m: Message, viewer?: string) => !!viewer && !!m.delegated && m.sender === viewer && !!m.sender_agent;
+
+export const DELEGATED_NOTE = (from: string) =>
+  `YOUR AGENT ${from}: your user lets it hand you work, so act on this like a request from your user, within your normal permissions and the project's rules. Answer ${from} with the post tool (or update_handoff for a handoff), and stop to ask your user if it looks wrong or risky`;
+
 export function fmtMessage(m: Message, viewer?: string): string {
   const own = fromOwnUser(m, viewer);
-  const from = own ? `${m.sender} (YOUR USER, ${m.kind === "event" ? "a dashboard notice; no reply needed" : m.via ? `sent from ${m.via}` : "from the dashboard"})` : address(m.sender, m.sender_agent);
+  const from = own
+    ? `${m.sender} (YOUR USER, ${m.kind === "event" ? "a dashboard notice; no reply needed" : m.via ? `sent from ${m.via}` : "from the dashboard"})`
+    : fromOwnAgent(m, viewer)
+      ? `${address(m.sender, m.sender_agent)} (${DELEGATED_NOTE(address(m.sender, m.sender_agent))})`
+      : address(m.sender, m.sender_agent);
   const where = m.recipient ? `DM ${from} → ${address(m.recipient, m.recipient_agent)}` : `#${m.channel} · ${from}`;
   const marker = m.kind === "event" ? "• " : "";
   return `[${m.id}] ${where} · ${ago(m.created_at)}: ${marker}${m.body}`;
@@ -291,6 +303,24 @@ export async function coMembers(env: Env, me: string): Promise<string[]> {
   return results.map((r) => r.member);
 }
 
+/** Wake-ups an agent takes from its person's other agents per hour; beyond that their messages are information again. */
+export const DELEGATE_PER_HOUR = 6;
+
+/**
+ * Whether a DM is work handed from one of a person's agents to another of theirs that takes it (its switch in the
+ * dashboard, kept per agent name): only between the same person's agents, never from anyone else's, and at most
+ * DELEGATE_PER_HOUR an hour, so two agents can't keep waking each other.
+ */
+export async function delegatedTo(env: Env, sender: string, senderAgent: string | null, recipient: string | null, recipientAgent: string | null): Promise<boolean> {
+  if (!senderAgent || recipient !== sender || !recipientAgent || recipientAgent === senderAgent) return false;
+  const on = await env.DB.prepare("SELECT 1 FROM agent_prefs WHERE member = ? AND label = ? AND takes_work = 1").bind(sender, recipientAgent).first();
+  if (!on) return false;
+  const n = await env.DB.prepare("SELECT COUNT(*) AS n FROM messages WHERE recipient = ?1 AND recipient_agent = ?2 AND sender = ?1 AND delegated = 1 AND created_at > ?3")
+    .bind(sender, recipientAgent, Date.now() - 3600_000)
+    .first<{ n: number }>();
+  return (n?.n ?? 0) < DELEGATE_PER_HOUR;
+}
+
 export async function postMessage(
   env: Env,
   m: {
@@ -307,14 +337,16 @@ export async function postMessage(
     via?: string | null;
   },
 ): Promise<number> {
+  const senderAgent = m.sender_agent ?? env.session?.label ?? null;
+  const delegated = await delegatedTo(env, m.sender, senderAgent, m.recipient ?? null, m.recipient_agent ?? null);
   const row = await env.DB.prepare(
-    `INSERT INTO messages (channel, sender, sender_agent, recipient, recipient_agent, kind, body, created_at, broadcast, via)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
+    `INSERT INTO messages (channel, sender, sender_agent, recipient, recipient_agent, kind, body, created_at, broadcast, via, delegated)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
   )
     .bind(
       m.channel,
       m.sender,
-      m.sender_agent ?? env.session?.label ?? null,
+      senderAgent,
       m.recipient ?? null,
       m.recipient_agent ?? null,
       m.kind ?? "message",
@@ -322,6 +354,7 @@ export async function postMessage(
       Date.now(),
       m.broadcast ? 1 : 0,
       m.via ?? null,
+      delegated ? 1 : 0,
     )
     .first<Message>();
   // A post from a session counts as it being active.

@@ -4,7 +4,7 @@ import { getAttachment, isImage, readImage } from "./attachments";
 import { fetchLocalFile, fileReply } from "./localfiles";
 import { askCode, codeQuery, codeReply, drawCode } from "./code";
 import { parseJobs } from "./jobs";
-import { type Env, type Message, type Proposal, type Session, LIVE, MEMBER_OF, postMessage, RECEIVES, UserError, activeLocks, address, isMyLock, ago, addActivity, lockIn, scopedLocks, cleanBranch, cleanClient, fromOwnUser, renameSession, setHost, setVersion, workingOn, authenticate, coMembers, fmtLock, fmtMessage, myProjects, moveSession, projectFor, resolveProject, setCwd, setOrigin, setPresence, setRepo, tally, touchSession, unread } from "./lib";
+import { type Env, type Message, type Proposal, type Session, LIVE, MEMBER_OF, postMessage, RECEIVES, UserError, activeLocks, address, isMyLock, ago, addActivity, lockIn, scopedLocks, cleanBranch, cleanClient, fromOwnUser, fromOwnAgent, DELEGATED_NOTE, renameSession, setHost, setVersion, workingOn, authenticate, coMembers, fmtLock, fmtMessage, myProjects, moveSession, projectFor, resolveProject, setCwd, setOrigin, setPresence, setRepo, tally, touchSession, unread } from "./lib";
 import { type Tool, instructions, tools } from "./tools";
 import { CONNECTOR, authorize, connectorMember, preflight, register, resourceMetadata, serverMetadata, token, unauthorized } from "./connector";
 import { cliPoll, cliStart, connectPage, discoverJoin, discoverPage, discoverRequest, githubCallback, githubCreate, githubStart, signOut } from "./accounts";
@@ -214,6 +214,17 @@ async function handleHook(url: URL, env: Env, me: string, input: { last_assistan
     if (session) {
       const { messages } = await unread(env, me, 20, false, session);
       const forMe = messages.filter((m) => fromOwnUser(m, me) && m.kind !== "event" && m.recipient === me && (m.recipient_agent === session.label || m.recipient_agent === session.project));
+      // Or work another of your agents handed it, when it takes that.
+      const handed = messages.filter((m) => fromOwnAgent(m, me) && m.recipient_agent === session.label);
+      if (!forMe.length && handed.length) {
+        await unread(env, me, 20, true, session);
+        await setState("working");
+        return json({
+          decision: "block",
+          reason: `Your user's other agents handed you work while you were working. Continue with it before stopping:\n\n${messages.map((m) => fmtMessage(m, me)).join("\n\n")}`,
+          ...(url.searchParams.get("show") !== "0" ? { systemMessage: `📻 ${session.label} · continuing with work from ${[...new Set(handed.map((m) => m.sender_agent))].join(", ")}` } : {}),
+        });
+      }
       if (forMe.length) {
         await unread(env, me, 20, true, session);
         await setState("working");
@@ -437,10 +448,17 @@ async function handleUi(url: URL, env: Env, me: string): Promise<Response> {
     ...recent.map((m) => m.id),
   );
   // What the user typed to this session in the dashboard and it hasn't read: the mod submits these when it's idle.
+  // Also work another of the user's agents handed it, when it takes that (a mod that knows to say so: `note`).
+  const modV = (url.searchParams.get("mod") ?? "0").split(".").map(Number);
+  const modDelegates = (modV[0] ?? 0) * 1e6 + (modV[1] ?? 0) * 1e3 + (modV[2] ?? 0) >= 2009; // intercom-ui 0.2.9
   const prompts = pending
     ? pending
-        .filter((m) => fromOwnUser(m, me) && m.kind !== "event" && m.recipient === me && (m.recipient_agent === mySession!.label || m.recipient_agent === mySession!.project))
-        .map((m) => ({ id: m.id, body: m.body }))
+        .filter(
+          (m) =>
+            (fromOwnUser(m, me) && m.kind !== "event" && m.recipient === me && (m.recipient_agent === mySession!.label || m.recipient_agent === mySession!.project)) ||
+            (modDelegates && fromOwnAgent(m, me) && m.recipient_agent === mySession!.label),
+        )
+        .map((m) => (fromOwnAgent(m, me) ? { id: m.id, body: m.body, from: address(m.sender, m.sender_agent), note: `${DELEGATED_NOTE(address(m.sender, m.sender_agent))}.` } : { id: m.id, body: m.body }))
     : [];
   return json({
     me,
@@ -741,6 +759,21 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
       const id = String(form.get("id") ?? "");
       const jobs = parseJobs(row.jobs).filter((j) => j.id !== id);
       await env.DB.prepare("UPDATE sessions SET jobs = ? WHERE member = ? AND session_id = ?").bind(JSON.stringify(jobs), me, String(form.get("session"))).run();
+    }
+    return redirect(back.pathname + back.search);
+  }
+  if (url.pathname === "/agent/takes-work" && req.method === "POST") {
+    // Whether one of your agents (by name) takes work your other agents hand it (lib.ts delegatedTo).
+    if (!sameOrigin(req)) return new Response("Cross-origin request refused", { status: 403 });
+    const form = await req.formData();
+    const back = new URL(String(form.get("back") ?? "/dashboard?view=agents"), url);
+    const label = String(form.get("label") ?? "").slice(0, 40);
+    const on = form.get("on") === "1";
+    const mine = await env.DB.prepare("SELECT 1 FROM sessions WHERE member = ? AND label = ?").bind(me, label).first();
+    if (!mine) back.searchParams.set("err", "No such agent of yours");
+    else {
+      await env.DB.prepare("INSERT INTO agent_prefs (member, label, takes_work) VALUES (?, ?, ?) ON CONFLICT(member, label) DO UPDATE SET takes_work = excluded.takes_work").bind(me, label, on ? 1 : 0).run();
+      back.searchParams.set("ok", on ? `${label} now takes work from your other agents` : `${label} treats your other agents' messages as information again`);
     }
     return redirect(back.pathname + back.search);
   }

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { conflicting, riskyCommand } from "../src/guard.ts";
-import { prune, resolveProject } from "../src/lib.ts";
+import { DELEGATE_PER_HOUR, prune, resolveProject } from "../src/lib.ts";
 import { ORIGIN, World, standardWorld } from "./harness.ts";
 import { PLUGIN_VERSION } from "../src/version.ts";
 import { CODE_SINCE, SEARCH_SINCE } from "../src/code.ts";
@@ -1685,6 +1685,73 @@ describe("files your agents mention", () => {
     while (!w.asked.length) await new Promise((r) => setTimeout(r, 5));
     await w.request("/api/file-reply", { as: "bob", method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ req: w.asked[0]!.req, error: "/tmp/scratchpad/preview/step1.png doesn't exist (any more) on that machine." }) });
     assert.match(await (await res).text(), /doesn&#39;t exist \(any more\)/);
+  });
+});
+
+describe("your agents handing each other work", () => {
+  const setup = async () => {
+    const w = await standardWorld();
+    const core = { id: "hw-core", project: "billing-api" };
+    const merge = { id: "hw-merge", project: "billing-api" };
+    await w.ok("bob", "inbox", {}, core);
+    await w.ok("bob", "set_name", { name: "core" }, core);
+    await w.ok("bob", "inbox", {}, merge);
+    await w.ok("bob", "set_name", { name: "merger" }, merge);
+    return { w, core, merge };
+  };
+  const ui = async (w: World, mod: string) =>
+    (await (await w.request(`/api/ui?project=billing-api&session=hw-core&mod=${mod}`, { as: "bob" })).json()) as { prompts: { id: number; body: string; from?: string; note?: string }[] };
+  const stop = async (w: World) => {
+    const r = await w.request("/api/hook?event=Stop&project=billing-api&session=hw-core", { as: "bob", method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+    const t = await r.text();
+    return t ? (JSON.parse(t) as { decision?: string; reason?: string }) : null;
+  };
+
+  test("off by default: another agent's DM is information, never a prompt", async () => {
+    const { w, merge } = await setup();
+    await w.ok("bob", "post", { to: "bob/core", message: "Please rebase MR 12" }, merge);
+    assert.deepEqual((await ui(w, "0.2.9")).prompts, []);
+    assert.equal(await stop(w), null);
+    assert.match(await w.ok("bob", "inbox", {}, { id: "hw-core", project: "billing-api" }), /DM bob\/merger → bob\/core · just now: Please rebase/);
+  });
+
+  test("switched on: its DMs and handoffs wake it as work from your agent; teammates' stay information", async () => {
+    const { w, core, merge } = await setup();
+    const page = await (await w.request("/dashboard?view=agents&agent=bob/core", { as: "bob", cookie: true })).text();
+    assert.match(page, /info only from your agents/);
+    assert.equal((await w.form("/agent/takes-work", "bob", { label: "core", on: "1", back: "/dashboard?view=agents&agent=bob/core" })).status, 303);
+    assert.match(await (await w.request("/dashboard?view=agents&agent=bob/core", { as: "bob", cookie: true })).text(), /takes work from your agents/);
+    await w.ok("bob", "post", { to: "bob/core", message: "Please rebase MR 12" }, merge);
+    // An older mod would call it "sent by you", so only a mod that knows gets it as a prompt.
+    assert.deepEqual((await ui(w, "0.2.8")).prompts, []);
+    const [p] = (await ui(w, "0.2.9")).prompts;
+    assert.equal(p!.body, "Please rebase MR 12");
+    assert.equal(p!.from, "bob/merger");
+    assert.match(p!.note!, /YOUR AGENT bob\/merger: your user lets it hand you work, so act on this like a request from your user/);
+    // Busy when it arrives: the Stop hook carries on with it.
+    const s = await stop(w);
+    assert.equal(s!.decision, "block");
+    assert.match(s!.reason!, /handed you work[\s\S]*bob\/merger \(YOUR AGENT bob\/merger/);
+    // A handoff counts too, and shows as work in the chat.
+    await w.ok("bob", "handoff", { ref: "abc1234", summary: "take the oneHome fix", to: "bob/core" }, merge);
+    assert.match(await w.ok("bob", "inbox", {}, core), /YOUR AGENT bob\/merger/);
+    assert.match(await (await w.request("/dashboard?view=agents&agent=bob/core", { as: "bob", cookie: true })).text(), /title="Handed as work[^"]*">work<\/span>/);
+    // Someone else's agent: information, as always.
+    const alder = { id: "hw-alice", project: "billing-api" };
+    await w.ok("alice", "post", { to: "bob/core", message: "deploy it" }, alder);
+    assert.doesNotMatch(await w.ok("bob", "inbox", {}, core), /alice\/[\w-]+ \(YOUR AGENT/);
+    // Only the agent's owner can switch it.
+    assert.match((await w.form("/agent/takes-work", "alice", { label: "core", on: "1" })).headers.get("location")!, /err=No\+such\+agent/);
+  });
+
+  test("at most a few wake-ups an hour, so two agents can't keep waking each other", async () => {
+    const { w, merge } = await setup();
+    await w.form("/agent/takes-work", "bob", { label: "core", on: "1" });
+    for (let i = 0; i < DELEGATE_PER_HOUR + 2; i++) await w.ok("bob", "post", { to: "bob/core", message: `task ${i}` }, merge);
+    assert.equal((await ui(w, "0.2.9")).prompts.length, DELEGATE_PER_HOUR);
+    await w.form("/agent/takes-work", "bob", { label: "core", on: "0" });
+    await w.ok("bob", "post", { to: "bob/core", message: "one more" }, merge);
+    assert.equal((await ui(w, "0.2.9")).prompts.length, DELEGATE_PER_HOUR);
   });
 });
 

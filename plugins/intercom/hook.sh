@@ -7,7 +7,7 @@
 # lets the user decide to go ahead. It never blocks on its own in Claude Code.
 # Never fails: any error just means no intercom context this time.
 
-VERSION=0.12.25 # kept in step with .claude-plugin/plugin.json (a test checks)
+VERSION=0.12.26 # kept in step with .claude-plugin/plugin.json (a test checks)
 D="$HOME/.claude/intercom"
 event="${1:-UserPromptSubmit}"
 client="${2:-claude}"

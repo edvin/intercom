@@ -4,6 +4,7 @@
 //  - /ic: a live panel with locks, votes, unread messages and who's working on what
 //  - toasts for DMs, lock activity and new votes, and a status line entry
 // Messages from others never become prompts by themselves: a DM only proposes a dim suggestion you can take with Tab.
+// The exception is work your own other agents hand an agent you've switched to take it (in the dashboard).
 
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface as Engine, Register } from 'claude-code'
@@ -16,7 +17,7 @@ const error = atom({ plugin: 'intercom-ui', key: 'error' } as const, null)
 const hidden = atom({ plugin: 'intercom-ui', key: 'hidden' } as const, [])
 
 const POLL_MS = 8_000
-const MOD_VERSION = '0.2.8' // kept in step with ../.claude-plugin/plugin.json; the hub knows from it that this session answers side questions
+const MOD_VERSION = '0.2.9' // kept in step with ../.claude-plugin/plugin.json; the hub knows from it that this session answers side questions
 
 type Conf = { url: string; token: string }
 
@@ -220,7 +221,14 @@ async function wake($: Engine, s: Snapshot): Promise<void> {
   const fresh = (s.prompts ?? []).filter(p => !ctx.submitted.has(p.id))
   if (!fresh.length) return
   for (const p of fresh) ctx.submitted.add(p.id)
-  const body = fresh.map(p => p.body).join('\n\n---\n\n')
+  // Work another of the user's agents handed this one (it takes that): its own wording, never "sent by you".
+  const handed = fresh.filter(p => p.from)
+  if (handed.length) {
+    $.ui.toast(`📻 ${s.label ?? 'intercom'}: work from ${[...new Set(handed.map(p => p.from))].join(', ')}`)
+    await $.prompt.submit({ text: handed.map(p => `From ${p.from}:\n\n${p.body}\n\n(${p.note ?? ''})`).join('\n\n---\n\n') })
+    if (handed.length === fresh.length) return
+  }
+  const body = fresh.filter(p => !p.from).map(p => p.body).join('\n\n---\n\n')
   $.ui.toast(`📻 ${s.label ?? 'intercom'}: your message from the dashboard`)
   await $.prompt.submit({
     text: `${body}\n\n(Sent by you from the intercom dashboard. ${s.reply ?? `Reply there with the intercom post tool, to: "${s.me}". The dashboard also shows what you write here, so don't repeat that reply: end with one short line.`})`,

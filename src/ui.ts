@@ -431,6 +431,7 @@ form.editmode textarea{border-color:color-mix(in srgb,var(--amber) 60%,transpare
 .seg a{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:7px;font-size:12px;font-weight:600;color:var(--mute);text-decoration:none}
 .seg a:hover{color:var(--ink)}.seg a.on{background:var(--surface);color:var(--ink);box-shadow:var(--shadow)}
 .codemode .fsz,.codemode .ttog{display:none}
+.takeswork{display:inline-flex}.takeswork .badge{border:0;cursor:pointer;font:inherit;font-size:11px;font-weight:600}.takeswork .badge:not(.accent){opacity:.75}.takeswork .badge:hover{opacity:1}
 .codepane{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;border-top:1px solid var(--line);transition:opacity .15s}
 .codepane.loading>.codebody,.codepane.loading>.empty{opacity:.55}
 .codepane>.empty{margin:auto}

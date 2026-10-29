@@ -35,8 +35,9 @@ export type Snapshot = {
   me: string
   /** This session's intercom name, e.g. alder (null until the session is known to the hub). */
   label: string | null
-  /** What the user typed to this session in the dashboard, not read yet: submitted as prompts when idle. */
-  prompts: { id: number; body: string }[]
+  /** What the user typed to this session in the dashboard, not read yet: submitted as prompts when idle. Also work
+   *  another of the user's agents handed it (`from`), when it takes that; `note` says how to treat it. */
+  prompts: { id: number; body: string; from?: string; note?: string }[]
   /** How the session answers them (it depends on its intercom plugin version); added to the submitted prompt. */
   reply?: string
   /** A compaction its user asked for from the dashboard: run between turns, then reported back. */
