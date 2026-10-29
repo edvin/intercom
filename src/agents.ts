@@ -241,6 +241,8 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   const marks = await deliveryMarks(env, me, rows);
   // Each writer's repo, so their !MR / #issue / commit refs link where they belong.
   const origins = new Map(agents.map((a) => [`${a.member}/${a.label}`, a.origin ?? ""]));
+  // A commit one of your own agents mentions opens in that agent's code view (code.ts), when it's one of yours here.
+  const codeOf = (member: string, label: string | null) => (member === me && label && origins.has(`${member}/${label}`) ? `${member}/${label}` : null);
   const originOf = (member: string, label: string | null) => (label && origins.get(`${member}/${label}`)) || agent.origin || null;
   const ACT_ICON: Record<string, string> = { cmd: "$", edit: "✎", read: "·", tool: "⚙", text: "●", prompt: "›", loop: "↻", job: "" };
   // Paths your own agent mentions link to the file on its machine (localfiles.ts).
@@ -272,7 +274,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
         const from = address(m.sender, m.sender_agent);
         const to = address(m.recipient!, m.recipient_agent);
         const named = (member: string, agentLabel: string | null, text: string) => (agentLabel ? agentName(member, agentLabel, text) : esc(text));
-        return `<div class="bubble md relay" data-mid="${m.id}"><span class="rhd">${named(m.sender, m.sender_agent, from)} → ${named(m.recipient!, m.recipient_agent, to)}</span>${md(m.body, originOf(m.sender, m.sender_agent))}<span class="when">${time(m.created_at)}${mark}</span></div>`;
+        return `<div class="bubble md relay" data-mid="${m.id}"><span class="rhd">${named(m.sender, m.sender_agent, from)} → ${named(m.recipient!, m.recipient_agent, to)}</span>${md(m.body, originOf(m.sender, m.sender_agent), null, codeOf(m.sender, m.sender_agent))}<span class="when">${time(m.created_at)}${mark}</span></div>`;
       }
       const speak = fromMe ? "" : `<button type="button" class="speak" data-speak title="Read aloud">${icon("volume", 13)}</button>`;
       // Not taken by an agent yet: you can still edit or cancel it (lib.ts unsend). Held means you're editing it.
@@ -282,7 +284,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
       const unsend = open
         ? `<span class="unsend">${st === "held" ? ub("send", "Send", "Send it as it is") : ""}${ub("edit", "Edit", "Edit it: no agent gets it until you send it again")}${ub("cancel", "Cancel", "Take it back: it won't be delivered")}</span>`
         : "";
-      return `<div class="bubble md ${fromMe ? "mine" : ""}${st === "held" || st === "cancelled" ? ` ${st}` : ""}" data-mid="${m.id}"${open ? ` data-raw="${esc(m.body)}"` : ""} data-who="${esc(agent.label)}" style="--h:${agentHue(agent.member, agent.label)}">${md(m.body, fromMe ? agent.origin : originOf(m.sender, m.sender_agent), m.sender === me && m.sender_agent === agent.label ? files : null)}<span class="when">${m.via ? `<span class="via">via ${esc(m.via)}</span>` : ""}${time(m.created_at)}${mark}${speak}${unsend}</span></div>`;
+      return `<div class="bubble md ${fromMe ? "mine" : ""}${st === "held" || st === "cancelled" ? ` ${st}` : ""}" data-mid="${m.id}"${open ? ` data-raw="${esc(m.body)}"` : ""} data-who="${esc(agent.label)}" style="--h:${agentHue(agent.member, agent.label)}">${md(m.body, fromMe ? agent.origin : originOf(m.sender, m.sender_agent), m.sender === me && m.sender_agent === agent.label ? files : null, fromMe ? null : codeOf(m.sender, m.sender_agent))}<span class="when">${m.via ? `<span class="via">via ${esc(m.via)}</span>` : ""}${time(m.created_at)}${mark}${speak}${unsend}</span></div>`;
     });
   rows.forEach((m, i) =>
     items.push({
@@ -314,7 +316,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
       const late = b.status === "pending" && (Date.now() - b.created_at > BTW_TIMEOUT || (Date.now() - b.created_at > 30_000 && !modAnswers(agent)));
       const answer =
         b.status === "answered"
-          ? `<div class="btwa md">${md(b.answer, agent.origin)}</div>`
+          ? `<div class="btwa md">${md(b.answer, agent.origin, null, files)}</div>`
           : b.status === "failed" || late
             ? `<div class="btwa muted">no answer: ${esc(late ? "nothing picked it up; is the intercom-ui mod running in that session (and on 0.2.4 or newer)?" : b.reason === "nothing-to-fork" ? "it hasn't finished a turn yet, so there's no context to ask" : b.reason)}</div>`
             : `<div class="btwa muted">asking… (a side look at its context)</div>`;

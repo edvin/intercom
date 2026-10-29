@@ -55,7 +55,7 @@ const fileLink = (path: string, agent: string, inner = path) =>
 
 const ICON_IMAGE = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"/></svg>`;
 
-function inline(s: string, refs?: string | null, files?: string | null): string {
+function inline(s: string, refs?: string | null, files?: string | null, code?: string | null): string {
   const codes: string[] = [];
   const keep = (html: string) => `\u0001${codes.push(html) - 1}\u0001`;
   // Attachment markers stay as they are (md turns them into thumbnails and chips): their #12 is no issue reference.
@@ -66,7 +66,7 @@ function inline(s: string, refs?: string | null, files?: string | null): string 
     const img = !alone && m.match(/^\[📎 image #(\d+)(?::\s?([^\]]*))?\]$/);
     return keep(img ? `<a class="attl" href="/attachment/${img[1]}" target="_blank" rel="noopener">${ICON_IMAGE}${img[2] || `image #${img[1]}`}</a>` : m);
   });
-  s = s.replace(/`([^`\n]+)`/g, (_, c: string) => keep(files && PATH_ONLY.test(c) ? fileLink(c, files, `<code>${c}</code>`) : (refs && linkCode(c, refs)) || `<code>${c}</code>`));
+  s = s.replace(/`([^`\n]+)`/g, (_, c: string) => keep(files && PATH_ONLY.test(c) ? fileLink(c, files, `<code>${c}</code>`) : ((refs || code) && linkCode(c, refs ?? null, code)) || `<code>${c}</code>`));
   if (files) s = s.replace(PATH_IN, (_, pre: string, p: string) => pre + keep(fileLink(p, files)));
   s = s
     .replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
@@ -78,7 +78,7 @@ function inline(s: string, refs?: string | null, files?: string | null): string 
     .replace(/(^|[\s(>])_([^_\s][^_\n]*?)_(?=[\s).,!?:;<]|$)/g, "$1<i>$2</i>")
     .replace(/~~([^~\n]+)~~/g, "<s>$1</s>");
   // MR/issue/commit references, in plain text only (not inside links or tags).
-  if (refs) s = s.split(/(<a\b[^>]*>[\s\S]*?<\/a>|<[^>]+>)/).map((part, i) => (i % 2 ? part : linkRefs(part, refs))).join("");
+  if (refs || code) s = s.split(/(<a\b[^>]*>[\s\S]*?<\/a>|<[^>]+>)/).map((part, i) => (i % 2 ? part : linkRefs(part, refs ?? null, code))).join("");
   return s.replace(/\u0001(\d+)\u0001/g, (_, i) => codes[Number(i)]!);
 }
 
@@ -91,12 +91,14 @@ const cells = (l: string) => l.trim().replace(/^\|/, "").replace(/\|$/, "").spli
 /** Unusual spaces agents emit (thin, narrow no-break, …) as plain spaces, so fonts without those glyphs don't swallow them. */
 export const plainSpaces = (t: string) => t.replace(/[\u00a0\u2000-\u200a\u202f\u205f\u3000]/g, " ").replace(/[\u200b\u2060\ufeff]/g, "");
 
-export function md(text: string, refs?: string | null, files?: string | null): string {
+/** Markdown as HTML; `refs` is the writer's repo (its references link there), `files` the own agent whose mentioned paths
+ *  open from its machine, `code` the own agent whose code view a commit opens in (by default the same as `files`). */
+export function md(text: string, refs?: string | null, files?: string | null, code: string | null | undefined = files): string {
   const lines = esc(plainSpaces(text).replace(/\r\n?/g, "\n")).split("\n");
   const out: string[] = [];
   let para: string[] = [];
   const flush = () => {
-    if (para.length) out.push(`<p>${para.map((l) => ansi(inline(l, refs, files))).join("<br>")}</p>`);
+    if (para.length) out.push(`<p>${para.map((l) => ansi(inline(l, refs, files, code))).join("<br>")}</p>`);
     para = [];
   };
   for (let i = 0; i < lines.length; i++) {
@@ -118,7 +120,7 @@ export function md(text: string, refs?: string | null, files?: string | null): s
       const rows: string[][] = [];
       i += 1;
       while (i + 1 < lines.length && lines[i + 1]!.includes("|") && lines[i + 1]!.trim()) rows.push(cells(lines[++i]!));
-      const td = (c: string, j: number, tag: string) => `<${tag}${align[j] ? ` style="text-align:${align[j]}"` : ""}>${ansi(inline(c, refs, files))}</${tag}>`;
+      const td = (c: string, j: number, tag: string) => `<${tag}${align[j] ? ` style="text-align:${align[j]}"` : ""}>${ansi(inline(c, refs, files, code))}</${tag}>`;
       out.push(
         `<div class="mdtable"><table><thead><tr>${head.map((c, j) => td(c, j, "th")).join("")}</tr></thead><tbody>${rows
           .map((r) => `<tr>${r.map((c, j) => td(c, j, "td")).join("")}</tr>`)
@@ -130,7 +132,7 @@ export function md(text: string, refs?: string | null, files?: string | null): s
     const h = line.match(/^(#{1,6})\s+(.+)$/);
     if (h) {
       flush();
-      out.push(`<div class="mdh mdh${Math.min(h[1]!.length, 4)}">${ansi(inline(h[2]!, refs, files))}</div>`);
+      out.push(`<div class="mdh mdh${Math.min(h[1]!.length, 4)}">${ansi(inline(h[2]!, refs, files, code))}</div>`);
       continue;
     }
     // rule
@@ -145,7 +147,7 @@ export function md(text: string, refs?: string | null, files?: string | null): s
       const q: string[] = [];
       for (; i < lines.length && /^&gt;\s?/.test(lines[i]!); i++) q.push(lines[i]!.replace(/^&gt;\s?/, ""));
       i--;
-      out.push(`<blockquote>${md(q.join("\n").replace(/&gt;/g, ">").replace(/&lt;/g, "<").replace(/&amp;/g, "&"), refs, files)}</blockquote>`);
+      out.push(`<blockquote>${md(q.join("\n").replace(/&gt;/g, ">").replace(/&lt;/g, "<").replace(/&amp;/g, "&"), refs, files, code)}</blockquote>`);
       continue;
     }
     // lists (bullets, numbers, task boxes), with indentation
@@ -161,14 +163,14 @@ export function md(text: string, refs?: string | null, files?: string | null): s
         if (!m) {
           // a continuation line of the previous item
           if (lines[i]!.trim() && /^\s{2,}/.test(lines[i]!) && items.length) {
-            items[items.length - 1] += `<br>${ansi(inline(lines[i]!.trim(), refs, files))}`;
+            items[items.length - 1] += `<br>${ansi(inline(lines[i]!.trim(), refs, files, code))}`;
             continue;
           }
           break;
         }
         const depth = Math.min(4, Math.floor(m[1]!.length / 2));
         const box = m[3] ? `<span class="mdbox ${/x/i.test(m[3]) ? "on" : ""}">${/x/i.test(m[3]) ? "✓" : ""}</span>` : "";
-        items.push(`<li style="margin-left:${depth * 1.4}em"${m[3] ? ' class="task"' : ""}>${box}${ansi(inline(m[4]!, refs, files))}</li>`);
+        items.push(`<li style="margin-left:${depth * 1.4}em"${m[3] ? ' class="task"' : ""}>${box}${ansi(inline(m[4]!, refs, files, code))}</li>`);
       }
       i--;
       out.push(ordered ? `<ol>${items.join("")}</ol>` : `<ul>${items.join("")}</ul>`);

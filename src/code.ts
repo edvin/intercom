@@ -37,6 +37,8 @@ interface Overview {
   log: Commit[];
 }
 interface CodeData extends Overview {
+  /** The agent that read it, when another than the one asked (askCode). */
+  via?: string;
   files?: FileStat[];
   diff?: string;
   truncated?: boolean;
@@ -73,11 +75,17 @@ export function codeQuery(url: URL): { tab: string; q: CodeQuery } {
 /** Ask `me`'s agent `label` (connected, on a recent plugin) about its repo; throws UserError with the reason. */
 export async function askCode(env: Env, me: string, label: string, q: CodeQuery): Promise<CodeData> {
   if (!env.askCode) throw new UserError("The code view isn't available here.");
-  const s = await env.DB.prepare("SELECT session_id, version FROM sessions WHERE member = ? AND label = ? ORDER BY last_seen DESC LIMIT 1")
-    .bind(me, label)
-    .first<{ session_id: string; version: string }>();
+  type Row = { session_id: string; version: string; label: string; origin: string | null };
+  let s = await env.DB.prepare("SELECT session_id, version, label, origin FROM sessions WHERE member = ? AND label = ? ORDER BY last_seen DESC LIMIT 1").bind(me, label).first<Row>();
   if (!s) throw new UserError(`You have no agent named ${label}.`);
   const since = q.op === "find" ? SEARCH_SINCE : CODE_SINCE;
+  // An agent that has ended (a commit it once mentioned, say): another of yours running in the same repo reads it.
+  const live = env.live?.();
+  if (live && !live.has(`${me}/${s.session_id}`) && s.origin) {
+    const { results } = await env.DB.prepare("SELECT session_id, version, label, origin FROM sessions WHERE member = ? AND origin = ? ORDER BY last_seen DESC LIMIT 20").bind(me, s.origin).all<Row>();
+    s = results.find((r) => live.has(`${me}/${r.session_id}`) && !outdated(r.version, since)) ?? s;
+  }
+  label = s.label;
   if (outdated(s.version, since)) throw new UserError(`${label} runs intercom ${s.version || "(unknown)"}; ${q.op === "find" ? "searching" : "the code view"} needs ${since}. Restart it after /intercom:update.`);
   const req = crypto.randomUUID();
   const reply = new Promise<Reply>((resolve) => {
@@ -92,7 +100,7 @@ export async function askCode(env: Env, me: string, label: string, q: CodeQuery)
   if (!env.askCode(me, s.session_id, req, q)) waiting.get(req)?.done({ error: `${label} isn't connected right now; its code can be read while it runs.` });
   const r = await reply;
   if ("error" in r) throw new UserError(r.error);
-  return r.data;
+  return { ...r.data, via: label };
 }
 
 /** A local server's answer to a code request. */
@@ -278,7 +286,8 @@ export function drawCode(key: string, tab: string, q: CodeQuery, d: CodeData): s
     .map(([t, label]) => `<a class="ctab${t === tab ? " on" : ""}" href="${base}&amp;code=${t}" data-code>${label}</a>`)
     .join("");
   const where = `<span class="crepo">${icon("folder", 13)}<b>${esc(d.name)}</b>${d.branch ? ` ${icon("branch", 12)} ${esc(d.branch)}` : d.head ? ` <span class="muted">detached at ${esc(d.head.slice(0, 7))}</span>` : ""}${d.upstream ? `<span class="muted" title="Compared with ${esc(d.upstream)}">${d.ahead ? ` · ${d.ahead} to push` : ""}${d.behind ? ` · ${d.behind} behind` : ""}${!d.ahead && !d.behind ? " · up to date" : ""}</span>` : d.head ? '<span class="muted"> · not pushed anywhere</span>' : ""}</span>`;
-  const head = `<div class="codebar"><nav class="ctabs">${tabs}</nav><span class="grow"></span>${where}<button type="button" class="btn ghost xs icon" data-coderefresh title="Read it again">${icon("refresh", 13)}</button></div>`;
+  const via = d.via && d.via !== key.split("/")[1] ? `<span class="muted" title="${esc(key)} isn't running; read by another of your agents in the same repo"> · via ${esc(d.via)}</span>` : "";
+  const head = `<div class="codebar"><nav class="ctabs">${tabs}</nav><span class="grow"></span>${where}${via}<button type="button" class="btn ghost xs icon" data-coderefresh title="Read it again">${icon("refresh", 13)}</button></div>`;
   return `${head}<div class="codebody">${body(key, base, tab, q, d)}</div>`;
 }
 

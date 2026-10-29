@@ -1754,6 +1754,30 @@ describe("the code view", () => {
     assert.match(await view(w, "bob", `code=file&path=app.ts&rev=${sha}`, dir), /a = <span class="hn">1<\/span>/);
   });
 
+  test("a commit your agent mentions opens in its code view; one of an agent that ended, via another in the repo", async () => {
+    const w = await setup();
+    const dir = repo();
+    await w.db.prepare("UPDATE sessions SET origin = 'https://git.example.com/team/app' WHERE session_id = 'cv'").run();
+    await w.request("/api/activity?session=cv", {
+      as: "bob",
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ items: [{ at: Date.now(), kind: "text", text: "Pushed a91c2e0 and `b72d3f1`." }] }),
+    });
+    const chat = await (await w.request("/dashboard?view=agents&agent=bob/core", { as: "bob", cookie: true })).text();
+    assert.match(chat, /<a class="ref" href="\/dashboard\?view=agents&amp;agent=bob%2Fcore&amp;code=commit&amp;sha=a91c2e0" title="Open in its code view">a91c2e0<\/a>/);
+    assert.match(chat, /code=commit&amp;sha=b72d3f1" title="Open in its code view"><code>b72d3f1<\/code><\/a>/);
+    // core ends; core-2 runs in the same repo and reads it instead.
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=cv2&name=core-2", { as: "bob" });
+    await w.db.prepare("UPDATE sessions SET version = ?, origin = 'https://git.example.com/team/app' WHERE session_id = 'cv2'").bind(CODE_SINCE).run();
+    w.env = ((env) => () => ({ ...env(), live: () => new Set(["bob/cv2"]) }))(w.env.bind(w));
+    const sha = (await codeRequest(dir, { op: "changes" })).log[0].sha;
+    const page = await view(w, "bob", `code=commit&sha=${sha}`, dir);
+    assert.equal(w.codeAsked[w.codeAsked.length - 1]!.sessionId, "cv2");
+    assert.match(page, /· via core-2/);
+    assert.match(page, /<h3>Start the app<\/h3>/);
+  });
+
   test("search finds files by name and lines by text, never in ignored files", async () => {
     const w = await setup();
     await w.db.prepare("UPDATE sessions SET version = ? WHERE session_id = 'cv'").bind(SEARCH_SINCE).run();

@@ -358,7 +358,7 @@ function messageRow(m: Message, me: string, showChannel: boolean, d?: Delivery, 
   const who = m.sender_agent ? agentName(m.sender, m.sender_agent) : `<span class="person">${esc(m.sender === me ? "you" : m.sender)}</span>`;
   return `<div class="msg${dm ? " dm" : ""}${m.sender === me ? " mine" : ""}${cont ? " cont" : ""}" data-day="${m.created_at}" data-mid="${m.id}">
     <div class="head"><span class="who">${who}</span>${where}<span class="meta">${time(m.created_at)}${deliveryMark(d)}</span></div>
-    <div class="body md">${md(m.body, refs)}</div>
+    <div class="body md">${md(m.body, refs, null, m.sender === me && m.sender_agent ? `${me}/${m.sender_agent}` : null)}</div>
   </div>`;
 }
 
