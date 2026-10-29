@@ -15,12 +15,12 @@
 // - Shares this session's git branch with project members (INTERCOM_SHARE_BRANCH=0 to disable) and asks
 //   Claude to keep a short status note up to date (INTERCOM_AUTO_STATUS=0 to disable).
 
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const VERSION = "0.12.24"; // kept in step with .claude-plugin/plugin.json (a test checks)
+const VERSION = "0.12.25"; // kept in step with .claude-plugin/plugin.json (a test checks)
 const DIR = path.join(os.homedir(), ".claude", "intercom");
 const CONFIG = path.join(DIR, "config");
 function readConf() {
@@ -499,6 +499,65 @@ setInterval(() => {
     log("mirror:", e.message);
   }
 }, 3000).unref();
+
+// ---- updates: a new release is downloaded once per machine, so the next restart of each session loads it ----
+// Claude Code only fetches plugin updates as a session starts, for the start after that. Here the first local server
+// that sees a newer version on the hub runs Claude Code's own update (`claude plugin update`, from the marketplace on
+// GitHub), so one restart is enough. Nothing the hub sends is run: it only says which version is out. Only for the
+// plugin install (the script install, Codex's, updates from its SessionStart hook); INTERCOM_AUTO_UPDATE=0 turns it
+// off. Logged to update.log.
+
+const PLUGIN_INSTALL = import.meta.url.includes("/plugins/cache/");
+const newerThan = (a, b) => {
+  const x = a.split(".").map(Number), y = b.split(".").map(Number);
+  for (let i = 0; i < 3; i++) if ((x[i] ?? 0) !== (y[i] ?? 0)) return (x[i] ?? 0) > (y[i] ?? 0);
+  return false;
+};
+const run = (cmd, args) =>
+  new Promise((resolve) => execFile(cmd, args, { timeout: 120_000, encoding: "utf8" }, (err, out, errOut) => resolve({ ok: !err, out: `${out}${errOut}`.trim(), err })));
+
+async function autoUpdate() {
+  if (!PLUGIN_INSTALL || setting("INTERCOM_AUTO_UPDATE") === "0" || !BASE) return;
+  let latest;
+  try {
+    latest = (await (await fetch(`${BASE}/api/version`, { signal: AbortSignal.timeout(10_000) })).json()).plugin;
+  } catch {
+    return;
+  }
+  if (typeof latest !== "string" || !/^\d+\.\d+\.\d+$/.test(latest) || !newerThan(latest, VERSION)) return;
+  // Once per version per machine: a marker when done (or failed, retried after 6 hours), and a lock while running.
+  const done = path.join(DIR, `updated-${latest}`);
+  try {
+    if (Date.now() - fs.statSync(done).mtimeMs < 6 * 3600_000 || fs.readFileSync(done, "utf8").startsWith("ok")) return;
+  } catch {}
+  const lock = path.join(DIR, "update.lock");
+  try {
+    fs.mkdirSync(lock);
+  } catch {
+    try {
+      if (Date.now() - fs.statSync(lock).mtimeMs < 10 * 60_000) return; // another session is on it
+      fs.rmSync(lock, { recursive: true, force: true });
+      fs.mkdirSync(lock);
+    } catch {
+      return;
+    }
+  }
+  try {
+    log(`intercom ${latest} is out (running ${VERSION}); downloading it for the next restart`);
+    await run("claude", ["plugin", "marketplace", "update", "intercom"]);
+    const r = await run("claude", ["plugin", "update", "intercom@intercom"]);
+    if ((await run("claude", ["plugin", "list"])).out.includes("intercom-ui@intercom")) await run("claude", ["plugin", "update", "intercom-ui@intercom"]);
+    fs.writeFileSync(done, r.ok ? `ok ${new Date().toISOString()}\n` : `failed ${new Date().toISOString()}: ${r.out.slice(0, 500)}\n`);
+    const line = r.ok ? `intercom ${latest} downloaded; restart sessions to load it` : `couldn't update: ${r.out.split("\n")[0] || r.err?.message}`;
+    log(line);
+    fs.appendFileSync(path.join(DIR, "update.log"), `== ${new Date().toString()} plugin ${VERSION} -> ${latest}: ${line}\n${r.out ? `${r.out}\n` : ""}`);
+  } finally {
+    fs.rmSync(lock, { recursive: true, force: true });
+  }
+}
+// Soon after starting (spread out, so sessions started together don't all ask at once), then every half hour.
+setTimeout(() => autoUpdate().catch((e) => log("update:", e.message)), 20_000 + Math.random() * 40_000).unref();
+setInterval(() => autoUpdate().catch((e) => log("update:", e.message)), 30 * 60_000).unref();
 
 // ---- stdio JSON-RPC (newline-delimited) ----
 

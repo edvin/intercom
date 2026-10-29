@@ -7,7 +7,7 @@
 # lets the user decide to go ahead. It never blocks on its own in Claude Code.
 # Never fails: any error just means no intercom context this time.
 
-VERSION=0.12.24 # kept in step with .claude-plugin/plugin.json (a test checks)
+VERSION=0.12.25 # kept in step with .claude-plugin/plugin.json (a test checks)
 D="$HOME/.claude/intercom"
 event="${1:-UserPromptSubmit}"
 client="${2:-claude}"
@@ -146,10 +146,12 @@ if [ "$event" = "PostToolUse" ] && [ -z "$peek" ]; then
   echo "$now" > "$stamp"
 fi
 
-# Auto-update (default on; INTERCOM_AUTO_UPDATE=0 turns it off): at session start, check the hub's newest version
-# in the background and, if this machine is behind, re-run the setup (it keeps the sign-in). At most every 6 hours;
-# logged to update.log. Running sessions keep their version until restarted.
-if [ "$event" = "SessionStart" ] && [ "$INTERCOM_AUTO_UPDATE" != "0" ]; then
+# Auto-update (default on; INTERCOM_AUTO_UPDATE=0 turns it off) of the script install (Codex): at session start,
+# check the hub's newest version in the background and, if this machine is behind, re-run the setup (it keeps the
+# sign-in). At most every 6 hours; logged to update.log. Running sessions keep their version until restarted.
+# The Claude Code plugin is updated by its local server instead (intercom-channel.mjs), from the marketplace.
+case "$0" in */plugins/cache/*) from_plugin=1 ;; *) from_plugin="" ;; esac
+if [ "$event" = "SessionStart" ] && [ "$INTERCOM_AUTO_UPDATE" != "0" ] && [ -z "$from_plugin" ]; then
   stamp="$D/.update-check"
   last=$(cat "$stamp" 2>/dev/null || echo 0)
   if [ $(( $(date +%s) - last )) -ge 21600 ]; then

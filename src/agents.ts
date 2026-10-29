@@ -3,7 +3,7 @@
 // what it answers comes back here. Its project posts show in the thread as activity.
 
 import { awayState, pendingApprovals } from "./approvals";
-import { PLUGIN_VERSION, outdated } from "./version";
+import { AUTO_UPDATE_SINCE, PLUGIN_VERSION, outdated } from "./version";
 import { activeLoops, describe, parseLoops } from "./loops";
 import { activeJobs, duration, jobName, parseJobs } from "./jobs";
 import { BTW_TIMEOUT, NO_MOD, btwFor, modAnswers } from "./btw";
@@ -206,10 +206,12 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   // One line, until dismissed for this version (the next version shows it again).
   const stale = agents.filter((a) => a.member === me && isOn(a) && outdated(a.version));
   const dismissed = cookie.split(/;\s*/).includes(`ic_upd=${PLUGIN_VERSION}`);
+  // Sessions on a version that downloads releases itself only need a restart; older ones need /intercom:update first.
+  const selfUpdating = stale.every((a) => !outdated(a.version, AUTO_UPDATE_SINCE));
   const updateBar =
     stale.length && !dismissed
-      ? `<div class="updatebar" id="updatebar" data-region title="${esc(`Outdated: ${stale.map((a) => a.label).join(", ")}. Sessions update at their next start; restart them to load it, or run /intercom:update.`)}">${icon("download", 14)}
-        <span class="grow"><b>intercom ${PLUGIN_VERSION}</b> · ${stale.length} session${stale.length > 1 ? "s" : ""} on an older version<span class="uphint"> · restart ${stale.length > 1 ? "them" : "it"} or run <code>/intercom:update</code></span></span>
+      ? `<div class="updatebar" id="updatebar" data-region title="${esc(`Outdated: ${stale.map((a) => a.label).join(", ")}. ${selfUpdating ? "The new version is downloaded on each machine by itself; restart them to load it." : "Run /intercom:update in one session per machine, then restart them to load it."}`)}">${icon("download", 14)}
+        <span class="grow"><b>intercom ${PLUGIN_VERSION}</b> · ${stale.length} session${stale.length > 1 ? "s" : ""} on an older version<span class="uphint"> · ${selfUpdating ? `restart ${stale.length > 1 ? "them" : "it"} to load it` : `run <code>/intercom:update</code>, then restart ${stale.length > 1 ? "them" : "it"}`}</span></span>
         <button type="button" class="btn ghost xs icon" data-dismiss="ic_upd=${PLUGIN_VERSION}" title="Dismiss until the next version">${icon("x", 13)}</button></div>`
       : "";
   // Approval questions waiting for you: on top of the chat, only while there are any.
