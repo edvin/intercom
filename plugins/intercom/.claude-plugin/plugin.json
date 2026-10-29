@@ -1,6 +1,6 @@
 {
   "name": "intercom",
-  "version": "0.12.27",
+  "version": "0.12.28",
   "description": "Messages, deploy locks, votes and project rules shared between teammates' Claude Code sessions, across machines and companies.",
   "author": {
     "name": "Edvin Syse"

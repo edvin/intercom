@@ -18,7 +18,8 @@ fi
 
 # "brief.sh update": re-run the setup (keeps the sign-in; updates the plugin, intercom-ui and the Codex pieces).
 if [ "$1" = "update" ]; then
-  curl -fsSL "$INTERCOM_URL/setup.sh" | sh
+  # From the public repository on GitHub, not the hub: the hub can't hand this machine code to run.
+  curl -fsSL "https://raw.githubusercontent.com/edvin/intercom/main/client/setup.sh" | INTERCOM_URL="$INTERCOM_URL" INTERCOM_FROM_GITHUB=1 sh
   echo "Restart your Claude Code (and Codex) sessions to load the new version: claude --continue"
   exit 0
 fi

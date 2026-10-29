@@ -101,6 +101,9 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   )
     .bind(...everyone, me, ...mine, Date.now() - 24 * 3600_000, me)
     .all<Agent>();
+  // What a teammate's agent is waiting on can be the very command it wants approved (a password in it, say): they see
+  // only that it waits.
+  for (const a of agents) if (a.member !== me) a.state_detail = "";
   const connected = env.live?.() ?? new Set<string>();
   const nick = await hostNames(env, me);
   const hostOf = (a: Agent) => (a.member === me ? nick.get(a.host) ?? a.host : a.host);
@@ -132,6 +135,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
       )
         .bind(pm, pl, me, ...mine)
         .first<Agent>()) ?? undefined;
+    if (agent && agent.member !== me) agent.state_detail = "";
   }
 
 

@@ -64,6 +64,11 @@ export default {
     if (ICONS[url.pathname]) return new Response(ICONS[url.pathname], { headers: { "content-type": "image/png", "cache-control": "public, max-age=86400" } });
     if (url.pathname === "/manifest.webmanifest") return new Response(MANIFEST, { headers: { "content-type": "application/manifest+json", "cache-control": "public, max-age=3600" } });
     if (url.pathname === "/docs") return docsPage(url.origin);
+    // Bodies are read whole inside the one hub object: a huge one could take it down for everyone. Messages with
+    // attachments (4 × 10 MB) and files from agents may be large; nothing else needs more than a little.
+    const big = /^\/(action\/post|api\/file-reply|api\/code-reply|mcp)$/.test(url.pathname);
+    const len = Number(req.headers.get("content-length") ?? 0);
+    if (len > (big ? 45 : 1) * 1024 * 1024) return new Response("Request too large", { status: 413 });
     return env.HUB.get(env.HUB.idFromName("team"), { locationHint: "weur" }).fetch(req);
   },
 } satisfies ExportedHandler<WorkerEnv>;

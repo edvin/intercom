@@ -17,7 +17,7 @@ const error = atom({ plugin: 'intercom-ui', key: 'error' } as const, null)
 const hidden = atom({ plugin: 'intercom-ui', key: 'hidden' } as const, [])
 
 const POLL_MS = 8_000
-const MOD_VERSION = '0.2.9' // kept in step with ../.claude-plugin/plugin.json; the hub knows from it that this session answers side questions
+const MOD_VERSION = '0.2.10' // kept in step with ../.claude-plugin/plugin.json; the hub knows from it that this session answers side questions
 
 type Conf = { url: string; token: string }
 
@@ -225,13 +225,14 @@ async function wake($: Engine, s: Snapshot): Promise<void> {
   const handed = fresh.filter(p => p.from)
   if (handed.length) {
     $.ui.toast(`📻 ${s.label ?? 'intercom'}: work from ${[...new Set(handed.map(p => p.from))].join(', ')}`)
-    await $.prompt.submit({ text: handed.map(p => `From ${p.from}:\n\n${p.body}\n\n(${p.note ?? ''})`).join('\n\n---\n\n') })
+    // Who it's from, first: a body can't then pose as anything else.
+    await $.prompt.submit({ text: handed.map(p => `(From ${p.from}. ${p.note ?? ''})\n\n${p.body}`).join('\n\n---\n\n') })
     if (handed.length === fresh.length) return
   }
   const body = fresh.filter(p => !p.from).map(p => p.body).join('\n\n---\n\n')
   $.ui.toast(`📻 ${s.label ?? 'intercom'}: your message from the dashboard`)
   await $.prompt.submit({
-    text: `${body}\n\n(Sent by you from the intercom dashboard. ${s.reply ?? `Reply there with the intercom post tool, to: "${s.me}". The dashboard also shows what you write here, so don't repeat that reply: end with one short line.`})`,
+    text: `(Sent by you from the intercom dashboard. ${s.reply ?? `Reply there with the intercom post tool, to: "${s.me}". The dashboard also shows what you write here, so don't repeat that reply: end with one short line.`})\n\n${body}`,
   })
 }
 

@@ -12,9 +12,12 @@ const FILE_MAX = 1024 * 1024;
 const UNTRACKED_MAX = 40; // new files shown in full in the diff
 const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"; // a repo with no commits yet diffs against this
 
+// A repo can carry settings that make git run commands (an embedded bare repo's core.fsmonitor, textconv or diff
+// drivers): none of that runs when the code view reads it.
+const SAFE = ["-c", "safe.bareRepository=explicit", "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "-c", "diff.external=", "-c", "core.quotepath=off"];
 const git = (root, args, { ok = [0], max = 8 * 1024 * 1024 } = {}) =>
   new Promise((resolve, reject) => {
-    execFile("git", ["-C", root, "-c", "core.quotepath=off", ...args], { encoding: "utf8", maxBuffer: max, timeout: 15_000 }, (err, stdout) => {
+    execFile("git", ["-C", root, ...SAFE, ...args], { encoding: "utf8", maxBuffer: max, timeout: 15_000 }, (err, stdout) => {
       const code = err ? (typeof err.code === "number" ? err.code : -1) : 0;
       if (ok.includes(code)) resolve(stdout);
       else if (err?.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") resolve(stdout ?? "");
@@ -81,7 +84,7 @@ async function changes(root) {
   const [numstat, status, diff, others] = await Promise.all([
     git(root, ["diff", against, "--numstat", "-M", "--no-ext-diff"]),
     git(root, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]),
-    git(root, ["diff", against, "--no-color", "--no-ext-diff", "-M"], { max: DIFF_MAX * 4 }),
+    git(root, ["diff", against, "--no-color", "--no-ext-diff", "--no-textconv", "-M"], { max: DIFF_MAX * 4 }),
     git(root, ["ls-files", "--others", "--exclude-standard", "-z"]),
   ]);
   const files = [];
@@ -149,7 +152,7 @@ async function commit(root, sha) {
       const name = p.join("\t").replace(/\{[^}]* => ([^}]*)\}/, "$1").replace(/^.* => /, "").replace(/\/\//g, "/");
       return { path: name, kind: kinds.get(name) ?? "modified", add: a === "-" ? null : Number(a), del: d === "-" ? null : Number(d) };
     });
-  const d = cap(await git(root, ["show", "--format=", "--no-color", "--no-ext-diff", "-M", "--first-parent", sha], { max: DIFF_MAX * 4 }), DIFF_MAX);
+  const d = cap(await git(root, ["show", "--format=", "--no-color", "--no-ext-diff", "--no-textconv", "-M", "--first-parent", sha], { max: DIFF_MAX * 4 }), DIFF_MAX);
   return { sha: full, short, author, at: Number(at) * 1000, parents: parents.split(" ").filter(Boolean), message: body.join("\x1f").trim(), files, diff: d.text, truncated: d.truncated };
 }
 
@@ -176,7 +179,7 @@ async function file(root, p, rev) {
   let body;
   if (rev && rev !== "worktree") {
     if (!isHash(rev)) throw new Error("That isn't a commit hash.");
-    body = Buffer.from(await git(root, ["show", `${rev}:${f}`], { max: FILE_MAX * 2 }), "utf8");
+    body = Buffer.from(await git(root, ["show", "--no-textconv", `${rev}:${f}`], { max: FILE_MAX * 2 }), "utf8");
   } else {
     const known = await git(root, ["ls-files", "--cached", "--others", "--exclude-standard", "-z", "--", f]);
     if (!known.split("\0").includes(f)) throw new Error(`${f} isn't a file git tracks here (ignored files, such as secrets, aren't shown).`);
@@ -256,8 +259,10 @@ async function worktrees(roots) {
  */
 export async function codeRequest(dir, q, { agentDir } = {}) {
   const start = await repoRoot(dir);
-  const current = agentDir && fs.existsSync(agentDir) ? await repoRoot(agentDir) : null;
-  const trees = await worktrees([start, current]);
+  let current = agentDir && fs.existsSync(agentDir) ? await repoRoot(agentDir) : null;
+  // The agent's folder counts only as a worktree of the repo the session started in (when it started in one).
+  const trees = await worktrees(start ? [start] : [current]);
+  if (current && !trees.some((t) => t.path === current)) current = null;
   let root = current ?? start;
   if (q?.wt) {
     root = trees.find((t) => t.path === q.wt)?.path;

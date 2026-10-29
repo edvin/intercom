@@ -23,12 +23,15 @@ export async function fetchLocalFile(env: Env, me: string, label: string, path: 
     .first<{ session_id: string; version: string }>();
   if (!s) throw new UserError(`You have no agent named ${label}.`);
   // Only what the agent wrote (its terminal text and steps, or its messages), so a link can't be made up for any file.
-  const said = await env.DB.prepare(
-    `SELECT 1 FROM activity WHERE member = ? AND session_id = ? AND instr(text, ?) > 0
-     UNION ALL SELECT 1 FROM messages WHERE sender = ? AND sender_agent = ? AND instr(body, ?) > 0 LIMIT 1`,
+  // As a whole path, not part of a longer one (".env" inside ".env.example" doesn't count).
+  const { results: texts } = await env.DB.prepare(
+    `SELECT text AS t FROM activity WHERE member = ? AND session_id = ? AND instr(text, ?) > 0
+     UNION ALL SELECT body AS t FROM messages WHERE sender = ? AND sender_agent = ? AND instr(body, ?) > 0 LIMIT 50`,
   )
     .bind(me, s.session_id, path, me, label, path)
-    .first();
+    .all<{ t: string }>();
+  const whole = new RegExp(`(^|[\\s(\\[>"'\`])${path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?=$|[\\s&).,:;!?\\]'"<\`])`);
+  const said = texts.some((r) => whole.test(r.t));
   if (!said) throw new UserError(`${label} hasn't mentioned that file, so it can't be fetched.`);
   if (outdated(s.version, LOCAL_FILES_SINCE)) throw new UserError(`${label} runs intercom ${s.version || "(unknown)"}; fetching files needs ${LOCAL_FILES_SINCE}. Restart it after /intercom:update.`);
   const req = crypto.randomUUID();

@@ -56,6 +56,8 @@ export function loginPage(error = "", next = "", github = false): Response {
 export const sessionCookie = (token: string) => `${COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=31536000`;
 
 export async function handleLogin(req: Request, env: Env): Promise<Response> {
+  // Not from another site: one could otherwise sign you in to its own account (login CSRF).
+  if (!sameOrigin(req)) return new Response("Cross-origin request refused", { status: 403 });
   const form = await req.formData();
   const token = String(form.get("token") ?? "").trim();
   const next = String(form.get("next") ?? "");
@@ -69,10 +71,13 @@ export function handleLogout(): Response {
   return redirect("/login", { "set-cookie": `${COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0` });
 }
 
-/** Browsers send Origin on cross-site POSTs; refuse those (CSRF). */
-export const sameOrigin = (req: Request) => {
-  const origin = req.headers.get("origin");
-  return !origin || origin === new URL(req.url).origin;
+/** Browsers send Origin on every POST; refuse a missing or foreign one (CSRF). */
+export const sameOrigin = (req: Request) => req.headers.get("origin") === new URL(req.url).origin;
+
+/** A `back=` target on this site only ("/…", not "//host" or "/\\host"), else `fallback`. */
+export const localPath = (raw: unknown, fallback: string): string => {
+  const s = typeof raw === "string" ? raw : "";
+  return /^\/(?![/\\])/.test(s) ? s : fallback;
 };
 
 // ---------- invites ----------
@@ -171,7 +176,7 @@ export async function handleAction(req: Request, env: Env, me: string, action: s
     const v = form.get(k);
     return v === null || v === "" ? undefined : String(v);
   };
-  const back = f("back") ?? "/dashboard";
+  const back = localPath(f("back"), "/dashboard");
   const calls: Record<string, [string, Record<string, unknown>]> = {
     vote: ["vote", { proposal_id: Number(f("proposal_id")), choice: f("choice"), comment: f("comment") }],
     post: ["post", { message: f("message"), channel: f("channel"), to: f("to") }],

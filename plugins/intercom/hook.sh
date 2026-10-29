@@ -7,11 +7,36 @@
 # lets the user decide to go ahead. It never blocks on its own in Claude Code.
 # Never fails: any error just means no intercom context this time.
 
-VERSION=0.12.27 # kept in step with .claude-plugin/plugin.json (a test checks)
+VERSION=0.12.28 # kept in step with .claude-plugin/plugin.json (a test checks)
 D="$HOME/.claude/intercom"
 event="${1:-UserPromptSubmit}"
 client="${2:-claude}"
 json_field() { sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\"\\([^\"]*\\)\".*/\\1/p" | head -n 1; }
+# The hub's answer, cut down to what it may do here: add context and a status line, hold a stop to continue with your
+# own words, ask about or refuse (never allow) a guarded command, and, in away mode, allow or deny a permission you
+# answered in the dashboard. Never a rewritten command or tool input, nor saved permission rules, whatever the hub
+# sends. Without node: nothing.
+safe_out() {
+  node -e '
+let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => {
+  let o; try { o = JSON.parse(s); } catch { return; }
+  if (!o || typeof o !== "object") return;
+  const str = (v) => typeof v === "string" ? v : undefined, out = {};
+  if (str(o.systemMessage)) out.systemMessage = o.systemMessage;
+  if (o.decision === "block" && str(o.reason)) { out.decision = "block"; out.reason = o.reason; }
+  if (str(o.additionalContext)) out.additionalContext = o.additionalContext;
+  const h = o.hookSpecificOutput;
+  if (h && typeof h === "object") {
+    const k = { hookEventName: str(h.hookEventName) };
+    if (str(h.additionalContext)) k.additionalContext = h.additionalContext;
+    if (h.permissionDecision === "ask" || h.permissionDecision === "deny") { k.permissionDecision = h.permissionDecision; if (str(h.permissionDecisionReason)) k.permissionDecisionReason = h.permissionDecisionReason; }
+    const d = h.decision;
+    if (process.argv[1] === "approval" && d && (d.behavior === "allow" || d.behavior === "deny")) k.decision = d.behavior === "deny" ? { behavior: "deny", ...(str(d.message) ? { message: d.message } : {}) } : { behavior: "allow" };
+    out.hookSpecificOutput = k;
+  }
+  if (Object.keys(out).length) process.stdout.write(JSON.stringify(out));
+});' "${1:-hook}" 2>/dev/null
+}
 
 # Who's running us. Claude Code passes the session in the environment; Codex only on stdin.
 if [ "$client" = "codex" ]; then
@@ -45,7 +70,7 @@ case "$event" in
     while [ "$(date +%s)" -lt "$end" ]; do
       r=$(curl -sf --max-time 10 "$INTERCOM_URL/api/approval/$id?show=${INTERCOM_SHOW:-1}" -H "Authorization: Bearer $INTERCOM_TOKEN" 2>/dev/null)
       case "$r" in
-        *'"output"'*) printf '%s' "$r" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>process.stdout.write(JSON.parse(s).output))'; exit 0 ;;
+        *'"output"'*) printf '%s' "$r" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>process.stdout.write(JSON.parse(s).output))' | safe_out approval; exit 0 ;;
       esac
       sleep 3
     done
@@ -60,7 +85,7 @@ case "$event" in
       # The hook's input goes along: its last_assistant_message is the reply when the turn answered the dashboard,
       # and a failed turn's error says why the agent stopped (a usage limit and when it resets, a lapsed login).
       printf '%s' "$input" | curl -sf --max-time 5 -X POST "$INTERCOM_URL/api/hook?event=$event&session=$session&client=$client&show=${INTERCOM_SHOW:-1}&project=$(cat "$D/.project-$session" 2>/dev/null | sed 's/[^A-Za-z0-9._-]/-/g')" \
-        -H "Authorization: Bearer $INTERCOM_TOKEN" -H "Content-Type: application/json" --data-binary @- 2>/dev/null
+        -H "Authorization: Bearer $INTERCOM_TOKEN" -H "Content-Type: application/json" --data-binary @- 2>/dev/null | safe_out
       exit 0
     fi
     kind=$(printf '%s' "$input" | json_field notification_type)
@@ -111,7 +136,7 @@ if [ "$event" = "PreToolUse" ]; then
   project=$(cat "$D/.project-${session:-default}" 2>/dev/null)
   [ -n "$project" ] || project=$(repo_name)
   printf '%s' "$input" | curl -sf --max-time 3 -X POST "$INTERCOM_URL/api/guard?client=$client&show=${INTERCOM_SHOW:-1}&project=$(printf '%s' "$project" | sed 's/[^A-Za-z0-9._-]/-/g')" \
-    -H "Authorization: Bearer $INTERCOM_TOKEN" -H "Content-Type: application/json" --data-binary @- 2>/dev/null
+    -H "Authorization: Bearer $INTERCOM_TOKEN" -H "Content-Type: application/json" --data-binary @- 2>/dev/null | safe_out
   exit 0
 fi
 
@@ -147,8 +172,8 @@ if [ "$event" = "PostToolUse" ] && [ -z "$peek" ]; then
 fi
 
 # Auto-update (default on; INTERCOM_AUTO_UPDATE=0 turns it off) of the script install (Codex): at session start,
-# check the hub's newest version in the background and, if this machine is behind, re-run the setup (it keeps the
-# sign-in). At most every 6 hours; logged to update.log. Running sessions keep their version until restarted.
+# check the hub's newest version in the background and, if this machine is behind, re-run the setup from the public
+# GitHub repository, not the hub (it keeps the sign-in). At most every 6 hours; logged to update.log. Running sessions keep their version until restarted.
 # The Claude Code plugin is updated by its local server instead (intercom-channel.mjs), from the marketplace.
 case "$0" in */plugins/cache/*) from_plugin=1 ;; *) from_plugin="" ;; esac
 if [ "$event" = "SessionStart" ] && [ "$INTERCOM_AUTO_UPDATE" != "0" ] && [ -z "$from_plugin" ]; then
@@ -159,7 +184,7 @@ if [ "$event" = "SessionStart" ] && [ "$INTERCOM_AUTO_UPDATE" != "0" ] && [ -z "
     (
       latest=$(curl -sf --max-time 5 "$INTERCOM_URL/api/version" | sed -n 's/.*"plugin":"\([^"]*\)".*/\1/p')
       if [ -n "$latest" ] && [ "$latest" != "$VERSION" ] && [ "$(printf '%s\n%s\n' "$VERSION" "$latest" | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1)" = "$latest" ]; then
-        { echo "== $(date) updating intercom $VERSION -> $latest"; curl -fsSL "$INTERCOM_URL/setup.sh" | INTERCOM_FROM_UPDATE=1 sh; } >> "$D/update.log" 2>&1
+        { echo "== $(date) updating intercom $VERSION -> $latest"; curl -fsSL "https://raw.githubusercontent.com/edvin/intercom/main/client/setup.sh" | INTERCOM_URL="$INTERCOM_URL" INTERCOM_FROM_UPDATE=1 INTERCOM_FROM_GITHUB=1 sh; } >> "$D/update.log" 2>&1
         printf '%s\n' "$latest" > "$D/.updated-to"
       fi
     ) </dev/null >/dev/null 2>&1 &
@@ -210,5 +235,5 @@ curl -sf --max-time 3 -G "$INTERCOM_URL/api/hook" \
   --data-urlencode "branch=$branch" --data-urlencode "remote=$remote" --data-urlencode "origin=$origin" --data-urlencode "client=$client" --data-urlencode "name=$name" \
   --data-urlencode "show=${INTERCOM_SHOW:-1}" --data-urlencode "host=$host" --data-urlencode "cwd=$cwd" --data-urlencode "version=$VERSION" \
   --data-urlencode "autoupdate=${INTERCOM_AUTO_UPDATE:-1}" --data-urlencode "updated=$updated" \
-  -H "Authorization: Bearer $INTERCOM_TOKEN" 2>/dev/null
+  -H "Authorization: Bearer $INTERCOM_TOKEN" 2>/dev/null | safe_out
 exit 0

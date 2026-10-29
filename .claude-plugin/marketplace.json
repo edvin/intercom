@@ -11,13 +11,13 @@
       "name": "intercom",
       "source": "./plugins/intercom",
       "description": "Messages, deploy locks, votes and project rules shared between teammates' Claude Code sessions, across machines and companies.",
-      "version": "0.12.27"
+      "version": "0.12.28"
     },
     {
       "name": "intercom-ui",
       "source": "./plugins/intercom-ui",
       "description": "Intercom inside Claude Code: a band with locks and votes that concern you, a live team panel (/ic), toasts and a status line entry. Needs the intercom plugin.",
-      "version": "0.2.9"
+      "version": "0.2.10"
     }
   ]
 }

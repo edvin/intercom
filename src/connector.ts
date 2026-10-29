@@ -223,7 +223,9 @@ export async function connectorMember(req: Request, env: Env): Promise<string | 
   const bearer = (req.headers.get("authorization") ?? "").match(/^Bearer\s+(\S+)$/i)?.[1];
   if (!bearer) return null;
   const hash = await sha256(bearer);
-  const row = await env.DB.prepare("SELECT member, used_at FROM tokens WHERE token_hash = ? AND kind = 'connector'").bind(hash).first<{ member: string; used_at: number | null }>();
+  const row = await env.DB.prepare("SELECT t.member, t.used_at FROM tokens t JOIN members m ON m.name = t.member WHERE t.token_hash = ? AND t.kind = 'connector'")
+    .bind(hash)
+    .first<{ member: string; used_at: number | null }>();
   if (!row) return null;
   // Last use, for the 30-day lapse (prune); written at most hourly.
   if ((row.used_at ?? 0) < Date.now() - 60 * MIN) await env.DB.prepare("UPDATE tokens SET used_at = ? WHERE token_hash = ?").bind(Date.now(), hash).run();

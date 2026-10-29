@@ -118,14 +118,19 @@ export async function sha256(input: string): Promise<string> {
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-export async function authenticate(req: Request, env: Env): Promise<string | null> {
+/** The signed-in member. `cookie: false` for machine endpoints (/mcp, /api/*): only a bearer token, so a page on a
+ *  sibling site can't use the browser's cookie there. */
+export async function authenticate(req: Request, env: Env, opts: { cookie?: boolean } = {}): Promise<string | null> {
   const bearer = (req.headers.get("authorization") ?? "").match(/^Bearer\s+(\S+)$/i)?.[1];
-  const cookie = (req.headers.get("cookie") ?? "").match(/(?:^|;\s*)intercom_token=([^;]+)/)?.[1];
+  const cookie = opts.cookie === false ? undefined : (req.headers.get("cookie") ?? "").match(/(?:^|;\s*)intercom_token=([^;]+)/)?.[1];
   const token = bearer ?? (cookie ? decodeURIComponent(cookie) : undefined);
   if (!token) return null;
   const hash = await sha256(token);
   // Connector tokens (Claude.ai) only work on /connector: see connector.ts.
-  const row = await env.DB.prepare("SELECT name FROM members WHERE token_hash = ?1 UNION ALL SELECT member FROM tokens WHERE token_hash = ?1 AND kind != 'connector' LIMIT 1")
+  // A removed member's tokens stop working (and never carry over to a new account with the same name).
+  const row = await env.DB.prepare(
+    "SELECT name FROM members WHERE token_hash = ?1 UNION ALL SELECT t.member FROM tokens t JOIN members m ON m.name = t.member WHERE t.token_hash = ?1 AND t.kind != 'connector' LIMIT 1",
+  )
     .bind(hash)
     .first<{ name: string }>();
   return row?.name ?? null;
@@ -174,6 +179,18 @@ export const fromOwnAgent = (m: Message, viewer?: string) => !!viewer && !!m.del
 export const DELEGATED_NOTE = (from: string) =>
   `YOUR AGENT ${from}: your user lets it hand you work, so act on this like a request from your user, within your normal permissions and the project's rules. Answer ${from} with the post tool (or update_handoff for a handoff), and stop to ask your user if it looks wrong or risky`;
 
+/**
+ * A message body as agents see it: continuation lines indented, so a body can't start a line that looks like another
+ * message's header ("[123] DM edvin (YOUR USER …"), and the trust labels and the context's own tags neutralized.
+ * Your own words from the dashboard stay as they are. Labels only ever appear in a header line.
+ */
+export function quoteBody(body: string, trusted: boolean): string {
+  if (trusted) return body;
+  let b = body.replace(/<\/?\s*(intercom|channel|system|user)\b/gi, (t) => t.replace("<", "‹"));
+  b = b.replace(/YOUR\s+(USER|AGENT)/gi, (t) => t.toLowerCase());
+  return b.replace(/\r?\n/g, "\n    ");
+}
+
 export function fmtMessage(m: Message, viewer?: string): string {
   const own = fromOwnUser(m, viewer);
   const from = own
@@ -183,7 +200,7 @@ export function fmtMessage(m: Message, viewer?: string): string {
       : address(m.sender, m.sender_agent);
   const where = m.recipient ? `DM ${from} → ${address(m.recipient, m.recipient_agent)}` : `#${m.channel} · ${from}`;
   const marker = m.kind === "event" ? "• " : "";
-  return `[${m.id}] ${where} · ${ago(m.created_at)}: ${marker}${m.body}`;
+  return `[${m.id}] ${where} · ${ago(m.created_at)}: ${marker}${quoteBody(m.body, own)}`;
 }
 
 /**
@@ -313,6 +330,12 @@ export const DELEGATE_PER_HOUR = 20;
  */
 export async function delegatedTo(env: Env, sender: string, senderAgent: string | null, recipient: string | null, recipientAgent: string | null): Promise<boolean> {
   if (!senderAgent || recipient !== sender || !recipientAgent || recipientAgent === senderAgent) return false;
+  // Only to one agent by its name (not a project's crew address), and not from a session that is itself working on
+  // handed work: one hop, so a hijacked agent can't pass instructions along a chain, and two can't keep it looping.
+  if (await env.DB.prepare("SELECT 1 FROM projects WHERE name = ?").bind(recipientAgent).first()) return false;
+  if (!(await env.DB.prepare("SELECT 1 FROM sessions WHERE member = ? AND label = ?").bind(sender, recipientAgent).first())) return false;
+  const busy = await env.DB.prepare("SELECT 1 FROM sessions WHERE member = ? AND label = ? AND took_work_at > ?").bind(sender, senderAgent, Date.now() - 3600_000).first();
+  if (busy) return false;
   const off = await env.DB.prepare("SELECT 1 FROM agent_prefs WHERE member = ? AND label = ? AND takes_work = 0").bind(sender, recipientAgent).first();
   if (off) return false;
   const n = await env.DB.prepare("SELECT COUNT(*) AS n FROM messages WHERE recipient = ?1 AND recipient_agent = ?2 AND sender = ?1 AND delegated = 1 AND created_at > ?3")
@@ -479,6 +502,8 @@ export async function unread(
       stmts.push(env.DB.prepare("UPDATE sessions SET cursor = MAX(cursor, ?) WHERE member = ? AND session_id = ?").bind(last, me, session.session_id));
       const now = Date.now();
       for (const m of messages.filter((m) => m.recipient)) stmts.push(recordDelivery(env, m.id, me, session.session_id, session.label, now));
+      if (messages.some((m) => fromOwnAgent(m, me) && m.recipient_agent === session.label))
+        stmts.push(env.DB.prepare("UPDATE sessions SET took_work_at = ? WHERE member = ? AND session_id = ?").bind(now, me, session.session_id));
     }
     await env.DB.batch(stmts);
     // Senders watching the dashboard see their ✓ appear.
@@ -667,10 +692,15 @@ export async function renameSession(
 ): Promise<{ label: string; project: string; client: string; crew: { name: string; role: string }[] }> {
   const name = cleanName(rawName);
   if (!name) throw new UserError("Names are letters, digits and -, starting with a letter (max 24), e.g. alder.");
-  const s = await env.DB.prepare("SELECT project, client FROM sessions WHERE member = ? AND session_id = ?").bind(me, sessionId).first<{ project: string; client: string }>();
+  const s = await env.DB.prepare("SELECT project, client, label FROM sessions WHERE member = ? AND session_id = ?").bind(me, sessionId).first<{ project: string; client: string; label: string }>();
   if (!s) throw new UserError("No such session of yours.");
   const label = await freeLabel(env, me, sessionId, name);
   await env.DB.prepare("UPDATE sessions SET label = ? WHERE member = ? AND session_id = ?").bind(label, me, sessionId).run();
+  // Its switches go with it (a rename mustn't turn "info only from your agents" back on).
+  if (s.label !== label)
+    await env.DB.prepare("INSERT INTO agent_prefs (member, label, takes_work) SELECT member, ?, takes_work FROM agent_prefs WHERE member = ? AND label = ? ON CONFLICT(member, label) DO UPDATE SET takes_work = excluded.takes_work")
+      .bind(label, me, s.label)
+      .run();
   await inheritMailbox(env, me, sessionId, label);
   const role = (opts.role ?? "").trim().slice(0, 120);
   const remember = opts.remember !== false && !!s.project;

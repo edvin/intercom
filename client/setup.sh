@@ -8,7 +8,19 @@
 set -e
 
 URL="__INTERCOM_URL__"
+# Run from the GitHub copy (an automatic update), the hub's address comes from the config instead.
+case "$URL" in __*) URL="$INTERCOM_URL" ;; esac
 TOKEN="$1"
+# Where the scripts come from: the hub, or, for automatic updates, the public repository on GitHub, so the hub can't
+# hand a machine code to run (it only says which version is out).
+GH="https://raw.githubusercontent.com/edvin/intercom/main"
+src() {
+  if [ -n "$INTERCOM_FROM_GITHUB" ]; then
+    case "$1" in codex-skill.md) echo "$GH/client/codex/SKILL.md" ;; *) echo "$GH/plugins/intercom/$1" ;; esac
+  else
+    echo "$URL/client/$1"
+  fi
+}
 DIR="$HOME/.claude/intercom"
 ok() { printf '  \033[32m✓\033[0m %s\n' "$1"; }
 warn() { printf '  \033[33m!\033[0m %s\n' "$1"; }
@@ -65,6 +77,8 @@ if [ -z "$TOKEN" ]; then
   echo >/dev/tty
 fi
 [ -n "$TOKEN" ] || fail "No token given."
+# A token is letters, digits, - and _ only: the config is read by shell scripts, so nothing else may get in.
+printf '%s' "$TOKEN" | grep -Eq '^[A-Za-z0-9_-]{16,200}$' || fail "That doesn't look like an intercom token."
 NAME=$(curl -sf --max-time 10 "$URL/api/whoami" -H "Authorization: Bearer $TOKEN" || true)
 echo "$NAME" | grep -Eq '^[a-z][a-z0-9_-]{0,31}$' || fail "Sign-in failed (token rejected by $URL). Run the setup again, or get a token from the dashboard (Account) or an admin."
 mkdir -p "$DIR"
@@ -72,6 +86,7 @@ mkdir -p "$DIR"
 OLD=$(grep -vE '^(INTERCOM_URL|INTERCOM_TOKEN)=' "$DIR/config" 2>/dev/null || true)
 umask 077
 { printf 'INTERCOM_URL=%s\nINTERCOM_TOKEN=%s\n' "$URL" "$TOKEN"; if [ -n "$OLD" ]; then printf '%s\n' "$OLD"; fi; } > "$DIR/config"
+chmod 600 "$DIR/config"
 umask 022
 if [ -n "$OLD_TOKEN" ] && [ "$TOKEN" = "$OLD_TOKEN" ]; then ok "already signed in as $NAME"; else ok "signed in as $NAME"; fi
 
@@ -128,7 +143,7 @@ fi
 # 3b. Claude Code's status line: this session's name, unread, locks and votes (without a plugin label in front).
 # Only set when there's none yet; INTERCOM_STATUSLINE=0 skips it.
 if [ "$INTERCOM_STATUSLINE" != "0" ] && command -v claude >/dev/null 2>&1; then
-  curl -fsSL "$URL/client/statusline.sh" -o "$DIR/statusline.sh" 2>/dev/null && chmod +x "$DIR/statusline.sh"
+  curl -fsSL "$(src statusline.sh)" -o "$DIR/statusline.sh" 2>/dev/null && chmod +x "$DIR/statusline.sh"
   if [ -f "$DIR/statusline.sh" ]; then
     sl=$(node - "$HOME/.claude/settings.json" "$DIR/statusline.sh" <<'JS' 2>/dev/null
 const fs = require("fs");
@@ -157,7 +172,7 @@ fi
 # 4. Codex (OpenAI), if installed: the same MCP server, hooks (context, deploy guard) and an $intercom skill.
 if [ "$INTERCOM_CODEX" != "0" ] && command -v codex >/dev/null 2>&1; then
   CX="${CODEX_HOME:-$HOME/.codex}"
-  for f in intercom-channel.mjs code.mjs hook.sh brief.sh; do curl -fsSL "$URL/client/$f" -o "$DIR/$f" || fail "couldn't download $f"; done
+  for f in intercom-channel.mjs code.mjs hook.sh brief.sh; do curl -fsSL "$(src "$f")" -o "$DIR/$f" || fail "couldn't download $f"; done
   chmod +x "$DIR/hook.sh" "$DIR/brief.sh"
   mkdir -p "$CX"
   codex mcp remove intercom >/dev/null 2>&1 || true
@@ -177,7 +192,7 @@ for (const event of ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostTool
 fs.writeFileSync(path + ".intercom.tmp", JSON.stringify(cfg, null, 2) + "\n");
 fs.renameSync(path + ".intercom.tmp", path);
 JS
-    mkdir -p "$HOME/.agents/skills/intercom" && curl -fsSL "$URL/client/codex-skill.md" -o "$HOME/.agents/skills/intercom/SKILL.md"
+    mkdir -p "$HOME/.agents/skills/intercom" && curl -fsSL "$(src codex-skill.md)" -o "$HOME/.agents/skills/intercom/SKILL.md"
     ok "Codex: MCP server, hooks and \$intercom skill"
     [ -n "$HOOKS_OK" ] && warn "Codex asks you to trust new hooks once: open Codex, type /hooks and trust the intercom ones."
   else
