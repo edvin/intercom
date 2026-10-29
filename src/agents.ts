@@ -386,7 +386,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
         <div class="imgtray" hidden></div>
         <div class="row" style="align-items:flex-end;flex-wrap:nowrap">
           <button type="button" class="btn ghost icon" style="height:48px" data-imgbtn title="Attach images (or paste / drop them here)">${icon("image", 16)}</button><input type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden data-imgpick>
-          <textarea id="chat-input" name="message" data-chat required maxlength="4000" class="grow" rows="2" enterkeyhint="send" placeholder="Message ${esc(agent.label)}"></textarea>
+          <textarea id="chat-input" name="message" data-chat required maxlength="4000" class="grow" rows="2" enterkeyhint="send" aria-label="Message ${esc(agent.label)}"></textarea>
           ${canBtw ? (btwOff ? `<button type="button" class="btn ghost btwbtn" style="height:48px" disabled title="${esc(btwOff)}">btw</button>` : `<button type="button" class="btn ghost btwbtn" style="height:48px" data-btwtoggle title="Ask on the side (like /btw): answered from its current context, without adding anything to it">btw</button>`) : ""}
           <button class="btn primary" style="height:48px" title="${on ? (ownAgent ? "It picks this up right away if it's idle, or after its current step." : "It sees this on its next step.") : "Not connected: the next session with this name gets it."}">${icon("send", 15)}<span class="lbl">Send</span></button>
         </div>

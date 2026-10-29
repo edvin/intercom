@@ -814,7 +814,7 @@ export const SCRIPT = `
       const on = !!btwOn[key];
       mode.value = on ? "btw" : ""; thread.value = on && btwFresh[key] ? "new" : "";
       btn.classList.toggle("on", on); f.classList.toggle("btwmode", on); if (bar) bar.hidden = !on;
-      const t = field(); if (t) t.placeholder = on ? "Side question for " + f.dataset.label + " (btw)" : "Message " + f.dataset.label;
+      const t = field(); if (t) t.placeholder = on ? "Side question (btw)" : "";
     };
     btn.onclick = () => { btwOn[key] = !btwOn[key]; apply(); field()?.focus(); };
     const nw = f.querySelector("[data-btwnew]");
@@ -848,7 +848,7 @@ export const SCRIPT = `
     }
     const on = editing[key];
     input.value = on ? on.id : ""; f.classList.toggle("editmode", !!on); if (bar) bar.hidden = !on;
-    const t = field(); if (t && !f.classList.contains("btwmode")) t.placeholder = on ? "Edit your message" : "Message " + f.dataset.label;
+    const t = field(); if (t && !f.classList.contains("btwmode")) t.placeholder = on ? "Edit your message" : "";
     const send = f.querySelector("[data-editsend]"), cancel = f.querySelector("[data-editcancel]");
     if (send) send.onclick = (e) => { e.preventDefault(); on && unsendOp(on.id, "send"); };
     if (cancel) cancel.onclick = (e) => { e.preventDefault(); on && unsendOp(on.id, "cancel"); };
