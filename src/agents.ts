@@ -364,12 +364,12 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
       ? `<form method="post" action="/agent/compact" class="compacting" data-native>${hidden({ session: agent.session_id, back: here, cancel: "1" })}<span class="badge amber" title="Its intercom-ui mod compacts it when the current turn ends">compacting when idle…</span><button class="btn ghost xs">Call off</button></form>`
       : `<button type="button" class="btn ghost xs compactbtn" data-open="dlg-compact" title="Compact its context (like /compact)">Compact</button>`;
   // Whether it takes work your other agents hand it (lib.ts delegatedTo): a switch on your own agents.
-  const takesWork = ownAgent && !!(await env.DB.prepare("SELECT 1 FROM agent_prefs WHERE member = ? AND label = ? AND takes_work = 1").bind(me, agent.label).first());
+  const takesWork = ownAgent && !(await env.DB.prepare("SELECT 1 FROM agent_prefs WHERE member = ? AND label = ? AND takes_work = 0").bind(me, agent.label).first());
   const takesCtl = ownAgent
     ? `<form method="post" action="/agent/takes-work" class="takeswork" data-native>${hidden({ label: agent.label, on: takesWork ? "0" : "1", back: here })}<button class="badge${takesWork ? " accent" : ""}" title="${
         takesWork
           ? `Your other agents can hand ${esc(agent.label)} work: their DMs and handoffs wake it when idle, and it acts on them like a request from you (at most ${DELEGATE_PER_HOUR} an hour). Click to turn off.`
-          : `Your other agents' messages are information to ${esc(agent.label)}, as from anyone. Click to let them hand it work: their DMs and handoffs then wake it when idle, and it acts on them like a request from you.`
+          : `Your other agents' messages are information to ${esc(agent.label)}, as from anyone. Click to let them hand it work again: their DMs and handoffs then wake it when idle, and it acts on them like a request from you.`
       }">${icon("users", 11)}${takesWork ? "takes work from your agents" : "info only from your agents"}</button></form>`
     : "";
   const btwOff = canBtw && !modAnswers(agent) ? NO_MOD(agent.label, hostOf(agent)) : "";

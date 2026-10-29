@@ -471,8 +471,8 @@ table.diff .ln{width:1%;min-width:3em;padding:0 8px;text-align:right;white-space
 table.diff .ln a{color:inherit;text-decoration:none}table.diff .ln a:hover{color:var(--accent)}
 table.diff .dc{white-space:pre;padding-right:18px}table.code .dc{padding-left:10px}
 table.diff tr{scroll-margin-top:60px}
-.dm{display:inline-block;width:1.5em;text-align:center;color:var(--mute);user-select:none}
-tr.da{background:var(--green-soft)}tr.da .dm{color:var(--green)}tr.dd{background:var(--red-soft)}tr.dd .dm{color:var(--red)}
+.dmk{display:inline-block;width:1.5em;text-align:center;color:var(--mute);user-select:none}
+tr.da{background:var(--green-soft)}tr.da .dmk{color:var(--green)}tr.dd{background:var(--red-soft)}tr.dd .dmk{color:var(--red)}
 tr.dh td{padding-top:4px;padding-bottom:4px;background:var(--accent-soft);color:var(--accent)}tr.dh .dc{padding-left:10px}
 tr.hit,tr.hit td{background:var(--amber-soft)}
 .hk{color:var(--accent)}.hs{color:var(--green)}.hn{color:var(--amber)}.hc{color:var(--mute);font-style:italic}

@@ -248,10 +248,10 @@ function drawDiff(diff: string, href: (path: string) => string): string {
           }
           const c = l[0];
           const body = highlight(l.slice(1), lang, st);
-          if (c === "+") return `<tr class="da"><td class="ln"></td><td class="ln">${b++}</td><td class="dc"><span class="dm">+</span>${body}</td></tr>`;
-          if (c === "-") return `<tr class="dd"><td class="ln">${a++}</td><td class="ln"></td><td class="dc"><span class="dm">−</span>${body}</td></tr>`;
+          if (c === "+") return `<tr class="da"><td class="ln"></td><td class="ln">${b++}</td><td class="dc"><span class="dmk">+</span>${body}</td></tr>`;
+          if (c === "-") return `<tr class="dd"><td class="ln">${a++}</td><td class="ln"></td><td class="dc"><span class="dmk">−</span>${body}</td></tr>`;
           if (c === "\\") return `<tr class="dx"><td class="ln"></td><td class="ln"></td><td class="dc muted">${esc(l)}</td></tr>`;
-          return `<tr><td class="ln">${a++}</td><td class="ln">${b++}</td><td class="dc"><span class="dm"> </span>${body}</td></tr>`;
+          return `<tr><td class="ln">${a++}</td><td class="ln">${b++}</td><td class="dc"><span class="dmk"> </span>${body}</td></tr>`;
         })
         .join("");
       const note = f.meta.filter((m) => /^(new|deleted) file|^rename from|^Binary/.test(m)).map((m) => m.replace(/ mode \d+$/, "").replace(/^Binary files .* differ$/, "binary file")).join(" · ");

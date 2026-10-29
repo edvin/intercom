@@ -644,7 +644,7 @@ describe("own agents through the tools", () => {
     await w.ok("bob", "set_name", { name: "loxodon-core" }, lox);
     await w.ok("bob", "set_name", { name: "alder" }, alder);
     await w.ok("bob", "post", { to: "bob/alder", message: "please review PR 12" }, lox);
-    assert.match(await w.ok("bob", "inbox", {}, alder), /DM bob\/loxodon-core → bob\/alder.*please review PR 12/);
+    assert.match(await w.ok("bob", "inbox", {}, alder), /DM bob\/loxodon-core \(YOUR AGENT bob\/loxodon-core: .*\) → bob\/alder.*please review PR 12/);
     assert.equal(await w.ok("bob", "inbox", {}, lox), "No unread messages.");
     assert.match(await w.ok("bob", "history", { with: "bob/loxodon-core" }, alder), /please review PR 12/);
     // A lone person's team view lists their own sessions instead of "nobody".
@@ -977,7 +977,7 @@ describe("delivery marks", () => {
     const view = async (as: string, path: string) => (await w.request(path, { as, cookie: true })).text();
 
     let page = await view("bob", "/dashboard?view=agents&agent=bob/alder");
-    assert.match(page, /class="bubble md relay"[^>]*><span class="rhd"><span class="an"[^>]*>bob\/core<\/span> → <span class="an"[^>]*>bob\/alder<\/span><\/span>/);
+    assert.match(page, /class="bubble md relay"[^>]*><span class="rhd"><span class="an"[^>]*>bob\/core<\/span> → <span class="an"[^>]*>bob\/alder<\/span> <span class="badge accent"[^>]*>work<\/span><\/span>/);
     assert.match(page, /bob\/core<\/span> → <span class="an"[^>]*>bob\/alder[\s\S]*?class="dlv wait"/);
     assert.match(page, /alice → <span class="an"[^>]*>bob\/alder/);
     assert.match(await view("bob", "/dashboard?view=agents&agent=bob/core"), /bob\/core<\/span> → <span class="an"[^>]*>bob\/ghost[\s\S]*?⚠ not connected/);
@@ -1707,19 +1707,18 @@ describe("your agents handing each other work", () => {
     return t ? (JSON.parse(t) as { decision?: string; reason?: string }) : null;
   };
 
-  test("off by default: another agent's DM is information, never a prompt", async () => {
+  test("switched off: another agent's DM is information, never a prompt", async () => {
     const { w, merge } = await setup();
+    await w.form("/agent/takes-work", "bob", { label: "core", on: "0" });
+    assert.match(await (await w.request("/dashboard?view=agents&agent=bob/core", { as: "bob", cookie: true })).text(), /info only from your agents/);
     await w.ok("bob", "post", { to: "bob/core", message: "Please rebase MR 12" }, merge);
     assert.deepEqual((await ui(w, "0.2.9")).prompts, []);
     assert.equal(await stop(w), null);
     assert.match(await w.ok("bob", "inbox", {}, { id: "hw-core", project: "billing-api" }), /DM bob\/merger → bob\/core · just now: Please rebase/);
   });
 
-  test("switched on: its DMs and handoffs wake it as work from your agent; teammates' stay information", async () => {
+  test("on by default: its DMs and handoffs wake it as work from your agent; teammates' stay information", async () => {
     const { w, core, merge } = await setup();
-    const page = await (await w.request("/dashboard?view=agents&agent=bob/core", { as: "bob", cookie: true })).text();
-    assert.match(page, /info only from your agents/);
-    assert.equal((await w.form("/agent/takes-work", "bob", { label: "core", on: "1", back: "/dashboard?view=agents&agent=bob/core" })).status, 303);
     assert.match(await (await w.request("/dashboard?view=agents&agent=bob/core", { as: "bob", cookie: true })).text(), /takes work from your agents/);
     await w.ok("bob", "post", { to: "bob/core", message: "Please rebase MR 12" }, merge);
     // An older mod would call it "sent by you", so only a mod that knows gets it as a prompt.
@@ -1746,7 +1745,6 @@ describe("your agents handing each other work", () => {
 
   test("at most a few wake-ups an hour, so two agents can't keep waking each other", async () => {
     const { w, merge } = await setup();
-    await w.form("/agent/takes-work", "bob", { label: "core", on: "1" });
     for (let i = 0; i < DELEGATE_PER_HOUR + 2; i++) await w.ok("bob", "post", { to: "bob/core", message: `task ${i}` }, merge);
     assert.equal((await ui(w, "0.2.9")).prompts.length, DELEGATE_PER_HOUR);
     await w.form("/agent/takes-work", "bob", { label: "core", on: "0" });
@@ -1807,7 +1805,7 @@ describe("the code view", () => {
     assert.match(changes, /2 files changed/);
     assert.match(changes, /<span class="ck ck-modified"[^>]*>M<\/span><span class="cpath">app\.ts/);
     assert.match(changes, /<span class="ck ck-new"[^>]*>N<\/span><span class="cpath">lib\/util\.ts/);
-    assert.match(changes, /<tr class="dd"><td class="ln">1<\/td><td class="ln"><\/td><td class="dc"><span class="dm">−<\/span><span class="hk">export<\/span> <span class="hk">const<\/span> a = <span class="hn">1<\/span>;/);
+    assert.match(changes, /<tr class="dd"><td class="ln">1<\/td><td class="ln"><\/td><td class="dc"><span class="dmk">−<\/span><span class="hk">export<\/span> <span class="hk">const<\/span> a = <span class="hn">1<\/span>;/);
     assert.doesNotMatch(changes, /secret/);
     const commits = await view(w, "bob", "code=commits", dir);
     assert.match(commits, /Start the app/);

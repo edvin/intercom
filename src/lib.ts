@@ -304,17 +304,17 @@ export async function coMembers(env: Env, me: string): Promise<string[]> {
 }
 
 /** Wake-ups an agent takes from its person's other agents per hour; beyond that their messages are information again. */
-export const DELEGATE_PER_HOUR = 6;
+export const DELEGATE_PER_HOUR = 20;
 
 /**
- * Whether a DM is work handed from one of a person's agents to another of theirs that takes it (its switch in the
- * dashboard, kept per agent name): only between the same person's agents, never from anyone else's, and at most
- * DELEGATE_PER_HOUR an hour, so two agents can't keep waking each other.
+ * Whether a DM is work handed from one of a person's agents to another of theirs that takes it (on unless switched
+ * off in the dashboard, kept per agent name): only between the same person's agents, never from anyone else's, and
+ * at most DELEGATE_PER_HOUR an hour, so two agents can't keep waking each other.
  */
 export async function delegatedTo(env: Env, sender: string, senderAgent: string | null, recipient: string | null, recipientAgent: string | null): Promise<boolean> {
   if (!senderAgent || recipient !== sender || !recipientAgent || recipientAgent === senderAgent) return false;
-  const on = await env.DB.prepare("SELECT 1 FROM agent_prefs WHERE member = ? AND label = ? AND takes_work = 1").bind(sender, recipientAgent).first();
-  if (!on) return false;
+  const off = await env.DB.prepare("SELECT 1 FROM agent_prefs WHERE member = ? AND label = ? AND takes_work = 0").bind(sender, recipientAgent).first();
+  if (off) return false;
   const n = await env.DB.prepare("SELECT COUNT(*) AS n FROM messages WHERE recipient = ?1 AND recipient_agent = ?2 AND sender = ?1 AND delegated = 1 AND created_at > ?3")
     .bind(sender, recipientAgent, Date.now() - 3600_000)
     .first<{ n: number }>();
