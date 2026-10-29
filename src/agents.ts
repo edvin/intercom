@@ -118,8 +118,21 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
     if (a.state === "idle") return `<span class="badge green">idle</span>`;
     return "";
   };
+  // The agent in the address, and only that one: a live redraw fetches the same address, so falling back to another
+  // agent here made the page jump between agents. One not seen for a day is looked up on its own; one that's gone
+  // says so. Without ?agent= the first connected agent of yours is shown (the page then pins it in the address).
   const picked = url.searchParams.get("agent");
-  const agent = agents.find((a) => key(a) === picked) ?? agents.find((a) => a.member === me && isOn(a)) ?? agents.find(isOn) ?? agents[0];
+  let agent = picked ? agents.find((a) => key(a) === picked) : (agents.find((a) => a.member === me && isOn(a)) ?? agents.find(isOn) ?? agents[0]);
+  if (picked && !agent) {
+    const [pm = "", pl = ""] = picked.split("/");
+    agent =
+      (await env.DB.prepare(
+        `SELECT member, session_id, label, project, project_pin, repo, loops, jobs, origin, branch, note, client, host, version, last_seen, state, state_detail, state_at, active_at, cwd, ui_at, ui_version, ctx_pct, ctx_tokens, ctx_window, ctx_at, compact_req FROM sessions
+         WHERE member = ? AND label = ? AND (member = ? OR project IN (${ph(mine.length)})) ORDER BY last_seen DESC LIMIT 1`,
+      )
+        .bind(pm, pl, me, ...mine)
+        .first<Agent>()) ?? undefined;
+  }
 
 
   // The tree: projects with their agents nested (yours first, then teammates'), connected ones on top and the
@@ -219,6 +232,8 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
     ? `<section class="card approvals" id="approvals" data-region><div class="hd"><h2>${icon("shield", 15)}Approvals · ${pending.length}</h2><span class="small muted">${away ? `denied after ${waitMin} min unless you answer` : "also asked in each agent's terminal"}</span></div><div class="stack" style="padding:0 14px 14px">${pending.map(approvalCard).join("")}</div></section>`
     : `<div id="approvals" data-region hidden></div>`;
   if (!nav.withChat) return { tree, main: "" };
+  if (!agent && picked)
+    return { tree, main: `${updateBar}${approvals}<section class="card chat"><div class="empty" style="margin:auto">${icon("radio", 30)}<div>There's no agent ${esc(picked)} (any more).</div><div class="small">Pick one in the tree, or <a href="/dashboard?view=agents">show your agents</a>.</div></div></section>` };
   if (!agent) return { tree, main: `${updateBar}${approvals}<section class="card chat"><div class="empty" style="margin:auto">${icon("radio", 30)}<div>No agents to talk to yet.</div><div class="small">Start Claude Code or Codex in a repo; its session shows up in the tree.</div></div></section>` };
 
   const { results: rows } = await env.DB.prepare(

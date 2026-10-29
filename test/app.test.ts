@@ -1688,6 +1688,26 @@ describe("files your agents mention", () => {
   });
 });
 
+describe("the agent in the address", () => {
+  test("a page shows the agent it names and never another one, also one not seen for a day", async () => {
+    const w = await standardWorld();
+    const a = { id: "ad-a", project: "billing-api" };
+    const b = { id: "ad-b", project: "billing-api" };
+    await w.ok("bob", "inbox", {}, a);
+    await w.ok("bob", "set_name", { name: "quiet" }, a);
+    await w.ok("bob", "inbox", {}, b);
+    await w.ok("bob", "set_name", { name: "busy" }, b);
+    await w.ok("bob", "post", { to: "bob", message: "a reply from busy" }, b);
+    await w.db.prepare("UPDATE sessions SET last_seen = ? WHERE session_id = 'ad-a'").bind(Date.now() - 2 * 86400_000).run();
+    const page = await (await w.request("/dashboard?view=agents&agent=bob/quiet", { as: "bob", cookie: true })).text();
+    assert.match(page, /<span class="aname">bob\/quiet<\/span>/);
+    assert.doesNotMatch(page, /a reply from busy/);
+    const gone = await (await w.request("/dashboard?view=agents&agent=bob/nobody", { as: "bob", cookie: true })).text();
+    assert.match(gone, /There's no agent bob\/nobody \(any more\)/);
+    assert.doesNotMatch(gone, /id="thread"/);
+  });
+});
+
 describe("your agents handing each other work", () => {
   const setup = async () => {
     const w = await standardWorld();
