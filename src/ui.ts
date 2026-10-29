@@ -441,6 +441,7 @@ form.editmode textarea{border-color:color-mix(in srgb,var(--amber) 60%,transpare
 .ctabs{display:flex;gap:2px}
 .ctab{display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border-radius:8px;font-size:13px;font-weight:600;color:var(--mute);text-decoration:none}
 .ctab:hover{background:var(--surface-2);color:var(--ink)}.ctab.on{background:var(--accent-soft);color:var(--accent)}
+.cwt{max-width:min(360px,60vw);height:28px;padding:0 26px 0 8px;font-size:12.5px;font-weight:600;border-radius:8px}
 .crepo{display:inline-flex;align-items:center;gap:5px;flex-wrap:wrap;min-width:0;font-size:12.5px;color:var(--ink-2)}.crepo .i{color:var(--mute)}
 .codebody{display:flex;flex-direction:column;gap:12px;min-width:0;padding:14px 14px 28px}
 .codebody>.empty{padding:40px 10px}
@@ -1280,7 +1281,7 @@ export const SCRIPT = `
   };
   // The code view (code.ts): read from the agent's machine when it opens and when asked again; its links stay in the
   // pane (the address changes, so back and forward work, and a live redraw keeps it).
-  const CODE_KEYS = ["code", "sha", "dir", "path", "rev", "q", "in"];
+  const CODE_KEYS = ["code", "sha", "dir", "path", "rev", "q", "in", "wt"];
   let codeNav = false, codeSeq = 0;
   // While you type in its search box, only the results are redrawn, so the box keeps focus and caret.
   async function codeLoad(results) {
@@ -1329,6 +1330,13 @@ export const SCRIPT = `
     }, now ? 0 : f.in.value === "text" ? 350 : 150);
   };
   document.addEventListener("input", (e) => { const f = e.target.closest && e.target.closest("form[data-codesearch]"); if (f) codeSearch(f); });
+  // Another worktree: the same tab, read from that folder (a file or commit from the old one may not be there).
+  document.addEventListener("change", (e) => {
+    const s = e.target.closest && e.target.closest("select[data-codewt]"); if (!s) return;
+    const u = new URL(location.href); ["dir", "path", "rev", "sha", "q", "in"].forEach((k) => u.searchParams.delete(k));
+    if (!["changes", "commits", "files"].includes(u.searchParams.get("code"))) u.searchParams.set("code", "changes");
+    u.searchParams.set("wt", s.value); u.hash = ""; codeNav = true; history.pushState(null, "", u); codeLoad();
+  });
   document.addEventListener("submit", (e) => { const f = e.target.closest && e.target.closest("form[data-codesearch]"); if (f) { e.preventDefault(); e.stopPropagation(); codeSearch(f, true); } }, true);
   document.addEventListener("click", (e) => {
     const b = e.target.closest && e.target.closest("form[data-codesearch] [data-in]"); if (!b) return;

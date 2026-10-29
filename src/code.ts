@@ -36,7 +36,20 @@ interface Overview {
   behind: number;
   log: Commit[];
 }
+interface Worktree {
+  path: string;
+  label: string;
+  branch: string;
+  head: string;
+  changed: number;
+  agent: boolean;
+  start: boolean;
+}
 interface CodeData extends Overview {
+  /** The worktrees of the agent's repos, and the one read (older local servers send neither). */
+  worktrees?: Worktree[];
+  here?: string;
+  hereLabel?: string;
   /** The agent that read it, when another than the one asked (askCode). */
   via?: string;
   files?: FileStat[];
@@ -49,6 +62,8 @@ interface CodeData extends Overview {
 }
 export interface CodeQuery {
   op: "changes" | "commit" | "list" | "file" | "find";
+  /** Another worktree than the one the agent works in (it must be one of its repos' worktrees). */
+  wt?: string;
   q?: string;
   mode?: "files" | "text";
   sha?: string;
@@ -62,6 +77,11 @@ const waiting = new Map<string, { member: string; done: (r: Reply) => void }>();
 
 /** What the URL asks for: ?code=changes, commits, commit&sha=, files&dir= or file&path=&rev= */
 export function codeQuery(url: URL): { tab: string; q: CodeQuery } {
+  const r = codeQuery0(url);
+  const wt = (url.searchParams.get("wt") ?? "").slice(0, 1024);
+  return wt ? { ...r, q: { ...r.q, wt } } : r;
+}
+function codeQuery0(url: URL): { tab: string; q: CodeQuery } {
   const p = (k: string) => (url.searchParams.get(k) ?? "").slice(0, 1024);
   const tab = p("code");
   if (tab === "commit") return { tab: "commits", q: { op: "commit", sha: p("sha") } };
@@ -276,7 +296,7 @@ const crumbs = (base: string, dir: string) => {
 
 /** The code pane for agent `key` ("member/label"): tabs, then what was asked for. */
 export function drawCode(key: string, tab: string, q: CodeQuery, d: CodeData): string {
-  const base = `/dashboard?view=agents&amp;agent=${enc(key)}`;
+  const base = `/dashboard?view=agents&amp;agent=${enc(key)}${q.wt ? `&amp;wt=${enc(q.wt)}` : ""}`;
   const n = d.files?.length;
   const tabs = [
     ["changes", `Changes${n ? ` <span class="badge">${n}</span>` : ""}`],
@@ -285,7 +305,18 @@ export function drawCode(key: string, tab: string, q: CodeQuery, d: CodeData): s
   ]
     .map(([t, label]) => `<a class="ctab${t === tab ? " on" : ""}" href="${base}&amp;code=${t}" data-code>${label}</a>`)
     .join("");
-  const where = `<span class="crepo">${icon("folder", 13)}<b>${esc(d.name)}</b>${d.branch ? ` ${icon("branch", 12)} ${esc(d.branch)}` : d.head ? ` <span class="muted">detached at ${esc(d.head.slice(0, 7))}</span>` : ""}${d.upstream ? `<span class="muted" title="Compared with ${esc(d.upstream)}">${d.ahead ? ` · ${d.ahead} to push` : ""}${d.behind ? ` · ${d.behind} behind` : ""}${!d.ahead && !d.behind ? " · up to date" : ""}</span>` : d.head ? '<span class="muted"> · not pushed anywhere</span>' : ""}</span>`;
+  // Which folder: a picker when the repo has several worktrees (the agent's own marked), else just its name.
+  const trees = d.worktrees ?? [];
+  const folder =
+    trees.length > 1
+      ? `<select class="cwt" data-codewt aria-label="Worktree" title="${esc(d.hereLabel ?? d.name)}">${trees
+          .map(
+            (t) =>
+              `<option value="${esc(t.path)}"${t.path === d.here ? " selected" : ""}>${esc(t.label)} · ${esc(t.branch || (t.head ? `detached ${t.head}` : "?"))}${t.changed ? ` · ${t.changed} changed` : ""}${t.agent ? " · agent here" : ""}</option>`,
+          )
+          .join("")}</select>`
+      : `<b title="${esc(d.hereLabel ?? d.name)}">${esc(d.name)}</b>`;
+  const where = `<span class="crepo">${icon("folder", 13)}${folder}${trees.length > 1 ? "" : d.branch ? ` ${icon("branch", 12)} ${esc(d.branch)}` : d.head ? ` <span class="muted">detached at ${esc(d.head.slice(0, 7))}</span>` : ""}${d.upstream ? `<span class="muted" title="Compared with ${esc(d.upstream)} as of this folder's last git fetch">${d.ahead ? ` · ${d.ahead} to push` : ""}${d.behind ? ` · ${d.behind} behind ${esc(d.upstream)}` : ""}${!d.ahead && !d.behind ? " · up to date" : ""}</span>` : d.head ? '<span class="muted"> · not pushed anywhere</span>' : ""}</span>`;
   const via = d.via && d.via !== key.split("/")[1] ? `<span class="muted" title="${esc(key)} isn't running; read by another of your agents in the same repo"> · via ${esc(d.via)}</span>` : "";
   const head = `<div class="codebar"><nav class="ctabs">${tabs}</nav><span class="grow"></span>${where}${via}<button type="button" class="btn ghost xs icon" data-coderefresh title="Read it again">${icon("refresh", 13)}</button></div>`;
   return `${head}<div class="codebody">${body(key, base, tab, q, d)}</div>`;

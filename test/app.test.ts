@@ -1808,7 +1808,7 @@ describe("the code view", () => {
     return w;
   };
   // Open a code view; the "machine" answers the request it gets from `dir`.
-  const view = async (w: World, as: string, query: string, dir: string, agent = "bob/core") => {
+  const view = async (w: World, as: string, query: string, dir: string, agent = "bob/core", agentDir?: string) => {
     const n = w.codeAsked.length;
     const res = w.request(`/agent-code?agent=${encodeURIComponent(agent)}&${query}`, { as, cookie: true });
     const t0 = Date.now();
@@ -1817,7 +1817,7 @@ describe("the code view", () => {
     if (ask) {
       let body: object;
       try {
-        body = { data: await codeRequest(dir, ask.q) };
+        body = { data: await codeRequest(dir, ask.q, { agentDir }) };
       } catch (e) {
         body = { error: (e as Error).message };
       }
@@ -1873,6 +1873,29 @@ describe("the code view", () => {
     assert.equal(w.codeAsked[w.codeAsked.length - 1]!.sessionId, "cv2");
     assert.match(page, /· via core-2/);
     assert.match(page, /<h3>Start the app<\/h3>/);
+  });
+
+  test("it reads the worktree the agent works in, and you can pick another worktree of its repo", async () => {
+    const w = await setup();
+    const dir = repo();
+    const g = (...a: string[]) => execFileSync("git", ["-C", dir, "-c", "user.name=Bob", "-c", "user.email=bob@example.com", ...a], { stdio: "pipe" });
+    const wt = `${dir}-speed`;
+    g("worktree", "add", "-q", "-b", "speed/hoist", wt);
+    writeFileSync(join(wt, "fast.ts"), "export const fast = true;\n");
+    // The agent started in the main checkout but its transcript says it works in the worktree.
+    const page = await view(w, "bob", "code=changes", dir, "bob/core", wt);
+    assert.match(page, /<select class="cwt" data-codewt[^>]*>/);
+    assert.match(page, /<option value="[^"]*-speed" selected>[^<]*· speed\/hoist · 1 changed · agent here<\/option>/);
+    assert.match(page, /<option value="[^"]*ic-code-[A-Za-z0-9]{6}">[^<]*· main · 2 changed<\/option>/);
+    assert.match(page, /fast\.ts/);
+    assert.doesNotMatch(page, /app\.ts<\/span>/);
+    // Picking the main checkout; links keep the choice.
+    const mainPath = page.match(/<option value="([^"]*)">[^<]* · main · /)![1]!;
+    const main = await view(w, "bob", `code=changes&wt=${encodeURIComponent(mainPath)}`, dir, "bob/core", wt);
+    assert.match(main, /app\.ts<\/span>/);
+    assert.ok(main.includes(`&amp;wt=${encodeURIComponent(mainPath)}&amp;code=commits"`));
+    // Nothing outside its repos' worktrees.
+    assert.match(await view(w, "bob", "code=changes&wt=%2Fetc", dir, "bob/core", wt), /isn&#39;t one of this agent&#39;s worktrees/);
   });
 
   test("search finds files by name and lines by text, never in ignored files", async () => {

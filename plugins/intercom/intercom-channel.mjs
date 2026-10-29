@@ -20,7 +20,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const VERSION = "0.12.26"; // kept in step with .claude-plugin/plugin.json (a test checks)
+const VERSION = "0.12.27"; // kept in step with .claude-plugin/plugin.json (a test checks)
 const DIR = path.join(os.homedir(), ".claude", "intercom");
 const CONFIG = path.join(DIR, "config");
 function readConf() {
@@ -216,7 +216,7 @@ async function answerCodeRequest(f) {
   try {
     // Loaded when first needed, so a copy installed without it (an older installer) still runs everything else.
     const { codeRequest } = await import("./code.mjs");
-    body = { data: await codeRequest(WORKDIR, f.q) };
+    body = { data: await codeRequest(WORKDIR, f.q, { agentDir }) };
   } catch (e) {
     body = { error: String(e.message ?? e).slice(0, 300) };
   }
@@ -444,6 +444,16 @@ function transcriptFor(session) {
   }
 }
 
+// Where the agent works now, as its transcript says: a command's own folder (Codex's workdir), else the turn's or
+// line's cwd. The code view follows it (into a worktree, say), instead of the folder the session started in.
+let agentDir = null;
+function dirOf(line) {
+  const wd = line.match(/\\?"workdir\\?"\s*:\s*\\?"([^"\\]+)/);
+  if (wd) return wd[1];
+  const cwd = line.match(/"cwd"\s*:\s*"([^"\\]+)"/);
+  return cwd ? cwd[1] : null;
+}
+
 function mirrorTick() {
   if (!mirrorOn() || !BASE || !TOKEN) return;
   const file = transcriptFor(SESSION);
@@ -478,7 +488,11 @@ function mirrorTick() {
         lines.shift();
         mirror.skipFirst = false;
       }
-      for (const l of lines) if (l.trim()) mirror.outbox.push(...summarizeLine(l));
+      for (const l of lines)
+        if (l.trim()) {
+          mirror.outbox.push(...summarizeLine(l));
+          agentDir = dirOf(l) ?? agentDir;
+        }
     } else mirror.rest = all;
   }
   if (mirror.outbox.length > 500) mirror.outbox.splice(0, mirror.outbox.length - 500);

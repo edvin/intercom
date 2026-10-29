@@ -391,7 +391,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   const back = `/dashboard?view=agents&agent=${encodeURIComponent(key(agent))}`;
   // Your own agent's code (code.ts): its changes, commits and files, read from its machine in place of the chat.
   const codeOn = ownAgent && url.searchParams.has("code");
-  const codeSrc = `/agent-code?${new URLSearchParams([["agent", key(agent)], ...[...url.searchParams].filter(([k]) => ["code", "sha", "dir", "path", "rev", "q", "in"].includes(k))])}`;
+  const codeSrc = `/agent-code?${new URLSearchParams([["agent", key(agent)], ...[...url.searchParams].filter(([k]) => ["code", "sha", "dir", "path", "rev", "q", "in", "wt"].includes(k))])}`;
   const codePane = `<div class="codepane loading" id="codepane" data-src="${esc(codeSrc)}"><div class="empty">${icon("code", 26)}<div>Reading ${esc(agent.label)}'s repo…</div></div></div>`;
   const seg = ownAgent
     ? `<nav class="seg" aria-label="Chat or code"><a href="${back}"${codeOn ? "" : ' class="on"'}>${icon("message", 13)}<span>Chat</span></a><a href="${back}&code=changes"${codeOn ? ' class="on"' : ""} title="Its uncommitted changes, commits and files, read from its machine">${icon("code", 13)}<span>Code</span></a></nav>`

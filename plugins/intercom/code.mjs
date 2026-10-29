@@ -4,6 +4,7 @@
 
 import { execFile } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 
 const DIFF_MAX = 512 * 1024; // a diff or commit beyond this is cut (the dashboard says so)
@@ -225,10 +226,49 @@ async function find(root, q, mode) {
   return { q: text, mode, hits: found.slice(0, FIND_MAX).map((f) => ({ path: f.p })), more: found.length > FIND_MAX };
 }
 
-/** Answer one request from the dashboard: { op: "changes" | "commit" | "list" | "file" | "find", ... }. */
-export async function codeRequest(dir, q) {
-  const root = await repoRoot(dir);
+const WORKTREES_MAX = 20;
+const shown = (p) => (p === os.homedir() || p.startsWith(os.homedir() + path.sep) ? `~${p.slice(os.homedir().length)}` : p);
+
+/** The worktrees of the repos around `roots`: folder, branch, and how many files have uncommitted changes. */
+async function worktrees(roots) {
+  const seen = new Map();
+  for (const r of roots.filter(Boolean)) {
+    const out = await git(r, ["worktree", "list", "--porcelain"]).catch(() => "");
+    for (const block of out.split("\n\n")) {
+      const p = block.match(/^worktree (.+)$/m)?.[1];
+      if (!p || seen.has(p) || /^(bare|prunable)/m.test(block) || !fs.existsSync(p)) continue;
+      seen.set(p, { path: p, label: shown(p), branch: block.match(/^branch refs\/heads\/(.+)$/m)?.[1] ?? "", head: block.match(/^HEAD ([0-9a-f]+)$/m)?.[1]?.slice(0, 7) ?? "" });
+    }
+  }
+  const list = [...seen.values()].slice(0, WORKTREES_MAX);
+  await Promise.all(
+    list.map(async (w) => {
+      w.changed = (await git(w.path, ["status", "--porcelain=v1", "--untracked-files=normal"]).catch(() => "")).split("\n").filter(Boolean).length;
+    }),
+  );
+  return list;
+}
+
+/**
+ * Answer one request from the dashboard: { op: "changes" | "commit" | "list" | "file" | "find", wt?, ... }. It reads the
+ * repo the agent works in now (`agentDir`, from its transcript), else the one it started in; `wt` picks another
+ * worktree of those repos, and only one of them.
+ */
+export async function codeRequest(dir, q, { agentDir } = {}) {
+  const start = await repoRoot(dir);
+  const current = agentDir && fs.existsSync(agentDir) ? await repoRoot(agentDir) : null;
+  const trees = await worktrees([start, current]);
+  let root = current ?? start;
+  if (q?.wt) {
+    root = trees.find((t) => t.path === q.wt)?.path;
+    if (!root) throw new Error("That folder isn't one of this agent's worktrees (any more).");
+  }
   if (!root) throw new Error(`${dir} isn't a git repository.`);
+  const where = { worktrees: trees.map((t) => ({ ...t, agent: t.path === current, start: t.path === start })), here: root, hereLabel: shown(root) };
+  return { ...(await answer(root, q)), ...where };
+}
+
+async function answer(root, q) {
   switch (q?.op) {
     case "changes":
       return await changes(root);
