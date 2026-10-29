@@ -24,6 +24,8 @@ export interface Env {
   refreshWeb?: (member: string) => void;
   /** Ask a session's local server for a file on its machine (localfiles.ts); false when it isn't connected. */
   askFile?: (member: string, sessionId: string, req: string, path: string) => boolean;
+  /** Ask a session's local server about its repo (code.ts); false when it isn't connected. */
+  askCode?: (member: string, sessionId: string, req: string, q: object) => boolean;
   /** Where message images live (R2). */
   files?: R2Bucket;
 }

@@ -3,6 +3,7 @@ import setupSh from "../client/setup.sh";
 import hookSh from "../plugins/intercom/hook.sh";
 import commandMd from "../plugins/intercom/commands/intercom.md";
 import channelMjs from "../plugins/intercom/intercom-channel.mjs" with { type: "text" };
+import codeMjs from "../plugins/intercom/code.mjs" with { type: "text" };
 import statuslineSh from "../plugins/intercom/statusline.sh";
 import briefSh from "../plugins/intercom/brief.sh";
 import codexSkill from "../client/codex/SKILL.md";
@@ -44,6 +45,7 @@ const CLIENT_FILES: Record<string, string> = {
   "/client/codex-skill.md": codexSkill,
   "/client/intercom.md": commandMd,
   "/client/intercom-channel.mjs": channelMjs,
+  "/client/code.mjs": codeMjs,
 };
 
 export default {

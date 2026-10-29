@@ -35,6 +35,7 @@ curl -fsSL "$URL/client/hook.sh" -o "$DIR/hook.sh"
 curl -fsSL "$URL/client/statusline.sh" -o "$DIR/statusline.sh"
 curl -fsSL "$URL/client/intercom.md" -o "$HOME/.claude/commands/intercom.md"
 curl -fsSL "$URL/client/intercom-channel.mjs" -o "$DIR/intercom-channel.mjs"
+curl -fsSL "$URL/client/code.mjs" -o "$DIR/code.mjs"
 curl -fsSL "$URL/client/brief.sh" -o "$DIR/brief.sh"
 chmod +x "$DIR/hook.sh" "$DIR/statusline.sh" "$DIR/brief.sh"
 

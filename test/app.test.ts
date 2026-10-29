@@ -4,6 +4,12 @@ import { conflicting, riskyCommand } from "../src/guard.ts";
 import { prune, resolveProject } from "../src/lib.ts";
 import { ORIGIN, World, standardWorld } from "./harness.ts";
 import { PLUGIN_VERSION } from "../src/version.ts";
+import { CODE_SINCE } from "../src/code.ts";
+import { codeRequest } from "../plugins/intercom/code.mjs";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 describe("privacy between projects", () => {
   test("non-members can't read a project's messages, locks or votes", async () => {
@@ -1679,6 +1685,97 @@ describe("files your agents mention", () => {
     while (!w.asked.length) await new Promise((r) => setTimeout(r, 5));
     await w.request("/api/file-reply", { as: "bob", method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ req: w.asked[0]!.req, error: "/tmp/scratchpad/preview/step1.png doesn't exist (any more) on that machine." }) });
     assert.match(await (await res).text(), /doesn&#39;t exist \(any more\)/);
+  });
+});
+
+describe("the code view", () => {
+  // A real repo on disk, answered by the plugin's own code.mjs, as the agent's local server would.
+  const repo = () => {
+    const dir = mkdtempSync(join(tmpdir(), "ic-code-"));
+    const g = (...a: string[]) => execFileSync("git", ["-C", dir, "-c", "user.name=Bob", "-c", "user.email=bob@example.com", ...a], { stdio: "pipe" });
+    g("init", "-q", "-b", "main");
+    writeFileSync(join(dir, "app.ts"), "export const a = 1;\n// old\n");
+    writeFileSync(join(dir, ".gitignore"), ".env\n");
+    writeFileSync(join(dir, ".env"), "TOKEN=secret\n");
+    g("add", "app.ts", ".gitignore");
+    g("commit", "-qm", "Start the app");
+    writeFileSync(join(dir, "app.ts"), "export const a = 2;\n// old\n");
+    mkdirSync(join(dir, "lib"));
+    writeFileSync(join(dir, "lib", "util.ts"), "const s = 'hi';\n");
+    return dir;
+  };
+  const setup = async () => {
+    const w = await standardWorld();
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=cv&name=core", { as: "bob" });
+    await w.db.prepare("UPDATE sessions SET version = ? WHERE session_id = 'cv'").bind(CODE_SINCE).run();
+    return w;
+  };
+  // Open a code view; the "machine" answers the request it gets from `dir`.
+  const view = async (w: World, as: string, query: string, dir: string, agent = "bob/core") => {
+    const n = w.codeAsked.length;
+    const res = w.request(`/agent-code?agent=${encodeURIComponent(agent)}&${query}`, { as, cookie: true });
+    const t0 = Date.now();
+    while (w.codeAsked.length === n && Date.now() - t0 < 300) await new Promise((r) => setTimeout(r, 5));
+    const ask = w.codeAsked[n];
+    if (ask) {
+      let body: object;
+      try {
+        body = { data: await codeRequest(dir, ask.q) };
+      } catch (e) {
+        body = { error: (e as Error).message };
+      }
+      const r = await w.request("/api/code-reply", { as: ask.member, method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ req: ask.req, ...body }) });
+      assert.deepEqual(await r.json(), { ok: true });
+    }
+    return (await res).text();
+  };
+
+  test("changes, commits, a commit, folders and files of your own agent's repo", async () => {
+    const w = await setup();
+    const dir = repo();
+    const page = await (await w.request("/dashboard?view=agents&agent=bob/core&code=changes", { as: "bob", cookie: true })).text();
+    assert.match(page, /id="codepane" data-src="\/agent-code\?agent=bob%2Fcore&amp;code=changes"/);
+    assert.doesNotMatch(page, /id="chatform"/);
+    const changes = await view(w, "bob", "code=changes", dir);
+    assert.match(changes, /2 files changed/);
+    assert.match(changes, /<span class="ck ck-modified"[^>]*>M<\/span><span class="cpath">app\.ts/);
+    assert.match(changes, /<span class="ck ck-new"[^>]*>N<\/span><span class="cpath">lib\/util\.ts/);
+    assert.match(changes, /<tr class="dd"><td class="ln">1<\/td><td class="ln"><\/td><td class="dc"><span class="dm">−<\/span><span class="hk">export<\/span> <span class="hk">const<\/span> a = <span class="hn">1<\/span>;/);
+    assert.doesNotMatch(changes, /secret/);
+    const commits = await view(w, "bob", "code=commits", dir);
+    assert.match(commits, /Start the app/);
+    const sha = commits.match(/code=commit&amp;sha=([0-9a-f]{40})/)![1]!;
+    assert.match(await view(w, "bob", `code=commit&sha=${sha}`, dir), /<h3>Start the app<\/h3>/);
+    const root = await view(w, "bob", "code=files", dir);
+    assert.match(root, /dir=lib"/);
+    assert.match(root, /path=app\.ts"/);
+    assert.doesNotMatch(root, /\.env"/);
+    assert.match(await view(w, "bob", "code=file&path=lib%2Futil.ts", dir), /<span class="hs">&#39;hi&#39;<\/span>/);
+    assert.match(await view(w, "bob", `code=file&path=app.ts&rev=${sha}`, dir), /a = <span class="hn">1<\/span>/);
+  });
+
+  test("nothing git ignores, nothing outside the repo, only your own connected agents on a recent plugin", async () => {
+    const w = await setup();
+    const dir = repo();
+    symlinkSync("/etc/hosts", join(dir, "hosts"));
+    assert.match(await view(w, "bob", "code=file&path=.env", dir), /ignored files, such as secrets, aren&#39;t shown/);
+    assert.match(await view(w, "bob", "code=file&path=..%2F..%2Fetc%2Fpasswd", dir), /isn&#39;t in the repo/);
+    assert.match(await view(w, "bob", "code=file&path=hosts", dir), /points outside the repo/);
+    assert.match(await view(w, "bob", "code=commit&sha=HEAD%3Brm", dir), /isn&#39;t a commit hash/);
+    const asked = w.codeAsked.length;
+    assert.match(await view(w, "alice", "code=changes", dir), /only see the code of your own agents/);
+    assert.doesNotMatch(await (await w.request("/dashboard?view=agents&agent=bob/core&code=changes", { as: "alice", cookie: true })).text(), /id="codepane"/);
+    // Someone else's local server can't answer for bob's.
+    const res = w.request("/agent-code?agent=bob%2Fcore&code=changes", { as: "bob", cookie: true });
+    while (w.codeAsked.length === asked) await new Promise((r) => setTimeout(r, 5));
+    const req = w.codeAsked[asked]!.req;
+    assert.deepEqual(await (await w.request("/api/code-reply", { as: "alice", method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ req, error: "x" }) })).json(), { ok: false });
+    await w.request("/api/code-reply", { as: "bob", method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ req, error: "done" }) });
+    await res;
+    w.offline.add("cv");
+    assert.match(await view(w, "bob", "code=changes", dir), /isn&#39;t connected right now/);
+    await w.db.prepare("UPDATE sessions SET version = '0.12.22' WHERE session_id = 'cv'").run();
+    assert.match(await view(w, "bob", "code=changes", dir), /the code view needs/);
   });
 });
 

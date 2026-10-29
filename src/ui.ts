@@ -68,6 +68,9 @@ const ICONS: Record<string, string> = {
   terminal: '<path d="m4 17 6-6-6-6"/><path d="M12 19h8"/>',
   at: '<circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8"/>',
   sparkles: '<path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z"/>',
+  file: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/>',
+  code: '<path d="m16 18 6-6-6-6"/><path d="m8 6-6 6 6 6"/>',
+  refresh: '<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/>',
   door: '<path d="M13 4h3a2 2 0 0 1 2 2v14"/><path d="M2 20h3"/><path d="M13 20h9"/><path d="M10 12v.01"/><path d="M13 4.56v16.88a.5.5 0 0 1-.6.49l-6.8-1.36A2 2 0 0 1 4 18.6V5.4a2 2 0 0 1 1.6-1.96l6.8-1.36a.5.5 0 0 1 .6.49Z"/>',
 };
 
@@ -423,6 +426,56 @@ form.editmode textarea{border-color:color-mix(in srgb,var(--amber) 60%,transpare
 .thread.term .bubble.relay{border-left:2px dashed var(--line);padding-left:12px;background:none}
 .thread.term .bubble.relay::before{content:none}
 .fsz{display:inline-flex;gap:0;border-right:1px solid var(--line);padding-right:4px;margin-right:2px}.fsz .btn{font:600 11px/1 "Geist",system-ui,sans-serif;color:var(--ink-3);width:24px}.fsz .btn:last-child{font-size:15px}.fsz .btn:disabled{opacity:.35}.fsz .btn.ghost{color:var(--ink-3)}.fsz .btn.ghost:hover:not(:disabled){color:var(--ink)}
+/* the code view (code.ts): an agent's changes, commits and files */
+.seg{display:inline-flex;flex:none;gap:2px;padding:2px;border-radius:9px;background:var(--surface-2);border:1px solid var(--line)}
+.seg a{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:7px;font-size:12px;font-weight:600;color:var(--mute);text-decoration:none}
+.seg a:hover{color:var(--ink)}.seg a.on{background:var(--surface);color:var(--ink);box-shadow:var(--shadow)}
+.codemode .fsz,.codemode .ttog{display:none}
+.codepane{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;border-top:1px solid var(--line);transition:opacity .15s}
+.codepane.loading>.codebody,.codepane.loading>.empty{opacity:.55}
+.codepane>.empty{margin:auto}
+.codebar{position:sticky;top:0;z-index:2;display:flex;align-items:center;gap:10px;padding:8px 14px;background:var(--surface);border-bottom:1px solid var(--line);flex-wrap:wrap}
+.ctabs{display:flex;gap:2px}
+.ctab{display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border-radius:8px;font-size:13px;font-weight:600;color:var(--mute);text-decoration:none}
+.ctab:hover{background:var(--surface-2);color:var(--ink)}.ctab.on{background:var(--accent-soft);color:var(--accent)}
+.crepo{display:inline-flex;align-items:center;gap:5px;flex-wrap:wrap;min-width:0;font-size:12.5px;color:var(--ink-2)}.crepo .i{color:var(--mute)}
+.codebody{display:flex;flex-direction:column;gap:12px;min-width:0;padding:14px 14px 28px}
+.codebody>.empty{padding:40px 10px}
+.chead{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0;font-size:13px}
+.crumbs{display:inline-flex;align-items:center;gap:4px;flex-wrap:wrap;min-width:0}
+.crumbs a{display:inline-flex;align-items:center;gap:4px;color:var(--ink-2);text-decoration:none;font-family:"Geist Mono",ui-monospace,monospace;font-size:12.5px}.crumbs a:hover{color:var(--accent)}.crumbs .i{color:var(--mute)}
+.cfiles,.flist,.clog{border:1px solid var(--line);border-radius:var(--r-s);background:var(--surface);overflow:hidden}
+.cfile,.frow,.crow{display:flex;align-items:center;gap:10px;min-width:0;padding:7px 12px;border-top:1px solid var(--line);font-size:13px;color:var(--ink);text-decoration:none}
+.cfile:first-child,.frow:first-child,.crow:first-child{border-top:0}
+.cfile:hover,.frow:hover,.crow:hover{background:var(--surface-2)}
+.cpath,.frow span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:"Geist Mono",ui-monospace,monospace;font-size:12.5px}
+.frow .i{flex:none;color:var(--mute)}.frow:hover .i{color:var(--accent)}
+.ck{flex:none;display:inline-grid;place-items:center;width:18px;height:18px;border-radius:5px;font:700 10.5px/1 "Geist Mono",ui-monospace,monospace;background:var(--surface-3);color:var(--ink-2)}
+.ck-new,.ck-added{background:var(--green-soft);color:var(--green)}.ck-deleted{background:var(--red-soft);color:var(--red)}.ck-modified{background:var(--amber-soft);color:var(--amber)}.ck-renamed{background:var(--accent-soft);color:var(--accent)}
+.cnum{flex:none;display:inline-flex;gap:6px;font:500 12px "Geist Mono",ui-monospace,monospace}.cadd{color:var(--green)}.cdel{color:var(--red)}
+.csha{flex:none;font-size:12px;color:var(--accent)}.csub{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.cwho{flex:none}
+.cmeta h3{margin:0 0 6px;font-size:15px;line-height:1.4;overflow-wrap:anywhere}.cmsg{margin:0 0 8px;white-space:pre-wrap;overflow-wrap:anywhere;font-size:12.5px;color:var(--ink-2)}
+.dfile{min-width:0;border:1px solid var(--line);border-radius:var(--r-s);background:var(--surface);overflow:hidden;scroll-margin-top:60px}
+.dfile.hit{border-color:var(--accent)}
+.dfile>summary{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:7px 12px;background:var(--surface-2);cursor:pointer;list-style:none;font-size:12.5px}
+.dfile>summary::-webkit-details-marker{display:none}
+.dfile .aic{font-size:10px;color:var(--mute);transition:transform .15s}.dfile[open]>summary .aic{transform:rotate(90deg)}
+.dpath{min-width:0;overflow-wrap:anywhere;font-family:"Geist Mono",ui-monospace,monospace;font-weight:600;color:var(--ink);text-decoration:none}.dpath:hover{color:var(--accent);text-decoration:underline}
+.dscroll{overflow-x:auto;border-top:1px solid var(--line)}
+.fview{border:1px solid var(--line);border-radius:var(--r-s);background:var(--surface)}
+.dnone,.ctrunc{padding:8px 12px}
+table.diff{width:100%;border-collapse:collapse;font:12.5px/1.6 "JetBrains Mono","Geist Mono",ui-monospace,Menlo,monospace;tab-size:4}
+table.diff td{padding:0;vertical-align:top}
+table.diff .ln{width:1%;min-width:3em;padding:0 8px;text-align:right;white-space:nowrap;font-size:11.5px;color:var(--mute);opacity:.75;user-select:none}
+table.diff .ln a{color:inherit;text-decoration:none}table.diff .ln a:hover{color:var(--accent)}
+table.diff .dc{white-space:pre;padding-right:18px}table.code .dc{padding-left:10px}
+table.diff tr{scroll-margin-top:60px}
+.dm{display:inline-block;width:1.5em;text-align:center;color:var(--mute);user-select:none}
+tr.da{background:var(--green-soft)}tr.da .dm{color:var(--green)}tr.dd{background:var(--red-soft)}tr.dd .dm{color:var(--red)}
+tr.dh td{padding-top:4px;padding-bottom:4px;background:var(--accent-soft);color:var(--accent)}tr.dh .dc{padding-left:10px}
+tr.hit,tr.hit td{background:var(--amber-soft)}
+.hk{color:var(--accent)}.hs{color:var(--green)}.hn{color:var(--amber)}.hc{color:var(--mute);font-style:italic}
+@media (max-width:640px){.seg span{display:none}.codebar{padding:8px 10px}.codebar .crepo{order:3;flex-basis:100%}.codebody{padding:10px 10px 24px}.cwho{display:none}table.diff{font-size:11.5px}}
 .ttog{color:var(--ink-3)}.ttog .i{display:block}.ttog .when-off{display:none}.ttog:not(.on) .when-on{display:none}.ttog:not(.on) .when-off{display:block}.ttog:not(.on){opacity:.7}
 [data-acttoggle].on,[data-relaytoggle].on{background:var(--accent-soft);color:var(--accent)}
 .viewtoggle{display:inline-flex;border:1px solid var(--line-strong);border-radius:8px;overflow:hidden}
@@ -1203,6 +1256,37 @@ export const SCRIPT = `
     kd.showModal();
     kd.querySelector("input").focus();
   };
+  // The code view (code.ts): read from the agent's machine when it opens and when asked again; its links stay in the
+  // pane (the address changes, so back and forward work, and a live redraw keeps it).
+  const CODE_KEYS = ["code", "sha", "dir", "path", "rev"];
+  let codeNav = false;
+  async function codeLoad() {
+    const cp = document.getElementById("codepane"); if (!cp) return;
+    const u = new URL(location.href), p = new URLSearchParams([["agent", u.searchParams.get("agent") || ""]]);
+    u.searchParams.forEach((v, k) => CODE_KEYS.includes(k) && p.append(k, v));
+    cp.classList.add("loading");
+    try { const r = await fetch("/agent-code?" + p, { credentials: "same-origin" }); if (r.ok) { cp.innerHTML = await r.text(); cp.scrollTop = 0; } else toast("Couldn't read the code (HTTP " + r.status + ")", true); }
+    catch { toast("Network error — try again", true); }
+    cp.classList.remove("loading");
+    const t = location.hash && document.getElementById(location.hash.slice(1));
+    if (t) { if (t.tagName === "DETAILS") t.open = true; t.classList.add("hit"); t.scrollIntoView({ block: t.tagName === "TR" ? "center" : "start" }); }
+  }
+  document.addEventListener("click", (e) => {
+    const cp = document.getElementById("codepane"), a = cp && e.target.closest && e.target.closest("a[data-code], a[data-jump], [data-coderefresh]");
+    if (!a || !cp.contains(a) || e.metaKey || e.ctrlKey || e.shiftKey) return;
+    e.preventDefault();
+    if (a.hasAttribute("data-coderefresh")) return codeLoad();
+    if (a.hasAttribute("data-jump")) {
+      const id = a.getAttribute("href").slice(1), t = document.getElementById(id); if (!t) return;
+      if (t.tagName === "DETAILS") t.open = true;
+      $$(".hit", cp).forEach((x) => x.classList.remove("hit")); t.classList.add("hit");
+      t.scrollIntoView({ block: t.tagName === "TR" ? "center" : "start", behavior: "smooth" });
+      return history.replaceState(null, "", "#" + id);
+    }
+    codeNav = true; history.pushState(null, "", a.href); codeLoad();
+  });
+  window.addEventListener("popstate", () => { if (document.getElementById("codepane") && new URL(location.href).searchParams.has("code")) codeLoad(); else if (codeNav) location.reload(); });
+  codeLoad();
   if (!/Mac|iPhone|iPad/.test(navigator.platform)) $$(".kbd-k").forEach((k) => (k.textContent = "Ctrl K"));
   document.addEventListener("keydown", (e) => { if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "k") { e.preventDefault(); kOpen(); } });
   document.addEventListener("click", (e) => { if (e.target.closest && e.target.closest("[data-kopen]")) { e.preventDefault(); kOpen(); } });

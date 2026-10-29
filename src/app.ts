@@ -2,6 +2,7 @@ import { recordsBrief } from "./records";
 import { answerBtw, pendingBtw } from "./btw";
 import { getAttachment, isImage, readImage } from "./attachments";
 import { fetchLocalFile, fileReply } from "./localfiles";
+import { askCode, codeQuery, codeReply, drawCode } from "./code";
 import { parseJobs } from "./jobs";
 import { type Env, type Message, type Proposal, type Session, LIVE, MEMBER_OF, postMessage, RECEIVES, UserError, activeLocks, address, isMyLock, ago, addActivity, lockIn, scopedLocks, cleanBranch, cleanClient, fromOwnUser, renameSession, setHost, setVersion, workingOn, authenticate, coMembers, fmtLock, fmtMessage, myProjects, moveSession, projectFor, resolveProject, setCwd, setOrigin, setPresence, setRepo, tally, touchSession, unread } from "./lib";
 import { type Tool, instructions, tools } from "./tools";
@@ -12,7 +13,7 @@ import { guard } from "./guard";
 import { PLUGIN_VERSION, outdated, replyHow } from "./version";
 import { getSetting, githubRepo, openSignup, setSetting } from "./github";
 import { landingPage } from "./landing";
-import { BUILD, esc, redirect } from "./ui";
+import { BUILD, esc, icon, redirect } from "./ui";
 import { accountPage, dashboard, soloCard, exportProject, sameOrigin, handleAction, handleAdminAction, handleJoin, handleLogin, handleLogout, loginPage } from "./web";
 
 const SUPPORTED_PROTOCOLS = ["2025-11-25", "2025-06-18", "2025-03-26"];
@@ -697,6 +698,24 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
       if (!(e instanceof UserError)) throw e;
       return new Response(soloCard("File", `<h1>Couldn't fetch the file</h1><p class="muted">${esc(e.message)}</p>`), { status: 404, headers: { "content-type": "text/html; charset=utf-8" } });
     }
+  }
+  if (url.pathname === "/agent-code" && req.method === "GET") {
+    // The code view of one of your agents (code.ts): a fragment the dashboard puts in place of the chat.
+    const k = url.searchParams.get("agent") ?? "";
+    const [member, label] = k.split("/");
+    const { tab, q } = codeQuery(url);
+    let body: string;
+    try {
+      if (member !== me || !label) throw new UserError("You can only see the code of your own agents.");
+      body = drawCode(k, tab, q, await askCode(env, me, label, q));
+    } catch (e) {
+      if (!(e instanceof UserError)) throw e;
+      body = `<div class="codebar"><span class="grow"></span><button type="button" class="btn ghost xs icon" data-coderefresh title="Try again">${icon("refresh", 13)}</button></div><div class="empty">${icon("code", 26)}<div>Couldn't read its code</div><div class="small">${esc(e.message)}</div></div>`;
+    }
+    return new Response(body, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "content-security-policy": "frame-ancestors 'none'" } });
+  }
+  if (url.pathname === "/api/code-reply" && req.method === "POST") {
+    return json({ ok: codeReply(me, (await req.json().catch(() => ({}))) as Record<string, unknown>) });
   }
   if (url.pathname === "/api/file-reply" && req.method === "POST") {
     return json({ ok: await fileReply(env, me, (await req.json().catch(() => ({}))) as Record<string, unknown>) });

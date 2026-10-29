@@ -65,6 +65,8 @@ export class World {
   /** File requests sent to local servers (askFile); `offline` sessions aren't connected. */
   asked: { member: string; sessionId: string; req: string; path: string }[] = [];
   offline = new Set<string>();
+  /** Code requests sent to local servers (askCode). */
+  codeAsked: { member: string; sessionId: string; req: string; q: Record<string, string> }[] = [];
   tokens: Record<string, string> = {};
 
   github?: { client_id: string; client_secret: string };
@@ -89,6 +91,7 @@ export class World {
       github: this.github,
       files: this.files,
       askFile: (member, sessionId, req, path) => !this.offline.has(sessionId) && !!this.asked.push({ member, sessionId, req, path }),
+      askCode: (member, sessionId, req, q) => !this.offline.has(sessionId) && !!this.codeAsked.push({ member, sessionId, req, q: q as Record<string, string> }),
     };
   }
 

@@ -20,7 +20,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const VERSION = "0.12.22"; // kept in step with .claude-plugin/plugin.json (a test checks)
+const VERSION = "0.12.23"; // kept in step with .claude-plugin/plugin.json (a test checks)
 const DIR = path.join(os.homedir(), ".claude", "intercom");
 const CONFIG = path.join(DIR, "config");
 function readConf() {
@@ -207,6 +207,22 @@ async function answerFileRequest(f) {
   } catch (e) {
     log("file request failed:", e.message);
   }
+}
+
+// ---- code requests: the owner opened this session's code view (its changes, commits, files) in the dashboard ----
+
+async function answerCodeRequest(f) {
+  let body;
+  try {
+    // Loaded when first needed, so a copy installed without it (an older installer) still runs everything else.
+    const { codeRequest } = await import("./code.mjs");
+    body = { data: await codeRequest(WORKDIR, f.q) };
+  } catch (e) {
+    body = { error: String(e.message ?? e).slice(0, 300) };
+  }
+  fetch(`${BASE}/api/code-reply`, { method: "POST", headers: { authorization: headers.authorization, "content-type": "application/json" }, body: JSON.stringify({ req: f.req, ...body }), signal: AbortSignal.timeout(60_000) }).catch((e) =>
+    log("code request failed:", e.message),
+  );
 }
 
 // ---- save_attachment: the attachment is fetched from the hub and written on this machine ----
@@ -682,6 +698,8 @@ function connect() {
       notify(f.message);
     } else if (f.type === "file-request") {
       answerFileRequest(f);
+    } else if (f.type === "code-request") {
+      answerCodeRequest(f);
     } else if (f.type === "peek") {
       for (const m of markers("pending")) touch(m);
       notify(f.message);

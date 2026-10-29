@@ -157,7 +157,7 @@ fi
 # 4. Codex (OpenAI), if installed: the same MCP server, hooks (context, deploy guard) and an $intercom skill.
 if [ "$INTERCOM_CODEX" != "0" ] && command -v codex >/dev/null 2>&1; then
   CX="${CODEX_HOME:-$HOME/.codex}"
-  for f in intercom-channel.mjs hook.sh brief.sh; do curl -fsSL "$URL/client/$f" -o "$DIR/$f" || fail "couldn't download $f"; done
+  for f in intercom-channel.mjs code.mjs hook.sh brief.sh; do curl -fsSL "$URL/client/$f" -o "$DIR/$f" || fail "couldn't download $f"; done
   chmod +x "$DIR/hook.sh" "$DIR/brief.sh"
   mkdir -p "$CX"
   codex mcp remove intercom >/dev/null 2>&1 || true

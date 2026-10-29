@@ -160,6 +160,7 @@ export class TeamHub extends DurableObject<WorkerEnv> {
       live: () => this.liveSessions(),
       refreshWeb: (member: string) => this.refreshWeb(member),
       askFile: (member, sessionId, req, path) => this.askFile(member, sessionId, req, path),
+      askCode: (member, sessionId, req, q) => this.toSession(member, sessionId, { type: "code-request", req, q }),
       files: this.env.FILES,
       github: id && secret ? { client_id: id, client_secret: secret } : undefined,
     };
@@ -278,11 +279,16 @@ export class TeamHub extends DurableObject<WorkerEnv> {
 
   /** Send a file request to a session's local server; false when none is connected. */
   private askFile(member: string, sessionId: string, req: string, path: string): boolean {
+    return this.toSession(member, sessionId, { type: "file-request", req, path });
+  }
+
+  /** Send a request to a session's local server; false when none is connected. */
+  private toSession(member: string, sessionId: string, msg: object): boolean {
     for (const ws of this.ctx.getWebSockets(member)) {
       const s = ws.deserializeAttachment() as SocketInfo | null;
       if (s?.mode === "web" || s?.session_id !== sessionId) continue;
       try {
-        ws.send(JSON.stringify({ type: "file-request", req, path }));
+        ws.send(JSON.stringify(msg));
         return true;
       } catch {
         // closing; try another socket of the session
