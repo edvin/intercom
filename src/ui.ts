@@ -64,6 +64,7 @@ const ICONS: Record<string, string> = {
   eye: '<path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/>',
   eyeOff: '<path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49"/><path d="M14.084 14.158a3 3 0 0 1-4.242-4.242"/><path d="M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143"/><path d="m2 2 20 20"/>',
   messages: '<path d="M14 9a2 2 0 0 1-2 2H6l-4 4V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z"/><path d="M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1"/>',
+  paperclip: '<path d="m16 6-8.414 8.586a2 2 0 0 0 2.829 2.829l8.414-8.586a4 4 0 1 0-5.657-5.657l-8.379 8.551a6 6 0 1 0 8.485 8.485l8.379-8.551"/>',
   image: '<rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>',
   terminal: '<path d="m4 17 6-6-6-6"/><path d="M12 19h8"/>',
   at: '<circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8"/>',
@@ -379,6 +380,7 @@ a.ref{color:var(--accent);text-decoration:none;border-bottom:1px dotted color-mi
 form.btwmode textarea{border-color:color-mix(in srgb,var(--amber) 60%,transparent)}.btwbar{padding:2px 4px 0}
 .act .adesc{display:block;color:var(--ink)}.act .acmd{display:block;color:var(--mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .imgtray{display:flex;gap:8px;flex-wrap:wrap;padding:6px 6px 8px}.imgtray[hidden]{display:none}.imgthumb{position:relative}.imgthumb img{height:64px;max-width:120px;object-fit:cover;border-radius:8px;border:1px solid var(--line);display:block}
+.filechip{display:inline-flex;align-items:center;gap:6px;height:40px;max-width:240px;padding:0 12px 0 10px;border:1px solid var(--line-strong);border-radius:8px;background:var(--surface-2);font-size:12.5px;color:var(--ink)}.filechip>.i{flex:none;color:var(--accent)}.filechip .fname{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}.filechip .fsize{flex:none;color:var(--mute)}
 .imgthumb button{position:absolute;top:-6px;right:-6px;width:20px;height:20px;border-radius:50%;border:0;background:var(--ink);color:var(--bg);font-size:13px;line-height:20px;padding:0;cursor:pointer}
 form.dropping{outline:2px dashed var(--accent);outline-offset:4px;border-radius:12px}
 .lfile{overflow-wrap:anywhere;text-decoration:underline dotted;text-underline-offset:3px}.lfile code{color:inherit}
@@ -759,8 +761,11 @@ export const SCRIPT = `
     setTimeout(() => { t.classList.add("out"); setTimeout(() => t.remove(), 300); }, err ? 6000 : 3500);
   }
   window.icToast = toast;
-  // Images in a composer: pasted, dropped or picked; scaled down in the browser, sent with the message.
-  const MAX_SIDE = 1600, MAX_IMGS = 4;
+  // Images and files in a composer: pasted, dropped or picked, sent with the message. Images are scaled down in the
+  // browser; any other file goes as it is (up to 10 MB), for the agent to save with save_attachment.
+  const MAX_SIDE = 1600, MAX_IMGS = 4, MAX_FILE = 10 * 1024 * 1024;
+  const IMAGE_RE = /^image[/](png|jpeg|webp|gif)$/;
+  const kb = (n) => n < 1024 * 1024 ? Math.max(1, Math.round(n / 1024)) + " KB" : (n / 1024 / 1024).toFixed(1) + " MB";
   async function shrink(file) {
     if (file.type === "image/gif" || (file.type === "image/png" && file.size < 600000)) return file;
     try {
@@ -778,23 +783,27 @@ export const SCRIPT = `
     const tray = f.querySelector(".imgtray"); if (!tray) return;
     tray.hidden = !f._imgs.length; tray.textContent = "";
     f._imgs.forEach((it, i) => {
-      const d = document.createElement("span"); d.className = "imgthumb";
-      const img = document.createElement("img"); img.src = it.url; img.alt = it.file.name; d.appendChild(img);
+      const d = document.createElement("span"); d.className = it.url ? "imgthumb" : "imgthumb filechip";
+      if (it.url) { const img = document.createElement("img"); img.src = it.url; img.alt = it.file.name; d.appendChild(img); }
+      else { d.innerHTML = ${JSON.stringify(icon("file", 15))}; const n = document.createElement("span"); n.className = "fname"; n.textContent = it.file.name || "file"; const s = document.createElement("span"); s.className = "fsize"; s.textContent = kb(it.file.size); d.append(n, s); d.title = it.file.name; }
       const x = document.createElement("button"); x.type = "button"; x.textContent = "×"; x.title = "Remove";
-      x.onclick = () => { URL.revokeObjectURL(it.url); f._imgs.splice(i, 1); drawTray(f); };
+      x.onclick = () => { if (it.url) URL.revokeObjectURL(it.url); f._imgs.splice(i, 1); drawTray(f); };
       d.appendChild(x); tray.appendChild(d);
     });
     const t = f.querySelector("textarea"); if (t) t.required = !f._imgs.length;
   }
   async function addImages(f, files) {
-    const imgs = [...files].filter((x) => /^image[/](png|jpeg|webp|gif)$/.test(x.type));
-    if (!imgs.length) { if (files.length) toast("Only PNG, JPEG, WebP or GIF images", true); return false; }
+    const all = [...files];
+    if (!all.length) return false;
     // Shrinking a big phone screenshot takes a moment; live redraws leave the composer alone meanwhile.
     f._adding = (f._adding || 0) + 1;
     try {
-      for (const x of imgs) {
-        if (f._imgs.length >= MAX_IMGS) { toast("At most " + MAX_IMGS + " images per message", true); break; }
-        const file = await shrink(x); f._imgs.push({ file, url: URL.createObjectURL(file) });
+      for (const x of all) {
+        if (f._imgs.length >= MAX_IMGS) { toast("At most " + MAX_IMGS + " files per message", true); break; }
+        if (IMAGE_RE.test(x.type)) { const file = await shrink(x); f._imgs.push({ file, url: URL.createObjectURL(file) }); }
+        else if (x.size > MAX_FILE) toast((x.name || "That file") + " is over 10 MB", true);
+        else if (!x.size) toast((x.name || "That file") + " is empty (or a folder: zip it first)", true);
+        else f._imgs.push({ file: x, url: "" });
       }
     } finally { f._adding--; }
     drawTray(f); return true;
@@ -809,8 +818,8 @@ export const SCRIPT = `
       pick.oncancel = () => { f._picking = 0; };
       pick.onchange = async () => { const live = (f.id && document.getElementById(f.id)) || f; f._picking = 0; await addImages(live, pick.files); pick.value = ""; };
     }
-    if (t) f.addEventListener("paste", async (e) => { const files = [...(e.clipboardData ? e.clipboardData.files : [])]; if (files.length && files.some((x) => x.type.startsWith("image/"))) { e.preventDefault(); await addImages(f, files); } });
-    f.addEventListener("dragover", (e) => { if (e.dataTransfer && [...e.dataTransfer.items].some((i) => i.type.startsWith("image/"))) { e.preventDefault(); f.classList.add("dropping"); } });
+    if (t) f.addEventListener("paste", async (e) => { const files = [...(e.clipboardData ? e.clipboardData.files : [])]; if (files.length) { e.preventDefault(); await addImages(f, files); } });
+    f.addEventListener("dragover", (e) => { if (e.dataTransfer && [...e.dataTransfer.items].some((i) => i.kind === "file")) { e.preventDefault(); f.classList.add("dropping"); } });
     f.addEventListener("dragleave", () => f.classList.remove("dropping"));
     f.addEventListener("drop", async (e) => { f.classList.remove("dropping"); if (e.dataTransfer && e.dataTransfer.files.length) { e.preventDefault(); await addImages(f, e.dataTransfer.files); } });
     drawTray(f);

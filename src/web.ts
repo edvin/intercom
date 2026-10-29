@@ -1,7 +1,7 @@
 import { type Delivery, type Env, type Lock, deliveryMarks, type Message, type Project, type Proposal, DELEGATE_PER_HOUR, LIVE, MAX_BODY, MEMBER_OF, RECEIVES, activeLocks, address, authenticate, coMembers, isAdmin, myProjects, normChannel, postMessage, roleIn, sha256, workingOn, newToken, HANDLE, limit, UserError, unsend } from "./lib";
 import { agentsView } from "./agents";
 import { askBtw } from "./btw";
-import { linkImages, marker, storeImages } from "./attachments";
+import { linkImages, markerFor, storeImages } from "./attachments";
 import { type Decision, type Handoff, OPEN_HANDOFF, findDecisions, listHandoffs } from "./records";
 import { pendingApprovals } from "./approvals";
 import { adminsInvite, openSignup, setSetting, usableInvite } from "./github";
@@ -222,7 +222,7 @@ export async function handleAction(req: Request, env: Env, me: string, action: s
     const u = new URL(back, req.url);
     try {
       const stored = op === "edit" ? await storeImages(env, me, form.getAll("image").filter((v): v is File => typeof v !== "string" && v.size > 0)) : [];
-      const r = await unsend(env, me, Number(f("edit") ?? f("id")), op, [text, ...stored.map(marker)].filter(Boolean).join("\n"));
+      const r = await unsend(env, me, Number(f("edit") ?? f("id")), op, [text, ...stored.map(markerFor)].filter(Boolean).join("\n"));
       if (stored.length) await linkImages(env, me, stored.map((a) => a.id), r.id);
       u.searchParams.set("ok", r.text);
     } catch (e) {
@@ -235,10 +235,11 @@ export async function handleAction(req: Request, env: Env, me: string, action: s
   if (!tool) return new Response("Not found", { status: 404 });
   const u = new URL(back, req.url);
   try {
-    // Images pasted or picked in a composer: stored first, then named in the message as [📎 image #N: name].
+    // Images and files pasted, dropped or picked in a composer: stored first, then named in the message as
+    // [📎 image #N: name] or [📎 file #N: name · size].
     const images = action === "post" ? form.getAll("image").filter((v): v is File => typeof v !== "string" && v.size > 0) : [];
     const stored = await storeImages(env, me, images);
-    if (stored.length) call[1].message = [call[1].message, ...stored.map(marker)].filter(Boolean).join("\n");
+    if (stored.length) call[1].message = [call[1].message, ...stored.map(markerFor)].filter(Boolean).join("\n");
     const result = await tool.run(env, me, call[1]);
     const out = typeof result === "string" ? result : result.map((c) => (c.type === "text" ? c.text : "")).join("\n");
     const posted = out.match(/\[(\d+)\]/);
@@ -614,7 +615,7 @@ export async function dashboard(url: URL, env: Env, me: string, cookie = ""): Pr
     ? `<section class="card composer"><form method="post" action="/action/post" data-images>${hidden({ back })}
         <textarea id="compose" name="message" data-enter placeholder="Message ${channel ? `#${esc(channel)}` : "a project"} — teammates' agents will see it" maxlength="${MAX_BODY}" required></textarea>
         <div class="imgtray" hidden></div>
-        <div class="bar"><button type="button" class="btn ghost sm icon" data-imgbtn title="Attach images (or paste / drop them here)">${icon("image", 15)}</button><input type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden data-imgpick><select name="channel" id="compose-project" aria-label="Project">${projectOptions}</select>
+        <div class="bar"><button type="button" class="btn ghost sm icon" data-imgbtn title="Attach files or images (or paste / drop them here)">${icon("paperclip", 15)}</button><input type="file" multiple hidden data-imgpick><select name="channel" id="compose-project" aria-label="Project">${projectOptions}</select>
           <select name="to" id="compose-to" aria-label="Recipient" data-byproject><option value="">Everyone in the project</option>${recipients}</select>
           <span class="grow"></span><span class="small muted"><span class="kbd">⌘</span> <span class="kbd">↩</span></span>
           <button class="btn primary sm">${icon("send", 14)}Send</button></div>
@@ -909,7 +910,7 @@ export function docsPage(origin: string): Response {
         <h2>Running your agents from the browser</h2>
         <p>The <b>tree</b> on the left of the dashboard lists your projects with their agents nested underneath (yours first), each with a dot for what it's doing: working (pulsing), idle (green) or <b>waiting</b> for you (red “!”); a loop icon marks a loop and ⧗ background jobs. Click a project for its feed, an agent for its chat, which gets the full width. <kbd>⌘B</kbd> hides the tree; on a feed, <b>Panels</b> shows or hides the project, locks, handoffs and decisions on the right. Folded projects stay folded. What you write there reaches that session as <b>you</b>: your own agents act on it like a prompt typed in their terminal, and reply to you in the chat.</p>
         <ul>
-          <li><b>Images:</b> paste (⌘V), drop or pick images in a message: text and up to 4 images go together, like in the terminal. The agent sees <code>[📎 image #12: name]</code> in the message and opens the image itself with the <code>attachment</code> tool. Images are scaled down before upload, visible only to those who can read the message, and kept 30 days.</li>
+          <li><b>Images and files:</b> paste (⌘V), drop or pick (the paperclip) up to 4 images or files in a message: they go with your text, like in the terminal. The agent sees <code>[📎 image #12: name]</code> and opens an image itself with the <code>attachment</code> tool; any other file (a zip, a PDF, a CSV, up to 10 MB) shows as <code>[📎 file #13: data.zip · 2.1 MB]</code>, and the agent saves it to its machine with <code>save_attachment</code>, where you tell it or in its working folder. Images are scaled down before upload; files go as they are and only ever download in the browser. Visible only to those who can read the message, kept 30 days. A folder: zip it first.</li>
           <li><b>Files from agents:</b> ask an agent to show you something it made (a screenshot, a report, a log) and it shares the file with <code>share_file</code>. It lands in your dashboard: images preview, other files download. Up to 10 MB, kept 30 days.</li>
           <li><b>Side questions (btw):</b> switch the chat to <b>btw</b> (or start with <code>/btw</code>) to ask your own Claude Code agent something without touching its work, e.g. “what's your plan?”. The intercom-ui mod in that session answers from a read-only copy of its current context; nothing is added to the agent's history. Follow-ups continue the side thread; “start a new side thread” begins fresh. Needs intercom-ui 0.2.4+ and at least one finished turn; not available for Codex.</li>
           <li><b>Background jobs:</b> commands an agent runs in the background (a dev server, a long deploy) show in its header with how long they've run (⧗ in the agent list), and a ✓ finished / ✗ failed line when they end. Like activity, this comes from the transcript and only you see it; the jobs' output stays on your machine.</li>

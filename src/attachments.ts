@@ -57,26 +57,32 @@ export async function storeFile(env: Env, me: string, f: { name: string; mime: s
 /** Text an agent can read straight from a shared file, when it is text and small. */
 export const isText = (a: Attachment) => /^text\/|\/(json|xml|yaml|x-yaml|csv|x-sh|javascript|typescript)$/.test(a.mime) && a.bytes <= 200_000;
 
-/** Store uploaded images; returns their markers, to append to the message. */
+/** Store files sent with a message from the dashboard: images (shown inline) and any other file (downloaded). */
 export async function storeImages(env: Env, me: string, files: File[]): Promise<Attachment[]> {
   if (!files.length) return [];
-  if (!env.files) throw new UserError("Images aren't enabled on this intercom.");
-  if (files.length > MAX_IMAGES) throw new UserError(`At most ${MAX_IMAGES} images per message.`);
-  await limit(env, `upload:${me}`, 100, 3600_000, "image uploads");
+  if (!env.files) throw new UserError("Attachments aren't enabled on this intercom.");
+  if (files.length > MAX_IMAGES) throw new UserError(`At most ${MAX_IMAGES} files per message.`);
+  await limit(env, `upload:${me}`, 100, 3600_000, "uploads");
   const out: Attachment[] = [];
   for (const f of files) {
-    if (!TYPES.has(f.type)) throw new UserError(`${f.name || "That file"} isn't an image (PNG, JPEG, WebP or GIF).`);
-    if (f.size > MAX_BYTES) throw new UserError(`${f.name || "That image"} is over ${MAX_BYTES / 1024 / 1024} MB.`);
+    const image = TYPES.has(f.type);
+    const max = image ? MAX_BYTES : MAX_FILE_BYTES;
+    if (f.size > max) throw new UserError(`${f.name || "That file"} is over ${max / 1024 / 1024} MB.`);
+    // Anything else is stored as it came, under a plain type: it's only ever downloaded, never shown on this origin.
+    const mime = image ? f.type : /^[\w.+-]+\/[\w.+-]+$/.test(f.type) && !/html|xml|svg|javascript/i.test(f.type) ? f.type.toLowerCase() : "application/octet-stream";
     const key = `att/${crypto.randomUUID()}`;
-    await env.files.put(key, await f.arrayBuffer(), { httpMetadata: { contentType: f.type } });
-    const name = (f.name || "image").replace(/[^\w.\- ]+/g, "_").slice(0, 60);
+    await env.files.put(key, await f.arrayBuffer(), { httpMetadata: { contentType: mime } });
+    const name = (f.name || (image ? "image" : "file")).replace(/[^\w.\- ]+/g, "_").slice(0, 80);
     const row = await env.DB.prepare("INSERT INTO attachments (member, r2_key, mime, bytes, name, created_at) VALUES (?, ?, ?, ?, ?, ?) RETURNING *")
-      .bind(me, key, f.type, f.size, name, Date.now())
+      .bind(me, key, mime, f.size, name, Date.now())
       .first<Attachment>();
     out.push(row!);
   }
   return out;
 }
+
+/** The marker a stored attachment gets in its message: an image to look at, or a file to save. */
+export const markerFor = (a: Attachment) => (isImage(a.mime) ? marker(a) : fileMarker(a));
 
 export async function linkImages(env: Env, me: string, ids: number[], messageId: number): Promise<void> {
   if (!ids.length) return;

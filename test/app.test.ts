@@ -1364,12 +1364,24 @@ describe("images with messages", () => {
     assert.equal((await w.request("/attachment/1", { as: "carol", cookie: true })).status, 404);
     assert.match((await w.tool("carol", "attachment", { id: 1 })).text, /No image #1/);
 
-    // Only images are accepted.
-    const bad = new FormData();
-    bad.set("message", "x"); bad.set("channel", "billing"); bad.set("back", "/dashboard");
-    bad.append("image", new File(["<svg/>"], "x.svg", { type: "image/svg+xml" }));
-    const r2 = await w.request("/action/post", { method: "POST", as: "alice", cookie: true, headers: { origin: ORIGIN }, body: bad, redirect: "manual" });
-    assert.match(new URL(r2.headers.get("location")!, ORIGIN).searchParams.get("err")!, /x\.svg isn't an image/);
+    // Any other file goes as it is: the agent saves it; the browser only ever downloads it, an SVG too.
+    const zip = new FormData();
+    zip.set("message", "Here's the data"); zip.set("to", "bob/core"); zip.set("back", "/dashboard");
+    zip.append("image", new File([new Uint8Array([0x50, 0x4b, 3, 4, 9, 9])], "data set.zip", { type: "application/zip" }));
+    zip.append("image", new File(["<svg onload=alert(1)/>"], "x.svg", { type: "image/svg+xml" }));
+    const r2 = await w.request("/action/post", { method: "POST", as: "alice", cookie: true, headers: { origin: ORIGIN }, body: zip, redirect: "manual" });
+    assert.doesNotMatch(r2.headers.get("location") ?? "", /err=/);
+    assert.match(await hook("UserPromptSubmit", "im1"), /Here's the data\n\[📎 file #2: data set\.zip · 6 B\]\n\[📎 file #3: x\.svg · 22 B\]/);
+    const dl = await w.request("/attachment/3", { as: "bob", cookie: true });
+    assert.equal(dl.headers.get("content-type"), "application/octet-stream");
+    assert.match(dl.headers.get("content-disposition")!, /^attachment;/);
+    assert.equal((await w.request("/attachment/2", { as: "carol", cookie: true })).status, 404);
+    // Up to 10 MB.
+    const big = new FormData();
+    big.set("message", "x"); big.set("channel", "billing"); big.set("back", "/dashboard");
+    big.append("image", new File([new Uint8Array(10 * 1024 * 1024 + 1)], "huge.bin", { type: "application/octet-stream" }));
+    const r3 = await w.request("/action/post", { method: "POST", as: "alice", cookie: true, headers: { origin: ORIGIN }, body: big, redirect: "manual" });
+    assert.match(new URL(r3.headers.get("location")!, ORIGIN).searchParams.get("err")!, /huge\.bin is over 10 MB/);
   });
 });
 
