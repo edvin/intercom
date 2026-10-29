@@ -197,7 +197,35 @@ async function file(root, p, rev) {
   return { path: f, rev: rev || "worktree", text: body.toString("utf8") };
 }
 
-/** Answer one request from the dashboard: { op: "changes" | "commit" | "list" | "file", ... }. */
+const FIND_MAX = 100; // file names shown
+const GREP_MAX = 200; // matching lines shown
+
+/** Files whose path holds every word of `q` (any case), names that match first; or lines that contain `q`. */
+async function find(root, q, mode) {
+  const text = typeof q === "string" ? q.trim().slice(0, 200) : "";
+  if (!text) return { q: "", mode, hits: [], more: false };
+  if (mode === "text") {
+    // Fixed text, not a pattern; case matters only when it has capitals (like an editor's smart case).
+    const args = ["grep", "--untracked", "-n", "-I", "-F", "--no-color", "--full-name", ...(text === text.toLowerCase() ? ["-i"] : []), "-e", text, "--", "."];
+    const out = await git(root, args, { ok: [0, 1], max: 4 * 1024 * 1024 });
+    const lines = out.split("\n").filter(Boolean);
+    const hits = lines.slice(0, GREP_MAX).map((l) => {
+      const m = l.match(/^(.*?):(\d+):(.*)$/);
+      return m ? { path: m[1], line: Number(m[2]), text: m[3].slice(0, 400) } : null;
+    });
+    return { q: text, mode, hits: hits.filter(Boolean), more: lines.length > GREP_MAX };
+  }
+  const words = text.toLowerCase().split(/\s+/);
+  const all = (await git(root, ["ls-files", "--cached", "--others", "--exclude-standard", "-z"])).split("\0").filter(Boolean);
+  const name = (p) => p.slice(p.lastIndexOf("/") + 1).toLowerCase();
+  const found = [...new Set(all)]
+    .filter((p) => words.every((w) => p.toLowerCase().includes(w)))
+    .map((p) => ({ p, score: (words.some((w) => name(p).includes(w)) ? 0 : 1000) + (name(p).startsWith(words[words.length - 1]) ? 0 : 500) + p.length }))
+    .sort((a, b) => a.score - b.score);
+  return { q: text, mode, hits: found.slice(0, FIND_MAX).map((f) => ({ path: f.p })), more: found.length > FIND_MAX };
+}
+
+/** Answer one request from the dashboard: { op: "changes" | "commit" | "list" | "file" | "find", ... }. */
 export async function codeRequest(dir, q) {
   const root = await repoRoot(dir);
   if (!root) throw new Error(`${dir} isn't a git repository.`);
@@ -210,6 +238,8 @@ export async function codeRequest(dir, q) {
       return { ...(await overview(root, await head(root))), list: await list(root, q.dir) };
     case "file":
       return { ...(await overview(root, await head(root))), file: await file(root, q.path, q.rev) };
+    case "find":
+      return { ...(await overview(root, await head(root))), find: await find(root, q.q, q.mode === "text" ? "text" : "files") };
     default:
       throw new Error("Unknown request.");
   }

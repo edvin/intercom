@@ -475,6 +475,18 @@ tr.da{background:var(--green-soft)}tr.da .dm{color:var(--green)}tr.dd{background
 tr.dh td{padding-top:4px;padding-bottom:4px;background:var(--accent-soft);color:var(--accent)}tr.dh .dc{padding-left:10px}
 tr.hit,tr.hit td{background:var(--amber-soft)}
 .hk{color:var(--accent)}.hs{color:var(--green)}.hn{color:var(--amber)}.hc{color:var(--mute);font-style:italic}
+.csearch{display:flex;align-items:center;gap:8px;padding:0 4px 0 12px;border:1px solid var(--line-strong);border-radius:var(--r-s);background:var(--surface)}
+.csearch:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}.csearch>.i{flex:none;color:var(--mute)}
+.csearch input[type=search]{flex:1;min-width:0;height:38px;border:0;background:none;box-shadow:none;outline:0;padding:0;font-size:14px}
+.csearch .seg{margin:4px 0}
+.flist mark,.sline mark{background:var(--amber-soft);color:inherit;border-radius:3px;box-shadow:0 0 0 1px var(--amber-soft)}
+#sresults{display:flex;flex-direction:column;gap:10px;min-width:0}
+.sfile{display:flex;align-items:center;gap:8px;padding:7px 12px;background:var(--surface-2);font:600 12.5px "Geist Mono",ui-monospace,monospace;color:var(--ink);text-decoration:none;min-width:0}
+.sfile span:not(.badge){flex:1;min-width:0;overflow-wrap:anywhere}.sfile .i{flex:none;color:var(--mute)}.sfile:hover{color:var(--accent)}
+.sline{display:flex;gap:10px;padding:3px 12px;border-top:1px solid var(--line);font:12.5px/1.6 "JetBrains Mono","Geist Mono",ui-monospace,monospace;color:var(--ink-2);text-decoration:none;min-width:0}
+.sline:hover{background:var(--surface-2);color:var(--ink)}
+.sline .ln{flex:none;min-width:3em;text-align:right;color:var(--mute);font-size:11.5px}
+.stext{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:pre}
 @media (max-width:640px){.seg span{display:none}.codebar{padding:8px 10px}.codebar .crepo{order:3;flex-basis:100%}.codebody{padding:10px 10px 24px}.cwho{display:none}table.diff{font-size:11.5px}}
 .ttog{color:var(--ink-3)}.ttog .i{display:block}.ttog .when-off{display:none}.ttog:not(.on) .when-on{display:none}.ttog:not(.on) .when-off{display:block}.ttog:not(.on){opacity:.7}
 [data-acttoggle].on,[data-relaytoggle].on{background:var(--accent-soft);color:var(--accent)}
@@ -1258,15 +1270,26 @@ export const SCRIPT = `
   };
   // The code view (code.ts): read from the agent's machine when it opens and when asked again; its links stay in the
   // pane (the address changes, so back and forward work, and a live redraw keeps it).
-  const CODE_KEYS = ["code", "sha", "dir", "path", "rev"];
-  let codeNav = false;
-  async function codeLoad() {
+  const CODE_KEYS = ["code", "sha", "dir", "path", "rev", "q", "in"];
+  let codeNav = false, codeSeq = 0;
+  // While you type in its search box, only the results are redrawn, so the box keeps focus and caret.
+  async function codeLoad(results) {
     const cp = document.getElementById("codepane"); if (!cp) return;
     const u = new URL(location.href), p = new URLSearchParams([["agent", u.searchParams.get("agent") || ""]]);
     u.searchParams.forEach((v, k) => CODE_KEYS.includes(k) && p.append(k, v));
+    const seq = ++codeSeq;
     cp.classList.add("loading");
-    try { const r = await fetch("/agent-code?" + p, { credentials: "same-origin" }); if (r.ok) { cp.innerHTML = await r.text(); cp.scrollTop = 0; } else toast("Couldn't read the code (HTTP " + r.status + ")", true); }
-    catch { toast("Network error — try again", true); }
+    try {
+      const r = await fetch("/agent-code?" + p, { credentials: "same-origin" });
+      if (seq !== codeSeq) return; // a newer search is on its way
+      if (!r.ok) toast("Couldn't read the code (HTTP " + r.status + ")", true);
+      else {
+        const t = await r.text(), old = results && cp.querySelector("#sresults");
+        const next = old && new DOMParser().parseFromString(t, "text/html").getElementById("sresults");
+        if (next) old.replaceWith(next); else { cp.innerHTML = t; cp.scrollTop = 0; }
+      }
+    } catch { if (seq === codeSeq) toast("Network error — try again", true); }
+    if (seq !== codeSeq) return;
     cp.classList.remove("loading");
     const t = location.hash && document.getElementById(location.hash.slice(1));
     if (t) { if (t.tagName === "DETAILS") t.open = true; t.classList.add("hit"); t.scrollIntoView({ block: t.tagName === "TR" ? "center" : "start" }); }
@@ -1284,6 +1307,26 @@ export const SCRIPT = `
       return history.replaceState(null, "", "#" + id);
     }
     codeNav = true; history.pushState(null, "", a.href); codeLoad();
+  });
+  let codeTimer;
+  const codeSearch = (f, now) => {
+    clearTimeout(codeTimer);
+    codeTimer = setTimeout(() => {
+      const q = f.q.value.trim(), u = new URL(location.href);
+      ["code", "dir", "path", "rev", "sha", "q", "in"].forEach((k) => u.searchParams.delete(k));
+      if (q) { u.searchParams.set("code", "search"); u.searchParams.set("in", f.in.value); u.searchParams.set("q", q); } else u.searchParams.set("code", "files");
+      u.hash = ""; history.replaceState(null, "", u); codeLoad(true);
+    }, now ? 0 : f.in.value === "text" ? 350 : 150);
+  };
+  document.addEventListener("input", (e) => { const f = e.target.closest && e.target.closest("form[data-codesearch]"); if (f) codeSearch(f); });
+  document.addEventListener("submit", (e) => { const f = e.target.closest && e.target.closest("form[data-codesearch]"); if (f) { e.preventDefault(); e.stopPropagation(); codeSearch(f, true); } }, true);
+  document.addEventListener("click", (e) => {
+    const b = e.target.closest && e.target.closest("form[data-codesearch] [data-in]"); if (!b) return;
+    e.preventDefault();
+    const f = b.closest("form"); f.in.value = b.dataset.in;
+    $$("[data-in]", f).forEach((x) => x.classList.toggle("on", x === b));
+    f.q.placeholder = b.dataset.in === "text" ? "Search text in the files" : "Find a file by name";
+    f.q.focus(); codeSearch(f, true);
   });
   window.addEventListener("popstate", () => { if (document.getElementById("codepane") && new URL(location.href).searchParams.has("code")) codeLoad(); else if (codeNav) location.reload(); });
   codeLoad();

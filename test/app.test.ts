@@ -4,7 +4,7 @@ import { conflicting, riskyCommand } from "../src/guard.ts";
 import { prune, resolveProject } from "../src/lib.ts";
 import { ORIGIN, World, standardWorld } from "./harness.ts";
 import { PLUGIN_VERSION } from "../src/version.ts";
-import { CODE_SINCE } from "../src/code.ts";
+import { CODE_SINCE, SEARCH_SINCE } from "../src/code.ts";
 import { codeRequest } from "../plugins/intercom/code.mjs";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
@@ -1752,6 +1752,26 @@ describe("the code view", () => {
     assert.doesNotMatch(root, /\.env"/);
     assert.match(await view(w, "bob", "code=file&path=lib%2Futil.ts", dir), /<span class="hs">&#39;hi&#39;<\/span>/);
     assert.match(await view(w, "bob", `code=file&path=app.ts&rev=${sha}`, dir), /a = <span class="hn">1<\/span>/);
+  });
+
+  test("search finds files by name and lines by text, never in ignored files", async () => {
+    const w = await setup();
+    await w.db.prepare("UPDATE sessions SET version = ? WHERE session_id = 'cv'").bind(SEARCH_SINCE).run();
+    const dir = repo();
+    const page = await (await w.request("/dashboard?view=agents&agent=bob/core&code=search&in=text&q=hi", { as: "bob", cookie: true })).text();
+    assert.match(page, /data-src="\/agent-code\?agent=bob%2Fcore&amp;code=search&amp;in=text&amp;q=hi"/);
+    const names = await view(w, "bob", "code=search&in=files&q=UTIL", dir);
+    assert.match(names, /<form class="csearch" data-codesearch>/);
+    assert.match(names, /path=lib%2Futil\.ts" data-code>.*lib\/<mark>util<\/mark>\.ts/);
+    const text = await view(w, "bob", "code=search&in=text&q=hi", dir);
+    assert.match(text, /1 line in 1 file/);
+    assert.match(text, /href="[^"]*path=lib%2Futil\.ts#L1" data-code><span class="ln">1<\/span><span class="stext">const s = &#39;<mark>hi<\/mark>&#39;;/);
+    // Capitals make it exact; nothing from .env, which git ignores.
+    assert.match(await view(w, "bob", "code=search&in=text&q=HI", dir), /No lines contain “HI”/);
+    assert.match(await view(w, "bob", "code=search&in=text&q=secret", dir), /No lines contain/);
+    assert.match(await view(w, "bob", "code=search&in=files&q=env", dir), /No file names match/);
+    await w.db.prepare("UPDATE sessions SET version = ? WHERE session_id = 'cv'").bind(CODE_SINCE).run();
+    assert.match(await view(w, "bob", "code=search&in=files&q=x", dir), /searching needs 0\.12\.24/);
   });
 
   test("nothing git ignores, nothing outside the repo, only your own connected agents on a recent plugin", async () => {

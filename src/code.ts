@@ -9,6 +9,8 @@ import { esc, icon } from "./ui";
 
 /** The first plugin version whose local server answers code requests. */
 export const CODE_SINCE = "0.12.23";
+/** … and searches (find). */
+export const SEARCH_SINCE = "0.12.24";
 const WAIT_MS = 20_000;
 
 interface Commit {
@@ -41,9 +43,12 @@ interface CodeData extends Overview {
   commit?: Commit & { message: string; parents: string[]; files: FileStat[]; diff: string; truncated: boolean };
   list?: { dir: string; dirs: string[]; files: string[] };
   file?: { path: string; rev: string; text?: string; binary?: boolean; tooBig?: number; size?: number };
+  find?: { q: string; mode: "files" | "text"; hits: { path: string; line?: number; text?: string }[]; more: boolean };
 }
 export interface CodeQuery {
-  op: "changes" | "commit" | "list" | "file";
+  op: "changes" | "commit" | "list" | "file" | "find";
+  q?: string;
+  mode?: "files" | "text";
   sha?: string;
   dir?: string;
   path?: string;
@@ -60,6 +65,7 @@ export function codeQuery(url: URL): { tab: string; q: CodeQuery } {
   if (tab === "commit") return { tab: "commits", q: { op: "commit", sha: p("sha") } };
   if (tab === "commits") return { tab, q: { op: "changes" } };
   if (tab === "files") return { tab, q: { op: "list", dir: p("dir") } };
+  if (tab === "search") return { tab: "files", q: { op: "find", q: p("q").slice(0, 200), mode: p("in") === "text" ? "text" : "files" } };
   if (tab === "file") return { tab: p("rev") && p("rev") !== "worktree" ? "commits" : "files", q: { op: "file", path: p("path"), rev: p("rev") || "worktree" } };
   return { tab: "changes", q: { op: "changes" } };
 }
@@ -71,7 +77,8 @@ export async function askCode(env: Env, me: string, label: string, q: CodeQuery)
     .bind(me, label)
     .first<{ session_id: string; version: string }>();
   if (!s) throw new UserError(`You have no agent named ${label}.`);
-  if (outdated(s.version, CODE_SINCE)) throw new UserError(`${label} runs intercom ${s.version || "(unknown)"}; the code view needs ${CODE_SINCE}. Restart it after /intercom:update.`);
+  const since = q.op === "find" ? SEARCH_SINCE : CODE_SINCE;
+  if (outdated(s.version, since)) throw new UserError(`${label} runs intercom ${s.version || "(unknown)"}; ${q.op === "find" ? "searching" : "the code view"} needs ${since}. Restart it after /intercom:update.`);
   const req = crypto.randomUUID();
   const reply = new Promise<Reply>((resolve) => {
     const timer = setTimeout(() => done({ error: `${label} didn't answer within ${WAIT_MS / 1000} seconds.` }), WAIT_MS);
@@ -275,6 +282,50 @@ export function drawCode(key: string, tab: string, q: CodeQuery, d: CodeData): s
   return `${head}<div class="codebody">${body(key, base, tab, q, d)}</div>`;
 }
 
+/** The search box above Files: file names as you type, or text in the files. */
+const searchBox = (q: string, mode: "files" | "text") =>
+  `<form class="csearch" data-codesearch>${icon("search", 15)}<input type="search" name="q" value="${esc(q)}" placeholder="${mode === "text" ? "Search text in the files" : "Find a file by name"}" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="search" aria-label="Search"><input type="hidden" name="in" value="${mode}"><nav class="seg" aria-label="What to search"><a href="#" data-in="files"${mode === "files" ? ' class="on"' : ""}>Names</a><a href="#" data-in="text"${mode === "text" ? ' class="on"' : ""}>Text</a></nav></form>`;
+
+/** `text` with each of `words` marked (any case). */
+function mark(text: string, words: string[], exact = false): string {
+  const ws = words.filter(Boolean).map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  if (!ws.length) return esc(text);
+  const re = new RegExp(`(${ws.join("|")})`, exact ? "g" : "gi");
+  return text
+    .split(re)
+    .map((part, i) => (i % 2 ? `<mark>${esc(part)}</mark>` : esc(part)))
+    .join("");
+}
+
+/** A matching line, cut to start a little before the match, so a narrow screen still shows it. */
+function around(text: string, q: string, exact: boolean): string {
+  const t = text.trim();
+  const i = exact ? t.indexOf(q) : t.toLowerCase().indexOf(q.toLowerCase());
+  return i > 24 ? `…${t.slice(i - 16)}` : t;
+}
+
+function drawFind(base: string, f: NonNullable<CodeData["find"]>): string {
+  if (!f.q) return "";
+  const more = f.more ? `<div class="small muted ctrunc">Showing the first ${f.hits.length}; type more to narrow it down.</div>` : "";
+  if (!f.hits.length) return `<div class="empty"><div>No ${f.mode === "text" ? "lines contain" : "file names match"} “${esc(f.q)}”.</div><div class="small">Files git ignores aren't searched.</div></div>`;
+  if (f.mode === "files") {
+    const words = f.q.split(/\s+/);
+    return `<div class="flist">${f.hits.map((h) => `<a class="frow" href="${base}&amp;code=file&amp;path=${enc(h.path)}" data-code>${icon("file", 14)}<span>${mark(h.path, words)}</span></a>`).join("")}</div>${more}`;
+  }
+  // Text: grouped by file, each line opening the file there.
+  const groups = new Map<string, { line?: number; text?: string }[]>();
+  for (const h of f.hits) groups.set(h.path, [...(groups.get(h.path) ?? []), h]);
+  const exact = f.q !== f.q.toLowerCase();
+  return `<div class="small muted">${plural(f.hits.length, "line")}${f.more ? " (and more)" : ""} in ${plural(groups.size, "file")}</div>${[...groups]
+    .map(
+      ([path, hits]) =>
+        `<div class="cfiles sgroup"><a class="sfile" href="${base}&amp;code=file&amp;path=${enc(path)}" data-code>${icon("file", 13)}<span>${esc(path)}</span><span class="badge">${hits.length}</span></a>${hits
+          .map((h) => `<a class="sline" href="${base}&amp;code=file&amp;path=${enc(path)}#L${h.line}" data-code><span class="ln">${h.line}</span><span class="stext">${mark(around(h.text ?? "", f.q, exact), [f.q], exact)}</span></a>`)
+          .join("")}</div>`,
+    )
+    .join("")}${more}`;
+}
+
 function body(key: string, base: string, tab: string, q: CodeQuery, d: CodeData): string {
   if (q.op === "file" && d.file) {
     const f = d.file;
@@ -287,13 +338,14 @@ function body(key: string, base: string, tab: string, q: CodeQuery, d: CodeData)
     const lines = (f.text ?? "").replace(/\n$/, "").split("\n");
     return `${top}<div class="dscroll fview"><table class="diff code"><tbody>${lines.map((l, i) => `<tr id="L${i + 1}"><td class="ln"><a href="#L${i + 1}" data-jump>${i + 1}</a></td><td class="dc">${highlight(l, lang, st)}</td></tr>`).join("")}</tbody></table></div>`;
   }
+  if (q.op === "find" && d.find) return `${searchBox(d.find.q, d.find.mode)}<div id="sresults">${drawFind(base, d.find)}</div>`;
   if (q.op === "list" && d.list) {
     const l = d.list;
     const rows = [
       ...l.dirs.map((x) => `<a class="frow" href="${base}&amp;code=files&amp;dir=${enc(l.dir ? `${l.dir}/${x}` : x)}" data-code>${icon("folder", 14)}<span>${esc(x)}</span></a>`),
       ...l.files.map((x) => `<a class="frow" href="${base}&amp;code=file&amp;path=${enc(l.dir ? `${l.dir}/${x}` : x)}" data-code>${icon("file", 14)}<span>${esc(x)}</span></a>`),
     ].join("");
-    return `<div class="chead">${crumbs(base, l.dir)}</div>${rows ? `<div class="flist">${rows}</div>` : '<div class="empty"><div>Nothing here.</div></div>'}`;
+    return `${searchBox("", "files")}<div id="sresults"><div class="chead">${crumbs(base, l.dir)}</div>${rows ? `<div class="flist">${rows}</div>` : '<div class="empty"><div>Nothing here.</div></div>'}</div>`;
   }
   if (q.op === "commit" && d.commit) {
     const c = d.commit;
