@@ -187,7 +187,7 @@ export const tools: Tool[] = [
     async run(env, me, a) {
       const { messages, more } = await unread(env, me, num(a, "limit", 30, 1, 200), a.mark_read !== false, env.session);
       if (!messages.length) return "No unread messages.";
-      return [...messages.map((m) => fmtMessage(m, me)), more ? "(more unread — call inbox again)" : ""].filter(Boolean).join("\n");
+      return [...messages.map((m) => fmtMessage(m, me, env.session?.started_at)), more ? "(more unread — call inbox again)" : ""].filter(Boolean).join("\n");
     },
   },
   {

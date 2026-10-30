@@ -1789,6 +1789,27 @@ describe("security review fixes", () => {
   });
 });
 
+describe("mail a session inherits", () => {
+  test("your requests from before the session started are history: not submitted, not continued, labelled as earlier", async () => {
+    const w = await standardWorld();
+    const core = { id: "inh-1", project: "billing-api" };
+    await w.ok("bob", "inbox", {}, core);
+    await w.ok("bob", "set_name", { name: "core" }, core);
+    await w.form("/action/post", "bob", { to: "bob/core", message: "Old request: ship it.", back: "/dashboard" });
+    // Written two hours before this session started (for the agent that had the name before).
+    await w.db.prepare("UPDATE messages SET created_at = (SELECT started_at FROM sessions WHERE session_id = 'inh-1') - 7200000 WHERE body = 'Old request: ship it.'").run();
+    const ui = (await (await w.request("/api/ui?project=billing-api&session=inh-1&mod=0.2.10", { as: "bob" })).json()) as { prompts: unknown[] };
+    assert.deepEqual(ui.prompts, []);
+    const stop = await w.request("/api/hook?event=Stop&project=billing-api&session=inh-1", { as: "bob", method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+    assert.equal(await stop.text(), "");
+    assert.match(await w.ok("bob", "inbox", {}, core), /bob \(YOUR USER, earlier: written 2h before this session started[^)]*\) → bob\/core[^:]*: Old request: ship it\./);
+    // A fresh one still is a request.
+    await w.form("/action/post", "bob", { to: "bob/core", message: "New request.", back: "/dashboard" });
+    const ui2 = (await (await w.request("/api/ui?project=billing-api&session=inh-1&mod=0.2.10", { as: "bob" })).json()) as { prompts: { body: string }[] };
+    assert.deepEqual(ui2.prompts.map((p) => p.body), ["New request."]);
+  });
+});
+
 describe("the agent in the address", () => {
   test("a page shows the agent it names and never another one, also one not seen for a day", async () => {
     const w = await standardWorld();
