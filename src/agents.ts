@@ -8,7 +8,7 @@ import { activeLoops, describe, parseLoops } from "./loops";
 import { activeJobs, duration, jobName, parseJobs } from "./jobs";
 import { BTW_TIMEOUT, NO_MOD, btwFor, modAnswers } from "./btw";
 import { type Activity, type Env, type Message, DELEGATE_PER_HOUR, LIVE, address, ago, deliveryMarks, short, hostNames, myProjects } from "./lib";
-import { agentAvatar, agentHue, agentName, avatar, deliveryMark, esc, hidden, icon, md, plainSpaces, time } from "./ui";
+import { agentAvatar, agentHue, agentLink, agentName, avatar, deliveryMark, esc, hidden, icon, md, plainSpaces, time } from "./ui";
 
 interface Agent {
   member: string;
@@ -294,7 +294,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
         // Agent-to-agent (or a teammate writing to your agent): who to whom, shown apart from your own conversation.
         const from = address(m.sender, m.sender_agent);
         const to = address(m.recipient!, m.recipient_agent);
-        const named = (member: string, agentLabel: string | null, text: string) => (agentLabel ? agentName(member, agentLabel, text) : esc(text));
+        const named = (member: string, agentLabel: string | null, text: string) => (agentLabel ? agentLink(member, agentLabel, text) : esc(text));
         return `<div class="bubble md relay" data-mid="${m.id}"><span class="rhd">${named(m.sender, m.sender_agent, from)} → ${named(m.recipient!, m.recipient_agent, to)}${m.delegated ? ' <span class="badge accent" title="Handed as work: the receiving agent takes work from your other agents">work</span>' : ""}</span>${md(m.body, originOf(m.sender, m.sender_agent), null, codeOf(m.sender, m.sender_agent))}<span class="when">${time(m.created_at)}${mark}</span></div>`;
       }
       const speak = fromMe ? "" : `<button type="button" class="speak" data-speak title="Read aloud">${icon("volume", 13)}</button>`;

@@ -111,6 +111,10 @@ export const agentAvatar = (member: string, label: string, size: "s" | "m" | "l"
 export const agentName = (member: string, label: string, text = `${member}/${label}`) =>
   `<span class="an" style="--h:${agentHue(member, label)}">${esc(text)}</span>`;
 
+/** An agent's name that opens its chat. */
+export const agentLink = (member: string, label: string, text = `${member}/${label}`) =>
+  `<a class="an" href="/dashboard?view=agents&amp;agent=${encodeURIComponent(`${member}/${label}`)}" style="--h:${agentHue(member, label)}" title="Open ${esc(`${member}/${label}`)}'s chat">${esc(text)}</a>`;
+
 export const avatar = (name: string, size: "s" | "m" | "l" = "m") =>
   `<span class="av av-${size}" style="--h:${hue(name)}" title="${esc(name)}">${esc(name.slice(0, 1).toUpperCase())}</span>`;
 
@@ -532,7 +536,7 @@ tr.hit,tr.hit td{background:var(--amber-soft)}
 /* avatars */
 .av{display:inline-grid;place-items:center;flex:none;border-radius:50%;font-weight:650;color:#fff;background:linear-gradient(135deg,hsl(var(--h) 75% 62%),hsl(calc(var(--h) + 40) 70% 48%));box-shadow:inset 0 0 0 1px rgba(255,255,255,.15)}
 .av-agent{border-radius:30%;letter-spacing:-.02em}.av-s.av-agent{font-size:9.5px}.av-m.av-agent{font-size:13px}
-.an{color:hsl(var(--h) 62% var(--an-l));font-weight:700}
+.an{color:hsl(var(--h) 62% var(--an-l));font-weight:700}a.an{text-decoration:none}a.an:hover{text-decoration:underline;text-underline-offset:2px}
 .av-s{width:22px;height:22px;font-size:11px}.av-m{width:36px;height:36px;font-size:15px}.av-l{width:44px;height:44px;font-size:18px}
 .avs{display:flex}.avs .av{box-shadow:0 0 0 2px var(--surface)}.avs .av+.av{margin-left:-6px}
 

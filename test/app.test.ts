@@ -981,11 +981,11 @@ describe("delivery marks", () => {
     const view = async (as: string, path: string) => (await w.request(path, { as, cookie: true })).text();
 
     let page = await view("bob", "/dashboard?view=agents&agent=bob/alder");
-    assert.match(page, /class="bubble md relay"[^>]*><span class="rhd"><span class="an"[^>]*>bob\/core<\/span> → <span class="an"[^>]*>bob\/alder<\/span> <span class="badge accent"[^>]*>work<\/span><\/span>/);
-    assert.match(page, /bob\/core<\/span> → <span class="an"[^>]*>bob\/alder[\s\S]*?class="dlv wait"/);
-    assert.match(page, /alice → <span class="an"[^>]*>bob\/alder/);
-    assert.match(await view("bob", "/dashboard?view=agents&agent=bob/core"), /bob\/core<\/span> → <span class="an"[^>]*>bob\/ghost[\s\S]*?⚠ not connected/);
-    const DM = /→ <span class="an"[^>]*>bob\/alder<\/span><\/span><span class="meta"><time[^>]*>[^<]*<\/time>(<span class="dlv[^"]*"[^>]*>[^<]*<\/span>)/;
+    assert.match(page, /class="bubble md relay"[^>]*><span class="rhd"><a class="an" href="\/dashboard\?view=agents&amp;agent=bob%2Fcore"[^>]*>bob\/core<\/a> → <a class="an"[^>]*>bob\/alder<\/a> <span class="badge accent"[^>]*>work<\/span><\/span>/);
+    assert.match(page, /bob\/core<\/a> → <a class="an"[^>]*>bob\/alder[\s\S]*?class="dlv wait"/);
+    assert.match(page, /alice → <a class="an"[^>]*>bob\/alder/);
+    assert.match(await view("bob", "/dashboard?view=agents&agent=bob/core"), /bob\/core<\/a> → <a class="an"[^>]*>bob\/ghost[\s\S]*?⚠ not connected/);
+    const DM = /→ <a class="an"[^>]*>bob\/alder<\/a><\/span><span class="meta"><time[^>]*>[^<]*<\/time>(<span class="dlv[^"]*"[^>]*>[^<]*<\/span>)/;
     assert.match((await view("alice", "/dashboard")).match(DM)![1]!, /dlv wait/);
 
     // alder's next turn takes both messages into its context.
