@@ -2310,7 +2310,7 @@ describe("Claude.ai connector", () => {
   };
   const call = async (w: World, token: string, name: string, args: object = {}) => (await rpc(w, token, "tools/call", { name, arguments: args })).body.result.content[0].text as string;
 
-  test("signs in with OAuth (PKCE), and its token works only on /connector", async () => {
+  test("signs in with OAuth (PKCE), and its token only ever gets the connector", async () => {
     const w = await standardWorld();
     const unsigned = await rpc(w, "nope", "initialize");
     assert.equal(unsigned.status, 401);
@@ -2334,8 +2334,11 @@ describe("Claude.ai connector", () => {
     const tok = await w.request("/oauth/token", { method: "POST", body: new URLSearchParams({ grant_type: "authorization_code", code: again2, client_id, redirect_uri: params.redirect_uri, code_verifier: verifier }) });
     const { access_token } = (await tok.json()) as { access_token: string };
     assert.ok(access_token);
-    // Refused elsewhere: not the plugin's tools, not the dashboard.
-    assert.equal((await w.request("/mcp", { method: "POST", headers: { authorization: `Bearer ${access_token}` }, body: "{}" })).status, 401);
+    // Refused elsewhere: not the plugin's tools, not the dashboard. Added with /mcp, Claude gets the connector there.
+    const viaMcp = await w.request("/mcp", { method: "POST", headers: { authorization: `Bearer ${access_token}`, "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }) });
+    const mcpNames = ((await viaMcp.json()) as { result: { tools: { name: string }[] } }).result.tools.map((t) => t.name);
+    assert.deepEqual(mcpNames, ["agents", "agent_status", "ask", "conversation", "locks", "decisions", "proposals", "handoffs"]);
+    assert.equal((await w.request("/mcp", { method: "POST", headers: { authorization: "Bearer nope" }, body: "{}" })).status, 401);
     assert.equal((await w.request("/api/whoami", { headers: { authorization: `Bearer ${access_token}` } })).status, 401);
     const names = (await rpc(w, access_token, "tools/list")).body.result.tools.map((t: { name: string }) => t.name);
     assert.deepEqual(names, ["agents", "agent_status", "ask", "conversation", "locks", "decisions", "proposals", "handoffs"]);

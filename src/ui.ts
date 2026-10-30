@@ -627,6 +627,11 @@ dialog.editor .ft{padding-top:14px;border-top:1px solid var(--line)}
 .solo{min-height:calc(100vh - 60px);display:grid;place-items:center;padding:32px 16px}
 .solo .card{width:min(460px,100%)}
 .solo .card.wide{width:min(680px,100%)}
+.isleaving>:not(.leaving){display:none}
+.leaving[hidden]{display:none}.leaving{display:grid;justify-items:center;gap:10px;text-align:center;padding:28px 0 8px;animation:pop .25s ease-out}
+.leaving p{margin:0;max-width:300px}
+.spinner{width:26px;height:26px;border-radius:50%;border:2.5px solid var(--line-strong);border-top-color:var(--accent);animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
 .headline{font-size:34px;font-weight:700;letter-spacing:-.035em;line-height:1.1;background:linear-gradient(180deg,var(--ink),color-mix(in srgb,var(--ink) 60%,var(--accent)));-webkit-background-clip:text;background-clip:text;color:transparent}
 .docs{max-width:820px;margin:0 auto;padding:40px 20px 96px}
 .docs section{margin-top:28px}.docs h2{font-size:20px;margin-bottom:10px}.docs li{margin:4px 0}.docs ul,.docs ol{padding-left:20px}
@@ -1135,7 +1140,7 @@ export const SCRIPT = `
     $$("[data-close]", root).forEach((b) => b.onclick = () => b.closest("dialog").close());
     // The redrawn piece can be a form itself (the chat composer is one): it needs its handler too, or it submits
     // the plain way (no images, a page reload, the text restored from its draft).
-    [...(root.matches && root.matches("form") ? [root] : []), ...$$("form", root)].forEach((f) => { if (!f.hasAttribute("data-native") || f.dataset.confirm) f.onsubmit = submit; });
+    [...(root.matches && root.matches("form") ? [root] : []), ...$$("form", root)].forEach((f) => { if (!f.hasAttribute("data-native") || f.dataset.confirm || f.dataset.leaving) f.onsubmit = submit; });
     [...(root.matches && root.matches("form[data-images]") ? [root] : []), ...$$("form[data-images]", root)].forEach(bindImages);
     [...(root.matches && root.matches("form[data-agent]") ? [root] : []), ...$$("form[data-agent]", root)].forEach(bindBtw);
     $$("form[data-agent]").forEach(bindEdit); // the whole page: a redrawn thread can end an edit the form shows
@@ -1169,9 +1174,17 @@ export const SCRIPT = `
     $$("[data-rulecount]", root).forEach((c) => { const t = c.closest("label").querySelector("textarea"); const n = () => { const k = t.value.split("\\n").filter((l) => l.trim()).length; c.textContent = k === 1 ? "1 rule" : k + " rules"; }; n(); t.addEventListener("input", n); });
     $$("textarea[data-enter]", root).forEach((t) => t.onkeydown = (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); t.form.requestSubmit(); } });
   }
+  // A form that leaves the site (a sign-in going back to Claude) says so while the next site loads, which can take a while.
+  function leaving(f) {
+    const box = f.closest(".bd"), note = box && $(".leaving", box);
+    if (!f.dataset.leaving || !note) return;
+    $("b", note).textContent = f.dataset.leaving; note.hidden = false; box.classList.add("isleaving");
+  }
+  // Back from the next site: the page as it was.
+  addEventListener("pageshow", (e) => { if (e.persisted) $$(".isleaving").forEach((b) => { b.classList.remove("isleaving"); $(".leaving", b).hidden = true; }); });
   async function submit(e) {
     const f = e.target; if (f.dataset.confirm && !f.dataset.ok) { e.preventDefault(); const d = $("#confirm"); if (d) { $("#confirm-text").textContent = f.dataset.confirm; d.showModal(); $("#confirm-yes").onclick = () => { d.close(); f.dataset.ok = "1"; f.requestSubmit(); delete f.dataset.ok; }; } return; }
-    if (f.hasAttribute("data-native")) return;
+    if (f.hasAttribute("data-native")) return leaving(f);
     e.preventDefault();
     // One send at a time: a phone can fire a second submit for the same tap a few milliseconds later.
     if (f._busy) return; f._busy = true;

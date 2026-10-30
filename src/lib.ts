@@ -147,7 +147,7 @@ export async function signedIn(req: Request, env: Env, opts: { cookie?: boolean 
   const token = bearer ?? (cookie ? decodeURIComponent(cookie) : undefined);
   if (!token) return null;
   const hash = await sha256(token);
-  // Connector tokens (Claude.ai) only work on /connector: see connector.ts.
+  // Connector tokens (Claude.ai) only get the connector: see connector.ts.
   // A removed member's tokens stop working (and never carry over to a new account with the same name).
   const row = await env.DB.prepare(
     "SELECT name, 'member' AS kind FROM members WHERE token_hash = ?1 UNION ALL SELECT t.member, t.kind FROM tokens t JOIN members m ON m.name = t.member WHERE t.token_hash = ?1 AND t.kind != 'connector' LIMIT 1",

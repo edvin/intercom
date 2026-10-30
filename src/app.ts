@@ -584,6 +584,13 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
 
   // Machine endpoints take only a bearer token; the dashboard's cookie works on its own pages.
   const who = await signedIn(req, env, { cookie: !(url.pathname === "/mcp" || url.pathname.startsWith("/api/")) });
+  // Claude.ai added with /mcp instead of /connector signs in all the same (discovery leads it here): its token gets the
+  // connector and its tools there too, never the agents' ones.
+  if (!who && url.pathname === "/mcp") {
+    const member = await connectorMember(req, env);
+    env.authKind = "connector";
+    if (member) return handleMcp(req, env, member, CONNECTOR);
+  }
   const me = who?.name ?? null;
   env.authKind = who?.kind;
   // Acting as you in the dashboard (writing as you, approving, switches, reading code and files off your machines)

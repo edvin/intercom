@@ -1,7 +1,8 @@
 // Claude.ai as a remote MCP client (a "custom connector", on the web and in the phone app): OAuth 2.1 with dynamic
 // client registration, signed in through your dashboard session, and a small tool set for talking to your own
-// agents. Its tokens (kind 'connector') work only on /connector, never on /mcp or the dashboard, so a connector can
-// list, read and message your agents but can't invite people, change rules, claim locks or vote.
+// agents. Its tokens (kind 'connector') only ever get this server (on /connector, or /mcp when it was added with that
+// URL), never the agents' tools or the dashboard, so a connector can list, read and message your agents but can't
+// invite people, change rules, claim locks or vote.
 
 import { type Env, LIVE, UserError, ago, hostNames, issueToken, limit, liveIds, newToken, postMessage, rateLimit, sha256 } from "./lib";
 import type { McpServer } from "./app";
@@ -167,8 +168,9 @@ export async function authorize(req: Request, env: Env, me: string | null, url: 
       </ul>
       <p class="small muted" style="margin:0">It can't invite people, change project rules, claim locks or vote. You can disconnect it any time under Account.</p>
       <p class="small" style="margin:0"><b>Only allow if you just pressed Connect in Claude yourself.</b> A link someone sent you can connect their Claude to your agents.</p>
-      <form method="post" data-native class="row">${hidden({ ...p, redirect_uri: redirectUri, action: "allow" })}<button class="btn primary">${icon("check", 15)}Allow</button></form>
-      <form method="post" data-native>${hidden({ ...p, redirect_uri: redirectUri, action: "deny" })}<button class="btn ghost sm">Don't allow</button></form>`,
+      <form method="post" data-native data-leaving="Allowed. Taking you back to Claude…" class="row">${hidden({ ...p, redirect_uri: redirectUri, action: "allow" })}<button class="btn primary">${icon("check", 15)}Allow</button></form>
+      <form method="post" data-native data-leaving="Not allowed. Taking you back to Claude…">${hidden({ ...p, redirect_uri: redirectUri, action: "deny" })}<button class="btn ghost sm">Don't allow</button></form>
+      <div class="leaving" hidden><span class="spinner"></span><b></b><p class="small muted">Claude finishes connecting on its side, which can take a few seconds.</p></div>`,
     ),
     200,
     {
