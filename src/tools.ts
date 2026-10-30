@@ -946,12 +946,12 @@ export const tools: Tool[] = [
   {
     name: "away",
     description:
-      "Away mode for your user's agents: while on, permission/approval questions from all their Claude Code and Codex sessions go to the intercom dashboard (Agents view) instead of waiting in a terminal, and unanswered ones are denied after a while so agents move on. Use when your user says they're leaving / back.",
+      "Away mode for your user's agents: while on, what their Claude Code and Codex sessions ask (permissions, questions, plans) and they don't answer, in the intercom dashboard or the terminal, is denied after a while so agents move on. (Claude Code sessions' questions reach the dashboard either way.) Use when your user says they're leaving / back.",
     inputSchema: {
       type: "object",
       properties: {
         on: { type: "boolean", description: "true when they leave, false when they're back." },
-        wait_minutes: { type: "number", description: "How long an approval waits for an answer before it's denied (default 30, max 60)." },
+        wait_minutes: { type: "number", description: "How long a question waits for an answer before it's denied (default 30, max 60)." },
       },
       required: ["on"],
     },

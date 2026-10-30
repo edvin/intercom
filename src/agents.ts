@@ -193,33 +193,22 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
     <nav class="ttop">
       <button type="button" class="tl" data-kopen>${icon("search", 14)}<span>Search</span><span class="kbd kbd-k" style="margin-left:auto">⌘K</span></button>
       <a class="tl${nav.view === "feed" && !nav.channel ? " on" : ""}" href="/dashboard">${icon("layers", 14)}<span>Everything</span>${nav.votesTotal ? `<span class="badge accent">${nav.votesTotal}</span>` : ""}</a>
-      ${pending.length ? `<a class="tl warn" href="/dashboard?view=agents#approvals">${icon("shield", 14)}<span>Approvals</span><span class="badge red">${pending.length}</span></a>` : ""}
+      ${pending.length ? `<button type="button" class="tl warn" data-asksopen>${icon("bell", 14)}<span>Waiting for you</span><span class="badge amber">${pending.length}</span></button>` : ""}
     </nav>
     <div class="tsec"><span>Projects</span><button type="button" class="btn ghost xs icon" data-open="dlg-create" title="New project">${icon("plus", 13)}</button></div>
     <div class="tbody">${projectNodes || '<p class="tempty">No projects yet.</p>'}${loose.length ? branch("~none", '<span class="th">∅</span>No project', null, loose, "", false) : ""}</div>
     <div class="tfoot">
-      <button type="button" class="tl away${away ? " on" : ""}" data-open="dlg-away" title="${away ? `Away: approval questions come to the dashboard; unanswered ones are denied after ${waitMin} min` : "At your desk: approval questions show in each agent's terminal"}">${away ? "🌙" : "🖥"}<span>${away ? `Away · deny after ${waitMin}m` : "At your desk"}</span></button>
+      <button type="button" class="tl away${away ? " on" : ""}" data-open="dlg-away" title="${away ? `Away: what your agents ask is denied after ${waitMin} min unless you answer` : "At your desk: what your agents ask waits for your answer, here or in their terminal"}">${away ? "🌙" : "🖥"}<span>${away ? `Away · deny after ${waitMin}m` : "At your desk"}</span></button>
       <div class="row tlinks"><a href="/discover" title="Find projects">${icon("users", 13)}</a>${nav.admin ? `<a href="/dashboard?view=admin" class="${nav.view === "admin" ? "on" : ""}" title="Admin">${icon("shield", 13)}</a>` : ""}<a href="/docs" title="Docs">${icon("book", 13)}</a><span class="grow"></span><button type="button" class="btn ghost xs icon" data-treetoggle title="Hide the tree (⌘B)">${icon("sidebar", 13)}</button></div>
     </div>
   </aside>
   <dialog id="dlg-away"><div class="hd"><span style="font-size:18px">${away ? "🌙" : "🖥"}</span><h2>${away ? "Away mode is on" : "Going away?"}</h2></div>
     <form method="post" action="/away" data-native><div class="bd stack">
-      <p class="small muted" style="margin:0">${away ? `Approval questions from your agents come to the dashboard; unanswered ones are denied after ${waitMin} min so agents move on.` : "In away mode, approval questions from your agents come here instead of waiting in a terminal, and unanswered ones are denied after a while so agents keep moving."}</p>
+      <p class="small muted" style="margin:0">${away ? `What your agents ask (permissions, questions, plans) and you don't answer within ${waitMin} min is denied, so they move on.` : "What your agents ask (permissions, questions, plans) shows here as well as in their terminal, and waits for you. In away mode, what you don't answer in time is denied, so agents keep moving."}</p>
       ${away ? "" : `<label class="field">Deny unanswered questions after<input name="wait" type="number" min="1" max="60" value="${waitMin}" style="width:90px"> minutes</label>`}
       <input type="hidden" name="away" value="${away ? "off" : "on"}">
     </div><div class="ft"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary">${away ? "I'm back" : "I'm leaving"}</button></div></form></dialog>`;
 
-  // Away mode and the approval questions waiting for an answer.
-  const now = Date.now();
-  const approvalCard = (p: (typeof pending)[number]) => `<div class="approval">
-      <div class="row" style="gap:8px">${icon("shield", 15)}<b>${esc(p.label)}</b>${clientBadge(p.client)}<span class="small muted">wants to use ${esc(p.tool)} · ${time(p.created_at)} · denied in ${Math.max(0, Math.round((p.expires_at - now) / 60000))} min if unanswered</span></div>
-      <pre class="mdpre" style="margin:8px 0">${esc(p.summary)}</pre>
-      <form method="post" action="/approval/${p.id}" class="row" data-quiet>${hidden({ back: url.pathname + url.search })}
-        <input name="note" placeholder="Note for the agent (optional), e.g. “use the staging DB instead”" class="grow" style="height:32px;font-size:13px">
-        <button name="decision" value="allow" class="btn sm primary">${icon("check", 14)}Allow</button>
-        <button name="decision" value="deny" class="btn sm danger">${icon("x", 14)}Deny</button>
-      </form>
-    </div>`;
   // One line, until dismissed for this version (the next version shows it again).
   const stale = agents.filter((a) => a.member === me && isOn(a) && outdated(a.version));
   const dismissed = cookie.split(/;\s*/).includes(`ic_upd=${PLUGIN_VERSION}`);
@@ -231,14 +220,10 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
         <span class="grow"><b>intercom ${PLUGIN_VERSION}</b> · ${stale.length} session${stale.length > 1 ? "s" : ""} on an older version<span class="uphint"> · ${selfUpdating ? `restart ${stale.length > 1 ? "them" : "it"} to load it` : `run <code>/intercom:update</code>, then restart ${stale.length > 1 ? "them" : "it"}`}</span></span>
         <button type="button" class="btn ghost xs icon" data-dismiss="ic_upd=${PLUGIN_VERSION}" title="Dismiss until the next version">${icon("x", 13)}</button></div>`
       : "";
-  // Approval questions waiting for you: on top of the chat, only while there are any.
-  const approvals = pending.length
-    ? `<section class="card approvals" id="approvals" data-region><div class="hd"><h2>${icon("shield", 15)}Approvals · ${pending.length}</h2><span class="small muted">${away ? `denied after ${waitMin} min unless you answer` : "also asked in each agent's terminal"}</span></div><div class="stack" style="padding:0 14px 14px">${pending.map(approvalCard).join("")}</div></section>`
-    : `<div id="approvals" data-region hidden></div>`;
   if (!nav.withChat) return { tree, main: "" };
   if (!agent && picked)
-    return { tree, main: `${updateBar}${approvals}<section class="card chat"><div class="empty" style="margin:auto">${icon("radio", 30)}<div>There's no agent ${esc(picked)} (any more).</div><div class="small">Pick one in the tree, or <a href="/dashboard?view=agents">show your agents</a>.</div></div></section>` };
-  if (!agent) return { tree, main: `${updateBar}${approvals}<section class="card chat"><div class="empty" style="margin:auto">${icon("radio", 30)}<div>No agents to talk to yet.</div><div class="small">Start Claude Code or Codex in a repo; its session shows up in the tree.</div></div></section>` };
+    return { tree, main: `${updateBar}<section class="card chat"><div class="empty" style="margin:auto">${icon("radio", 30)}<div>There's no agent ${esc(picked)} (any more).</div><div class="small">Pick one in the tree, or <a href="/dashboard?view=agents">show your agents</a>.</div></div></section>` };
+  if (!agent) return { tree, main: `${updateBar}<section class="card chat"><div class="empty" style="margin:auto">${icon("radio", 30)}<div>No agents to talk to yet.</div><div class="small">Start Claude Code or Codex in a repo; its session shows up in the tree.</div></div></section>` };
 
   const { results: rows } = await env.DB.prepare(
     // You (or your agents) → it, it → you (or your agents); for your own agents also every DM it sent or got,
@@ -412,7 +397,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
           <div class="meta-row">${stateBadge(agent)}${ctxBadge(agent)}${compactCtl}${takesCtl}<span>${agent.host ? `on <b style="color:var(--ink-2)">${esc(hostOf(agent))}</b>${ownAgent ? `<button type="button" class="btn ghost xs icon renamebtn" data-open="dlg-host" title="Rename this machine">${icon("pencil", 11)}</button>` : ""} · ` : ""}${agent.project ? `#${esc(agent.project)}` : "no project"}${ownAgent && agent.project_pin ? ` <span class="badge" title="Set from the dashboard for this session; its repo would put it in ${esc(agent.repo ? `whatever ${agent.repo} maps to` : "no project")}">pinned</span>` : ""}${ownAgent ? `<button type="button" class="btn ghost xs icon renamebtn" data-open="dlg-project" title="Choose its project">${icon("pencil", 11)}</button>` : ""}${agent.branch ? ` · ${icon("branch", 12)} ${esc(agent.branch)}` : ""}${ownAgent && agent.cwd ? `<span class="cwd" title="Working directory"> · ${icon("folder", 12)} ${esc(agent.cwd)}</span>` : ""}${on ? "" : ` · last seen ${ago(agent.last_seen)}`}${agent.note ? ` · “${esc(plainSpaces(agent.note))}”` : ""}</span></div>${loopsOf(agent).map((l) => `<div class="meta-row looprow"><span>${icon("repeat", 13)}${esc(describe(l))}</span></div>`).join("")}${jobsOf(agent).map((j) => `<div class="meta-row jobrow" title="${esc(j.command)}"><span>⧗ ${esc(jobName(j))} <span class="muted">· running ${duration(Date.now() - j.at)}</span></span><form method="post" action="/agent/job-dismiss" data-native>${hidden({ session: agent.session_id, id: j.id, back: `/dashboard?view=agents&agent=${encodeURIComponent(key(agent))}` })}<button class="btn ghost xs icon jobx" title="Not running any more? Remove it from this list">${icon("x", 11)}</button></form></div>`).join("")}
         </div>
       </div>
-      ${on && agent.state === "waiting" ? `<div class="toast err" style="box-shadow:none;margin:10px 14px 0">${icon("x")}<span><b>${esc(agent.label)} is waiting${agent.state_at ? ` (asked ${ago(agent.state_at)})` : ""}:</b> ${esc(agent.state_detail || "for approval or input")}. That can only be answered in its terminal (or with Claude's Remote Control). Already answered? Claude Code doesn't tell when, so this stays until the step you allowed has run. For unattended runs, start agents in a mode that doesn't stop to ask.</span></div>` : ""}
+      ${on && agent.state === "waiting" && !pending.some((p) => p.session_id === agent.session_id) ? `<div class="toast err" style="box-shadow:none;margin:10px 14px 0">${icon("x")}<span><b>${esc(agent.label)} is waiting${agent.state_at ? ` (asked ${ago(agent.state_at)})` : ""}:</b> ${esc(agent.state_detail || "for approval or input")}. That can only be answered in its terminal (or with Claude's Remote Control). Already answered? Claude Code doesn't tell when, so this stays until the step you allowed has run. For unattended runs, start agents in a mode that doesn't stop to ask.</span></div>` : ""}
       ${codeOn ? codePane : `<div class="thread term${/(?:^|;\s*)ic_activity=off/.test(cookie) ? " noact" : ""}${/(?:^|;\s*)ic_relay=off/.test(cookie) ? " norelay" : ""}" id="thread" data-region>${thread || `<div class="empty" style="margin:auto">${icon("message", 28)}<div>No messages with ${esc(agent.label)} yet.</div><div class="small">${ownAgent ? "Ask a question or give it a new direction; it treats what you write here like a prompt you typed." : "Your message reaches this session; its owner's agent treats it as information from you."}</div></div>`}</div>
       <form method="post" action="/action/post" class="chatbox" id="chatform" data-region data-quiet data-images data-agent="${esc(key(agent))}" data-label="${esc(agent.label)}">${hidden({ back, to: key(agent), channel: agent.project || "", session: agent.session_id, mode: "", thread: "", edit: "" })}
         <div class="imgtray" hidden></div>
@@ -455,5 +440,5 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
           <label class="field">Shown as <span class="tiny">(only you see this nickname; empty = “${esc(agent.host)}”)</span><input name="name" value="${esc(nick.get(agent.host) ?? "")}" placeholder="${esc(agent.host)}" maxlength="40"></label>
         </div><div class="ft"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary">${icon("check", 14)}Save</button></div></form></dialog>` : ""}`
     : "";
-  return { tree, main: `${updateBar}${approvals}${dialogs}<div class="agents" id="agents">${chat.replace('<div class="hd">', '<div class="hd" id="chathd" data-region>')}</div>` };
+  return { tree, main: `${updateBar}${dialogs}<div class="agents" id="agents">${chat.replace('<div class="hd">', '<div class="hd" id="chathd" data-region>')}</div>` };
 }

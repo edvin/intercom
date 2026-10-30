@@ -524,7 +524,6 @@ tr.hit,tr.hit td{background:var(--amber-soft)}
 .awaybar{padding:10px 16px;flex:none}
 .awaybar.on{border-color:transparent;background:linear-gradient(var(--surface),var(--surface)) padding-box,linear-gradient(135deg,#6a4dff,#ff6fb0) border-box;border:1px solid transparent}
 .awaybar .stack{max-height:40vh;overflow-y:auto}
-.approval{padding:12px 14px;border-radius:12px;border:1px solid color-mix(in srgb,var(--amber) 45%,transparent);background:var(--amber-soft)}
 @media (max-width:1100px){.agents{grid-template-columns:260px minmax(0,1fr)}}
 @media (max-width:820px){
   .shell.wide{height:auto;overflow:visible}
@@ -651,7 +650,7 @@ body:has(.ide) .top .in{max-width:none;padding:8px 14px}
 .ttop{padding:10px 8px 2px;display:flex;flex-direction:column;gap:1px}
 .tl{display:flex;align-items:center;gap:9px;width:100%;padding:6px 10px;border:0;border-radius:8px;background:none;color:var(--ink-2);font:inherit;font-weight:560;text-align:left;text-decoration:none;cursor:pointer}
 .tl:hover{background:var(--surface-2);color:var(--ink)}.tl.on{background:var(--accent-soft);color:var(--accent)}.tl .badge{margin-left:auto}
-.tl.warn{color:var(--red)}.tl.away{font-size:12.5px;color:var(--mute)}.tl.away.on{color:var(--amber)}
+.tl.warn{color:var(--amber)}.tl.away{font-size:12.5px;color:var(--mute)}.tl.away.on{color:var(--amber)}
 .tsec{display:flex;align-items:center;justify-content:space-between;padding:12px 8px 4px 18px;font-size:10.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--mute)}
 .tbody{flex:1;min-height:0;overflow:auto;padding:0 8px 10px}
 .tp{margin:1px 0}.tp>summary{list-style:none;display:flex;align-items:center;gap:6px;padding:5px 8px;border-radius:8px;cursor:pointer;user-select:none}
@@ -692,7 +691,7 @@ body:has(.ide) .top .in{max-width:none;padding:8px 14px}
   html:has(.ide.chatmode),body:has(.ide.chatmode){height:100%;min-height:0;overflow:hidden;overscroll-behavior:none}
   .ide.chatmode{position:fixed;left:0;right:0;top:var(--vvt,0px);height:var(--vvh,100dvh)}
   .chatmode .chatpane{padding:0;gap:0}
-  .chatmode .chatpane>.updatebar{margin:6px 8px 0}.chatmode .chatpane>.approvals{margin:6px 8px 0;border-radius:12px}
+  .chatmode .chatpane>.updatebar{margin:6px 8px 0}
   .chatmode .chat{border:0;border-radius:0;box-shadow:none;background:var(--bg)}
   .chatmode .chat>.hd{flex-wrap:nowrap;align-items:center;gap:8px;padding:8px 10px 8px 4px;padding-top:max(8px,env(safe-area-inset-top));background:var(--surface)}
   .chatmode .mtree{display:inline-flex;flex:none}.chatmode>.tree{padding-top:env(safe-area-inset-top)}
@@ -713,8 +712,47 @@ body:has(.ide) .top .in{max-width:none;padding:8px 14px}
 }
 .drawer{grid-column:3;min-height:0;overflow:auto;border-left:1px solid var(--line);padding:14px;display:flex;flex-direction:column;gap:14px;background:color-mix(in srgb,var(--surface) 35%,transparent)}
 .treebtn{margin-left:-4px}
-.approvals .hd{display:flex;align-items:baseline;gap:10px;padding:12px 14px}
 @media (max-width:1180px){.ide.feedmode:not(.nodrawer){--dw:320px}}
+/* What your agents wait on: a dock in the corner of every dashboard page. */
+.asks{position:fixed;right:20px;bottom:20px;z-index:45;width:min(420px,calc(100vw - 32px));display:flex;flex-direction:column;align-items:flex-end;pointer-events:none}
+.asks>*{pointer-events:auto}
+.ide.chatmode~.asks{bottom:150px}.ide.chatmode~.asks .askpanel{max-height:min(74vh,calc(100dvh - 240px))}
+.askpanel{width:100%;max-height:min(74vh,760px);display:flex;flex-direction:column;border-radius:18px;border:1px solid transparent;background:linear-gradient(var(--surface),var(--surface)) padding-box,linear-gradient(140deg,color-mix(in srgb,var(--amber) 75%,transparent),color-mix(in srgb,var(--accent) 55%,transparent) 60%,var(--line-strong)) border-box;box-shadow:var(--shadow-lg),0 18px 48px -20px color-mix(in srgb,var(--amber) 45%,transparent);overflow:hidden;animation:askup .35s cubic-bezier(.2,.9,.3,1.1)}
+.askhd{display:flex;align-items:center;gap:8px;padding:11px 10px 10px 16px;border-bottom:1px solid var(--line);font-size:13.5px}
+.askhd .i{transform:rotate(90deg)}.askpill .i{transform:rotate(-90deg);color:var(--mute)}
+.askdot{flex:none;width:8px;height:8px;border-radius:50%;background:var(--amber);animation:askping 2s infinite}
+@keyframes askping{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--amber) 55%,transparent)}70%{box-shadow:0 0 0 8px transparent}100%{box-shadow:0 0 0 0 transparent}}
+@keyframes askup{from{opacity:0;transform:translateY(14px)}}
+@keyframes askin{from{opacity:0;transform:translateY(10px) scale(.98)}}
+.asklist{overflow-y:auto;padding:10px;display:flex;flex-direction:column;gap:10px;overscroll-behavior:contain}
+.ask{padding:12px 14px 14px;border-radius:14px;background:var(--surface-2);border:1px solid var(--line)}
+.ask.fresh{animation:askin .45s cubic-bezier(.2,.9,.3,1.2)}
+.askwho{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--mute);margin-bottom:10px}
+.askname{font-weight:650;font-size:13px;color:var(--ink);text-decoration:none}.askname:hover{color:var(--accent);text-decoration:none}
+.askk{font-size:11px;font-weight:650;padding:2px 8px;border-radius:999px;background:var(--amber-soft);color:var(--amber)}
+.k-question .askk{background:var(--accent-soft);color:var(--accent)}.k-plan .askk{background:var(--green-soft);color:var(--green)}
+.askdue{color:var(--amber);font-weight:600}
+.askq{border:0;padding:0;margin:0;min-width:0}.askq+.askq{margin-top:14px;padding-top:14px;border-top:1px solid var(--line)}
+.askh{display:inline-block;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--mute);margin-bottom:3px}
+.askqt{margin:0 0 10px;font-size:14.5px;font-weight:600;color:var(--ink);line-height:1.4;text-wrap:pretty}
+.askhint{margin:-6px 0 8px;font-size:12px;color:var(--mute)}
+.askopts{display:flex;flex-direction:column;gap:6px}
+.askopt{display:flex;align-items:center;gap:10px;width:100%;margin:0;text-align:left;padding:9px 12px;border-radius:11px;border:1px solid var(--line-strong);background:var(--surface);color:var(--ink);font:inherit;font-size:13px;cursor:pointer;transition:border-color .15s,background .15s,transform .08s}
+.askopt:hover{border-color:color-mix(in srgb,var(--accent) 55%,transparent);background:color-mix(in srgb,var(--accent) 6%,var(--surface))}
+.askopt:active{transform:scale(.985)}
+.askopt:has(input:checked){border-color:color-mix(in srgb,var(--accent) 70%,transparent);background:var(--accent-soft)}
+.askopt input{flex:none;margin:0}
+.askoptx{display:flex;flex-direction:column;gap:2px;flex:1;min-width:0}.askoptx b{font-weight:600}.askoptx>span{font-size:12px;color:var(--mute);line-height:1.4}
+.askopt>.i{flex:none;color:var(--accent);opacity:0;transform:translateX(-4px);transition:opacity .15s,transform .15s}.askopt:hover>.i{opacity:1;transform:none}
+.asktype{width:100%;height:34px;margin-top:8px;font-size:13px;border-radius:10px;background:var(--surface)}
+.askact{display:flex;gap:8px;justify-content:flex-end;margin-top:10px}
+.askcode{margin:0 0 2px;padding:10px 12px;border-radius:10px;background:var(--surface);border:1px solid var(--line);font-family:"Geist Mono",ui-monospace,monospace;font-size:12.5px;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere;max-height:150px;overflow:auto;color:var(--ink)}
+.askplan{max-height:260px;overflow:auto;padding:4px 14px;border-radius:10px;background:var(--surface);border:1px solid var(--line);font-size:13px}
+.askpill{display:none;align-items:center;gap:8px;height:40px;padding:0 12px 0 14px;border-radius:999px;border:1px solid color-mix(in srgb,var(--amber) 50%,transparent);background:var(--surface);color:var(--ink);font:inherit;font-size:13px;box-shadow:var(--shadow-lg);cursor:pointer;animation:askup .3s ease-out}
+.askpill:hover{border-color:var(--amber)}
+.asks.min .askpanel{display:none}.asks.min .askpill{display:inline-flex}
+body:has(#asks:not([hidden]):not(.min)) .toasts{right:auto;left:20px}
+@media (max-width:640px){.asks,.ide.chatmode~.asks{right:8px;left:8px;bottom:calc(8px + env(safe-area-inset-bottom));width:auto}.ide.chatmode~.asks .askpanel{max-height:80dvh}.askpanel{max-height:80dvh;border-radius:16px}.askor{display:none}.askopt{padding:11px 12px}body:has(#asks:not([hidden]):not(.min)) .toasts{left:12px;right:12px;bottom:auto;top:12px}}
 .chatbox .chips{flex:none;align-items:center}.chatbox .chip{flex:none;height:auto}
 @media (max-width:640px){.chatpane{padding:8px;gap:8px}.chat>.hd{padding:10px 12px;gap:10px}.chat>.hd .cname,.chatbox .lbl,.updatebar .uphint{display:none}.chat>.hd .client{padding:0 6px}.chat>.hd .cwd{display:none}.thread.term{padding:12px 14px}.chatbox{padding:10px}.chatbox .chips{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}.chatbox .chips::-webkit-scrollbar{display:none}.chatbox .chip{flex:none;white-space:nowrap}.chatbox textarea{min-width:0}}
 @media (max-width:900px){
@@ -1036,7 +1074,22 @@ export const SCRIPT = `
     else pick(null);
   }, true);
 
+  // The dock of what your agents wait on: minimized stays minimized until something new arrives; the tab's title
+  // carries the count, so a background tab shows it too.
+  const baseTitle = document.title.replace(/^\(\d+\) /, "");
+  function bindAsks() {
+    const box = document.getElementById("asks");
+    const ids = box && !box.hidden ? $$(".ask", box).map((a) => a.dataset.mid) : [];
+    const store = (v) => { try { sessionStorage.setItem("ic_asks_min", JSON.stringify(v)); } catch {} };
+    document.title = ids.length ? "(" + ids.length + ") " + baseTitle : baseTitle;
+    $$("[data-asksopen]").forEach((b) => b.onclick = () => { if (!box) return; box.classList.remove("min"); store(null); const f = box.querySelector(".askopt, input, button.primary"); f && !matchMedia("(pointer: coarse)").matches && f.focus(); });
+    if (!ids.length) return;
+    let seen = null; try { seen = JSON.parse(sessionStorage.getItem("ic_asks_min") || "null"); } catch {}
+    box.classList.toggle("min", Array.isArray(seen) && ids.every((i) => seen.includes(i)));
+    $$("[data-askstoggle]", box).forEach((b) => b.onclick = () => { const m = !box.classList.contains("min"); box.classList.toggle("min", m); store(m ? ids : null); });
+  }
   function bind(root = document) {
+    bindAsks();
     if (picked) { const b = document.querySelector('.bubble[data-mid="' + picked + '"]'); if (b && b.querySelector('[data-unsend="edit"]')) b.classList.add("picked"); else picked = null; }
     trailBack();
     $$("#compose", root).forEach((t) => { if (!t.value) t.value = drafts.get(t); t.addEventListener("input", () => drafts.set(t)); });

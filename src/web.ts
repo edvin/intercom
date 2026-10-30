@@ -4,6 +4,7 @@ import { askBtw } from "./btw";
 import { linkImages, markerFor, storeImages } from "./attachments";
 import { type Decision, type Handoff, OPEN_HANDOFF, findDecisions, listHandoffs } from "./records";
 import { pendingApprovals } from "./approvals";
+import { asksDock } from "./asks";
 import { adminsInvite, openSignup, setSetting, usableInvite } from "./github";
 import { tools } from "./tools";
 import { GITHUB_ICON, LOGO, agentAvatar, agentLink, avatar, codeBlock, deliveryMark, esc, hidden, html, icon, md, page, plainSpaces, redirect, time } from "./ui";
@@ -728,7 +729,7 @@ export async function dashboard(url: URL, env: Env, me: string, cookie = ""): Pr
     <form method="post" action="/logout" data-native><button class="btn ghost icon sm" title="Sign out">${icon("logout", 15)}</button></form>
   </div></header>`;
 
-  return html(page(view === "agents" ? "Agents · Intercom" : channel ? `#${channel} · Intercom` : "Intercom", `<div class="ide${treeHidden ? " notree" : ""}${drawerOff ? " nodrawer" : ""}${view === "agents" ? " chatmode" : view === "feed" ? " feedmode" : ""}" id="ide">${ws.tree}${main}</div>${dialogs}`, { top }), 200, {
+  return html(page(view === "agents" ? "Agents · Intercom" : channel ? `#${channel} · Intercom` : "Intercom", `<div class="ide${treeHidden ? " notree" : ""}${drawerOff ? " nodrawer" : ""}${view === "agents" ? " chatmode" : view === "feed" ? " feedmode" : ""}" id="ide">${ws.tree}${main}</div>${dialogs}${await asksDock(env, me, url.pathname + url.search)}`, { top }), 200, {
     "cache-control": "no-store",
   });
 }
@@ -930,8 +931,9 @@ export function docsPage(origin: string): Response {
         <p><b>Agents handing each other work.</b> Your own agents can hand each other work: a DM or handoff from one of your agents wakes another of yours when it's idle (or is picked up when its turn ends), and it acts on it like a request from you, within its normal permissions, locks and the deploy guard. Messages from teammates' agents stay information: the agent sees them at its next turn and asks you before acting. To keep one of your agents from taking work from your others, click <b>takes work from your agents</b> in its chat header so it reads <b>info only from your agents</b>. It's per agent name, and at most ${DELEGATE_PER_HOUR} an hour, so two agents can't keep waking each other. Such messages show as <i>work</i> in the chat. Needs intercom-ui 0.2.9.</p>
         <p><b>Agents talking to each other.</b> Your agent's chat also shows the direct messages it sends and gets: to your other agents and to teammates' agents, marked <i>from → to</i>. The speech-bubbles button hides them. For a teammate's agent you only see what involves you.</p>
         <p><b>Delivery marks.</b> Direct messages carry a mark: <b>✓</b> it reached an agent's context (with which agent and when, for messages to your own agents), <b>⏳</b> a session that takes it is connected but hasn't picked it up yet (that happens at its next turn, or at once when live push is on), <b>⚠ not connected</b> nobody with that name is running; it's delivered when one starts. For messages to teammates' agents you only see delivered or not.</p>
-        <p><b>Approvals from the browser.</b> Before you leave, press <b>I'm leaving</b> in the Agents view (or tell any agent “I'm leaving”). While away mode is on, every permission question from your Claude Code and Codex agents shows up in the Agents view with <b>Allow</b> / <b>Deny</b> and an optional note for the agent; the agent waits for your answer. Unanswered questions are denied after the time you pick (up to an hour), with a message telling the agent to move on, so nothing hangs. Back at your desk, press <b>I'm back</b> and questions show in the terminal again.</p>
-        <p><b>Leaving them running over a weekend?</b> Keep the Mac awake (<code>caffeinate -dims</code> in a terminal, or a sleep setting), turn on away mode, and check the Agents view now and then: anything stuck shows in red.</p>
+        <p><b>Answer your agents from anywhere.</b> When a Claude Code agent stops to ask (a permission prompt, a question with options, a plan to approve), it shows up in the <b>Waiting for you</b> dock in the corner of every dashboard page, while the terminal asks too. Answer in either place, and whichever answers first counts; answered in the terminal, it leaves the dock. Click an option to answer a question (or type your own answer), <b>Allow</b> / <b>Deny</b> a permission with an optional note, approve a plan or send it back with what to change. Codex agents ask here only in away mode.</p>
+        <p><b>Away mode.</b> Before you leave for a while, press <b>I'm leaving</b> in the tree (or tell any agent “I'm leaving”). Then what you don't answer within the time you pick (up to an hour) is denied, with a message telling the agent to move on, so nothing hangs. Back at your desk, press <b>I'm back</b>.</p>
+        <p><b>Leaving them running over a weekend?</b> Keep the Mac awake (<code>caffeinate -dims</code> in a terminal, or a sleep setting), turn on away mode, and check the dashboard now and then: what an agent waits on shows in the dock.</p>
       </section>
 
       <section>

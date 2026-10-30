@@ -8,7 +8,7 @@ import { type Env, type Message, type Proposal, type Session, LIVE, MEMBER_OF, p
 import { type Tool, instructions, tools } from "./tools";
 import { CONNECTOR, authorize, connectorMember, preflight, register, resourceMetadata, serverMetadata, token, unauthorized } from "./connector";
 import { cliPoll, cliStart, connectPage, discoverJoin, discoverPage, discoverRequest, githubCallback, githubCreate, githubStart, signOut } from "./accounts";
-import { approvalStatus, decide, requestApproval, setAway } from "./approvals";
+import { type Approval, answersFrom, approvalStatus, closeApproval, closeSessionApprovals, decide, questionsOf, requestApproval, setAway } from "./approvals";
 import { guard } from "./guard";
 import { PLUGIN_VERSION, outdated, replyHow } from "./version";
 import { getSetting, githubRepo, openSignup, setSetting } from "./github";
@@ -208,6 +208,8 @@ async function handleHook(url: URL, env: Env, me: string, input: { last_assistan
     return new Response("", { status: 200 });
   }
   if (event === "Stop") {
+    // A turn that ended isn't waiting on anything any more.
+    if (session) await closeSessionApprovals(env, me, session.session_id);
     // The turn answered what you wrote from the dashboard: its final message is the reply (unless the agent posted one).
     if (session) await replyFromTurn(env, me, session, typeof input.last_assistant_message === "string" ? input.last_assistant_message : "");
     // Finishing a turn: if the user wrote to this session from the dashboard, keep going with that instead of stopping.
@@ -651,33 +653,48 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
   }
   if (url.pathname === "/api/approval" && req.method === "POST") {
     const sid = url.searchParams.get("session") ?? "";
-    const session = await env.DB.prepare("SELECT session_id, label FROM sessions WHERE member = ? AND session_id = ?").bind(me, sid).first<{ session_id: string; label: string }>();
+    const session = await env.DB.prepare("SELECT session_id, label, version FROM sessions WHERE member = ? AND session_id = ?").bind(me, sid).first<{ session_id: string; label: string; version: string | null }>();
     const a = await requestApproval(env, me, session, cleanClient(url.searchParams.get("client")) ?? "claude", (await req.json().catch(() => ({}))) as { tool_name?: string });
     return a ? json({ id: a.id, expires_at: a.expires_at }) : new Response(null, { status: 204 });
   }
+  if (url.pathname.startsWith("/api/approval/") && url.pathname.endsWith("/close") && req.method === "POST") {
+    // The terminal answered (or the agent moved on): the card goes and the waiting hook stops.
+    await closeApproval(env, me, Number(url.pathname.slice(14, -6)));
+    return json({ ok: true });
+  }
   if (url.pathname.startsWith("/api/approval/")) {
-    // The hook polls this; once decided it gets ready-made hook output (Claude Code and Codex share the shape).
+    // The hook polls this; once decided it gets ready-made hook output (Claude Code and Codex share the shape), and a
+    // question's answers, which the hook adds to the agent's own question itself (it takes no other input from here).
     const st = await approvalStatus(env, me, Number(url.pathname.slice(14)));
-    if (st.status === "pending") return json({ status: "pending" });
+    if (st.status === "pending" || st.status === "closed") return json({ status: st.status });
     const allow = st.status === "allow";
     const show = url.searchParams.get("show") !== "0";
+    const said = st.answers ? `answered from the intercom dashboard: ${Object.values(st.answers).join(" · ")}` : `${allow ? "approved" : "denied"} from the intercom dashboard${st.note ? `: ${st.note}` : ""}`;
     const output = {
-      ...(show ? { systemMessage: `📻 ${allow ? "approved" : "denied"} from the intercom dashboard${st.note ? `: ${st.note}` : ""}` } : {}),
+      ...(show ? { systemMessage: `📻 ${said.slice(0, 300)}` } : {}),
       hookSpecificOutput: {
         hookEventName: "PermissionRequest",
-        decision: allow ? { behavior: "allow" } : { behavior: "deny", message: st.note || "Your user denied this from the intercom dashboard." },
+        decision: allow
+          ? { behavior: "allow" }
+          : { behavior: "deny", message: st.kind === "plan" ? `Your user wants you to keep planning${st.note ? `: ${st.note}` : "."}` : st.kind === "question" ? `Your user skipped this question from the intercom dashboard${st.note ? `: ${st.note}` : "."}` : st.note || "Your user denied this from the intercom dashboard." },
       },
       // An allow with a note: the agent also gets the note as context.
       ...(allow && st.note ? { additionalContext: `Your user approved this from the intercom dashboard and added: ${st.note}` } : {}),
     };
-    return json({ status: st.status, output: JSON.stringify(output) });
+    return json({ status: st.status, output: JSON.stringify(output), ...(st.answers ? { answers: st.answers } : {}) });
   }
   if (url.pathname.startsWith("/approval/") && req.method === "POST") {
     if (!sameOrigin(req)) return new Response("Cross-origin request refused", { status: 403 });
     const form = await req.formData();
     const u = new URL(localPath(form.get("back"), "/dashboard?view=agents"), url);
     try {
-      u.searchParams.set("ok", await decide(env, me, Number(url.pathname.slice(10)), form.get("decision") === "allow" ? "allow" : "deny", String(form.get("note") ?? "")));
+      const id = Number(url.pathname.slice(10));
+      const a = await env.DB.prepare("SELECT kind, detail FROM approvals WHERE id = ? AND member = ?").bind(id, me).first<Pick<Approval, "kind" | "detail">>();
+      const questions = a?.kind === "question" ? questionsOf({ questions: JSON.parse(a.detail || "[]") }) : null;
+      const deny = form.get("decision") === "deny";
+      // A question is answered with its options (or typed text); skipping it is a deny with your note.
+      const answers = questions && !deny ? answersFrom(questions, (i) => form.getAll(`q${i}`).map(String), (i) => String(form.get(`t${i}`) ?? "")) : undefined;
+      u.searchParams.set("ok", await decide(env, me, id, deny ? "deny" : "allow", String(form.get("note") ?? ""), answers));
     } catch (e) {
       u.searchParams.set("err", (e as Error).message);
     }

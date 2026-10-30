@@ -7,15 +7,15 @@
 # lets the user decide to go ahead. It never blocks on its own in Claude Code.
 # Never fails: any error just means no intercom context this time.
 
-VERSION=0.12.29 # kept in step with .claude-plugin/plugin.json (a test checks)
+VERSION=0.12.30 # kept in step with .claude-plugin/plugin.json (a test checks)
 D="$HOME/.claude/intercom"
 event="${1:-UserPromptSubmit}"
 client="${2:-claude}"
 json_field() { sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\"\\([^\"]*\\)\".*/\\1/p" | head -n 1; }
 # The hub's answer, cut down to what it may do here: add context and a status line, hold a stop to continue with your
-# own words, ask about or refuse (never allow) a guarded command, and, in away mode, allow or deny a permission you
-# answered in the dashboard. Never a rewritten command or tool input, nor saved permission rules, whatever the hub
-# sends. Without node: nothing.
+# own words, ask about or refuse (never allow) a guarded command, and allow or deny what you answered in the dashboard.
+# Never a rewritten command or tool input (a question's answers are added here, by with_answers), nor saved
+# permission rules, whatever the hub sends. Without node: nothing.
 safe_out() {
   node -e '
 let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => {
@@ -38,6 +38,25 @@ let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => {
 });' "${1:-hook}" 2>/dev/null
 }
 
+# A question answered from the dashboard: the answers go into the agent's own question here, on this machine (the hub's
+# reply carries only text per question it asked), as the tool's answers. Without an answer to each: nothing, and the
+# terminal keeps asking.
+with_answers() {
+  node -e '
+let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => {
+  let o; try { o = JSON.parse(s); } catch { return; }
+  const d = o.hookSpecificOutput && o.hookSpecificOutput.decision;
+  let i = {}, a = null; try { i = JSON.parse(process.env.ASK_INPUT); a = JSON.parse(process.env.ASK_REPLY).answers; } catch {}
+  if (i.tool_name === "AskUserQuestion" && d && d.behavior === "allow") {
+    const qs = (i.tool_input && Array.isArray(i.tool_input.questions)) ? i.tool_input.questions : [], answers = {};
+    for (const q of qs) if (a && typeof a === "object" && typeof a[q.question] === "string") answers[q.question] = a[q.question].slice(0, 2000);
+    if (!qs.length || Object.keys(answers).length < qs.length) return;
+    d.updatedInput = { ...i.tool_input, answers };
+  }
+  process.stdout.write(JSON.stringify(o));
+});' 2>/dev/null
+}
+
 # Who's running us. Claude Code passes the session in the environment; Codex only on stdin.
 if [ "$client" = "codex" ]; then
   input=$(cat)
@@ -58,7 +77,8 @@ mkdir -p "$D" 2>/dev/null && printf '%s %s %s\n' "$(date +%s)" "$event" "${sessi
 # and Stop (the turn ends; the hub may hand back a message from the user to continue with).
 case "$event" in
   PermissionRequest)
-    # Away mode: ask in the dashboard and wait for the answer (else: nothing, and the terminal asks as usual).
+    # Ask in the dashboard too and wait for the answer there; the terminal asks meanwhile, and whichever answers first
+    # counts. The hub says no (at the desk with Codex, an older hub): nothing, and the terminal asks as usual.
     [ -z "$input" ] && input=$(cat)
     [ -n "$session" ] || session=$(printf '%s' "$input" | json_field session_id)
     [ -f "$D/config" ] && . "$D/config"
@@ -66,14 +86,22 @@ case "$event" in
     id=$(printf '%s' "$input" | curl -sf --max-time 5 -X POST "$INTERCOM_URL/api/approval?session=$session&client=$client" \
       -H "Authorization: Bearer $INTERCOM_TOKEN" -H "Content-Type: application/json" --data-binary @- 2>/dev/null | sed -n 's/.*"id":\([0-9]*\).*/\1/p')
     [ -n "$id" ] || exit 0
+    # A marker per open card, named for the tool: the PostToolUse hook removes it (and closes the card) when the
+    # terminal allowed the call, and Claude Code stops this hook when the terminal denied it.
+    mkdir -p "$D/asks" && printf '%s' "$(printf '%s' "$input" | json_field tool_name)" > "$D/asks/$session.$id"
+    trap 'rm -f "$D/asks/$session.$id"; curl -sf --max-time 3 -X POST "$INTERCOM_URL/api/approval/$id/close" -H "Authorization: Bearer $INTERCOM_TOKEN" >/dev/null 2>&1; exit 0' TERM INT HUP
     end=$(( $(date +%s) + 3600 ))
-    while [ "$(date +%s)" -lt "$end" ]; do
+    while [ "$(date +%s)" -lt "$end" ] && [ -f "$D/asks/$session.$id" ]; do
       r=$(curl -sf --max-time 10 "$INTERCOM_URL/api/approval/$id?show=${INTERCOM_SHOW:-1}" -H "Authorization: Bearer $INTERCOM_TOKEN" 2>/dev/null)
       case "$r" in
-        *'"output"'*) printf '%s' "$r" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>process.stdout.write(JSON.parse(s).output))' | safe_out approval; exit 0 ;;
+        *'"output"'*) rm -f "$D/asks/$session.$id"
+          printf '%s' "$r" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>process.stdout.write(JSON.parse(s).output))' | safe_out approval | ASK_INPUT="$input" ASK_REPLY="$r" with_answers
+          exit 0 ;;
+        *'"closed"'*) rm -f "$D/asks/$session.$id"; exit 0 ;;
       esac
-      sleep 3
+      sleep 3 & wait $!
     done
+    rm -f "$D/asks/$session.$id"
     exit 0
     ;;
   Notification|Stop|StopFailure)
@@ -97,6 +125,21 @@ case "$event" in
     exit 0
     ;;
 esac
+
+# A tool call the terminal allowed while its card was open in the dashboard: close the card (the waiting hook sees
+# its marker gone and stops). Without open cards this costs one file check.
+if [ "$event" = "PostToolUse" ] && [ -n "$session" ]; then
+  for m in "$D/asks/$session".*; do
+    [ -f "$m" ] || break
+    [ -n "$input" ] || { input=$(cat); tool=$(printf '%s' "$input" | json_field tool_name); }
+    if [ "$(cat "$m" 2>/dev/null)" = "$tool" ]; then
+      rm -f "$m"
+      [ -f "$D/config" ] && . "$D/config"
+      curl -sf --max-time 3 -X POST "$INTERCOM_URL/api/approval/${m##*.}/close" -H "Authorization: Bearer $INTERCOM_TOKEN" >/dev/null 2>&1
+      break
+    fi
+  done
+fi
 
 # Fast paths (a few milliseconds, no network), using marker files kept by the local intercom server:
 #  live/<key>    channel mode: messages are pushed into the session already, never poll.

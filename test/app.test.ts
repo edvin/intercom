@@ -807,12 +807,109 @@ describe("approvals from the browser", () => {
     // Someone else can't answer bob's approvals.
     const { id: id2 } = (await (await ask({ command: "terraform apply" })).json()) as { id: number };
     const other = new URL((await w.form(`/approval/${id2}`, "alice", { decision: "allow" })).headers.get("location")!, ORIGIN);
-    assert.match(other.searchParams.get("err")!, /already answered or has expired/);
+    assert.match(other.searchParams.get("err")!, /already answered .*or has expired/);
     // Unanswered past the wait: a deny that tells the agent to move on.
     await w.db.prepare("UPDATE approvals SET expires_at = ? WHERE id = ?").bind(Date.now() - 1, id2).run();
     const expired = JSON.parse((await (await w.request(`/api/approval/${id2}`, { as: "bob" })).json() as { output: string }).output);
     assert.equal(expired.hookSpecificOutput.decision.behavior, "deny");
     assert.match(expired.hookSpecificOutput.decision.message, /didn't answer/);
+  });
+});
+
+describe("answering agents from the dashboard, whoever answers first", () => {
+  const start = async (w: World, session: string, version = PLUGIN_VERSION, client = "claude") =>
+    w.request(`/api/hook?event=SessionStart&project=billing-api&session=${session}&name=${session}&client=${client}&version=${version}`, { as: "bob" });
+  const ask = (w: World, session: string, body: object, client = "claude") =>
+    w.request(`/api/approval?session=${session}&client=${client}`, { method: "POST", as: "bob", body: JSON.stringify(body) });
+  const poll = async (w: World, id: number) => (await (await w.request(`/api/approval/${id}`, { as: "bob" })).json()) as { status: string; output?: string; answers?: Record<string, string> };
+  const dock = async (w: World) => {
+    const page = await (await w.request("/dashboard", { as: "bob", cookie: true })).text();
+    return page.slice(page.indexOf('id="asks"') - 20);
+  };
+  const color = { tool_name: "AskUserQuestion", tool_input: { questions: [{ question: "Which color?", header: "Color", multiSelect: false, options: [{ label: "Red", description: "Warm" }, { label: "Blue", description: "Cool" }] }] } };
+
+  test("at the desk, current Claude Code agents ask here too; older ones and Codex only in away mode", async () => {
+    const w = await standardWorld();
+    await start(w, "d1");
+    await start(w, "d2", "0.12.29");
+    await start(w, "d3", PLUGIN_VERSION, "codex");
+    assert.equal((await ask(w, "d1", { tool_name: "Bash", tool_input: { command: "npm run migrate" } })).status, 200);
+    assert.equal((await ask(w, "d2", { tool_name: "Bash", tool_input: { command: "ls" } })).status, 204);
+    assert.equal((await ask(w, "d3", { tool_name: "Bash", tool_input: { command: "ls" } }, "codex")).status, 204);
+    const html = await dock(w);
+    assert.match(html, /id="asks"[^>]*data-n="1"/);
+    assert.match(html, /<pre class="askcode">npm run migrate<\/pre>/);
+    assert.doesNotMatch(html, /denied in/); // no deadline at the desk
+  });
+
+  test("a question is answered with a click: the hook gets the answers to add to the agent's own question", async () => {
+    const w = await standardWorld();
+    await start(w, "q1");
+    const { id } = (await (await ask(w, "q1", color)).json()) as { id: number };
+    const html = await dock(w);
+    assert.match(html, /Which color\?/);
+    assert.match(html, /<button class="askopt" name="q0" value="Blue">/);
+    assert.equal((await poll(w, id)).status, "pending");
+    // An option that wasn't offered isn't an answer.
+    const bad = new URL((await w.form(`/approval/${id}`, "bob", { q0: "Purple" })).headers.get("location")!, ORIGIN);
+    assert.match(bad.searchParams.get("err")!, /Pick an option or type something/);
+    const ok = new URL((await w.form(`/approval/${id}`, "bob", { q0: "Blue" })).headers.get("location")!, ORIGIN);
+    assert.match(ok.searchParams.get("ok")!, /Answered q1: Blue/);
+    const done = await poll(w, id);
+    assert.deepEqual(done.answers, { "Which color?": "Blue" });
+    const out = JSON.parse(done.output!);
+    assert.deepEqual(out.hookSpecificOutput.decision, { behavior: "allow" }); // the answers are added on the machine, not by the hub
+    assert.match(out.systemMessage, /answered from the intercom dashboard: Blue/);
+    // Typed text wins over an option.
+    const { id: id2 } = (await (await ask(w, "q1", color)).json()) as { id: number };
+    await w.form(`/approval/${id2}`, "bob", { q0: "Red", t0: "Teal, actually" });
+    assert.deepEqual((await poll(w, id2)).answers, { "Which color?": "Teal, actually" });
+  });
+
+  test("answered in the terminal: the plugin closes the card; a turn that ends closes its cards; unanswered ones just close", async () => {
+    const w = await standardWorld();
+    await start(w, "c1");
+    const { id } = (await (await ask(w, "c1", color)).json()) as { id: number };
+    await w.request(`/api/approval/${id}/close`, { method: "POST", as: "bob" });
+    assert.equal((await poll(w, id)).status, "closed");
+    assert.match(await dock(w), /<div id="asks" data-region hidden>/);
+    const late = new URL((await w.form(`/approval/${id}`, "bob", { q0: "Red" })).headers.get("location")!, ORIGIN);
+    assert.match(late.searchParams.get("err")!, /already answered \(maybe in the terminal\)/);
+    const { id: id2 } = (await (await ask(w, "c1", { tool_name: "Bash", tool_input: { command: "ls" } })).json()) as { id: number };
+    await w.request("/api/hook?event=Stop&session=c1", { method: "POST", as: "bob", body: "{}" });
+    assert.equal((await poll(w, id2)).status, "closed");
+    // Without away mode, nobody answering isn't a deny: the terminal keeps asking.
+    const { id: id3 } = (await (await ask(w, "c1", { tool_name: "Bash", tool_input: { command: "ls" } })).json()) as { id: number };
+    await w.db.prepare("UPDATE approvals SET expires_at = ? WHERE id = ?").bind(Date.now() - 1, id3).run();
+    assert.equal((await poll(w, id3)).status, "closed");
+  });
+
+  test("a plan: approve it, or keep planning with what to change", async () => {
+    const w = await standardWorld();
+    await start(w, "p1");
+    const { id } = (await (await ask(w, "p1", { tool_name: "ExitPlanMode", tool_input: { plan: "# Plan: add notes\n\n- Create `notes.txt`" } })).json()) as { id: number };
+    const html = await dock(w);
+    assert.match(html, /class="askplan md"[\s\S]*<code>notes\.txt<\/code>/);
+    await w.form(`/approval/${id}`, "bob", { decision: "deny", note: "Use docs/notes.md instead" });
+    const out = JSON.parse((await poll(w, id)).output!);
+    assert.equal(out.hookSpecificOutput.decision.behavior, "deny");
+    assert.match(out.hookSpecificOutput.decision.message, /keep planning: Use docs\/notes\.md instead/);
+  });
+
+  test("the hook adds the answers to the agent's own question, and nothing else from the hub", async () => {
+    const { readFileSync } = await import("node:fs");
+    const src = readFileSync(new URL("../plugins/intercom/hook.sh", import.meta.url), "utf8");
+    const fn = src.slice(src.indexOf("with_answers() {"), src.indexOf("\n}\n", src.indexOf("with_answers() {")) + 3);
+    const run = (output: object, reply: object, input: object) =>
+      execFileSync("sh", ["-c", `${fn}\nprintf '%s' "$OUT" | with_answers`], { env: { ...process.env, OUT: JSON.stringify(output), ASK_REPLY: JSON.stringify(reply), ASK_INPUT: JSON.stringify(input) }, encoding: "utf8" });
+    const allow = { hookSpecificOutput: { hookEventName: "PermissionRequest", decision: { behavior: "allow" } } };
+    const input = { tool_name: "AskUserQuestion", ...color };
+    const out = JSON.parse(run(allow, { answers: { "Which color?": "Blue", "Something else?": "x" } }, input));
+    assert.deepEqual(out.hookSpecificOutput.decision.updatedInput, { ...color.tool_input, answers: { "Which color?": "Blue" } });
+    // No answer for the agent's question: nothing, and the terminal keeps asking.
+    assert.equal(run(allow, { answers: { "Other?": "x" } }, input), "");
+    // Other tools: passed through untouched.
+    assert.deepEqual(JSON.parse(run(allow, { answers: { a: "b" } }, { tool_name: "Bash", tool_input: { command: "ls" } })), allow);
   });
 });
 
