@@ -1605,6 +1605,9 @@ describe("reviews", () => {
     assert.match(dash, /<input type="radio" name="f2" value="drop" checked>/);
     assert.match(dash, /<input type="radio" name="outcome" value="request_changes" checked>/);
     assert.match(dash, /Waiting for you<\/span><span class="badge amber">1/);
+    // The agent's row and chat header say a review is waiting, besides the dock.
+    assert.match(dash, /data-k="bob\/core"[^>]*>[\s\S]*?<span class="tw" title="a review is waiting for you">!<\/span>/);
+    assert.match(await (await w.request("/dashboard?view=agents&agent=bob/core", { as: "bob", cookie: true })).text(), /class="badge amber rvbadge" data-asksopen[^>]*>[\s\S]*?review waiting for you<\/button>/);
     // Only bob decides bob's reviews.
     assert.match(loc(await w.form("/review/1", "alice", { decide: "1", outcome: "approve" })).get("err")!, /No such review/);
     const res = await w.form("/review/1", "bob", { decide: "1", outcome: "approve_after", f1: "post", c1: "A 409 here means a duplicate; fail it.", f2: "drop", c2: review.findings[1]!.comment, note: "ok once fixed" });

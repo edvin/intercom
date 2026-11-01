@@ -761,6 +761,7 @@ body:has(.ide) .top .in{max-width:none;padding:8px 14px}
 .askact{display:flex;gap:8px;justify-content:flex-end;margin-top:10px}
 .askcode{margin:0 0 2px;padding:10px 12px;border-radius:10px;background:var(--surface);border:1px solid var(--line);font-family:"Geist Mono",ui-monospace,monospace;font-size:12.5px;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere;max-height:150px;overflow:auto;color:var(--ink)}
 .askplan{max-height:260px;overflow:auto;padding:4px 14px;border-radius:10px;background:var(--surface);border:1px solid var(--line);font-size:13px}
+.rvbadge{border:0;font:inherit;font-size:11.5px;font-weight:600;cursor:pointer;height:22px;padding:0 9px 0 7px;gap:5px}.rvbadge:hover{background:color-mix(in srgb,var(--amber) 22%,transparent)}
 .k-review .askk{background:var(--accent-soft);color:var(--accent)}
 .rvtitle{display:inline-flex;align-items:center;gap:6px;font-weight:650;font-size:14.5px;line-height:1.35;color:var(--ink);text-decoration:none;text-wrap:pretty}.rvtitle:hover{color:var(--accent);text-decoration:none}.rvtitle .i{flex:none;color:var(--mute)}
 .rvverdict{margin:3px 0 10px;font-size:13px;color:var(--ink-2);line-height:1.45;text-wrap:pretty}
