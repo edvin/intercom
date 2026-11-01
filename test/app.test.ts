@@ -3,6 +3,7 @@ import { describe, test } from "node:test";
 import { conflicting, riskyCommand } from "../src/guard.ts";
 import { DELEGATE_PER_HOUR, prune, resolveProject } from "../src/lib.ts";
 import { ORIGIN, World, standardWorld } from "./harness.ts";
+import { SCRIPT } from "../src/ui.ts";
 import { PLUGIN_VERSION } from "../src/version.ts";
 import { CODE_SINCE, SEARCH_SINCE } from "../src/code.ts";
 import { codeRequest } from "../plugins/intercom/code.mjs";
@@ -1657,6 +1658,15 @@ describe("reviews", () => {
     assert.match(inbox, /YOUR USER[\s\S]*You take over review R1 from core[\s\S]*reviewed at abc1234[\s\S]*1\. \[blocker\] A 409[\s\S]*> This returns ok on 409[\s\S]*Me \(finding 1\): Is this tested\?/);
     await w.form("/review/1", "bob", { decide: "1", outcome: "request_changes" });
     assert.match(await w.ok("bob", "inbox", {}, alder), /Review R1 of [\s\S]*Request changes/);
+  });
+});
+
+describe("the dashboard's script", () => {
+  test("parses, and its regular expressions survive the template they're written in", () => {
+    new Function(SCRIPT);
+    // A backslash in the template is eaten unless doubled: these must reach the browser as written.
+    assert.ok(SCRIPT.includes(String.raw`/(<time\b[^>]*>)[^<]*(<\/time>)/g`));
+    assert.ok(SCRIPT.includes(String.raw`/^\(\d+\) /`));
   });
 });
 

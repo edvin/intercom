@@ -864,8 +864,11 @@ export const SCRIPT = `
 (() => {
   const $ = (s, r = document) => r.querySelector(s), $$ = (s, r = document) => [...r.querySelectorAll(s)];
   // Each live region remembers the HTML the hub drew it from, so a redraw that changes nothing leaves it alone.
-  $$("[data-region]").forEach((el) => (el._src = el.outerHTML));
-  $$("#asks .ask").forEach((c) => (c._src = c.outerHTML));
+  // What counts is the content: relative times ("5m ago", kept current here anyway) and the page to come back to
+  // (it changes when the address is pinned) don't make a card or region different.
+  const sig = (h) => h.replace(/(<time\\b[^>]*>)[^<]*(<\\/time>)/g, "$1$2").replace(/(name="back" value=")[^"]*/g, "$1").replace(/([?&](?:amp;)?back=)[^"&]*/g, "$1");
+  $$("[data-region]").forEach((el) => (el._src = sig(el.outerHTML)));
+  $$("#asks .ask").forEach((c) => (c._src = sig(c.outerHTML)));
   const ICON_SPEAK = ${JSON.stringify(icon("volume", 13))}, ICON_STOP = ${JSON.stringify(icon("square", 13))};
   const rel = (ts) => { const s = Math.round((Date.now() - ts) / 1000);
     if (s < 45) return "just now"; if (s < 3600) return Math.max(1, Math.round(s / 60)) + "m ago";
@@ -1173,7 +1176,7 @@ export const SCRIPT = `
 
   // The dock of what your agents wait on: minimized stays minimized until something new arrives; the tab's title
   // carries the count, so a background tab shows it too.
-  const baseTitle = document.title.replace(/^\(\d+\) /, "");
+  const baseTitle = document.title.replace(/^\\(\\d+\\) /, "");
   let asksOpened = false;
   function bindAsks() {
     const box = document.getElementById("asks");
@@ -1321,7 +1324,7 @@ export const SCRIPT = `
     const top = list.getBoundingClientRect().top, anchor = cards.find((c) => stays.has(c.dataset.mid) && c.getBoundingClientRect().bottom > top + 1);
     const at = anchor ? anchor.getBoundingClientRect().top - top : 0, fresh = [];
     const keep = $$(".ask", $(".asklist", next)).map((c) => {
-      const csrc = c.outerHTML, o = old.get(c.dataset.mid);
+      const csrc = sig(c.outerHTML), o = old.get(c.dataset.mid);
       if (o && (o._src === csrc || o.contains(document.activeElement))) return o;
       c._src = csrc;
       if (o) {
@@ -1341,7 +1344,9 @@ export const SCRIPT = `
     $(".askhd", el).replaceWith($(".askhd", next));
     $(".askpill", el).replaceWith($(".askpill", next));
     el.dataset.n = next.dataset.n; el._src = src;
-    if (anchor && anchor.isConnected) list.scrollTop += anchor.getBoundingClientRect().top - list.getBoundingClientRect().top - at;
+    // The same card, even if it was redrawn (its content changed).
+    const now = anchor && list.querySelector('[data-mid="' + anchor.dataset.mid + '"]');
+    if (now) list.scrollTop += now.getBoundingClientRect().top - list.getBoundingClientRect().top - at;
     $$(".askhd, .askpill", el).forEach((h) => bind(h));
     fresh.forEach((c) => bind(c));
   }
@@ -1349,7 +1354,7 @@ export const SCRIPT = `
     const doc = new DOMParser().parseFromString(text, "text/html");
     $$("[data-region]").forEach((el) => {
       const next = doc.getElementById(el.id); if (!next) return;
-      const src = next.outerHTML; if (el._src === src) return;
+      const src = sig(next.outerHTML); if (el._src === src) return;
       if (el.id === "asks" && !el.hidden && !next.hidden && $(".asklist", el) && $(".asklist", next)) return asksMerge(el, next, src);
       if (el.contains(document.activeElement) && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) return;
       if ((el._imgs && el._imgs.length) || el._adding || Date.now() - (el._picking || 0) < 120000) return; // images waiting to be sent, being added or picked
@@ -1369,7 +1374,7 @@ export const SCRIPT = `
           const anchor = rows[rows.length - 1].nextSibling;
           rows.sort((a, b) => pos(a) - pos(b)).forEach((r) => g.insertBefore(r, anchor)); }); }
       typed.forEach(([id, v]) => { const t = next.querySelector("#" + CSS.escape(id)); if (t && !t.value) t.value = v; });
-      next._src = src; $$(".ask", next).forEach((c) => (c._src = c.outerHTML));
+      next._src = src; $$(".ask", next).forEach((c) => (c._src = sig(c.outerHTML)));
       el.replaceWith(next);
       if (tb) { const nb = next.querySelector(".tbody"); if (nb) nb.scrollTop = tbTop; }
       $$("details", next).forEach((d) => d.id && open.has(d.id) && (d.open = true));
