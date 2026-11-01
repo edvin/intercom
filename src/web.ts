@@ -1063,7 +1063,7 @@ export async function accountPage(req: Request, env: Env, me: string): Promise<R
   const subs = await subscriptions(env, me);
   const pushSection = `<div><h3>Notifications</h3><p class="small muted">When something is waiting for you: a review to decide, an agent's question, or a permission prompt still unanswered after a minute (at once in away mode). Tapping one opens it.</p>
     <div class="row" data-pushctl hidden><span class="small grow" data-pushstate></span><button type="button" class="btn ghost sm" data-pushtest hidden>Send a test</button><button type="button" class="btn sm" data-pushtoggle hidden>Turn on</button></div>
-    ${subs.length ? `<p class="small muted" style="margin-bottom:0">On for ${subs.map((d) => `${esc(d.device)} <span title="Last delivered">(${d.last_ok ? `last ${ago(d.last_ok)}` : `since ${ago(d.created_at)}`})</span>`).join(", ")}.</p>` : ""}</div>`;
+    ${subs.length ? `<ul class="small pushdevs">${subs.map((d) => `<li><b>${esc(d.device)}</b> <span class="muted">· on since ${ago(d.created_at)}${d.last_at ? ` · last notification ${ago(d.last_at)}: ` : ""}</span>${d.last_at ? (d.last_status && d.last_status !== "shown on the device" ? `<span class="pusherr">${esc(d.last_status)}</span>` : `<span>${d.last_status ? "shown on the device" : "sent"}</span>`) : ""}</li>`).join("")}</ul>` : ""}</div>`;
   const deviceList = devices.length
     ? `<div><h3>Signed-in browsers, terminals and connectors</h3>${devices
         .map(

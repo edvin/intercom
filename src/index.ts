@@ -38,11 +38,29 @@ const MANIFEST = JSON.stringify({
 // fetches, so pages load exactly as without it. The app icon's badge carries the count waiting for you.
 const SERVICE_WORKER = `self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (e) => e.waitUntil(self.clients.claim()));
+// Tells the hub what happened, for Account's "last notification" line (the hub can't see the device otherwise).
+async function report(what) {
+  try {
+    const sub = await self.registration.pushManager.getSubscription();
+    if (sub) await fetch("/push/report", { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: JSON.stringify({ endpoint: sub.endpoint, ...what }) });
+  } catch {}
+}
+async function show(d) {
+  // The notification first: a push that shows none can cost the subscription (iPhone switches them off).
+  const title = d.title || "Intercom", data = { url: d.url || "/dashboard" };
+  try {
+    await self.registration.showNotification(title, { body: d.body || "", tag: d.tag || undefined, data });
+    await report({ shown: true });
+  } catch (err) {
+    try { await self.registration.showNotification(title, { body: d.body || "", data }); } catch {}
+    await report({ error: String(err && err.message || err) });
+  }
+  try { if (self.navigator.setAppBadge && typeof d.count === "number") await (d.count ? self.navigator.setAppBadge(d.count) : self.navigator.clearAppBadge()); } catch {}
+}
 self.addEventListener("push", (e) => {
   let d = {};
   try { d = e.data ? e.data.json() : {}; } catch {}
-  const badge = navigator.setAppBadge && typeof d.count === "number" ? (d.count ? navigator.setAppBadge(d.count) : navigator.clearAppBadge()).catch(() => {}) : Promise.resolve();
-  e.waitUntil(Promise.all([badge, self.registration.showNotification(d.title || "Intercom", { body: d.body || "", tag: d.tag || undefined, renotify: !!d.tag, icon: "/assets/icon-192.png", data: { url: d.url || "/dashboard" } })]));
+  e.waitUntil(show(d));
 });
 self.addEventListener("notificationclick", (e) => {
   e.notification.close();

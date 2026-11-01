@@ -17,7 +17,7 @@ import { getSetting, githubRepo, openSignup, setSetting } from "./github";
 import { landingPage } from "./landing";
 import { BUILD, esc, icon, redirect } from "./ui";
 import { accountPage, dashboard, soloCard, exportProject, localPath, sameOrigin, handleAction, handleAdminAction, handleJoin, handleLogin, handleLogout, loginPage } from "./web";
-import { publicKey, sendTest, subscribe, unsubscribe } from "./push";
+import { phoneReport, publicKey, sendTest, subscribe, unsubscribe } from "./push";
 
 const SUPPORTED_PROTOCOLS = ["2025-11-25", "2025-06-18", "2025-03-26"];
 const SERVER_INFO = { name: "intercom", version: "0.1.0" };
@@ -903,6 +903,11 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
       return json({ ok: true });
     }
     if (url.pathname === "/push/test") return json({ sent: await sendTest(env, me) });
+    if (url.pathname === "/push/report") {
+      const r = body as { endpoint?: unknown; error?: unknown };
+      await phoneReport(env, me, String(r.endpoint ?? ""), typeof r.error === "string" ? r.error || "unknown error" : "");
+      return json({ ok: true });
+    }
   }
   if (url.pathname === "/away" && req.method === "POST") {
     if (!sameOrigin(req)) return new Response("Cross-origin request refused", { status: 403 });

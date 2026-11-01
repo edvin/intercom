@@ -2618,10 +2618,10 @@ describe("notifications (web push)", () => {
     assert.equal((await json(w, "/push/subscribe", b.sub)).status, 200);
     assert.equal((await json(w, "/push/subscribe", b.sub)).status, 200); // again: still one
     const account = await (await w.request("/account", { as: "bob", cookie: true })).text();
-    assert.match(account, /On for Safari on iPhone/);
+    assert.match(account, /<b>Safari on iPhone<\/b>/);
     assert.match(account, /data-pushctl/);
     await json(w, "/push/unsubscribe", { endpoint: b.sub.endpoint });
-    assert.doesNotMatch(await (await w.request("/account", { as: "bob", cookie: true })).text(), /On for Safari/);
+    assert.doesNotMatch(await (await w.request("/account", { as: "bob", cookie: true })).text(), /<b>Safari on iPhone/);
   });
 
   test("a review reaches the phone at once, encrypted for it and signed by the hub; a gone browser is forgotten", async () => {
@@ -2645,6 +2645,13 @@ describe("notifications (web push)", () => {
       const key = await crypto.subtle.importKey("raw", Buffer.from(m[4], "base64url"), { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"]);
       assert.ok(await crypto.subtle.verify({ name: "ECDSA", hash: "SHA-256" }, key, Buffer.from(m[3], "base64url"), te.encode(`${m[1]}.${m[2]}`)));
       assert.equal(JSON.parse(Buffer.from(m[2], "base64url").toString()).aud, "https://push.example");
+      // Account says what became of it; the device reports whether it could show it.
+      const acct = async () => (await (await w.request("/account", { as: "bob", cookie: true })).text());
+      assert.match(await acct(), /last notification just now: <\/span><span>sent/);
+      await json(w, "/push/report", { endpoint: b.sub.endpoint, error: "TypeError: bad option" });
+      assert.match(await acct(), /class="pusherr">the device couldn&#39;t show it: TypeError: bad option/);
+      await json(w, "/push/report", { endpoint: b.sub.endpoint });
+      assert.match(await acct(), /<span>shown on the device/);
       // Sent again at the same head: no second notification. An answer on the card is one.
       await w.ok("bob", "review", review, { id: "np1", project: "billing-api" });
       const id = Number((await w.ok("bob", "review", { action: "list" }, { id: "np1", project: "billing-api" })).match(/R(\d+)/)![1]);
@@ -2658,7 +2665,7 @@ describe("notifications (web push)", () => {
       await w.ok("bob", "review", { ...review, head: "def5678" }, { id: "np1", project: "billing-api" });
       await sendDuePushes(w.env());
       assert.equal(sent.length, 3);
-      assert.doesNotMatch(await (await w.request("/account", { as: "bob", cookie: true })).text(), /On for Safari/);
+      assert.doesNotMatch(await (await w.request("/account", { as: "bob", cookie: true })).text(), /<b>Safari on iPhone/);
       await w.ok("bob", "review", { ...review, head: "0000000" }, { id: "np1", project: "billing-api" });
       await sendDuePushes(w.env());
       assert.equal(sent.length, 3);

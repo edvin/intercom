@@ -21,6 +21,8 @@ export interface PushSub {
   device: string;
   created_at: number;
   last_ok: number | null;
+  last_at: number | null;
+  last_status: string;
 }
 
 const enc = new TextEncoder();
@@ -192,13 +194,29 @@ export async function sendNote(env: Env, me: string, note: Note): Promise<number
       if (res.status === 404 || res.status === 410) await unsubscribe(env, me, s.endpoint);
       else if (res.ok) {
         sent++;
-        await env.DB.prepare("UPDATE push_subs SET last_ok = ? WHERE endpoint = ?").bind(Date.now(), s.endpoint).run();
-      } else console.log("push", res.status, new URL(s.endpoint).host, (await res.text()).slice(0, 200));
+        await status(env, s.endpoint, "", Date.now());
+      } else await status(env, s.endpoint, `${host(s.endpoint)} refused it: ${res.status} ${(await res.text()).slice(0, 160)}`.trim());
     } catch (e) {
-      console.log("push failed", new URL(s.endpoint).host, String(e));
+      await status(env, s.endpoint, `couldn't reach ${host(s.endpoint)}: ${String(e).slice(0, 160)}`);
     }
   }
   return sent;
+}
+
+const host = (endpoint: string) => {
+  const h = new URL(endpoint).host;
+  return /apple\.com$/.test(h) ? "Apple" : /googleapis\.com$/.test(h) ? "Google" : /mozilla/.test(h) ? "Mozilla" : h;
+};
+
+/** The last notification's outcome for one browser: "" delivered to its push service (`ok` then), else what went wrong. */
+async function status(env: Env, endpoint: string, what: string, ok?: number): Promise<void> {
+  await env.DB.prepare("UPDATE push_subs SET last_at = ?, last_status = ?, last_ok = COALESCE(?, last_ok) WHERE endpoint = ?").bind(Date.now(), what, ok ?? null, endpoint).run();
+}
+
+/** The device's own report (from the service worker): it showed the notification, or showing it failed. */
+export async function phoneReport(env: Env, me: string, endpoint: string, error: string): Promise<void> {
+  const what = error ? `the device couldn't show it: ${error.slice(0, 200)}` : "shown on the device";
+  await env.DB.prepare("UPDATE push_subs SET last_at = ?, last_status = ? WHERE member = ? AND endpoint = ?").bind(Date.now(), what, me, endpoint).run();
 }
 
 /** A test notification, from Account. */
