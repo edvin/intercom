@@ -4,6 +4,7 @@
 
 import { awayState, pendingApprovals } from "./approvals";
 import { pendingReviews } from "./reviews";
+import { pendingTickets } from "./tickets";
 import { AUTO_UPDATE_SINCE, PLUGIN_VERSION, outdated } from "./version";
 import { activeLoops, describe, parseLoops } from "./loops";
 import { activeJobs, duration, jobName, parseJobs } from "./jobs";
@@ -115,11 +116,15 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   const jobsOf = (a: Agent) => (a.member === me && isOn(a) ? activeJobs(parseJobs(a.jobs)) : []);
   const key = (a: Agent) => `${a.member}/${a.label}`;
   // Reviews your agents sent you (reviews.ts): their rows and chat headers say so, besides the dock.
+  // Tickets too (tickets.ts).
   const reviews = await pendingReviews(env, me);
-  const reviewsOf = (a: Agent) => (a.member === me ? reviews.filter((r) => r.label === a.label).length : 0);
+  const tickets = await pendingTickets(env, me);
+  const reviewsOf = (a: Agent) => (a.member === me ? reviews.filter((r) => r.label === a.label).length + tickets.filter((t) => t.label === a.label).length : 0);
   const reviewBadge = (a: Agent) => {
-    const n = reviewsOf(a);
-    return n ? `<button type="button" class="badge amber rvbadge" data-asksopen title="Open it in Waiting for you">${icon("eye", 11)}${n === 1 ? "review" : `${n} reviews`} waiting for you</button>` : "";
+    if (a.member !== me) return "";
+    const r = reviews.filter((x) => x.label === a.label).length, t = tickets.filter((x) => x.label === a.label).length;
+    const what = [r ? (r === 1 ? "review" : `${r} reviews`) : "", t ? (t === 1 ? "ticket" : `${t} tickets`) : ""].filter(Boolean).join(" and ");
+    return what ? `<button type="button" class="badge amber rvbadge" data-asksopen title="Open it in Waiting for you">${icon("eye", 11)}${what} waiting for you</button>` : "";
   };
   /** Working / idle / needs you, from the session's own hooks; "gone" once it isn't connected. */
   const stateBadge = (a: Agent) => {
@@ -196,7 +201,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
     .join("");
   const loose = agents.filter((a) => a.member === me && (!a.project || !nav.mine.includes(a.project)));
   const { away, waitMin } = await awayState(env, me);
-  const pending = [...(await pendingApprovals(env, me)), ...reviews];
+  const pending = [...(await pendingApprovals(env, me)), ...reviews, ...tickets];
   const tree = `<aside class="tree" id="tree" data-region>
     <nav class="ttop">
       <button type="button" class="tl" data-kopen>${icon("search", 14)}<span>Search</span><span class="kbd kbd-k" style="margin-left:auto">⌘K</span></button>

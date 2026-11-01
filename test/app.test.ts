@@ -1602,6 +1602,9 @@ describe("reviews", () => {
     const dash = await (await w.request("/dashboard?view=agents", { as: "bob", cookie: true })).text();
     assert.match(dash, /<article class="ask k-review" data-mid="r1">/);
     assert.match(dash, /Retry failed invoices/);
+    // Full size, in a view of its own (the notification opens it).
+    assert.match(dash, /class="btn ghost xs icon rvopen" href="\/dashboard\?view=review&amp;id=1&amp;back=/);
+    assert.match(await (await w.request("/dashboard?view=review&id=1", { as: "bob", cookie: true })).text(), /<div id="rvview" data-region><div class="rvfull"><article class="ask k-review" data-mid="r1">/);
     assert.match(dash, /<input type="radio" name="f2" value="drop" checked>/);
     assert.match(dash, /<input type="radio" name="outcome" value="request_changes" checked>/);
     assert.match(dash, /Waiting for you<\/span><span class="badge amber">1/);
@@ -1654,6 +1657,126 @@ describe("reviews", () => {
     assert.match(inbox, /YOUR USER[\s\S]*You take over review R1 from core[\s\S]*reviewed at abc1234[\s\S]*1\. \[blocker\] A 409[\s\S]*> This returns ok on 409[\s\S]*Me \(finding 1\): Is this tested\?/);
     await w.form("/review/1", "bob", { decide: "1", outcome: "request_changes" });
     assert.match(await w.ok("bob", "inbox", {}, alder), /Review R1 of [\s\S]*Request changes/);
+  });
+});
+
+describe("tickets", () => {
+  const setup = async () => {
+    const w = await standardWorld();
+    await w.request(`/api/hook?event=SessionStart&project=billing-api&session=tk1&name=triage`, { as: "bob" });
+    await w.ok("bob", "inbox", {}, { id: "tk1", project: "billing-api" });
+    return w;
+  };
+  const triage = { id: "tk1", project: "billing-api" };
+  const ticket = {
+    key: "SHOP-12",
+    url: "https://tracker.example.com/browse/SHOP-12",
+    title: "Invoices with a 0% VAT line show the wrong total",
+    fields: { status: "In Progress", priority: "High", type: "Bug", reporter: "Dana", assignee: "Bob" },
+    description: "When a line has **0% VAT** the total skips it.\n\nSteps:\n1. Add a zero-rated line\n2. Look at the total",
+    comments: [{ author: "Dana", at: "2026-10-30 14:02", body: "Still happens on the new checkout." }],
+    links: [{ key: "SHOP-9", title: "VAT rework", relation: "relates to", status: "Done", url: "https://tracker.example.com/browse/SHOP-9" }],
+    verdict: "Still valid: the sum filters out lines whose VAT is falsy, so 0% lines drop.",
+    plan: "Fix the filter in `totals.ts` and add a test with a zero-rated line.",
+    size: "S: an hour",
+    repos: ["shop/billing"],
+    recommend: "go",
+    questions: [{ question: "Backport to the 2.x branch?", options: ["Yes", "No"] }, { question: "Anyone to tell when it ships?" }],
+    mrs: [
+      {
+        url: "https://git.example.com/shop/billing/-/merge_requests/7",
+        title: "Count 0% VAT lines in totals",
+        state: "open",
+        branch: "fix/zero-vat",
+        target: "main",
+        pipeline: "passed",
+        files: [{ path: "src/totals.ts", added: 1, removed: 1 }],
+        commits: [{ sha: "abcdef1234", title: "Count zero-rated lines" }],
+        diff: "diff --git a/src/totals.ts b/src/totals.ts\n--- a/src/totals.ts\n+++ b/src/totals.ts\n@@ -1,3 +1,3 @@\n export const total = (ls) =>\n-  ls.filter((l) => l.vat).reduce((n, l) => n + l.sum, 0);\n+  ls.reduce((n, l) => n + l.sum, 0);\n",
+      },
+    ],
+  };
+  const loc = (r: Response) => new URL(r.headers.get("location")!, ORIGIN).searchParams;
+  const page = async (w: Awaited<ReturnType<typeof setup>>, path: string) => (await w.request(path, { as: "bob", cookie: true })).text();
+
+  test("what's needed and nothing too long: a plan, a key, a link; at most three questions; from an agent", async () => {
+    const w = await setup();
+    assert.match((await w.tool("bob", "ticket", { ...ticket, plan: "" }, triage)).text, /needs the proposed plan/);
+    assert.match((await w.tool("bob", "ticket", { ...ticket, questions: Array(4).fill({ question: "?" }) }, triage)).text, /send at most 3/);
+    assert.match((await w.tool("bob", "ticket", { ...ticket, url: "SHOP-12" }, triage)).text, /must be a web link/);
+    assert.match((await w.tool("bob", "ticket", { ...ticket, mrs: [{ ...ticket.mrs[0], diff: "x".repeat(300_001) }] }, triage)).text, /diffs are over 300000/);
+    assert.match((await w.tool("bob", "ticket", ticket)).text, /come from an agent session/);
+  });
+
+  test("a ticket waits on a card and reads whole in its own view: the ticket, the plan, the MR and its diff", async () => {
+    const w = await setup();
+    assert.match(await w.ok("bob", "ticket", ticket, triage), /Ticket T1 \(SHOP-12\) is waiting[\s\S]*Don't start it/);
+    const dash = await page(w, "/dashboard?view=agents");
+    assert.match(dash, /<article class="ask k-ticket" data-mid="t1">[\s\S]*SHOP-12[\s\S]*Invoices with a 0% VAT line[\s\S]*2 questions for you[\s\S]*Recommends <b>Go<\/b>[\s\S]*href="\/dashboard\?view=ticket&amp;id=1&amp;back=/);
+    assert.match(dash, /Waiting for you<\/span><span class="badge amber">1/);
+    assert.match(dash, /ticket waiting for you<\/button>/);
+    const v = await page(w, "/dashboard?view=ticket&id=1");
+    assert.match(v, /<h1>Invoices with a 0% VAT line show the wrong total<\/h1>/);
+    assert.match(v, /<span>Priority<\/span>High/);
+    assert.match(v, /<b>0% VAT<\/b>/);
+    assert.match(v, /Still happens on the new checkout/);
+    assert.match(v, /relates to<\/span><b>SHOP-9<\/b>/);
+    assert.match(v, /Fix the filter in <code>totals\.ts<\/code>/);
+    assert.match(v, /pipeline passed[\s\S]*<code>fix\/zero-vat<\/code> → <code>main<\/code>/);
+    assert.match(v, /<table class="diff">[\s\S]*class="da"[\s\S]*ls\.reduce/);
+    assert.match(v, /<input type="radio" name="p0" value="Yes">/);
+    assert.match(v, /<input type="radio" name="outcome" value="go" checked>/);
+    // Someone else's ticket isn't there.
+    assert.match(await (await w.request("/dashboard?view=ticket&id=1", { as: "alice", cookie: true })).text(), /No such ticket/);
+  });
+
+  test("you ask; the answer shows in the view and goes to the phone; your decision, answers and edited plan reach the agent", async () => {
+    const w = await setup();
+    await w.ok("bob", "ticket", ticket, triage);
+    assert.match(loc(await w.form("/ticket/1", "bob", { ask: "1", ask_text: "Does the export use the same sum?" })).get("ok")!, /Asked triage/);
+    assert.match(await w.ok("bob", "inbox", {}, triage), /About ticket T1 SHOP-12 \(Invoices[\s\S]*Does the export use the same sum\?[\s\S]*action "answer", id 1/);
+    await w.ok("bob", "ticket", { action: "answer", id: 1, text: "No, the export has its own sum in `export.ts`; I'd fix both." }, triage);
+    const v = await page(w, "/dashboard?view=ticket&id=1");
+    assert.match(v, /class="tkturn mine"[\s\S]*Does the export use the same sum\?[\s\S]*class="tkturn"[\s\S]*<b>triage<\/b>[\s\S]*its own sum in <code>export\.ts<\/code>/);
+    assert.match(await page(w, "/dashboard?view=agents"), /triage answered your question/);
+    // Go with changes needs a change.
+    assert.match(loc(await w.form("/ticket/1", "bob", { decide: "1", outcome: "go_changes", plan: ticket.plan })).get("err")!, /edit the plan or add a note/);
+    const res = await w.form("/ticket/1", "bob", { decide: "1", outcome: "go_changes", plan: "Fix both sums (totals and export), one MR.", p0: "Yes", q0: "", q1: "Tell Dana", note: "Keep it small" });
+    assert.match(loc(res).get("ok")!, /Sent to triage: Go with changes/);
+    const inbox = await w.ok("bob", "inbox", {}, triage);
+    assert.match(inbox, /YOUR USER[\s\S]*Ticket T1 SHOP-12 \(Invoices[^)]*\): Go with changes\.\n\s*Use this plan instead of yours:\n\s*> Fix both sums[\s\S]*My answers to your questions:\n\s*1\. Backport to the 2\.x branch\?\n\s*Yes\n\s*2\. Anyone to tell when it ships\?\n\s*Tell Dana[\s\S]*Note: Keep it small/);
+    assert.match(await w.ok("bob", "decisions", { query: "SHOP-12" }), /APPROVED · ticket SHOP-12: Invoices[\s\S]*Go with changes; plan edited; Keep it small/);
+    assert.doesNotMatch(await page(w, "/dashboard?view=agents"), /class="ask k-ticket"/);
+    assert.match(await page(w, "/dashboard?view=ticket&id=1"), /You decided <b>Go with changes<\/b>/);
+    assert.match(loc(await w.form("/ticket/1", "bob", { decide: "1", outcome: "park" })).get("err")!, /already decided/);
+  });
+
+  test("the same key again keeps the card; replace swaps it; list and withdraw; a decline says it won't be done", async () => {
+    const w = await setup();
+    await w.ok("bob", "ticket", ticket, triage);
+    assert.match(await w.ok("bob", "ticket", { ...ticket, verdict: "Same." }, triage), /T1 for SHOP-12 is still waiting[\s\S]*nothing sent/);
+    assert.match(await w.ok("bob", "ticket", { action: "list" }, triage), /T1 SHOP-12 — Invoices[\s\S]*from triage/);
+    await w.ok("bob", "ticket", { ...ticket, verdict: "Revised: also the export.", replace: true }, triage);
+    const dash = await page(w, "/dashboard?view=agents");
+    assert.doesNotMatch(dash, /data-mid="t1"/);
+    assert.match(dash, /data-mid="t2"[\s\S]*Revised: also the export/);
+    assert.match(await page(w, "/dashboard?view=ticket&id=1"), /sent a newer version/);
+    await w.form("/ticket/2", "bob", { decide: "1", outcome: "decline", note: "Fixed by the checkout rewrite" });
+    assert.match(await w.ok("bob", "inbox", {}, triage), /Ticket T2 SHOP-12[\s\S]*: Decline\.\n\s*Won't do: don't start it\.\n\s*Reason: Fixed by the checkout rewrite/);
+    await w.ok("bob", "ticket", { ...ticket, key: "SHOP-13" }, triage);
+    assert.match(await w.ok("bob", "ticket", { action: "withdraw", id: 3 }, triage), /Withdrew T3/);
+    assert.match(await w.ok("bob", "ticket", { action: "list" }, triage), /No tickets are waiting/);
+  });
+
+  test("an image for a ticket is stored without a message, and shows where the agent put it", async () => {
+    const w = await setup();
+    const out = await w.ok("bob", "share_file", { path: "/tmp/shot.png", hold: true, _file: { name: "shot.png", mime: "image/png", data: Buffer.from("png").toString("base64") } }, triage);
+    const m = out.match(/\[📎 image #(\d+): shot\.png\]/)!;
+    assert.ok(m, out);
+    assert.match(out, /Stored, not sent/);
+    assert.doesNotMatch(await w.ok("bob", "inbox", {}, triage), /shot\.png/);
+    await w.ok("bob", "ticket", { ...ticket, description: `It looks like this:\n\n${m[0]}` }, triage);
+    assert.match(await page(w, "/dashboard?view=ticket&id=1"), new RegExp(`<img src="/attachment/${m[1]}"`));
   });
 });
 
@@ -2646,7 +2769,7 @@ describe("notifications (web push)", () => {
       assert.equal(s.url, b.sub.endpoint);
       assert.equal(s.headers.get("content-encoding"), "aes128gcm");
       const note = await b.open(s.body);
-      assert.deepEqual(note, { title: "Review: Retry failed invoices", body: "core: A 409 counts as paid.", tag: note.tag, url: "/dashboard?view=agents&agent=bob%2Fcore", count: 1 });
+      assert.deepEqual(note, { title: "Review: Retry failed invoices", body: "core: A 409 counts as paid.", tag: note.tag, url: `/dashboard?view=review&id=${note.tag.slice(1)}`, count: 1 });
       // The VAPID signature checks out against the hub's public key, for that push service.
       const m = s.headers.get("authorization")!.match(/^vapid t=([^.]+)\.([^.]+)\.([^,]+), k=(.+)$/)!;
       const key = await crypto.subtle.importKey("raw", Buffer.from(m[4], "base64url"), { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"]);

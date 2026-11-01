@@ -726,6 +726,62 @@ body:has(.ide) .top .in{max-width:none;padding:8px 14px}
 .drawer{grid-column:3;min-height:0;overflow:auto;border-left:1px solid var(--line);padding:14px;display:flex;flex-direction:column;gap:14px;background:color-mix(in srgb,var(--surface) 35%,transparent)}
 .treebtn{margin-left:-4px}
 @media (max-width:1180px){.ide.feedmode:not(.nodrawer){--dw:320px}}
+/* A ticket (ticketview.ts): its card in the dock, and its own view. */
+.k-ticket .askk{background:var(--green-soft);color:var(--green);font-family:"Geist Mono",ui-monospace,monospace}
+.tkfacts{display:flex;flex-wrap:wrap;gap:4px 6px;margin:-4px 0 4px}.tkfacts span{font-size:11.5px;color:var(--ink-2);padding:2px 8px;border-radius:999px;background:var(--surface)}
+.tknew{display:flex;align-items:center;gap:6px;margin:8px 0 0;font-size:12.5px;color:var(--accent);font-weight:600}
+.tkrec{font-size:12px;color:var(--mute)}.tkrec b{color:var(--ink);font-weight:650}
+.k-ticket .askact{align-items:center}
+.rvopen{margin:-4px -6px -4px 0}.rvfull .ask{padding:18px 20px;background:var(--surface);font-size:14px}.rvfull .rvsum{font-size:14.5px}.rvfull .rvc textarea{min-height:160px}
+.tkpane{max-width:880px;gap:14px;padding-bottom:80px}
+.tkback{align-self:flex-start;margin-left:-8px}
+.tkhead h1{margin:6px 0 10px;font-size:24px;line-height:1.25;letter-spacing:-.01em;text-wrap:pretty;overflow-wrap:anywhere}
+.tkkey{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.tkkeyl{display:inline-flex;align-items:center;gap:5px;font:650 13px "Geist Mono",ui-monospace,monospace;color:var(--green);background:var(--green-soft);padding:3px 10px;border-radius:999px;text-decoration:none}.tkkeyl:hover{text-decoration:none;filter:brightness(1.1)}
+.tkfrom{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--mute)}.tkfrom a{color:var(--ink);font-weight:600}
+.tkfields{display:flex;flex-wrap:wrap;gap:6px}
+.tkf{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;padding:4px 10px;border-radius:9px;background:var(--surface-2);border:1px solid var(--line);color:var(--ink)}.tkf>span{color:var(--mute);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em}
+.tkf.ok{border-color:color-mix(in srgb,var(--green) 40%,transparent)}.tkf.bad{border-color:color-mix(in srgb,var(--red) 40%,transparent)}.tkf.mid{border-color:color-mix(in srgb,var(--amber) 40%,transparent)}
+.tknav{position:sticky;top:0;z-index:5;display:flex;gap:4px;overflow-x:auto;scrollbar-width:none;padding:6px;margin:0 -6px;border-radius:12px;background:color-mix(in srgb,var(--bg) 82%,transparent);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
+.tknav::-webkit-scrollbar{display:none}
+.tknav a{flex:none;padding:6px 12px;border-radius:8px;font-size:13px;font-weight:600;color:var(--ink-2);text-decoration:none}.tknav a:hover{background:var(--surface-2);color:var(--ink);text-decoration:none}
+.tkpane section,.tkpane #tkdecision{scroll-margin-top:60px}
+.tkverdict{padding:16px 18px;border-radius:var(--r);border:1px solid transparent;background:linear-gradient(var(--surface),var(--surface)) padding-box,linear-gradient(140deg,color-mix(in srgb,var(--green) 60%,transparent),color-mix(in srgb,var(--accent) 45%,transparent) 60%,var(--line-strong)) border-box}
+.tkvh{display:flex;align-items:center;gap:8px}
+.tkvline{margin:4px 0 8px;font-size:16px;font-weight:600;line-height:1.45;text-wrap:pretty}
+.tkplan{font-size:14px}
+.tkmeta{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;margin:0 0 10px;font-size:12.5px}.tkmeta code{font-size:12px;padding:1px 6px;border-radius:6px;background:var(--surface-2)}
+.tks{display:inline-flex;align-items:center;font-size:11.5px;font-weight:650;padding:2px 9px;border-radius:999px;background:var(--surface-2);color:var(--ink-2)}
+.tks.ok{background:var(--green-soft);color:var(--green)}.tks.bad{background:var(--red-soft);color:var(--red)}.tks.mid{background:var(--amber-soft);color:var(--amber)}
+.tkcard{padding:16px 18px;border-radius:var(--r);border:1px solid var(--line);background:var(--surface)}
+.tkh2{display:flex;align-items:center;gap:8px;margin:0 0 12px;font-size:15px;font-weight:650}.tkh2 .i{color:var(--mute)}
+.tkh3{display:flex;align-items:center;gap:6px;margin:18px 0 8px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--mute)}
+.tkdesc{font-size:14px;line-height:1.6;overflow-wrap:anywhere}.tkdesc img,.tkc img{max-width:100%}
+.tklinks{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:var(--r-s);overflow:hidden}
+.tklink{display:flex;align-items:center;gap:8px;padding:8px 12px;font-size:13px;color:var(--ink);text-decoration:none;border-top:1px solid var(--line)}.tklink:first-child{border-top:0}a.tklink:hover{background:var(--surface-2);text-decoration:none}
+.tklink>.muted{flex:none;font-size:12px}.tklink b{flex:none;font-family:"Geist Mono",ui-monospace,monospace;font-size:12.5px}.tkltitle{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tkcomments{display:flex;flex-direction:column;gap:8px}
+.tkc{padding:10px 14px;border-radius:var(--r-s);background:var(--surface-2)}.tkch{display:flex;align-items:baseline;gap:8px;margin-bottom:4px;font-size:12.5px}.tkc .md{font-size:13.5px;overflow-wrap:anywhere}
+.tkmr+.tkmr{margin-top:18px;padding-top:18px;border-top:1px solid var(--line)}
+.tkmrh{margin-bottom:6px}.tkmrt{display:inline-flex;align-items:center;gap:7px;font-weight:650;font-size:14.5px;color:var(--ink);text-decoration:none;overflow-wrap:anywhere}.tkmrt:hover{color:var(--accent);text-decoration:none}.tkmrt .i{flex:none;color:var(--mute)}
+.tkfiles{margin-bottom:8px;max-height:260px;overflow:auto}
+.tkcommits{margin:0 0 10px;font-size:13px}.tkcommits summary{cursor:pointer;color:var(--mute);font-size:12.5px}.tkcommits ul{margin:6px 0 0;padding-left:18px}.tkcommits li{margin:3px 0;overflow-wrap:anywhere}.tkcommits code{color:var(--accent);font-size:12px}
+.tkdiff{display:flex;flex-direction:column;gap:8px}
+.tkthread{display:flex;flex-direction:column;gap:8px}
+.tkturn{padding:10px 14px;border-radius:var(--r-s);background:var(--accent-soft);max-width:92%}.tkturn.mine{align-self:flex-end;background:var(--surface-2)}
+.tkturnh{display:flex;align-items:baseline;gap:8px;font-size:12px;margin-bottom:2px}.tkturnh time{color:var(--mute)}.tkturn .md{font-size:13.5px;overflow-wrap:anywhere}
+.tkask{display:flex;gap:8px;align-items:flex-end;margin-top:12px}.tkask textarea{flex:1;min-width:0}
+.tkta{width:100%;resize:vertical;padding:9px 12px;border-radius:10px;font:inherit;font-size:14px;line-height:1.5;background:var(--surface-2)}.tkta.mono{font:13px/1.6 "Geist Mono",ui-monospace,monospace}
+.tkqs{display:flex;flex-direction:column;gap:14px;margin-bottom:16px}
+.tkq{border:0;padding:0;margin:0;min-width:0}.tkq legend{padding:0;margin-bottom:8px}.tkq .askopts{margin-bottom:6px}
+.tkdecide .rvout{margin-top:0}
+.tkplanedit,.tknote{display:flex;flex-direction:column;gap:5px;margin-top:14px}
+.tkplanedit{display:none}.tkdecide:has(input[value=go_changes]:checked) .tkplanedit{display:flex}
+.tknote .tknote-r{display:none}.tkdecide:has(input[value=decline]:checked) .tknote .tknote-r{display:inline-block}.tkdecide:has(input[value=decline]:checked) .tknote .tknote-n{display:none}
+.tkdecide .askact{margin-top:14px}
+.tkout label:has(input[value=decline]:checked){color:var(--red)}.tkout label:has(input[value=go]:checked),.tkout label:has(input[value=go_changes]:checked){color:var(--green)}
+.tkdone{display:flex;align-items:center;gap:10px;padding:12px 16px;border-radius:var(--r);background:var(--surface-2);border:1px solid var(--line);font-size:14px}.tkdone>.i{flex:none;color:var(--green)}
+@media (max-width:640px){.tkpane{padding:12px 12px 80px}.tkhead h1{font-size:20px}.tkcard,.tkverdict{padding:14px}.tkfrom{width:100%}.tkask{flex-direction:column;align-items:stretch}.tkturn{max-width:100%}}
 /* What your agents wait on: a dock in the corner of every dashboard page. */
 .asks{position:fixed;right:20px;bottom:20px;z-index:45;width:min(420px,calc(100vw - 32px));display:flex;flex-direction:column;align-items:flex-end;pointer-events:none}
 .asks>*{pointer-events:auto}
@@ -1118,6 +1174,7 @@ export const SCRIPT = `
   // The dock of what your agents wait on: minimized stays minimized until something new arrives; the tab's title
   // carries the count, so a background tab shows it too.
   const baseTitle = document.title.replace(/^\(\d+\) /, "");
+  let asksOpened = false;
   function bindAsks() {
     const box = document.getElementById("asks");
     const ids = box && !box.hidden ? $$(".ask", box).map((a) => a.dataset.mid) : [];
@@ -1125,11 +1182,13 @@ export const SCRIPT = `
     document.title = ids.length ? "(" + ids.length + ") " + baseTitle : baseTitle;
     if (box) pushBadge(ids.length);
     pushShow();
-    $$("[data-asksopen]").forEach((b) => b.onclick = () => { if (!box) return; if (document.getElementById("ide")?.classList.contains("treeopen")) closeTree(); box.classList.remove("min"); store(null); const f = box.querySelector(".askopt, input, button.primary"); f && !matchMedia("(pointer: coarse)").matches && f.focus(); });
+    $$("[data-asksopen]").forEach((b) => b.onclick = () => { if (!box) return; if (document.getElementById("ide")?.classList.contains("treeopen")) closeTree(); box.classList.remove("min"); asksOpened = true; store(null); const f = box.querySelector(".askopt, input, button.primary"); f && !matchMedia("(pointer: coarse)").matches && f.focus(); });
     if (!ids.length) return;
     let seen = null; try { seen = JSON.parse(sessionStorage.getItem("ic_asks_min") || "null"); } catch {}
-    box.classList.toggle("min", Array.isArray(seen) && ids.every((i) => seen.includes(i)));
-    $$("[data-askstoggle]", box).forEach((b) => b.onclick = () => { const m = !box.classList.contains("min"); box.classList.toggle("min", m); store(m ? ids : null); });
+    // A ticket's own view is where you read and decide it: the dock waits as a pill there, unless you open it.
+    const onTicket = ["ticket", "review"].includes(new URL(location.href).searchParams.get("view")) && !asksOpened;
+    box.classList.toggle("min", onTicket || (Array.isArray(seen) && ids.every((i) => seen.includes(i))));
+    $$("[data-askstoggle]", box).forEach((b) => b.onclick = () => { const m = !box.classList.contains("min"); box.classList.toggle("min", m); asksOpened = !m; store(m ? ids : null); });
   }
   function bind(root = document) {
     bindAsks();

@@ -1,3 +1,5 @@
+import { ticketView } from "./ticketview";
+import { reviewView } from "./asks";
 import { type Delivery, type Env, type Lock, deliveryMarks, issueToken, type Message, type Project, type Proposal, DELEGATE_PER_HOUR, LIVE, MAX_BODY, MEMBER_OF, RECEIVES, activeLocks, address, authenticate, coMembers, isAdmin, myProjects, normChannel, postMessage, roleIn, sha256, workingOn, newToken, HANDLE, limit, UserError, unsend, ago } from "./lib";
 import { agentsView } from "./agents";
 import { askBtw } from "./btw";
@@ -559,7 +561,7 @@ export async function dashboard(url: URL, env: Env, me: string, cookie = ""): Pr
   const ownerOf = (project: string) => admin || pmRes.results.some((m) => m.project === project && m.member === me && m.role === "owner");
   const shownLocks = channel ? locks.filter((l) => l.channel === channel) : locks;
   const asked = url.searchParams.get("view");
-  const view = asked === "admin" && admin ? "admin" : asked === "account" ? "account" : asked === "agents" ? "agents" : "feed";
+  const view = asked === "admin" && admin ? "admin" : asked === "account" ? "account" : asked === "ticket" ? "ticket" : asked === "review" ? "review" : asked === "agents" ? "agents" : "feed";
 
   const { results: requests } = await env.DB.prepare(
     `SELECT r.project, r.member, r.note, r.created_at, m.org, m.github_login FROM join_requests r JOIN members m ON m.name = r.member
@@ -714,6 +716,10 @@ export async function dashboard(url: URL, env: Env, me: string, cookie = ""): Pr
       ? `<main class="pane"><div class="pane-in">${await adminSection(env, me)}</div></main>`
       : view === "account"
         ? `<main class="pane"><div class="pane-in acctpane">${await accountSection(env, me, url.origin)}</div></main>`
+      : view === "review"
+        ? `<main class="pane">${await reviewView(env, me, Number(url.searchParams.get("id")), localPath(url.searchParams.get("back"), "/dashboard?view=agents"))}</main>`
+      : view === "ticket"
+        ? `<main class="pane">${await ticketView(env, me, Number(url.searchParams.get("id")), localPath(url.searchParams.get("back"), "/dashboard?view=agents"))}</main>`
       : view === "agents"
         ? `<main class="pane chatpane">${ws.main}</main>`
         : `<main class="pane"><div class="pane-in">${onboarding}${needs}${composer}${feed}</div></main><aside class="drawer" id="drawer">${projectBox}${lockPanel}${handoffPanel}${logPanel}${decisions}</aside>`;
@@ -920,8 +926,9 @@ export function docsPage(origin: string): Response {
         <h2>Running your agents from the browser</h2>
         <p>The <b>tree</b> on the left of the dashboard lists your projects with their agents nested underneath (yours first), each with a dot for what it's doing: working (pulsing), idle (green) or <b>waiting</b> for you (red “!”); a loop icon marks a loop and ⧗ background jobs. Click a project for its feed, an agent for its chat, which gets the full width. <kbd>⌘B</kbd> hides the tree; on a feed, <b>Panels</b> shows or hides the project, locks, handoffs and decisions on the right. Folded projects stay folded. What you write there reaches that session as <b>you</b>: your own agents act on it like a prompt typed in their terminal, and reply to you in the chat.</p>
         <ul>
-          <li><b>Reviews:</b> an agent reviewing an MR sends you only what needs your call, briefly (the tool refuses long text and more than five findings), as a card under <i>Waiting for you</i>: post or drop each finding (open its comment to edit it), ask about one (the answer shows on the card), pick the outcome and send. The agent holds off on the MR meanwhile and gets your decision as a message from you; it also goes in the decision log. If its agent is gone, the card says so and moves the review to another of your agents.</li>
-          <li><b>Notifications:</b> turn them on with <i>Notify me</i> in Waiting for you, or under Account, per device. You get one for a new review, an agent's answer on one, and a question or permission prompt still unanswered after a minute (at once in away mode); tapping it opens the dashboard there. On an iPhone, add Intercom to the Home Screen and turn them on in that app. The app icon shows how many things are waiting.</li>
+          <li><b>Reviews:</b> an agent reviewing an MR sends you only what needs your call, briefly (the tool refuses long text and more than five findings), as a card under <i>Waiting for you</i>: post or drop each finding (open its comment to edit it), ask about one (the answer shows on the card), pick the outcome and send. The agent holds off on the MR meanwhile and gets your decision as a message from you; it also goes in the decision log. If its agent is gone, the card says so and moves the review to another of your agents. The eye on the card opens it full size.</li>
+          <li><b>Tickets:</b> an agent triaging your tickets sends each one with its assessment (still valid? what's actually wrong?), the plan and its questions for you. The ticket comes along whole (fields, description, comments, linked issues, images) and so do its MRs (files, commits, the diff), so you can read it all in its own view without the tracker or the forge. Ask the agent about it there (the answer shows in the view and on your phone), answer its questions and decide: go, go with changes (edit the plan), park or decline. Nothing starts until you do; the decision reaches the agent as a message from you and goes in the decision log.</li>
+          <li><b>Notifications:</b> turn them on with <i>Notify me</i> in Waiting for you, or under Account, per device. You get one for a new review or ticket, an agent's answer on one, and a question or permission prompt still unanswered after a minute (at once in away mode); tapping it opens the dashboard there. On an iPhone, add Intercom to the Home Screen and turn them on in that app. The app icon shows how many things are waiting.</li>
           <li><b>Images and files:</b> paste (⌘V), drop or pick (the paperclip) up to 4 images or files in a message: they go with your text, like in the terminal. The agent sees <code>[📎 image #12: name]</code> and opens an image itself with the <code>attachment</code> tool; any other file (a zip, a PDF, a CSV, up to 10 MB) shows as <code>[📎 file #13: data.zip · 2.1 MB]</code>, and the agent saves it to its machine with <code>save_attachment</code>, where you tell it or in its working folder. Images are scaled down before upload; files go as they are. Text files (a Markdown review, a log, JSON, code) open in a reader in the dashboard, Markdown rendered or as source, with a download button; anything else only downloads. Visible only to those who can read the message, kept 30 days. A folder: zip it first.</li>
           <li><b>Files from agents:</b> ask an agent to show you something it made (a screenshot, a report, a log) and it shares the file with <code>share_file</code>. It lands in your dashboard: images preview, other files download. Up to 10 MB, kept 30 days.</li>
           <li><b>Side questions (btw):</b> switch the chat to <b>btw</b> (or start with <code>/btw</code>) to ask your own Claude Code agent something without touching its work, e.g. “what's your plan?”. The intercom-ui mod in that session answers from a read-only copy of its current context; nothing is added to the agent's history. Follow-ups continue the side thread; “start a new side thread” begins fresh. Needs intercom-ui 0.2.4+ and at least one finished turn; not available for Codex.</li>

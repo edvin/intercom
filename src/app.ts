@@ -4,6 +4,7 @@ import { getAttachment, isImage, readImage, readable } from "./attachments";
 import { fetchLocalFile, fileReply } from "./localfiles";
 import { readerPage } from "./reader";
 import { type Outcome, type Review, askReview, decideReview, findingsOf, moveReview } from "./reviews";
+import { type TicketOutcome, askTicket, decideTicket } from "./tickets";
 import { askCode, codeQuery, codeReply, drawCode } from "./code";
 import { parseJobs } from "./jobs";
 import { type Env, type Message, type Proposal, type Session, LIVE, MEMBER_OF, postMessage, RECEIVES, UserError, activeLocks, address, isMyLock, ago, addActivity, lockIn, scopedLocks, cleanBranch, cleanClient, fromOwnUser, fromOwnAgent, DELEGATED_NOTE, staleFor, renameSession, setHost, setVersion, workingOn, authenticate, coMembers, fmtLock, fmtMessage, myProjects, moveSession, projectFor, resolveProject, setCwd, setOrigin, setPresence, setRepo, signedIn, tally, touchSession, unread } from "./lib";
@@ -719,6 +720,25 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
           return { post: form.get(`f${i + 1}`) ? field(`f${i + 1}`) === "post" : f.post, comment, edited: comment !== f.comment.trim() };
         });
         u.searchParams.set("ok", await decideReview(env, me, id, { outcome: field("outcome") as Outcome, findings, note: field("note").trim().slice(0, 500) }));
+      }
+    } catch (e) {
+      if (!(e instanceof UserError)) throw e;
+      u.searchParams.set("err", e.message);
+    }
+    return redirect(u.pathname + u.search);
+  }
+  if (url.pathname.startsWith("/ticket/") && req.method === "POST") {
+    // A ticket's view (ticketview.ts): ask the agent about it, or send the decision.
+    if (!sameOrigin(req)) return new Response("Cross-origin request refused", { status: 403 });
+    const form = await req.formData();
+    const u = new URL(localPath(form.get("back"), "/dashboard?view=agents"), url);
+    const field = (k: string) => String(form.get(k) ?? "").replace(/\r\n?/g, "\n");
+    try {
+      const id = Number(url.pathname.slice(8));
+      if (form.has("ask")) u.searchParams.set("ok", await askTicket(env, me, id, field("ask_text")));
+      else {
+        const answers = [0, 1, 2].map((i) => [field(`p${i}`).trim(), field(`q${i}`).trim()].filter(Boolean).join(": "));
+        u.searchParams.set("ok", await decideTicket(env, me, id, { outcome: field("outcome") as TicketOutcome, plan: field("plan").slice(0, 8000), answers, note: field("note").trim().slice(0, 1000) }));
       }
     } catch (e) {
       if (!(e instanceof UserError)) throw e;

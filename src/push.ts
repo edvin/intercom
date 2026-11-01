@@ -130,7 +130,8 @@ export async function subscriptions(env: Env, me: string): Promise<PushSub[]> {
 }
 
 /**
- * Something new is waiting for `me`: "a<id>" an approval, "r<id>" a review, "q<id>" an answer on review <id>.
+ * Something new is waiting for `me`: "a<id>" an approval, "r<id>" a review, "q<id>" an answer on review <id>,
+ * "t<id>" a ticket, "k<id>" an answer on ticket <id>.
  * Due at once, or after `delay`. Nothing is queued for someone with no browser to send to.
  */
 export async function queuePush(env: Env, me: string, ref: string, delay = 0, extra = ""): Promise<void> {
@@ -155,7 +156,8 @@ const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1).trim
 async function waitingCount(env: Env, me: string): Promise<number> {
   const a = await env.DB.prepare("SELECT COUNT(*) AS n FROM approvals WHERE member = ? AND decision IS NULL AND expires_at > ?").bind(me, Date.now()).first<{ n: number }>();
   const r = await env.DB.prepare("SELECT COUNT(*) AS n FROM reviews WHERE member = ? AND status = 'open'").bind(me).first<{ n: number }>();
-  return (a?.n ?? 0) + (r?.n ?? 0);
+  const t = await env.DB.prepare("SELECT COUNT(*) AS n FROM tickets WHERE member = ? AND status = 'open'").bind(me).first<{ n: number }>();
+  return (a?.n ?? 0) + (r?.n ?? 0) + (t?.n ?? 0);
 }
 
 /** The notification for a queued item as it is now; null when it's no longer waiting. */
@@ -171,10 +173,17 @@ async function noteFor(env: Env, me: string, ref: string, extra: string): Promis
     const body = a.kind === "permission" ? a.summary : a.kind === "plan" ? a.summary.replace(/^Plan: /, "") : a.summary;
     return { title, body: clip(body, 180), tag: ref, url: agentUrl(a.label), count: 0, ttl: Math.max(60, Math.round((a.expires_at - Date.now()) / 1000)) };
   }
+  if (ref[0] === "t" || ref[0] === "k") {
+    const t = await env.DB.prepare("SELECT key, label, title, verdict FROM tickets WHERE id = ? AND member = ? AND status = 'open'").bind(id, me).first<{ key: string; label: string; title: string; verdict: string }>();
+    if (!t) return null;
+    const url = `/dashboard?view=ticket&id=${id}`;
+    if (ref[0] === "k") return { title: `${t.label} answered you`, body: clip(`${t.key}: ${extra}`, 180), tag: `t${id}k`, url, count: 0, ttl: 86400 };
+    return { title: `Ticket ${t.key}: ${clip(t.title, 60)}`, body: clip(`${t.label}: ${t.verdict}`, 180), tag: ref, url, count: 0, ttl: 86400 };
+  }
   const r = await env.DB.prepare("SELECT label, title, verdict FROM reviews WHERE id = ? AND member = ? AND status = 'open'").bind(id, me).first<{ label: string; title: string; verdict: string }>();
   if (!r) return null;
   if (ref[0] === "q") return { title: `${r.label} answered you`, body: clip(`${r.title}: ${extra}`, 180), tag: `r${id}q`, url: agentUrl(r.label), count: 0, ttl: 86400 };
-  return { title: `Review: ${clip(r.title, 60)}`, body: clip(`${r.label}: ${r.verdict}`, 180), tag: ref, url: agentUrl(r.label), count: 0, ttl: 86400 };
+  return { title: `Review: ${clip(r.title, 60)}`, body: clip(`${r.label}: ${r.verdict}`, 180), tag: ref, url: `/dashboard?view=review&id=${id}`, count: 0, ttl: 86400 };
 }
 
 /** Send one notification to every browser of `me`; a browser its push service says is gone is forgotten. Returns how many took it. */

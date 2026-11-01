@@ -240,7 +240,7 @@ export function parseDiff(diff: string): DiffFile[] {
 }
 
 /** A stable element id for a file's diff, so the file list can jump to it. */
-const fid = (path: string) => {
+export const fid = (path: string) => {
   let h = 0x811c9dc5;
   for (const c of path) h = Math.imul(h ^ c.charCodeAt(0), 0x01000193);
   return `df${(h >>> 0).toString(36)}`;
@@ -248,7 +248,8 @@ const fid = (path: string) => {
 
 const BIG = 800; // a file's diff longer than this starts folded
 
-function drawDiff(diff: string, href: (path: string) => string): string {
+/** A unified diff, file by file; `href` links each file's name to the whole file ("" for none). */
+export function drawDiff(diff: string, href: (path: string) => string): string {
   const files = parseDiff(diff);
   if (!files.length) return "";
   return files
@@ -275,7 +276,7 @@ function drawDiff(diff: string, href: (path: string) => string): string {
         })
         .join("");
       const note = f.meta.filter((m) => /^(new|deleted) file|^rename from|^Binary/.test(m)).map((m) => m.replace(/ mode \d+$/, "").replace(/^Binary files .* differ$/, "binary file")).join(" · ");
-      return `<details class="dfile" id="${fid(f.path)}"${f.lines.length > BIG ? "" : " open"}><summary><span class="aic">▸</span><a class="dpath" href="${href(f.path)}" data-code title="Open the whole file">${esc(f.path)}</a>${f.old && f.old !== f.path ? `<span class="muted small"> ← ${esc(f.old)}</span>` : ""}${note ? `<span class="muted small"> · ${esc(note)}</span>` : ""}</summary>${rows ? `<div class="dscroll"><table class="diff"><tbody>${rows}</tbody></table></div>` : `<div class="small muted dnone">${note ? "No text changes to show." : "Only its mode changed."}</div>`}</details>`;
+      return `<details class="dfile" id="${fid(f.path)}"${f.lines.length > BIG ? "" : " open"}><summary><span class="aic">▸</span>${href(f.path) ? `<a class="dpath" href="${href(f.path)}" data-code title="Open the whole file">${esc(f.path)}</a>` : `<span class="dpath">${esc(f.path)}</span>`}${f.old && f.old !== f.path ? `<span class="muted small"> ← ${esc(f.old)}</span>` : ""}${note ? `<span class="muted small"> · ${esc(note)}</span>` : ""}</summary>${rows ? `<div class="dscroll"><table class="diff"><tbody>${rows}</tbody></table></div>` : `<div class="small muted dnone">${note ? "No text changes to show." : "Only its mode changed."}</div>`}</details>`;
     })
     .join("");
 }
