@@ -761,6 +761,29 @@ body:has(.ide) .top .in{max-width:none;padding:8px 14px}
 .askact{display:flex;gap:8px;justify-content:flex-end;margin-top:10px}
 .askcode{margin:0 0 2px;padding:10px 12px;border-radius:10px;background:var(--surface);border:1px solid var(--line);font-family:"Geist Mono",ui-monospace,monospace;font-size:12.5px;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere;max-height:150px;overflow:auto;color:var(--ink)}
 .askplan{max-height:260px;overflow:auto;padding:4px 14px;border-radius:10px;background:var(--surface);border:1px solid var(--line);font-size:13px}
+.k-review .askk{background:var(--accent-soft);color:var(--accent)}
+.rvtitle{display:inline-flex;align-items:center;gap:6px;font-weight:650;font-size:14.5px;line-height:1.35;color:var(--ink);text-decoration:none;text-wrap:pretty}.rvtitle:hover{color:var(--accent);text-decoration:none}.rvtitle .i{flex:none;color:var(--mute)}
+.rvverdict{margin:3px 0 10px;font-size:13px;color:var(--ink-2);line-height:1.45;text-wrap:pretty}
+.rvf{padding:10px 12px;border-radius:11px;background:var(--surface);border:1px solid var(--line);margin-bottom:8px}
+.rvfh{display:flex;align-items:center;gap:8px}
+.rvsev{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--amber)}.rvsev.s-blocker{color:var(--red)}.rvsev.s-question{color:var(--accent)}
+.rvsum{margin:5px 0 0;font-size:13.5px;line-height:1.45;color:var(--ink);text-wrap:pretty}
+.rvseg{display:inline-flex;flex:none;gap:2px;padding:2px;border-radius:8px;background:var(--surface-2);border:1px solid var(--line)}
+.rvseg label{display:inline-flex;align-items:center;padding:3px 9px;border-radius:6px;font-size:12px;font-weight:600;color:var(--mute);cursor:pointer;white-space:nowrap}
+.rvseg input{position:absolute;opacity:0;pointer-events:none}.rvseg label:hover{color:var(--ink)}
+.rvseg label:has(input:checked){background:var(--surface);color:var(--ink);box-shadow:var(--shadow)}.rvseg label:has(input[value=drop]:checked){color:var(--mute)}
+.rvseg label:has(input:focus-visible){outline:2px solid var(--accent);outline-offset:1px}
+.rvseg.wide{display:flex;flex-wrap:wrap}.rvseg.wide label{flex:1 1 auto;justify-content:center;padding:6px 8px}
+.rvf:has(input[value=drop]:checked) .rvsum{color:var(--mute);}
+.rvc,.rvask{margin-top:6px}.rvc>summary,.rvask>summary{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--mute);cursor:pointer;list-style:none;user-select:none}.rvc>summary::-webkit-details-marker,.rvask>summary::-webkit-details-marker{display:none}
+.rvc>summary:hover,.rvask>summary:hover{color:var(--ink)}.rvc>summary::before{content:"▸";font-size:10px;transition:transform .15s}.rvc[open]>summary::before{transform:rotate(90deg)}
+.rvc textarea{display:block;width:100%;margin-top:6px;min-height:90px;resize:vertical;padding:8px 10px;border-radius:9px;font:12.5px/1.5 "Geist Mono",ui-monospace,monospace;background:var(--surface-2)}
+.rvaskrow{display:flex;gap:6px;align-items:center}.rvaskrow .asktype{margin-top:6px;flex:1;min-width:0}.rvaskrow .btn{margin-top:6px;flex:none;height:34px}
+.rvturn{margin-top:6px;padding:6px 10px;border-radius:9px;background:var(--accent-soft);font-size:12.5px;line-height:1.45;color:var(--ink);overflow-wrap:anywhere}.rvturn.mine{background:var(--surface-2)}.rvturn b{font-weight:650;margin-right:4px}
+form>.rvturn,form>.rvask{margin-left:2px}
+.rvout{margin-top:12px}.rvout .askh{margin-bottom:5px}
+.rvgone{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;margin-bottom:8px;padding:8px 10px;border-radius:10px;background:var(--amber-soft);color:var(--ink);font-size:12.5px;line-height:1.4}.rvgone>.i{color:var(--amber);flex:none}.rvgone>span:not(.rvmove){flex:1;min-width:180px}
+.rvmove{display:inline-flex;gap:6px;align-items:center}.rvmove .btn{height:28px}.rvmove select{height:28px;font-size:12.5px;border-radius:8px;padding:0 8px;background:var(--surface)}
 .askpill{display:none;align-items:center;gap:8px;height:40px;padding:0 12px 0 14px;border-radius:999px;border:1px solid color-mix(in srgb,var(--amber) 50%,transparent);background:var(--surface);color:var(--ink);font:inherit;font-size:13px;box-shadow:var(--shadow-lg);cursor:pointer;animation:askup .3s ease-out}
 .askpill:hover{border-color:var(--amber)}
 .asks.min .askpanel{display:none}.asks.min .askpill{display:inline-flex}

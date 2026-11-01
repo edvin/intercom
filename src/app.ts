@@ -3,6 +3,7 @@ import { answerBtw, pendingBtw } from "./btw";
 import { getAttachment, isImage, readImage, readable } from "./attachments";
 import { fetchLocalFile, fileReply } from "./localfiles";
 import { readerPage } from "./reader";
+import { type Outcome, type Review, askReview, decideReview, findingsOf, moveReview } from "./reviews";
 import { askCode, codeQuery, codeReply, drawCode } from "./code";
 import { parseJobs } from "./jobs";
 import { type Env, type Message, type Proposal, type Session, LIVE, MEMBER_OF, postMessage, RECEIVES, UserError, activeLocks, address, isMyLock, ago, addActivity, lockIn, scopedLocks, cleanBranch, cleanClient, fromOwnUser, fromOwnAgent, DELEGATED_NOTE, staleFor, renameSession, setHost, setVersion, workingOn, authenticate, coMembers, fmtLock, fmtMessage, myProjects, moveSession, projectFor, resolveProject, setCwd, setOrigin, setPresence, setRepo, signedIn, tally, touchSession, unread } from "./lib";
@@ -690,6 +691,39 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
       ...(allow && st.note ? { additionalContext: `Your user approved this from the intercom dashboard and added: ${st.note}` } : {}),
     };
     return json({ status: st.status, output: JSON.stringify(output), ...(st.answers ? { answers: st.answers } : {}) });
+  }
+  if (url.pathname.startsWith("/review/") && req.method === "POST") {
+    // A review card (reviews.ts): one form, and the button says what it does: ask, move, or send the decision.
+    if (!sameOrigin(req)) return new Response("Cross-origin request refused", { status: 403 });
+    const form = await req.formData();
+    const u = new URL(localPath(form.get("back"), "/dashboard?view=agents"), url);
+    const field = (k: string) => String(form.get(k) ?? "");
+    try {
+      const id = Number(url.pathname.slice(8));
+      const r = await env.DB.prepare("SELECT * FROM reviews WHERE id = ? AND member = ?").bind(id, me).first<Review>();
+      if (!r) throw new UserError("No such review.");
+      let ask = form.has("ask") ? Number(field("ask")) : null;
+      // Enter in a question box asks it; anywhere else it does nothing (a decision is a click).
+      if (ask === null && form.has("enter")) {
+        const typed = [...form.keys()].filter((k) => /^a\d+$/.test(k) && field(k).trim());
+        if (typed.length !== 1) throw new UserError("Pick Send decision, or Ask next to your question.");
+        ask = Number(typed[0]!.slice(1));
+      }
+      if (ask !== null) u.searchParams.set("ok", await askReview(env, me, id, ask, field(`a${ask}`)));
+      else if (form.has("move")) u.searchParams.set("ok", await moveReview(env, me, id, field("to")));
+      else {
+        const fs = findingsOf(r);
+        const findings = fs.map((f, i) => {
+          const comment = form.has(`c${i + 1}`) ? field(`c${i + 1}`).replace(/\r\n?/g, "\n").trim().slice(0, 4000) : f.comment;
+          return { post: form.get(`f${i + 1}`) ? field(`f${i + 1}`) === "post" : f.post, comment, edited: comment !== f.comment.trim() };
+        });
+        u.searchParams.set("ok", await decideReview(env, me, id, { outcome: field("outcome") as Outcome, findings, note: field("note").trim().slice(0, 500) }));
+      }
+    } catch (e) {
+      if (!(e instanceof UserError)) throw e;
+      u.searchParams.set("err", e.message);
+    }
+    return redirect(u.pathname + u.search);
   }
   if (url.pathname.startsWith("/approval/") && req.method === "POST") {
     if (!sameOrigin(req)) return new Response("Cross-origin request refused", { status: 403 });

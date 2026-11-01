@@ -1564,6 +1564,93 @@ describe("share_file", () => {
 });
 
 
+describe("reviews", () => {
+  const setup = async () => {
+    const w = await standardWorld();
+    for (const [id, name] of [["rv1", "core"], ["rv2", "alder"]] as const) {
+      await w.request(`/api/hook?event=SessionStart&project=billing-api&session=${id}&name=${name}`, { as: "bob" });
+      await w.ok("bob", "inbox", {}, { id, project: "billing-api" });
+    }
+    return w;
+  };
+  const core = { id: "rv1", project: "billing-api" };
+  const alder = { id: "rv2", project: "billing-api" };
+  const review = {
+    url: "https://git.example.com/shop/billing/-/merge_requests/42",
+    title: "Retry failed invoices",
+    verdict: "Sound fix, but a 409 from the provider counts as paid.",
+    recommend: "request_changes",
+    head: "abc1234",
+    findings: [
+      { severity: "blocker", summary: "A 409 from the provider is treated as success, so a double charge looks paid.", comment: "This returns ok on 409; shouldn't it fail?" },
+      { severity: "question", summary: "The backoff lives in the worker, not the queue config.", comment: "Could this go in the queue config?", post: false },
+    ],
+  };
+  const loc = (r: Response) => new URL(r.headers.get("location")!, ORIGIN).searchParams;
+
+  test("short or nothing: long text, too many findings and empty reviews are sent back", async () => {
+    const w = await setup();
+    assert.match((await w.tool("bob", "review", { ...review, verdict: "x".repeat(200) }, core)).text, /verdict is 200 characters; keep it under 160/);
+    assert.match((await w.tool("bob", "review", { ...review, findings: Array(6).fill(review.findings[0]) }, core)).text, /at most 5/);
+    assert.match((await w.tool("bob", "review", { ...review, findings: [] }, core)).text, /act on the review yourself/);
+    assert.match((await w.tool("bob", "review", review)).text, /come from an agent session/);
+  });
+
+  test("a review waits on a card; you post or drop each finding, edit a comment, and the agent gets the call as YOUR USER", async () => {
+    const w = await setup();
+    assert.match(await w.ok("bob", "review", review, core), /R1 is waiting for your user[\s\S]*Don't post/);
+    const dash = await (await w.request("/dashboard?view=agents", { as: "bob", cookie: true })).text();
+    assert.match(dash, /<article class="ask k-review" data-mid="r1">/);
+    assert.match(dash, /Retry failed invoices/);
+    assert.match(dash, /<input type="radio" name="f2" value="drop" checked>/);
+    assert.match(dash, /<input type="radio" name="outcome" value="request_changes" checked>/);
+    assert.match(dash, /Waiting for you<\/span><span class="badge amber">1/);
+    // Only bob decides bob's reviews.
+    assert.match(loc(await w.form("/review/1", "alice", { decide: "1", outcome: "approve" })).get("err")!, /No such review/);
+    const res = await w.form("/review/1", "bob", { decide: "1", outcome: "approve_after", f1: "post", c1: "A 409 here means a duplicate; fail it.", f2: "drop", c2: review.findings[1]!.comment, note: "ok once fixed" });
+    assert.match(loc(res).get("ok")!, /Sent to core: Approve once fixed/);
+    const inbox = await w.ok("bob", "inbox", {}, core);
+    assert.match(inbox, /YOUR USER[\s\S]*Review R1 of https:\/\/git\.example\.com\S+ \(Retry failed invoices\): Approve once fixed\.\n\s*1\. Post: A 409[\s\S]*Post this comment instead of yours:\n\s*> A 409 here means a duplicate; fail it\.\n\s*2\. Drop: The backoff[\s\S]*Note: ok once fixed[\s\S]*You reviewed abc1234/);
+    assert.match(await w.ok("bob", "decisions", { query: "Retry" }), /APPROVED · review of Retry failed invoices — Approve once fixed; posted: A 409 [^|]*; note: ok once fixed/);
+    assert.doesNotMatch(await (await w.request("/dashboard?view=agents", { as: "bob", cookie: true })).text(), /class="ask k-review"/);
+    assert.match(loc(await w.form("/review/1", "bob", { decide: "1", outcome: "hold" })).get("err")!, /already decided/);
+  });
+
+  test("you ask about a finding; the agent's answer shows on the card; a new review of the same MR replaces it", async () => {
+    const w = await setup();
+    await w.ok("bob", "review", review, core);
+    assert.match(loc(await w.form("/review/1", "bob", { ask: "1", a1: "Does the provider ever send 409 for a real success?" })).get("ok")!, /Asked core/);
+    // Enter in a question box asks too; with nothing typed it doesn't decide anything.
+    assert.match(loc(await w.form("/review/1", "bob", { enter: "1", a0: "Who wrote the worker?" })).get("ok")!, /Asked core/);
+    assert.match(loc(await w.form("/review/1", "bob", { enter: "1" })).get("err")!, /Send decision, or Ask/);
+    assert.match(await w.ok("bob", "inbox", {}, core), /About review R1 \(Retry failed invoices\), finding 1 \(A 409[\s\S]*Does the provider ever send 409[\s\S]*action "answer", id 1, finding 1/);
+    assert.match((await w.tool("bob", "review", { action: "answer", id: 1, finding: 1, text: "y".repeat(401) }, core)).text, /under 400/);
+    await w.ok("bob", "review", { action: "answer", id: 1, finding: 1, text: "Only for idempotent replays; their docs say so." }, core);
+    const dash = await (await w.request("/dashboard?view=agents", { as: "bob", cookie: true })).text();
+    assert.match(dash, /<div class="rvturn mine"><b>You<\/b> Does the provider ever send 409 for a real success\?<\/div><div class="rvturn"><b>core<\/b> Only for idempotent replays/);
+    await w.ok("bob", "review", { ...review, verdict: "Revised after a closer look." }, core);
+    const again = await (await w.request("/dashboard?view=agents", { as: "bob", cookie: true })).text();
+    assert.doesNotMatch(again, /data-mid="r1"/);
+    assert.match(again, /data-mid="r2"[\s\S]*Revised after a closer look/);
+    assert.match(await w.ok("bob", "review", { action: "withdraw", id: 2 }, core), /Withdrew R2/);
+  });
+
+  test("when its agent is gone, the card says so and moves the review to another agent, which gets the whole of it", async () => {
+    const w = await setup();
+    await w.ok("bob", "review", review, core);
+    await w.form("/review/1", "bob", { ask: "1", a1: "Is this tested?" });
+    assert.doesNotMatch(await (await w.request("/dashboard?view=agents", { as: "bob", cookie: true })).text(), /class="rvgone"/);
+    await w.db.prepare("UPDATE sessions SET last_seen = ? WHERE session_id = 'rv1'").bind(Date.now() - 3600_000).run();
+    const dash = await (await w.request("/dashboard?view=agents", { as: "bob", cookie: true })).text();
+    assert.match(dash, /core isn't connected[\s\S]*<select name="to"><option>alder<\/option><\/select>/);
+    assert.match(loc(await w.form("/review/1", "bob", { move: "1", to: "alder" })).get("ok")!, /Moved R1 to alder/);
+    const inbox = await w.ok("bob", "inbox", {}, alder);
+    assert.match(inbox, /YOUR USER[\s\S]*You take over review R1 from core[\s\S]*reviewed at abc1234[\s\S]*1\. \[blocker\] A 409[\s\S]*> This returns ok on 409[\s\S]*Me \(finding 1\): Is this tested\?/);
+    await w.form("/review/1", "bob", { decide: "1", outcome: "request_changes" });
+    assert.match(await w.ok("bob", "inbox", {}, alder), /Review R1 of [\s\S]*Request changes/);
+  });
+});
+
 describe("invite-only (the default)", () => {
   test("only admins invite; owners' old links stop working; admin links create accounts, with or without a project", async () => {
     const w = await standardWorld(); // alice is admin, carol owns #shop

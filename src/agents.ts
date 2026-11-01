@@ -3,6 +3,7 @@
 // what it answers comes back here. Its project posts show in the thread as activity.
 
 import { awayState, pendingApprovals } from "./approvals";
+import { pendingReviews } from "./reviews";
 import { AUTO_UPDATE_SINCE, PLUGIN_VERSION, outdated } from "./version";
 import { activeLoops, describe, parseLoops } from "./loops";
 import { activeJobs, duration, jobName, parseJobs } from "./jobs";
@@ -188,7 +189,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
     .join("");
   const loose = agents.filter((a) => a.member === me && (!a.project || !nav.mine.includes(a.project)));
   const { away, waitMin } = await awayState(env, me);
-  const pending = await pendingApprovals(env, me);
+  const pending = [...(await pendingApprovals(env, me)), ...(await pendingReviews(env, me))];
   const tree = `<aside class="tree" id="tree" data-region>
     <nav class="ttop">
       <button type="button" class="tl" data-kopen>${icon("search", 14)}<span>Search</span><span class="kbd kbd-k" style="margin-left:auto">⌘K</span></button>

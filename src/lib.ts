@@ -626,6 +626,7 @@ export async function prune(env: Env, retentionDays = RETENTION_DAYS, now = Date
     deliveries: await run("DELETE FROM deliveries WHERE at < ?", now - retentionDays * day),
     // Away-mode questions are answered (or expire) within the hour; a request nobody answered within a month lapses.
     approvals: await run("DELETE FROM approvals WHERE created_at < ?", now - 14 * day),
+    reviews: await run("DELETE FROM reviews WHERE created_at < ?", now - 30 * day),
     joinRequests: await run("DELETE FROM join_requests WHERE created_at < ?", now - 30 * day),
     // Closed votes, settled handoffs and decisions go with the messages that announced them; open ones stay until settled.
     votes: await run("DELETE FROM votes WHERE proposal_id IN (SELECT id FROM proposals WHERE status != 'open' AND created_at < ?)", now - retentionDays * day),
