@@ -1,5 +1,5 @@
 import { setAway } from "./approvals";
-import { LIMITS, OUTCOMES, SEVERITIES, answerReview, openReview, withdrawReview } from "./reviews";
+import { type Review, LIMITS, OUTCOMES, SEVERITIES, answerReview, openReview, pendingReviews, withdrawReview } from "./reviews";
 import { RETENTION_DAYS as ATTACHMENT_DAYS, fileMarker, getAttachment, isImage, isText, linkImages, marker, readImage, size, storeFile, toBase64 } from "./attachments";
 import { HANDOFF_STATES, OPEN_HANDOFF, VERDICTS, createHandoff, crewRoles, findDecisions, fmtCrew, fmtDecision, fmtHandoff, listHandoffs, logDecision, updateHandoff } from "./records";
 import { adminsInvite, githubRepo } from "./github";
@@ -512,11 +512,12 @@ export const tools: Tool[] = [
   {
     name: "review",
     description:
-      "Ask your user to decide the important part of a code review (an MR or PR you reviewed): it shows as a card in their dashboard, where they post or drop each finding (its comment editable) and pick the outcome. Send only findings that need their call: a security or data-loss problem, a break for existing clients, behaviour that contradicts the ticket, a design trade-off, anything you're unsure of. Nits and mechanical fixes you handle yourself; with nothing important, don't use this. Be brief: they decide from this on a phone, so each summary says the problem and its consequence in a sentence or two, no background. Then carry on with other work; don't post those findings or approve until their decision arrives (a YOUR USER message about R<id>). Sending a review of the same MR again replaces your open one. action \"answer\" answers their follow-up question on the card; \"withdraw\" takes the card down (e.g. the MR was closed).",
+      "Ask your user to decide the important part of a code review (an MR or PR you reviewed): it shows as a card in their dashboard, where they post or drop each finding (its comment editable) and pick the outcome. Send only findings that need their call: a security or data-loss problem, a break for existing clients, behaviour that contradicts the ticket, a design trade-off, anything you're unsure of. Nits and mechanical fixes you handle yourself; with nothing important, don't use this. Be brief: they decide from this on a phone, so each summary says the problem and its consequence in a sentence or two, no background. Then carry on with other work; don't post those findings or approve until their decision arrives (a YOUR USER message about R<id>). Sending the same MR at the same head again keeps the waiting card (pass replace: true to change it); a new head replaces it. action \"list\" shows what is still waiting. action \"answer\" answers their follow-up question on the card; \"withdraw\" takes the card down (e.g. the MR was closed).",
     inputSchema: {
       type: "object",
       properties: {
-        action: { type: "string", enum: ["open", "answer", "withdraw"], description: "open (default): send a review. answer: reply to your user's question about R<id>. withdraw: take R<id> down." },
+        action: { type: "string", enum: ["open", "answer", "withdraw", "list"], description: "open (default): send a review. answer: reply to your user's question about R<id>. withdraw: take R<id> down. list: the reviews still waiting for your user (check before sending, e.g. in a recurring loop)." },
+        replace: { type: "boolean", description: "open: replace a waiting review of the same MR at the same head (e.g. your findings changed). Without it, that one is kept and nothing is sent." },
         url: { type: "string", description: "The MR's (or PR's) web link." },
         title: { type: "string", description: `The MR's title (max ${LIMITS.title} chars).` },
         verdict: { type: "string", description: `Your verdict in one line (max ${LIMITS.verdict} chars), e.g. "Sound fix, but it drops refunds for split payments".` },
@@ -546,7 +547,13 @@ export const tools: Tool[] = [
       const action = str(a, "action") ?? "open";
       if (action === "answer") return answerReview(env, me, num(a, "id", 0, 1, Number.MAX_SAFE_INTEGER), a.finding ? num(a, "finding", 0, 1, 99) : 0, str(a, "text", true));
       if (action === "withdraw") return withdrawReview(env, me, num(a, "id", 0, 1, Number.MAX_SAFE_INTEGER));
-      const r = await openReview(env, me, a);
+      if (action === "list") {
+        const open = await pendingReviews(env, me);
+        if (!open.length) return "No reviews are waiting for your user.";
+        return `Waiting for your user's decision (don't send these again unless the MR moved or your findings changed):\n${open.map((r) => `R${r.id} ${r.url}${r.head ? ` @ ${r.head}` : ""} — ${r.title} (from ${r.label}, ${ago(r.created_at)})`).join("\n")}`;
+      }
+      const r = (await openReview(env, me, a)) as Review & { kept?: boolean };
+      if (r.kept) return `R${r.id} for this MR at ${r.head} is still waiting for your user (sent by ${r.label} ${ago(r.created_at)}); nothing sent. To change its findings, send it with replace: true; if the MR got new commits, send it with the new head.`;
       return `Review R${r.id} is waiting for your user in their dashboard. Don't post those findings or approve the MR until their decision arrives (a YOUR USER message about R${r.id}); carry on with other work meanwhile. If they ask about it, answer with action "answer", id ${r.id}.`;
     },
   },

@@ -55,7 +55,7 @@ function short(v: unknown, what: string, max: number, required = true): string {
   return s;
 }
 
-/** A review from an agent; any open review of the same MR by that agent is replaced. */
+/** A review from an agent; an open one of the same MR at the same head is kept (unless `replace`), any other open one of that MR is replaced. */
 export async function openReview(env: Env, me: string, a: Record<string, unknown>): Promise<Review> {
   const s = env.session;
   if (!s?.label) throw new UserError("Reviews come from an agent session, so the decision has somewhere to go.");
@@ -80,7 +80,12 @@ export async function openReview(env: Env, me: string, a: Record<string, unknown
     };
   });
   const head = typeof a.head === "string" ? a.head.trim().slice(0, 64) : "";
-  await env.DB.prepare("UPDATE reviews SET status = 'replaced', decided_at = ? WHERE member = ? AND label = ? AND url = ? AND status = 'open'").bind(Date.now(), me, s.label, url).run();
+  // A loop that checks every few hours would send the same review again: the card (and its questions) stays.
+  if (head && a.replace !== true) {
+    const same = await env.DB.prepare("SELECT * FROM reviews WHERE member = ? AND url = ? AND head = ? AND status = 'open' ORDER BY id DESC LIMIT 1").bind(me, url, head).first<Review>();
+    if (same) return { ...same, kept: true } as Review & { kept: true };
+  }
+  await env.DB.prepare("UPDATE reviews SET status = 'replaced', decided_at = ? WHERE member = ? AND url = ? AND status = 'open'").bind(Date.now(), me, url).run();
   const row = await env.DB.prepare(
     `INSERT INTO reviews (member, session_id, label, project, url, title, verdict, recommend, findings, head, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,

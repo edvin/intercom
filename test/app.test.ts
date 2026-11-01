@@ -1616,7 +1616,7 @@ describe("reviews", () => {
     assert.match(loc(await w.form("/review/1", "bob", { decide: "1", outcome: "hold" })).get("err")!, /already decided/);
   });
 
-  test("you ask about a finding; the agent's answer shows on the card; a new review of the same MR replaces it", async () => {
+  test("you ask about a finding; the agent's answer shows on the card; the same review again keeps the card, replace swaps it", async () => {
     const w = await setup();
     await w.ok("bob", "review", review, core);
     assert.match(loc(await w.form("/review/1", "bob", { ask: "1", a1: "Does the provider ever send 409 for a real success?" })).get("ok")!, /Asked core/);
@@ -1628,7 +1628,10 @@ describe("reviews", () => {
     await w.ok("bob", "review", { action: "answer", id: 1, finding: 1, text: "Only for idempotent replays; their docs say so." }, core);
     const dash = await (await w.request("/dashboard?view=agents", { as: "bob", cookie: true })).text();
     assert.match(dash, /<div class="rvturn mine"><b>You<\/b> Does the provider ever send 409 for a real success\?<\/div><div class="rvturn"><b>core<\/b> Only for idempotent replays/);
-    await w.ok("bob", "review", { ...review, verdict: "Revised after a closer look." }, core);
+    // The same MR at the same head again (a loop's next run): the card and its questions stay.
+    assert.match(await w.ok("bob", "review", { ...review, verdict: "Same again." }, alder), /R1 for this MR at abc1234 is still waiting[\s\S]*nothing sent/);
+    assert.match(await w.ok("bob", "review", { action: "list" }, alder), /R1 https:\/\/git\.example\.com\S+ @ abc1234 — Retry failed invoices \(from core/);
+    await w.ok("bob", "review", { ...review, verdict: "Revised after a closer look.", replace: true }, core);
     const again = await (await w.request("/dashboard?view=agents", { as: "bob", cookie: true })).text();
     assert.doesNotMatch(again, /data-mid="r1"/);
     assert.match(again, /data-mid="r2"[\s\S]*Revised after a closer look/);
