@@ -689,7 +689,7 @@ body:has(.ide) .top .in{max-width:none;padding:8px 14px}
 .toff>summary{list-style:none;padding:3px 8px 3px 24px;font-size:11.5px;color:var(--mute);cursor:pointer}.toff>summary:hover{color:var(--ink-2)}
 .tempty{padding:3px 8px 6px 26px;margin:0;color:var(--mute);font-size:12px}
 .tfoot{border-top:1px solid var(--line);padding:6px 8px 8px;display:flex;flex-direction:column;gap:4px}
-.tlinks{gap:2px}.tlinks a{display:inline-grid;place-items:center;width:28px;height:28px;border-radius:7px;color:var(--mute)}.tlinks a:hover,.tlinks a.on{background:var(--surface-2);color:var(--ink)}
+.tlinks{gap:2px}.tlinks a{display:inline-flex;align-items:center;gap:5px;height:32px;padding:0 8px;border-radius:8px;color:var(--mute);font-size:12.5px;font-weight:540;text-decoration:none}@media (pointer:coarse){.tlinks a,.tlinks .btn{height:40px}.tlinks .btn{width:40px}}.tlinks a:hover,.tlinks a.on{background:var(--surface-2);color:var(--ink)}
 .pane{grid-column:2;min-width:0;min-height:0;overflow:auto}
 .pane-in{max-width:1180px;margin:0 auto;padding:18px 24px 40px;display:flex;flex-direction:column;gap:16px}
 .chatpane{display:flex;flex-direction:column;gap:10px;padding:12px 16px 14px;overflow:hidden}
@@ -790,7 +790,7 @@ form>.rvturn,form>.rvask{margin-left:2px}
 .asks.min .askpanel{display:none}.asks.min .askpill{display:inline-flex}
 body:has(#asks:not([hidden]):not(.min)) .toasts{right:auto;left:20px}
 .btn[hidden],.row[hidden]{display:none}.askpush{color:var(--accent);gap:4px}
-@media (max-width:640px){.asks,.ide.chatmode~.asks{right:8px;left:8px;bottom:calc(8px + env(safe-area-inset-bottom));width:auto}.ide.chatmode~.asks .askpanel{max-height:80dvh}.askpanel{max-height:80dvh;border-radius:16px}.askor{display:none}.askopt{padding:11px 12px}body:has(#asks:not([hidden]):not(.min)) .toasts{left:12px;right:12px;bottom:auto;top:12px}}
+@media (max-width:640px){.asks,.ide.chatmode~.asks{right:8px;left:8px;bottom:calc(8px + env(safe-area-inset-bottom));width:auto}.ide.chatmode~.asks .askpanel{max-height:80dvh}.askpanel{max-height:80dvh;border-radius:16px}.askor{display:none}.askopt{padding:11px 12px}body:has(.ide.treeopen) .asks{display:none}body:has(#asks:not([hidden]):not(.min)) .toasts{left:12px;right:12px;bottom:auto;top:12px}}
 .chatbox .chips{flex:none;align-items:center}.chatbox .chip{flex:none;height:auto}
 @media (max-width:640px){.chatpane{padding:8px;gap:8px}.chat>.hd{padding:10px 12px;gap:10px}.chat>.hd .cname,.chatbox .lbl,.updatebar .uphint{display:none}.chat>.hd .client{padding:0 6px}.chat>.hd .cwd{display:none}.thread.term{padding:12px 14px}.chatbox{padding:10px}.chatbox .chips{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}.chatbox .chips::-webkit-scrollbar{display:none}.chatbox .chip{flex:none;white-space:nowrap}.chatbox textarea{min-width:0}}
 @media (max-width:900px){
@@ -1122,7 +1122,7 @@ export const SCRIPT = `
     document.title = ids.length ? "(" + ids.length + ") " + baseTitle : baseTitle;
     if (box) pushBadge(ids.length);
     pushShow();
-    $$("[data-asksopen]").forEach((b) => b.onclick = () => { if (!box) return; box.classList.remove("min"); store(null); const f = box.querySelector(".askopt, input, button.primary"); f && !matchMedia("(pointer: coarse)").matches && f.focus(); });
+    $$("[data-asksopen]").forEach((b) => b.onclick = () => { if (!box) return; if (document.getElementById("ide")?.classList.contains("treeopen")) closeTree(); box.classList.remove("min"); store(null); const f = box.querySelector(".askopt, input, button.primary"); f && !matchMedia("(pointer: coarse)").matches && f.focus(); });
     if (!ids.length) return;
     let seen = null; try { seen = JSON.parse(sessionStorage.getItem("ic_asks_min") || "null"); } catch {}
     box.classList.toggle("min", Array.isArray(seen) && ids.every((i) => seen.includes(i)));
