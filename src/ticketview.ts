@@ -22,7 +22,7 @@ export function ticketCard(t: Ticket, me: string, back: string): string {
     <a class="rvtitle" href="${esc(ticketHref(t.id, back))}">${esc(t.title)}</a>
     <p class="rvverdict">${esc(t.verdict)}</p>
     ${facts.length ? `<p class="tkfacts">${facts.map((f) => `<span>${esc(f)}</span>`).join("")}</p>` : ""}
-    ${unread ? `<p class="tknew">${icon("message", 12)}${esc(t.label)} answered your question</p>` : ""}
+    ${unread ? `<a class="tknew" href="${esc(ticketHref(t.id, back))}#ask">${icon("message", 12)}${esc(t.label)} answered your question</a>` : ""}
     <div class="askact"><span class="tkrec">Recommends <b>${REC[t.recommend] ?? esc(t.recommend)}</b></span><span class="grow"></span><a class="btn sm primary" href="${esc(ticketHref(t.id, back))}">${icon("eye", 13)}Open</a></div>
   </article>`;
 }
@@ -122,16 +122,17 @@ export async function ticketView(env: Env, me: string, id: number, back: string)
   const agent = `/dashboard?view=agents&agent=${encodeURIComponent(`${me}/${t.label}`)}`;
   const dec = t.decision ? (JSON.parse(t.decision) as TicketDecision) : null;
   const turns = ticketThread(t);
-  const nav = [
-    ["tk-plan", "Assessment"],
-    ["tk-ticket", "Description"],
-    ...(d.mrs.length ? [["tk-mrs", d.mrs.length > 1 ? `MRs <span class="badge">${d.mrs.length}</span>` : "MR"]] : []),
-    ...(d.comments.length ? [["tk-activity", `Activity <span class="badge">${d.comments.length}</span>`]] : []),
-    ["tk-talk", turns.length ? `Questions <span class="badge">${turns.length}</span>` : "Questions"],
-    ["tkdecision", open ? "Decide" : "Decision"],
+  // The tabs: what there is to read (the ticket, the MRs, the talk with the agent). The assessment stays above them and
+  // the decision below, so the plan and the decision are in view whatever you read. The open tab is the page's hash.
+  const last = turns[turns.length - 1];
+  const tabs = [
+    ["ticket", "Ticket"],
+    ...(d.mrs.length ? [["mr", d.mrs.length > 1 ? `MRs <span class="badge">${d.mrs.length}</span>` : "MR"]] : []),
+    ["ask", `Ask ${esc(t.label)}${turns.length ? ` <span class="badge">${turns.length}</span>` : ""}${last && last.who !== "you" ? `<i class="tkdot" data-at="${last.at}" title="New answer"></i>` : ""}`],
   ]
-    .map(([h, l]) => `<a href="#${h}">${l}</a>`)
+    .map(([k, l]) => `<a href="#${k}" data-tab="${k}" role="tab">${l}</a>`)
     .join("");
+  const nav = `<nav id="tknav" class="tknav" role="tablist" data-region>${tabs}<span class="grow"></span>${open ? `<a href="#tkdecision" class="tkgo" title="Decide">${icon("check", 13)}<span>Decide</span></a>` : ""}</nav>`;
   const links = d.links.length
     ? `<section class="tksec" id="tk-links"><h2 class="tkh2">Linked issues</h2><div class="tklinks">${d.links
         .map(
@@ -176,7 +177,7 @@ export async function ticketView(env: Env, me: string, id: number, back: string)
     row("Repos", d.repos.length ? `<span class="tkrepos">${d.repos.map((r) => `<code>${esc(r)}</code>`).join("")}</span>` : ""),
     row(d.mrs.length > 1 ? "MRs" : "MR", d.mrs.length ? `<span class="tkrepos">${d.mrs.map((m, i) => `<a href="#mr${i + 1}" class="tkmrl">${icon("branch", 12)}${esc(m.state || "open")}${m.pipeline ? ` · ${esc(m.pipeline)}` : ""}</a>`).join("")}</span>` : ""),
   ].join("");
-  return `<div class="pane-in tkpane">
+  return `<div class="pane-in tkpane" data-tab="ticket" data-ticket="${t.id}">
     <div class="tkcrumb"><a class="btn ghost sm tkback" href="${esc(back)}">${icon("back", 14)}Back</a><span class="tksep">/</span>${f.type ? typeIcon(f.type) : ""}<a href="${esc(t.url)}" target="_blank" rel="noopener noreferrer" class="tkkeyl" title="Open in the tracker">${esc(t.key)}${icon("link", 12)}</a><span class="grow"></span><span class="tkfrom">${agentAvatar(me, t.label, "s")}<a href="${esc(agent)}">${esc(t.label)}</a><span>sent it ${time(t.created_at)}</span></span></div>
     <header class="tkhead"><h1>${esc(t.title)}</h1></header>
     <div class="tkgrid">
@@ -191,22 +192,21 @@ export async function ticketView(env: Env, me: string, id: number, back: string)
         </div>
       </aside>
       <div class="tkmain">
-        <nav class="tknav">${nav}</nav>
         <section class="tkverdict" id="tk-plan">
           <div class="tkvh">${agentAvatar(me, t.label, "s")}<span class="tkvwho">${esc(t.label)}'s assessment</span><span class="grow"></span><span class="tkrec">Recommends <b>${esc(rec)}</b></span></div>
           <p class="tkvline">${esc(t.verdict)}</p>
           <div class="md tkprose">${md(d.plan)}</div>
         </section>
-        <article class="tksheet">
-          <section class="tksec" id="tk-ticket">
+        ${nav}
+        <article class="tksheet tkpanel" data-tab="ticket" id="tk-ticket" role="tabpanel">
+          <section class="tksec">
             <h2 class="tkh2">Description</h2>
             ${d.description ? `<div class="md tkprose">${md(d.description)}</div>` : `<p class="tkempty">No description.</p>`}
           </section>
           ${links}${comments}
         </article>
-        ${d.mrs.length ? `<section class="tkcard" id="tk-mrs"><h2 class="tkh2">${icon("branch", 16)}${d.mrs.length > 1 ? "Merge requests" : "Merge request"}</h2>${d.mrs.map(mrBlock).join("")}</section>` : ""}
-        <section class="tkcard" id="tk-talk">
-          <h2 class="tkh2">${icon("messages", 16)}Ask ${esc(t.label)}</h2>
+        ${d.mrs.length ? `<section class="tkcard tkpanel" data-tab="mr" id="tk-mrs" role="tabpanel">${d.mrs.map(mrBlock).join("")}</section>` : ""}
+        <section class="tkcard tkpanel" data-tab="ask" id="tk-talk" role="tabpanel">
           ${threadRegion(t, me, self)}
         </section>
         <div id="tkdecision" data-region>${

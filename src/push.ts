@@ -177,7 +177,7 @@ async function noteFor(env: Env, me: string, ref: string, extra: string): Promis
     const t = await env.DB.prepare("SELECT key, label, title, verdict FROM tickets WHERE id = ? AND member = ? AND status = 'open'").bind(id, me).first<{ key: string; label: string; title: string; verdict: string }>();
     if (!t) return null;
     const url = `/dashboard?view=ticket&id=${id}`;
-    if (ref[0] === "k") return { title: `${t.label} answered you`, body: clip(`${t.key}: ${extra}`, 180), tag: `t${id}k`, url, count: 0, ttl: 86400 };
+    if (ref[0] === "k") return { title: `${t.label} answered you`, body: clip(`${t.key}: ${extra}`, 180), tag: `t${id}k`, url: `${url}#ask`, count: 0, ttl: 86400 };
     return { title: `Ticket ${t.key}: ${clip(t.title, 60)}`, body: clip(`${t.label}: ${t.verdict}`, 180), tag: ref, url, count: 0, ttl: 86400 };
   }
   const r = await env.DB.prepare("SELECT label, title, verdict FROM reviews WHERE id = ? AND member = ? AND status = 'open'").bind(id, me).first<{ label: string; title: string; verdict: string }>();

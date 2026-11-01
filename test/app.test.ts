@@ -1733,6 +1733,9 @@ describe("tickets", () => {
     assert.match(v, /relates to<\/span><b>SHOP-9<\/b>/);
     assert.match(v, /Fix the filter in <code>totals\.ts<\/code>/);
     assert.match(v, /pipeline passed[\s\S]*<code>fix\/zero-vat<\/code> → <code>main<\/code>/);
+    assert.match(v, /class="pane-in tkpane" data-tab="ticket" data-ticket="1"/);
+    assert.match(v, /<nav id="tknav" class="tknav" role="tablist" data-region><a href="#ticket" data-tab="ticket"[^>]*>Ticket[\s\S]*href="#mr" data-tab="mr"[\s\S]*href="#ask" data-tab="ask"/);
+    assert.match(v, /class="tkcard tkpanel" data-tab="mr" id="tk-mrs"[\s\S]*class="tkcard tkpanel" data-tab="ask" id="tk-talk"/);
     assert.match(v, /<table class="diff">[\s\S]*class="da"[\s\S]*ls\.reduce/);
     assert.match(v, /<input type="radio" name="p0" value="Yes">/);
     assert.match(v, /<input type="radio" name="outcome" value="go" checked>/);
