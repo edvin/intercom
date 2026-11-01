@@ -206,6 +206,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
     <div class="tsec"><span>Projects</span><button type="button" class="btn ghost xs icon" data-open="dlg-create" title="New project">${icon("plus", 13)}</button></div>
     <div class="tbody">${projectNodes || '<p class="tempty">No projects yet.</p>'}${loose.length ? branch("~none", '<span class="th">∅</span>No project', null, loose, "", false) : ""}</div>
     <div class="tfoot">
+      <a class="tl" href="/account" title="Your account: notifications on this device, signed-in browsers and terminals">${icon("sliders", 14)}<span>Account · notifications</span></a>
       <button type="button" class="tl away${away ? " on" : ""}" data-open="dlg-away" title="${away ? `Away: what your agents ask is denied after ${waitMin} min unless you answer` : "At your desk: what your agents ask waits for your answer, here or in their terminal"}">${away ? "🌙" : "🖥"}<span>${away ? `Away · deny after ${waitMin}m` : "At your desk"}</span></button>
       <div class="row tlinks"><a href="/discover" title="Find projects">${icon("users", 13)}</a>${nav.admin ? `<a href="/dashboard?view=admin" class="${nav.view === "admin" ? "on" : ""}" title="Admin">${icon("shield", 13)}</a>` : ""}<a href="/docs" title="Docs">${icon("book", 13)}</a><span class="grow"></span><button type="button" class="btn ghost xs icon" data-treetoggle title="Hide the tree (⌘B)">${icon("sidebar", 13)}</button></div>
     </div>
