@@ -8,6 +8,7 @@
 import { getSetting, setSetting } from "./github";
 import { type Env, UserError, ago } from "./lib";
 import { outdated } from "./version";
+import { APPROVAL_DELAY, queuePush } from "./push";
 
 /** Plugin versions whose hook closes a card answered in the terminal, so asking here while at the desk is fine. */
 export const ASK_ALWAYS_SINCE = "0.12.30";
@@ -105,6 +106,8 @@ export async function requestApproval(env: Env, me: string, session: { session_i
     .bind(`${what}: ${row!.summary.slice(0, 120)}`, now, me, session.session_id)
     .run();
   env.refreshWeb?.(me);
+  // On your phone too, if it's still waiting after a minute (at once in away mode).
+  await queuePush(env, me, `a${row!.id}`, away ? 0 : APPROVAL_DELAY);
   return row;
 }
 

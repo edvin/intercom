@@ -632,7 +632,7 @@ dialog.editor .ft{padding-top:14px;border-top:1px solid var(--line)}
 .code .copy{position:absolute;top:8px;right:8px;background:var(--surface)}
 
 /* standalone pages (login, join, docs) */
-.solo{min-height:calc(100vh - 60px);display:grid;place-items:center;padding:32px 16px}
+.solo{min-height:calc(100vh - 60px);display:grid;grid-template-columns:minmax(0,1fr);place-items:center;padding:32px 16px}.solo .card,.solo .bd>*{min-width:0}
 .solo .card{width:min(460px,100%)}
 .solo .card.wide{width:min(680px,100%)}
 .isleaving>:not(.leaving){display:none}
@@ -732,7 +732,7 @@ body:has(.ide) .top .in{max-width:none;padding:8px 14px}
 .ide.chatmode~.asks{bottom:150px}.ide.chatmode~.asks .askpanel{max-height:min(74vh,calc(100dvh - 240px))}
 .askpanel{width:100%;max-height:min(74vh,760px);display:flex;flex-direction:column;border-radius:18px;border:1px solid transparent;background:linear-gradient(var(--surface),var(--surface)) padding-box,linear-gradient(140deg,color-mix(in srgb,var(--amber) 75%,transparent),color-mix(in srgb,var(--accent) 55%,transparent) 60%,var(--line-strong)) border-box;box-shadow:var(--shadow-lg),0 18px 48px -20px color-mix(in srgb,var(--amber) 45%,transparent);overflow:hidden;animation:askup .35s cubic-bezier(.2,.9,.3,1.1)}
 .askhd{display:flex;align-items:center;gap:8px;padding:11px 10px 10px 16px;border-bottom:1px solid var(--line);font-size:13.5px}
-.askhd .i{transform:rotate(90deg)}.askpill .i{transform:rotate(-90deg);color:var(--mute)}
+.askhd [data-askstoggle] .i{transform:rotate(90deg)}.askhd b{white-space:nowrap}.askhd:has(.askpush:not([hidden])) .askor{display:none}.askpill .i{transform:rotate(-90deg);color:var(--mute)}
 .askdot{flex:none;width:8px;height:8px;border-radius:50%;background:var(--amber);animation:askping 2s infinite}
 @keyframes askping{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--amber) 55%,transparent)}70%{box-shadow:0 0 0 8px transparent}100%{box-shadow:0 0 0 0 transparent}}
 @keyframes askup{from{opacity:0;transform:translateY(14px)}}
@@ -789,6 +789,7 @@ form>.rvturn,form>.rvask{margin-left:2px}
 .askpill:hover{border-color:var(--amber)}
 .asks.min .askpanel{display:none}.asks.min .askpill{display:inline-flex}
 body:has(#asks:not([hidden]):not(.min)) .toasts{right:auto;left:20px}
+.btn[hidden],.row[hidden]{display:none}.askpush{color:var(--accent);gap:4px}
 @media (max-width:640px){.asks,.ide.chatmode~.asks{right:8px;left:8px;bottom:calc(8px + env(safe-area-inset-bottom));width:auto}.ide.chatmode~.asks .askpanel{max-height:80dvh}.askpanel{max-height:80dvh;border-radius:16px}.askor{display:none}.askopt{padding:11px 12px}body:has(#asks:not([hidden]):not(.min)) .toasts{left:12px;right:12px;bottom:auto;top:12px}}
 .chatbox .chips{flex:none;align-items:center}.chatbox .chip{flex:none;height:auto}
 @media (max-width:640px){.chatpane{padding:8px;gap:8px}.chat>.hd{padding:10px 12px;gap:10px}.chat>.hd .cname,.chatbox .lbl,.updatebar .uphint{display:none}.chat>.hd .client{padding:0 6px}.chat>.hd .cwd{display:none}.thread.term{padding:12px 14px}.chatbox{padding:10px}.chatbox .chips{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}.chatbox .chips::-webkit-scrollbar{display:none}.chatbox .chip{flex:none;white-space:nowrap}.chatbox textarea{min-width:0}}
@@ -1119,6 +1120,8 @@ export const SCRIPT = `
     const ids = box && !box.hidden ? $$(".ask", box).map((a) => a.dataset.mid) : [];
     const store = (v) => { try { sessionStorage.setItem("ic_asks_min", JSON.stringify(v)); } catch {} };
     document.title = ids.length ? "(" + ids.length + ") " + baseTitle : baseTitle;
+    if (box) pushBadge(ids.length);
+    pushShow();
     $$("[data-asksopen]").forEach((b) => b.onclick = () => { if (!box) return; box.classList.remove("min"); store(null); const f = box.querySelector(".askopt, input, button.primary"); f && !matchMedia("(pointer: coarse)").matches && f.focus(); });
     if (!ids.length) return;
     let seen = null; try { seen = JSON.parse(sessionStorage.getItem("ic_asks_min") || "null"); } catch {}
@@ -1466,7 +1469,53 @@ export const SCRIPT = `
       if (now && now !== build && !busy) location.reload();
     } catch {}
   });
-  bind(); days(); tick(); setInterval(tick, 20000); connect();
+  // Notifications on this device (push.ts): a service worker shows them, the subscription goes to the hub. Offered in
+  // Waiting for you while this device has none, and under Account (on, off, a test). An iPhone shows them only in
+  // the home-screen app, where its browser has PushManager at all.
+  const pushOk = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+  const pushJson = (u, b) => fetch(u, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b || {}) });
+  const pushSub = async () => { if (!pushOk) return null; const r = await navigator.serviceWorker.getRegistration("/"); return r ? r.pushManager.getSubscription() : null; };
+  async function pushOn() {
+    const perm = await Notification.requestPermission();
+    if (perm !== "granted") return false;
+    const reg = await navigator.serviceWorker.register("/sw.js"); await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) {
+      const key = (await (await fetch("/push/key")).json()).key, raw = atob(key.replace(/-/g, "+").replace(/_/g, "/"));
+      sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: Uint8Array.from(raw, (c) => c.charCodeAt(0)) });
+    }
+    return (await pushJson("/push/subscribe", sub.toJSON())).ok;
+  }
+  async function pushOff() { const sub = await pushSub(); if (sub) { await pushJson("/push/unsubscribe", { endpoint: sub.endpoint }); await sub.unsubscribe(); } }
+  async function pushShow() {
+    const sub = await pushSub().catch(() => null), perm = pushOk ? Notification.permission : "unsupported";
+    $$("[data-pushon]").forEach((b) => (b.hidden = !pushOk || perm === "denied" || !!sub));
+    $$("[data-pushctl]").forEach((c) => {
+      const iphone = /iPhone|iPad/.test(navigator.userAgent) && !navigator.standalone;
+      const say = (t) => { const s = $("[data-pushstate]", c); if (s) s.textContent = t; };
+      $$("[data-pushtoggle], [data-pushtest]", c).forEach((b) => (b.hidden = !pushOk || perm === "denied"));
+      const t = $("[data-pushtoggle]", c); if (t) t.textContent = sub ? "Turn off" : "Turn on";
+      const x = $("[data-pushtest]", c); if (x) x.hidden = x.hidden || !sub;
+      say(!pushOk ? (iphone ? "On iPhone: add Intercom to your Home Screen (Share, then Add to Home Screen) and turn them on in the app." : "This browser can't show notifications.") : perm === "denied" ? "Blocked for this site in the browser's settings." : sub ? "On for this device." : "Off for this device.");
+      c.hidden = false;
+    });
+    // Once a session, make sure the hub still has this device (it forgets ones whose push service said they're gone).
+    if (sub && perm === "granted") { try { if (!sessionStorage.getItem("ic_push_sync")) { sessionStorage.setItem("ic_push_sync", "1"); pushJson("/push/subscribe", sub.toJSON()); } } catch {} }
+  }
+  document.addEventListener("click", async (e) => {
+    const b = e.target.closest && e.target.closest("[data-pushon], [data-pushtoggle], [data-pushtest]");
+    if (!b) return;
+    e.preventDefault(); b.disabled = true;
+    try {
+      if ("pushtest" in b.dataset) { const n = (await (await pushJson("/push/test")).json()).sent; b.textContent = n ? "Sent" : "Not delivered"; setTimeout(() => (b.textContent = "Send a test"), 3000); }
+      else if ("pushtoggle" in b.dataset && (await pushSub())) { await pushOff(); location.reload(); return; }
+      else if (await pushOn()) { if ("pushtoggle" in b.dataset) { location.reload(); return; } }
+    } catch (err) { console.log("push", err); }
+    b.disabled = false; pushShow();
+  });
+  // The installed app's icon shows the count waiting for you; this keeps it right while the dashboard is open.
+  function pushBadge(n) { try { if (navigator.setAppBadge) (n ? navigator.setAppBadge(n) : navigator.clearAppBadge()).catch(() => {}); } catch {} }
+  bind(); days(); tick(); setInterval(tick, 20000); connect(); pushShow();
 })();
 `;
 

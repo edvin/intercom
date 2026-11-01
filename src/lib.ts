@@ -30,6 +30,8 @@ export interface Env {
   askCode?: (member: string, sessionId: string, req: string, q: object) => boolean;
   /** Where message images live (R2). */
   files?: R2Bucket;
+  /** Have the hub's alarm go off by `at` (to send a notification that's due then); undefined outside the hub. */
+  wake?: (at: number) => Promise<void>;
 }
 
 export interface Message {

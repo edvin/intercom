@@ -3,6 +3,7 @@ import { handle, json } from "./app";
 import { tools } from "./tools";
 import { pruneAttachments } from "./attachments";
 import { pruneBtw } from "./btw";
+import { sendDuePushes } from "./push";
 import { SqlDb, splitStatements } from "./db";
 import { type Env, type Message, address, authenticate, cleanBranch, cleanClient, fmtMessage, prune, setHost, setVersion, projectFor, setPresence, setRepo, touchSession, unread } from "./lib";
 import m0001 from "../migrations/0001_init.sql";
@@ -43,6 +44,7 @@ import m0035 from "../migrations/0035_took_work.sql";
 import m0036 from "../migrations/0036_from_user.sql";
 import m0037 from "../migrations/0037_asks.sql";
 import m0038 from "../migrations/0038_reviews.sql";
+import m0039 from "../migrations/0039_push.sql";
 
 /** A short fingerprint of the MCP tools (names, descriptions, schemas) this code offers. */
 const TOOLS_TAG = (() => {
@@ -90,6 +92,7 @@ const MIGRATIONS: [string, string][] = [
   ["0036_from_user", m0036],
   ["0037_asks", m0037],
   ["0038_reviews", m0038],
+  ["0039_push", m0039],
 ];
 
 const DAY = 86400_000;
@@ -140,12 +143,25 @@ export class TeamHub extends DurableObject<WorkerEnv> {
     });
   }
 
-  /** Daily housekeeping: message retention, expired locks, invites and stale sessions. */
+  /** Notifications that are due (push.ts), and daily housekeeping: message retention, expired locks, invites and stale sessions. */
   async alarm(): Promise<void> {
-    const days = Number(this.env.RETENTION_DAYS) || undefined;
-    const removed = { ...(await prune(this.appEnv(), days)), attachments: await pruneAttachments(this.appEnv()), btw: await pruneBtw(this.appEnv()) };
-    console.log("prune", JSON.stringify(removed));
-    await this.ctx.storage.setAlarm(Date.now() + DAY);
+    const now = Date.now();
+    let pruneAt = (await this.ctx.storage.get<number>("prune_at")) ?? 0;
+    if (now >= pruneAt) {
+      const days = Number(this.env.RETENTION_DAYS) || undefined;
+      const removed = { ...(await prune(this.appEnv(), days)), attachments: await pruneAttachments(this.appEnv()), btw: await pruneBtw(this.appEnv()) };
+      console.log("prune", JSON.stringify(removed));
+      pruneAt = now + DAY;
+      await this.ctx.storage.put("prune_at", pruneAt);
+    }
+    const next = await sendDuePushes(this.appEnv(), now);
+    await this.ctx.storage.setAlarm(Math.min(pruneAt, next ?? Infinity));
+  }
+
+  /** Have the alarm go off by `at`, if it isn't due sooner already. */
+  private async wake(at: number): Promise<void> {
+    const cur = await this.ctx.storage.getAlarm();
+    if (cur === null || at < cur) await this.ctx.storage.setAlarm(at);
   }
 
   private migrate(): void {
@@ -172,6 +188,7 @@ export class TeamHub extends DurableObject<WorkerEnv> {
       askFile: (member, sessionId, req, path) => this.askFile(member, sessionId, req, path),
       askCode: (member, sessionId, req, q) => this.toSession(member, sessionId, { type: "code-request", req, q }),
       files: this.env.FILES,
+      wake: (at) => this.wake(at),
       github: id && secret ? { client_id: id, client_secret: secret } : undefined,
     };
   }

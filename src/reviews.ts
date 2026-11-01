@@ -5,6 +5,7 @@
 // as a YOUR USER message and into the project's decision log. The agent doesn't wait meanwhile; it just doesn't act.
 
 import { type Env, GONE_MS, UserError, liveIds, postMessage } from "./lib";
+import { queuePush } from "./push";
 import { logDecision } from "./records";
 
 export const OUTCOMES = { approve: "Approve", approve_after: "Approve once fixed", request_changes: "Request changes", hold: "Hold" } as const;
@@ -93,6 +94,7 @@ export async function openReview(env: Env, me: string, a: Record<string, unknown
     .bind(me, s.session_id, s.label, s.project || null, url, title, verdict, recommend, JSON.stringify(findings), head, Date.now())
     .first<Review>();
   env.refreshWeb?.(me);
+  await queuePush(env, me, `r${row!.id}`);
   return row!;
 }
 
@@ -211,6 +213,7 @@ export async function answerReview(env: Env, me: string, id: number, finding: nu
   // To revise the findings themselves, send the review again (it replaces this one).
   await addTurn(env, r, { who: env.session?.label || r.label, finding: finding || 0, text: a, at: Date.now() });
   env.refreshWeb?.(me);
+  await queuePush(env, me, `q${r.id}`, 0, a);
   return `Your answer is on R${id}'s card. Wait for the decision before acting on the MR.`;
 }
 

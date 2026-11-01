@@ -17,6 +17,7 @@ import { getSetting, githubRepo, openSignup, setSetting } from "./github";
 import { landingPage } from "./landing";
 import { BUILD, esc, icon, redirect } from "./ui";
 import { accountPage, dashboard, soloCard, exportProject, localPath, sameOrigin, handleAction, handleAdminAction, handleJoin, handleLogin, handleLogout, loginPage } from "./web";
+import { publicKey, sendTest, subscribe, unsubscribe } from "./push";
 
 const SUPPORTED_PROTOCOLS = ["2025-11-25", "2025-06-18", "2025-03-26"];
 const SERVER_INFO = { name: "intercom", version: "0.1.0" };
@@ -883,6 +884,25 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
     await env.DB.prepare("UPDATE sessions SET compact_req = NULL WHERE member = ? AND session_id = ? AND json_extract(compact_req, '$.id') = ?").bind(me, String(body.session ?? ""), id).run();
     env.refreshWeb?.(me);
     return json({ ok: true });
+  }
+  // Notifications on this browser (push.ts): the dashboard subscribes with the hub's key and sends the subscription here.
+  if (url.pathname === "/push/key") return json({ key: await publicKey(env) });
+  if (url.pathname.startsWith("/push/") && req.method === "POST") {
+    if (!sameOrigin(req)) return new Response("Cross-origin request refused", { status: 403 });
+    const body = (await req.json().catch(() => ({}))) as { endpoint?: string };
+    if (url.pathname === "/push/subscribe") {
+      try {
+        await subscribe(env, me, body, req.headers.get("user-agent") ?? "");
+      } catch {
+        return json({ error: "Not a push subscription" }, 400);
+      }
+      return json({ ok: true });
+    }
+    if (url.pathname === "/push/unsubscribe") {
+      await unsubscribe(env, me, String(body.endpoint ?? ""));
+      return json({ ok: true });
+    }
+    if (url.pathname === "/push/test") return json({ sent: await sendTest(env, me) });
   }
   if (url.pathname === "/away" && req.method === "POST") {
     if (!sameOrigin(req)) return new Response("Cross-origin request refused", { status: 403 });

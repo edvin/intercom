@@ -34,6 +34,30 @@ const MANIFEST = JSON.stringify({
   ],
 });
 
+// The service worker: only shows notifications (push.ts) and opens the dashboard on the one tapped. It handles no
+// fetches, so pages load exactly as without it. The app icon's badge carries the count waiting for you.
+const SERVICE_WORKER = `self.addEventListener("install", () => self.skipWaiting());
+self.addEventListener("activate", (e) => e.waitUntil(self.clients.claim()));
+self.addEventListener("push", (e) => {
+  let d = {};
+  try { d = e.data ? e.data.json() : {}; } catch {}
+  const badge = navigator.setAppBadge && typeof d.count === "number" ? (d.count ? navigator.setAppBadge(d.count) : navigator.clearAppBadge()).catch(() => {}) : Promise.resolve();
+  e.waitUntil(Promise.all([badge, self.registration.showNotification(d.title || "Intercom", { body: d.body || "", tag: d.tag || undefined, renotify: !!d.tag, icon: "/assets/icon-192.png", data: { url: d.url || "/dashboard" } })]));
+});
+self.addEventListener("notificationclick", (e) => {
+  e.notification.close();
+  const url = new URL((e.notification.data && e.notification.data.url) || "/dashboard", self.location.origin).href;
+  e.waitUntil(self.clients.matchAll({ type: "window", includeUncontrolled: true }).then(async (list) => {
+    for (const c of list) {
+      if (new URL(c.url).origin !== self.location.origin) continue;
+      try { const n = await c.navigate(url); if (n) return n.focus(); } catch {}
+      return c.focus();
+    }
+    return self.clients.openWindow(url);
+  }));
+});
+`;
+
 export { TeamHub };
 
 const text = (body: string) => new Response(body, { headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-cache" } });
@@ -63,6 +87,7 @@ export default {
     }
     if (ICONS[url.pathname]) return new Response(ICONS[url.pathname], { headers: { "content-type": "image/png", "cache-control": "public, max-age=86400" } });
     if (url.pathname === "/manifest.webmanifest") return new Response(MANIFEST, { headers: { "content-type": "application/manifest+json", "cache-control": "public, max-age=3600" } });
+    if (url.pathname === "/sw.js") return new Response(SERVICE_WORKER, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": "no-cache" } });
     if (url.pathname === "/docs") return docsPage(url.origin);
     // Bodies are read whole inside the one hub object: a huge one could take it down for everyone. Messages with
     // attachments (4 × 10 MB) and files from agents may be large; nothing else needs more than a little.

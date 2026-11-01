@@ -2555,3 +2555,151 @@ describe("stale background jobs", () => {
     assert.doesNotMatch(await page(), /⧗ Poll the hub until live/);
   });
 });
+
+describe("notifications (web push)", () => {
+  const realFetch = globalThis.fetch;
+  const b64u = (b: ArrayBuffer | Uint8Array) => Buffer.from(b instanceof Uint8Array ? b : new Uint8Array(b)).toString("base64url");
+  const hkdf = async (salt: Uint8Array, ikm: Uint8Array, info: Uint8Array, n: number) =>
+    new Uint8Array(await crypto.subtle.deriveBits({ name: "HKDF", hash: "SHA-256", salt, info }, await crypto.subtle.importKey("raw", ikm, "HKDF", false, ["deriveBits"]), n * 8));
+  const cat = (...p: Uint8Array[]) => Uint8Array.from(p.flatMap((x) => [...x]));
+  const te = new TextEncoder();
+
+  /** A browser: its own key pair and auth secret, and what its push service received. */
+  async function browser(endpoint = "https://push.example/send/abc") {
+    const pair = (await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveBits"])) as CryptoKeyPair;
+    const pub = new Uint8Array((await crypto.subtle.exportKey("raw", pair.publicKey)) as ArrayBuffer);
+    const auth = crypto.getRandomValues(new Uint8Array(16));
+    /** Decrypt a body the way the browser does (RFC 8291). */
+    const open = async (body: Uint8Array) => {
+      const salt = body.slice(0, 16), idlen = body[20], asPub = body.slice(21, 21 + idlen);
+      const asKey = await crypto.subtle.importKey("raw", asPub, { name: "ECDH", namedCurve: "P-256" }, false, []);
+      const shared = new Uint8Array(await crypto.subtle.deriveBits({ name: "ECDH", public: asKey }, pair.privateKey, 256));
+      const ikm = await hkdf(auth, shared, cat(te.encode("WebPush: info\0"), pub, asPub), 32);
+      const cek = await hkdf(salt, ikm, te.encode("Content-Encoding: aes128gcm\0"), 16);
+      const nonce = await hkdf(salt, ikm, te.encode("Content-Encoding: nonce\0"), 12);
+      const key = await crypto.subtle.importKey("raw", cek, "AES-GCM", false, ["decrypt"]);
+      const plain = new Uint8Array(await crypto.subtle.decrypt({ name: "AES-GCM", iv: nonce }, key, body.slice(21 + idlen)));
+      assert.equal(plain[plain.length - 1], 2); // the last record's delimiter
+      return JSON.parse(new TextDecoder().decode(plain.slice(0, -1))) as { title: string; body: string; tag: string; url: string; count: number };
+    };
+    return { sub: { endpoint, keys: { p256dh: b64u(pub), auth: b64u(auth) } }, open };
+  }
+  const sent: { url: string; headers: Headers; body: Uint8Array }[] = [];
+  let status = 201;
+  const stub = () => {
+    sent.length = 0;
+    status = 201;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      sent.push({ url: String(input), headers: new Headers(init?.headers), body: new Uint8Array(init?.body as Uint8Array) });
+      return new Response("", { status });
+    }) as typeof fetch;
+  };
+  const restore = () => (globalThis.fetch = realFetch);
+  const json = (w: World, path: string, body: object, opts: { origin?: string; cookie?: boolean } = {}) =>
+    w.request(path, { method: "POST", as: "bob", cookie: opts.cookie ?? true, headers: { origin: opts.origin ?? ORIGIN, "content-type": "application/json", "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1" }, body: JSON.stringify(body) });
+  const setup = async () => {
+    const w = await standardWorld();
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=np1&name=core&client=claude&version=" + PLUGIN_VERSION, { as: "bob" });
+    await w.ok("bob", "inbox", {}, { id: "np1", project: "billing-api" });
+    return w;
+  };
+  const review = { url: "https://git.example.com/shop/billing/-/merge_requests/7", title: "Retry failed invoices", verdict: "A 409 counts as paid.", recommend: "request_changes", head: "abc1234", findings: [{ severity: "blocker", summary: "409 is treated as success.", comment: "Shouldn't 409 fail?" }] };
+
+  test("a browser subscribes from the dashboard only: same origin, signed in with GitHub, a real https subscription", async () => {
+    const w = await setup();
+    const b = await browser();
+    assert.match(((await (await w.request("/push/key", { as: "bob", cookie: true })).json()) as { key: string }).key, /^[A-Za-z0-9_-]{87}$/); // 65 bytes
+    assert.equal((await json(w, "/push/subscribe", b.sub, { origin: "https://evil.example" })).status, 403);
+    w.github = { client_id: "id", client_secret: "secret" };
+    assert.equal((await json(w, "/push/subscribe", b.sub, { cookie: false })).status, 403); // an agent's token
+    w.github = undefined;
+    assert.equal((await json(w, "/push/subscribe", { ...b.sub, endpoint: "http://push.example/x" })).status, 400);
+    assert.equal((await json(w, "/push/subscribe", { ...b.sub, keys: { ...b.sub.keys, auth: "short" } })).status, 400);
+    assert.equal((await json(w, "/push/subscribe", b.sub)).status, 200);
+    assert.equal((await json(w, "/push/subscribe", b.sub)).status, 200); // again: still one
+    const account = await (await w.request("/account", { as: "bob", cookie: true })).text();
+    assert.match(account, /On for Safari on iPhone/);
+    assert.match(account, /data-pushctl/);
+    await json(w, "/push/unsubscribe", { endpoint: b.sub.endpoint });
+    assert.doesNotMatch(await (await w.request("/account", { as: "bob", cookie: true })).text(), /On for Safari/);
+  });
+
+  test("a review reaches the phone at once, encrypted for it and signed by the hub; a gone browser is forgotten", async () => {
+    const w = await setup();
+    const b = await browser();
+    await json(w, "/push/subscribe", b.sub);
+    stub();
+    try {
+      await w.ok("bob", "review", review, { id: "np1", project: "billing-api" });
+      assert.equal(sent.length, 0); // queued: the hub's alarm sends it
+      const { sendDuePushes } = await import("../src/push.ts");
+      assert.equal(await sendDuePushes(w.env()), null);
+      assert.equal(sent.length, 1);
+      const s = sent[0];
+      assert.equal(s.url, b.sub.endpoint);
+      assert.equal(s.headers.get("content-encoding"), "aes128gcm");
+      const note = await b.open(s.body);
+      assert.deepEqual(note, { title: "Review: Retry failed invoices", body: "core: A 409 counts as paid.", tag: note.tag, url: "/dashboard?view=agents&agent=bob%2Fcore", count: 1 });
+      // The VAPID signature checks out against the hub's public key, for that push service.
+      const m = s.headers.get("authorization")!.match(/^vapid t=([^.]+)\.([^.]+)\.([^,]+), k=(.+)$/)!;
+      const key = await crypto.subtle.importKey("raw", Buffer.from(m[4], "base64url"), { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"]);
+      assert.ok(await crypto.subtle.verify({ name: "ECDSA", hash: "SHA-256" }, key, Buffer.from(m[3], "base64url"), te.encode(`${m[1]}.${m[2]}`)));
+      assert.equal(JSON.parse(Buffer.from(m[2], "base64url").toString()).aud, "https://push.example");
+      // Sent again at the same head: no second notification. An answer on the card is one.
+      await w.ok("bob", "review", review, { id: "np1", project: "billing-api" });
+      const id = Number((await w.ok("bob", "review", { action: "list" }, { id: "np1", project: "billing-api" })).match(/R(\d+)/)![1]);
+      await w.form(`/review/${id}`, "bob", { ask: "1", a1: "Which provider?" });
+      await w.ok("bob", "review", { action: "answer", id, finding: 1, text: "Stripe: 409 means a duplicate key." }, { id: "np1", project: "billing-api" });
+      await sendDuePushes(w.env());
+      assert.equal(sent.length, 2);
+      assert.deepEqual(await b.open(sent[1].body).then((n) => [n.title, n.body]), ["core answered you", "Retry failed invoices: Stripe: 409 means a duplicate key."]);
+      // The push service says the browser is gone: it's forgotten, and nothing more is queued for bob.
+      status = 410;
+      await w.ok("bob", "review", { ...review, head: "def5678" }, { id: "np1", project: "billing-api" });
+      await sendDuePushes(w.env());
+      assert.equal(sent.length, 3);
+      assert.doesNotMatch(await (await w.request("/account", { as: "bob", cookie: true })).text(), /On for Safari/);
+      await w.ok("bob", "review", { ...review, head: "0000000" }, { id: "np1", project: "billing-api" });
+      await sendDuePushes(w.env());
+      assert.equal(sent.length, 3);
+    } finally {
+      restore();
+    }
+  });
+
+  test("an approval at the desk waits a minute and is skipped if answered; in away mode it goes at once", async () => {
+    const w = await setup();
+    const b = await browser();
+    await json(w, "/push/subscribe", b.sub);
+    const { sendDuePushes, APPROVAL_DELAY } = await import("../src/push.ts");
+    const ask = async (command: string) =>
+      ((await (await w.request("/api/approval?session=np1&client=claude", { method: "POST", as: "bob", body: JSON.stringify({ tool_name: "Bash", tool_input: { command } }) })).json()) as { id: number }).id;
+    stub();
+    try {
+      const first = await ask("npm run migrate");
+      const due = await sendDuePushes(w.env());
+      assert.equal(sent.length, 0);
+      assert.ok(due! >= Date.now() + APPROVAL_DELAY - 2000);
+      await sendDuePushes(w.env(), Date.now() + APPROVAL_DELAY + 1000);
+      assert.equal(sent.length, 1);
+      assert.deepEqual(await b.open(sent[0].body).then((n) => [n.title, n.body, n.count]), ["core needs approval", "Bash: npm run migrate", 1]);
+      // Answered within the minute: never sent.
+      const second = await ask("npm run deploy");
+      await w.form(`/approval/${second}`, "bob", { decision: "allow" });
+      await sendDuePushes(w.env(), Date.now() + APPROVAL_DELAY + 1000);
+      assert.equal(sent.length, 1);
+      await w.form(`/approval/${first}`, "bob", { decision: "deny" });
+      // Away: at once.
+      await w.ok("bob", "away", { on: true });
+      await ask("npm run seed");
+      await sendDuePushes(w.env());
+      assert.equal(sent.length, 2);
+      // A test from Account.
+      const t = (await (await json(w, "/push/test", {})).json()) as { sent: number };
+      assert.equal(t.sent, 1);
+      assert.equal((await b.open(sent[2].body)).title, "Intercom");
+    } finally {
+      restore();
+    }
+  });
+});

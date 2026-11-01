@@ -1,10 +1,11 @@
-import { type Delivery, type Env, type Lock, deliveryMarks, issueToken, type Message, type Project, type Proposal, DELEGATE_PER_HOUR, LIVE, MAX_BODY, MEMBER_OF, RECEIVES, activeLocks, address, authenticate, coMembers, isAdmin, myProjects, normChannel, postMessage, roleIn, sha256, workingOn, newToken, HANDLE, limit, UserError, unsend } from "./lib";
+import { type Delivery, type Env, type Lock, deliveryMarks, issueToken, type Message, type Project, type Proposal, DELEGATE_PER_HOUR, LIVE, MAX_BODY, MEMBER_OF, RECEIVES, activeLocks, address, authenticate, coMembers, isAdmin, myProjects, normChannel, postMessage, roleIn, sha256, workingOn, newToken, HANDLE, limit, UserError, unsend, ago } from "./lib";
 import { agentsView } from "./agents";
 import { askBtw } from "./btw";
 import { linkImages, markerFor, storeImages } from "./attachments";
 import { type Decision, type Handoff, OPEN_HANDOFF, findDecisions, listHandoffs } from "./records";
 import { pendingApprovals } from "./approvals";
 import { asksDock } from "./asks";
+import { subscriptions } from "./push";
 import { adminsInvite, openSignup, setSetting, usableInvite } from "./github";
 import { tools } from "./tools";
 import { GITHUB_ICON, LOGO, agentAvatar, agentLink, avatar, codeBlock, deliveryMark, esc, hidden, html, icon, md, page, plainSpaces, redirect, time } from "./ui";
@@ -917,6 +918,7 @@ export function docsPage(origin: string): Response {
         <p>The <b>tree</b> on the left of the dashboard lists your projects with their agents nested underneath (yours first), each with a dot for what it's doing: working (pulsing), idle (green) or <b>waiting</b> for you (red “!”); a loop icon marks a loop and ⧗ background jobs. Click a project for its feed, an agent for its chat, which gets the full width. <kbd>⌘B</kbd> hides the tree; on a feed, <b>Panels</b> shows or hides the project, locks, handoffs and decisions on the right. Folded projects stay folded. What you write there reaches that session as <b>you</b>: your own agents act on it like a prompt typed in their terminal, and reply to you in the chat.</p>
         <ul>
           <li><b>Reviews:</b> an agent reviewing an MR sends you only what needs your call, briefly (the tool refuses long text and more than five findings), as a card under <i>Waiting for you</i>: post or drop each finding (open its comment to edit it), ask about one (the answer shows on the card), pick the outcome and send. The agent holds off on the MR meanwhile and gets your decision as a message from you; it also goes in the decision log. If its agent is gone, the card says so and moves the review to another of your agents.</li>
+          <li><b>Notifications:</b> turn them on with <i>Notify me</i> in Waiting for you, or under Account, per device. You get one for a new review, an agent's answer on one, and a question or permission prompt still unanswered after a minute (at once in away mode); tapping it opens the dashboard there. On an iPhone, add Intercom to the Home Screen and turn them on in that app. The app icon shows how many things are waiting.</li>
           <li><b>Images and files:</b> paste (⌘V), drop or pick (the paperclip) up to 4 images or files in a message: they go with your text, like in the terminal. The agent sees <code>[📎 image #12: name]</code> and opens an image itself with the <code>attachment</code> tool; any other file (a zip, a PDF, a CSV, up to 10 MB) shows as <code>[📎 file #13: data.zip · 2.1 MB]</code>, and the agent saves it to its machine with <code>save_attachment</code>, where you tell it or in its working folder. Images are scaled down before upload; files go as they are. Text files (a Markdown review, a log, JSON, code) open in a reader in the dashboard, Markdown rendered or as source, with a download button; anything else only downloads. Visible only to those who can read the message, kept 30 days. A folder: zip it first.</li>
           <li><b>Files from agents:</b> ask an agent to show you something it made (a screenshot, a report, a log) and it shares the file with <code>share_file</code>. It lands in your dashboard: images preview, other files download. Up to 10 MB, kept 30 days.</li>
           <li><b>Side questions (btw):</b> switch the chat to <b>btw</b> (or start with <code>/btw</code>) to ask your own Claude Code agent something without touching its work, e.g. “what's your plan?”. The intercom-ui mod in that session answers from a read-only copy of its current context; nothing is added to the agent's history. Follow-ups continue the side thread; “start a new side thread” begins fresh. Needs intercom-ui 0.2.4+ and at least one finished turn; not available for Codex.</li>
@@ -1058,6 +1060,10 @@ export async function accountPage(req: Request, env: Env, me: string): Promise<R
           : `<p class="small muted">Connect GitHub to sign in without a token, and to join projects through repos you can push to.</p><a class="btn sm" href="/auth/github?purpose=link">${GITHUB_ICON} Connect GitHub</a>`
       }</div>`
     : "";
+  const subs = await subscriptions(env, me);
+  const pushSection = `<div><h3>Notifications</h3><p class="small muted">When something is waiting for you: a review to decide, an agent's question, or a permission prompt still unanswered after a minute (at once in away mode). Tapping one opens it.</p>
+    <div class="row" data-pushctl hidden><span class="small grow" data-pushstate></span><button type="button" class="btn ghost sm" data-pushtest hidden>Send a test</button><button type="button" class="btn sm" data-pushtoggle hidden>Turn on</button></div>
+    ${subs.length ? `<p class="small muted" style="margin-bottom:0">On for ${subs.map((d) => `${esc(d.device)} <span title="Last delivered">(${d.last_ok ? `last ${ago(d.last_ok)}` : `since ${ago(d.created_at)}`})</span>`).join(", ")}.</p>` : ""}</div>`;
   const deviceList = devices.length
     ? `<div><h3>Signed-in browsers, terminals and connectors</h3>${devices
         .map(
@@ -1075,6 +1081,7 @@ export async function accountPage(req: Request, env: Env, me: string): Promise<R
       ${flash.get("ok") || flash.get("err") ? `<div class="toast ${flash.get("err") ? "err" : ""}" style="box-shadow:none">${icon(flash.get("err") ? "x" : "check")}<span>${esc(flash.get("ok") ?? flash.get("err"))}</span></div>` : ""}
       ${github}
       <div><h3>Connect another machine</h3><p class="small muted">Run this there; it signs in through your browser:</p>${codeBlock(`curl -fsSL ${origin}/setup.sh | sh`)}</div>
+      ${pushSection}
       ${deviceList}
       <div><h3>Reset your original token</h3><p class="small muted">If your first token leaked or got lost: the old one stops working at once, so run the setup again where it was used.</p>
         <form method="post" data-native data-confirm="Reset your original token? It stops working on every machine that uses it, until you run the setup again.">${hidden({ action: "token" })}<button class="btn sm">${icon("key", 14)}Reset token</button></form></div>
