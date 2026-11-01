@@ -1727,7 +1727,7 @@ describe("tickets", () => {
     assert.match(dash, /ticket waiting for you<\/button>/);
     const v = await page(w, "/dashboard?view=ticket&id=1");
     assert.match(v, /<h1>Invoices with a 0% VAT line show the wrong total<\/h1>/);
-    assert.match(v, /<span>Priority<\/span>High/);
+    assert.match(v, /<dt>Priority<\/dt><dd><span class="tkval"><svg class="tkpi"[^]*?<\/svg>High<\/span>/);
     assert.match(v, /<b>0% VAT<\/b>/);
     assert.match(v, /Still happens on the new checkout/);
     assert.match(v, /relates to<\/span><b>SHOP-9<\/b>/);
