@@ -2491,7 +2491,7 @@ describe("Claude.ai connector", () => {
     // Denying sends the error back; the account page lists it, and Disconnect revokes it.
     const denied = new URL((await w.form("/oauth/authorize", "bob", { ...params, action: "deny" })).headers.get("location")!);
     assert.equal(denied.searchParams.get("error"), "access_denied");
-    const account = await (await w.request("/account", { as: "bob", cookie: true })).text();
+    const account = await (await w.request("/dashboard?view=account", { as: "bob", cookie: true })).text();
     assert.match(account, /Claude \(connector: talks to your agents\)/);
     const id = (await w.db.prepare("SELECT token_hash FROM tokens WHERE kind = 'connector'").first<{ token_hash: string }>())!.token_hash;
     await w.form("/account", "bob", { action: "revoke", id });
@@ -2617,15 +2617,18 @@ describe("notifications (web push)", () => {
     assert.equal((await json(w, "/push/subscribe", { ...b.sub, keys: { ...b.sub.keys, auth: "short" } })).status, 400);
     assert.equal((await json(w, "/push/subscribe", b.sub)).status, 200);
     assert.equal((await json(w, "/push/subscribe", b.sub)).status, 200); // again: still one
-    const account = await (await w.request("/account", { as: "bob", cookie: true })).text();
+    const account = await (await w.request("/dashboard?view=account", { as: "bob", cookie: true })).text();
     assert.match(account, /<b>Safari on iPhone<\/b>/);
+    // Account lives in the dashboard (tree, top bar); the old address leads there.
+    assert.match(account, /class="tl on" href="\/dashboard\?view=account"/);
+    assert.equal((await w.request("/account?ok=Saved", { as: "bob", cookie: true })).headers.get("location"), "/dashboard?view=account&ok=Saved");
     assert.match(account, /data-pushctl/);
     // The page's CSP lets it install the notification worker (only from this site) and read the app manifest.
-    const csp = (await w.request("/account", { as: "bob", cookie: true })).headers.get("content-security-policy")!;
+    const csp = (await w.request("/dashboard?view=account", { as: "bob", cookie: true })).headers.get("content-security-policy")!;
     assert.match(csp, /worker-src 'self'/);
     assert.match(csp, /manifest-src 'self'/);
     await json(w, "/push/unsubscribe", { endpoint: b.sub.endpoint });
-    assert.doesNotMatch(await (await w.request("/account", { as: "bob", cookie: true })).text(), /<b>Safari on iPhone/);
+    assert.doesNotMatch(await (await w.request("/dashboard?view=account", { as: "bob", cookie: true })).text(), /<b>Safari on iPhone/);
   });
 
   test("a review reaches the phone at once, encrypted for it and signed by the hub; a gone browser is forgotten", async () => {
@@ -2650,7 +2653,7 @@ describe("notifications (web push)", () => {
       assert.ok(await crypto.subtle.verify({ name: "ECDSA", hash: "SHA-256" }, key, Buffer.from(m[3], "base64url"), te.encode(`${m[1]}.${m[2]}`)));
       assert.equal(JSON.parse(Buffer.from(m[2], "base64url").toString()).aud, "https://push.example");
       // Account says what became of it; the device reports whether it could show it.
-      const acct = async () => (await (await w.request("/account", { as: "bob", cookie: true })).text());
+      const acct = async () => (await (await w.request("/dashboard?view=account", { as: "bob", cookie: true })).text());
       assert.match(await acct(), /last notification just now: <\/span><span>sent/);
       await json(w, "/push/report", { endpoint: b.sub.endpoint, error: "TypeError: bad option" });
       assert.match(await acct(), /class="pusherr">the device couldn&#39;t show it: TypeError: bad option/);
@@ -2669,7 +2672,7 @@ describe("notifications (web push)", () => {
       await w.ok("bob", "review", { ...review, head: "def5678" }, { id: "np1", project: "billing-api" });
       await sendDuePushes(w.env());
       assert.equal(sent.length, 3);
-      assert.doesNotMatch(await (await w.request("/account", { as: "bob", cookie: true })).text(), /<b>Safari on iPhone/);
+      assert.doesNotMatch(await (await w.request("/dashboard?view=account", { as: "bob", cookie: true })).text(), /<b>Safari on iPhone/);
       await w.ok("bob", "review", { ...review, head: "0000000" }, { id: "np1", project: "billing-api" });
       await sendDuePushes(w.env());
       assert.equal(sent.length, 3);

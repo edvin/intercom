@@ -558,7 +558,8 @@ export async function dashboard(url: URL, env: Env, me: string, cookie = ""): Pr
   const mutedPeople = new Set(mutedPeopleRes.results.map((r) => r.muted));
   const ownerOf = (project: string) => admin || pmRes.results.some((m) => m.project === project && m.member === me && m.role === "owner");
   const shownLocks = channel ? locks.filter((l) => l.channel === channel) : locks;
-  const view = url.searchParams.get("view") === "admin" && admin ? "admin" : url.searchParams.get("view") === "agents" ? "agents" : "feed";
+  const asked = url.searchParams.get("view");
+  const view = asked === "admin" && admin ? "admin" : asked === "account" ? "account" : asked === "agents" ? "agents" : "feed";
 
   const { results: requests } = await env.DB.prepare(
     `SELECT r.project, r.member, r.note, r.created_at, m.org, m.github_login FROM join_requests r JOIN members m ON m.name = r.member
@@ -711,6 +712,8 @@ export async function dashboard(url: URL, env: Env, me: string, cookie = ""): Pr
   const main =
     view === "admin"
       ? `<main class="pane"><div class="pane-in">${await adminSection(env, me)}</div></main>`
+      : view === "account"
+        ? `<main class="pane"><div class="pane-in acctpane">${await accountSection(env, me, url.origin)}</div></main>`
       : view === "agents"
         ? `<main class="pane chatpane">${ws.main}</main>`
         : `<main class="pane"><div class="pane-in">${onboarding}${needs}${composer}${feed}</div></main><aside class="drawer" id="drawer">${projectBox}${lockPanel}${handoffPanel}${logPanel}${decisions}</aside>`;
@@ -724,9 +727,9 @@ export async function dashboard(url: URL, env: Env, me: string, cookie = ""): Pr
     <span class="grow"></span>
     ${view === "feed" ? `<button type="button" class="btn ghost sm" data-drawertoggle title="Show or hide the panels: project, locks, handoffs, decisions, votes">${icon("layers", 15)}<span class="lbl">Panels</span></button>` : ""}
     <button type="button" class="btn ghost sm" data-kopen title="Find an agent, project or page">${icon("search", 15)}<span class="lbl">Search</span><span class="kbd kbd-k">⌘K</span></button>
-    <a class="btn ghost sm" href="/">${icon("sparkles", 15)}<span class="lbl">About</span></a>
-    <a class="btn ghost sm" href="/docs">${icon("book", 15)}Docs</a>
-    <a class="me" href="/account" title="Your account">${avatar(me, "s")}<b>${esc(me)}</b>${meRow?.org ? `<span class="muted">· ${esc(meRow.org)}</span>` : ""}${admin ? '<span class="badge accent">admin</span>' : ""}</a>
+    <a class="btn ghost sm topabout" href="/">${icon("sparkles", 15)}<span class="lbl">About</span></a>
+    <a class="btn ghost sm" href="/docs" title="Docs">${icon("book", 15)}<span class="lbl">Docs</span></a>
+    <a class="me" href="/dashboard?view=account" title="Your account and notifications">${avatar(me, "s")}<b>${esc(me)}</b>${meRow?.org ? `<span class="muted">· ${esc(meRow.org)}</span>` : ""}${admin ? '<span class="badge accent">admin</span>' : ""}</a>
     <form method="post" action="/logout" data-native><button class="btn ghost icon sm" title="Sign out">${icon("logout", 15)}</button></form>
   </div></header>`;
 
@@ -1049,47 +1052,59 @@ export async function accountPage(req: Request, env: Env, me: string): Promise<R
     }
     return new Response("Not found", { status: 404 });
   }
+  // The page itself lives in the dashboard, with the tree and the top bar (the redirect keeps ok= / err=).
+  const q = new URL(req.url).searchParams;
+  const flash = q.get("ok") ? `&ok=${encodeURIComponent(q.get("ok")!)}` : q.get("err") ? `&err=${encodeURIComponent(q.get("err")!)}` : "";
+  return redirect(`/dashboard?view=account${flash}`);
+}
+
+/** Your account, as cards in the dashboard (view=account): you, notifications, GitHub, machines and sign-ins. */
+export async function accountSection(env: Env, me: string, origin: string): Promise<string> {
   const row = await env.DB.prepare("SELECT org, is_admin, created_at, github_login FROM members WHERE name = ?").bind(me).first<{ org: string; is_admin: number; created_at: number; github_login: string | null }>();
   const projects = await myProjects(env, me);
   const { results: devices } = await env.DB.prepare("SELECT token_hash, kind, label, created_at FROM tokens WHERE member = ? ORDER BY created_at DESC").bind(me).all<{ token_hash: string; kind: string; label: string; created_at: number }>();
-  const flash = new URL(req.url).searchParams;
-  const github = env.github
-    ? `<div><h3>GitHub</h3>${
-        row?.github_login
-          ? `<div class="row"><span class="small">${GITHUB_ICON} Connected as <b>@${esc(row.github_login)}</b>: you can sign in with GitHub.</span><form method="post" data-native>${hidden({ action: "unlink" })}<button class="btn ghost sm">Disconnect</button></form></div>`
-          : `<p class="small muted">Connect GitHub to sign in without a token, and to join projects through repos you can push to.</p><a class="btn sm" href="/auth/github?purpose=link">${GITHUB_ICON} Connect GitHub</a>`
-      }</div>`
-    : "";
   const subs = await subscriptions(env, me);
-  const pushSection = `<div><h3>Notifications</h3><p class="small muted">When something is waiting for you: a review to decide, an agent's question, or a permission prompt still unanswered after a minute (at once in away mode). Tapping one opens it.</p>
-    <div class="row" data-pushctl hidden><span class="small grow" data-pushstate></span><button type="button" class="btn ghost sm" data-pushtest hidden>Send a test</button><button type="button" class="btn sm" data-pushtoggle hidden>Turn on</button></div>
-    ${subs.length ? `<ul class="small pushdevs">${subs.map((d) => `<li><b>${esc(d.device)}</b> <span class="muted">· on since ${ago(d.created_at)}${d.last_at ? ` · last notification ${ago(d.last_at)}: ` : ""}</span>${d.last_at ? (d.last_status && d.last_status !== "shown on the device" ? `<span class="pusherr">${esc(d.last_status)}</span>` : `<span>${d.last_status ? "shown on the device" : "sent"}</span>`) : ""}</li>`).join("")}</ul>` : ""}</div>`;
-  const deviceList = devices.length
-    ? `<div><h3>Signed-in browsers, terminals and connectors</h3>${devices
+  const card = (ic: string, title: string, body: string, extra = "") => `<section class="card acct"><div class="hd"><h2>${icon(ic, 16)}${title}</h2>${extra}</div><div class="bd stack">${body}</div></section>`;
+  const you = card(
+    "users",
+    "You",
+    `<div class="row">${avatar(me, "l")}<div class="grow"><h1 class="headline" style="margin:0">${esc(me)}</h1><p class="small muted" style="margin:2px 0 0">Member since ${new Date(row?.created_at ?? Date.now()).toISOString().slice(0, 10)} · ${projects.length ? projects.map((p) => `<a href="/dashboard?channel=${encodeURIComponent(p)}">#${esc(p)}</a>`).join(", ") : "no projects yet"}</p></div></div>
+    <form method="post" action="/account" class="row acctrow" data-native>${hidden({ action: "org" })}<label class="field grow">Company<input name="org" value="${esc(row?.org)}" placeholder="e.g. Acme"></label><button class="btn">${icon("check", 14)}Save</button></form>`,
+    row?.is_admin ? '<span class="badge accent">admin</span>' : "",
+  );
+  const notifications = card(
+    "bell",
+    "Notifications",
+    `<p class="small muted" style="margin:0">On this device when something is waiting for you: a review to decide, an agent's answer about one, or a question or permission prompt still unanswered after a minute (at once in away mode). Tapping one opens it.</p>
+    <div class="row acctrow" data-pushctl hidden><span class="small grow" data-pushstate></span><button type="button" class="btn ghost sm" data-pushtest hidden>Send a test</button><button type="button" class="btn sm" data-pushtoggle hidden>Turn on</button></div>
+    ${subs.length ? `<ul class="small pushdevs">${subs.map((d) => `<li><b>${esc(d.device)}</b> <span class="muted">· on since ${ago(d.created_at)}${d.last_at ? ` · last notification ${ago(d.last_at)}: ` : ""}</span>${d.last_at ? (d.last_status && d.last_status !== "shown on the device" ? `<span class="pusherr">${esc(d.last_status)}</span>` : `<span>${d.last_status ? "shown on the device" : "sent"}</span>`) : ""}</li>`).join("")}</ul>` : ""}`,
+  );
+  const github = env.github
+    ? card(
+        "link",
+        "GitHub",
+        row?.github_login
+          ? `<div class="row acctrow"><span class="small grow">${GITHUB_ICON} Connected as <b>@${esc(row.github_login)}</b>: you sign in with GitHub.</span><form method="post" action="/account" data-native>${hidden({ action: "unlink" })}<button class="btn ghost sm">Disconnect</button></form></div>`
+          : `<p class="small muted" style="margin:0">Connect GitHub to sign in without a token, and to join projects through repos you can push to.</p><div><a class="btn sm" href="/auth/github?purpose=link">${GITHUB_ICON} Connect GitHub</a></div>`,
+      )
+    : "";
+  const signedIn = devices.length
+    ? `<div class="acctlist">${devices
         .map(
           (d) => `<div class="member">${icon(d.kind === "web" ? "layers" : d.kind === "connector" ? "link" : "terminal", 15)}<span class="grow small">${esc(d.kind === "web" ? "Browser" : d.kind === "connector" ? `${d.label || "Connector"} (connector: talks to your agents)` : d.label || "Terminal")} <span class="muted">· ${time(d.created_at)}</span></span>
-          <form method="post" data-native>${hidden({ action: "revoke", id: d.token_hash })}<button class="btn ghost xs">${d.kind === "connector" ? "Disconnect" : "Sign out"}</button></form></div>`,
+          <form method="post" action="/account" data-native>${hidden({ action: "revoke", id: d.token_hash })}<button class="btn ghost xs">${d.kind === "connector" ? "Disconnect" : "Sign out"}</button></form></div>`,
         )
         .join("")}</div>`
-    : "";
-  return html(
-    soloCard(
-      "account",
-      `<div class="row">${avatar(me, "l")}<div><p class="small muted" style="margin:0">${icon("users", 13)} Account${row?.is_admin ? ' · <span class="badge accent">admin</span>' : ""}</p><h1 class="headline">${esc(me)}</h1></div></div>
-      <dl class="kv"><dt>Projects</dt><dd>${projects.length ? projects.map((p) => `<a href="/dashboard?channel=${encodeURIComponent(p)}">#${esc(p)}</a>`).join(", ") : "none yet"}</dd><dt>Member since</dt><dd>${new Date(row?.created_at ?? Date.now()).toISOString().slice(0, 10)}</dd></dl>
-      <form method="post" class="row" data-native>${hidden({ action: "org" })}<label class="field grow">Company<input name="org" value="${esc(row?.org)}" placeholder="e.g. Acme"></label><button class="btn" style="align-self:flex-end">${icon("check", 14)}Save</button></form>
-      ${flash.get("ok") || flash.get("err") ? `<div class="toast ${flash.get("err") ? "err" : ""}" style="box-shadow:none">${icon(flash.get("err") ? "x" : "check")}<span>${esc(flash.get("ok") ?? flash.get("err"))}</span></div>` : ""}
-      ${github}
-      <div><h3>Connect another machine</h3><p class="small muted">Run this there; it signs in through your browser:</p>${codeBlock(`curl -fsSL ${origin}/setup.sh | sh`)}</div>
-      ${pushSection}
-      ${deviceList}
-      <div><h3>Reset your original token</h3><p class="small muted">If your first token leaked or got lost: the old one stops working at once, so run the setup again where it was used.</p>
-        <form method="post" data-native data-confirm="Reset your original token? It stops working on every machine that uses it, until you run the setup again.">${hidden({ action: "token" })}<button class="btn sm">${icon("key", 14)}Reset token</button></form></div>
-      <div class="row"><a class="btn primary" href="/dashboard">${icon("arrow", 15)}Dashboard</a><a class="btn ghost" href="/docs">Docs</a></div>`,
-    ),
-    200,
-    { "cache-control": "no-store" },
+    : '<p class="small muted" style="margin:0">None.</p>';
+  const machines = card(
+    "terminal",
+    "Machines and sign-ins",
+    `<div><h3>Connect another machine</h3><p class="small muted">Run this there; it signs in through your browser:</p>${codeBlock(`curl -fsSL ${origin}/setup.sh | sh`)}</div>
+    <div><h3>Signed in</h3>${signedIn}</div>
+    <div><h3>Reset your original token</h3><p class="small muted">If your first token leaked or got lost: the old one stops working at once, so run the setup again where it was used.</p>
+      <form method="post" action="/account" data-native data-confirm="Reset your original token? It stops working on every machine that uses it, until you run the setup again.">${hidden({ action: "token" })}<button class="btn sm">${icon("key", 14)}Reset token</button></form></div>`,
   );
+  return `${you}${notifications}${github}${machines}`;
 }
 
 export async function handleAdminAction(req: Request, env: Env, me: string, action: string): Promise<Response> {
