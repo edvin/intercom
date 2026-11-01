@@ -2620,6 +2620,10 @@ describe("notifications (web push)", () => {
     const account = await (await w.request("/account", { as: "bob", cookie: true })).text();
     assert.match(account, /<b>Safari on iPhone<\/b>/);
     assert.match(account, /data-pushctl/);
+    // The page's CSP lets it install the notification worker (only from this site) and read the app manifest.
+    const csp = (await w.request("/account", { as: "bob", cookie: true })).headers.get("content-security-policy")!;
+    assert.match(csp, /worker-src 'self'/);
+    assert.match(csp, /manifest-src 'self'/);
     await json(w, "/push/unsubscribe", { endpoint: b.sub.endpoint });
     assert.doesNotMatch(await (await w.request("/account", { as: "bob", cookie: true })).text(), /<b>Safari on iPhone/);
   });
