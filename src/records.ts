@@ -120,6 +120,11 @@ export async function findDecisions(env: Env, me: string, opts: { project?: stri
   return results;
 }
 
+/** One decision by id, in any of your projects. */
+export async function decisionById(env: Env, me: string, id: number): Promise<Decision | null> {
+  return env.DB.prepare(`SELECT * FROM decisions WHERE ${MEMBER_PROJECTS} AND id = ?`).bind(me, id).first<Decision>();
+}
+
 export async function createHandoff(
   env: Env,
   me: string,

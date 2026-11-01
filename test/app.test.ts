@@ -1756,6 +1756,15 @@ describe("tickets", () => {
     const inbox = await w.ok("bob", "inbox", {}, triage);
     assert.match(inbox, /YOUR USER[\s\S]*Ticket T1 SHOP-12 \(Invoices[^)]*\): Go with changes\.\n\s*Use this plan instead of yours:\n\s*> Fix both sums[\s\S]*My answers to your questions:\n\s*1\. Backport to the 2\.x branch\?\n\s*Yes\n\s*2\. Anyone to tell when it ships\?\n\s*Tell Dana[\s\S]*Note: Keep it small/);
     assert.match(await w.ok("bob", "decisions", { query: "SHOP-12" }), /APPROVED · ticket SHOP-12: Invoices[\s\S]*Go with changes; plan edited; Keep it small/);
+    // Carried out in another project (a handoff citing the decision): found there by its id, or by the ticket's key.
+    await w.ok("bob", "configure_project", { name: "platform" });
+    await w.request(`/api/hook?event=SessionStart&project=platform&session=tk9&name=builder`, { as: "bob" });
+    const builder = { id: "tk9", project: "platform" };
+    const id = (await w.ok("bob", "decisions", { query: "SHOP-12" }, triage)).match(/D(\d+)/)![1];
+    assert.match(await w.ok("bob", "decisions", { query: `D${id}` }, builder), new RegExp(`D${id} \\[#billing\\] APPROVED · ticket SHOP-12`));
+    assert.match(await w.ok("bob", "decisions", { query: "SHOP-12" }, builder), /^Nothing in #platform; in your other projects:\n.*ticket SHOP-12/);
+    assert.match(await w.ok("bob", "decisions", { query: "nowhere-at-all" }, builder), /No decisions matching "nowhere-at-all" in #platform or your other projects/);
+    assert.match(await w.ok("carol", "decisions", { query: `D${id}` }), /No decision D\d+ in your projects/);
     assert.doesNotMatch(await page(w, "/dashboard?view=agents"), /class="ask k-ticket"/);
     assert.match(await page(w, "/dashboard?view=ticket&id=1"), /You decided <b>Go with changes<\/b>/);
     assert.match(loc(await w.form("/ticket/1", "bob", { decide: "1", outcome: "park" })).get("err")!, /already decided/);

@@ -2,7 +2,7 @@ import { setAway } from "./approvals";
 import { type Review, LIMITS, OUTCOMES, SEVERITIES, answerReview, openReview, pendingReviews, withdrawReview } from "./reviews";
 import { TICKET_OUTCOMES, TLIMITS, answerTicket, openTicket, pendingTickets, withdrawTicket } from "./tickets";
 import { RETENTION_DAYS as ATTACHMENT_DAYS, fileMarker, getAttachment, isImage, isText, linkImages, marker, readImage, size, storeFile, toBase64 } from "./attachments";
-import { HANDOFF_STATES, OPEN_HANDOFF, VERDICTS, createHandoff, crewRoles, findDecisions, fmtCrew, fmtDecision, fmtHandoff, listHandoffs, logDecision, updateHandoff } from "./records";
+import { HANDOFF_STATES, OPEN_HANDOFF, VERDICTS, createHandoff, crewRoles, findDecisions, decisionById, fmtCrew, fmtDecision, fmtHandoff, listHandoffs, logDecision, updateHandoff } from "./records";
 import { adminsInvite, githubRepo } from "./github";
 import {
   type Env,
@@ -647,7 +647,7 @@ export const tools: Tool[] = [
     inputSchema: {
       type: "object",
       properties: {
-        query: { type: "string", description: "Words that must all appear (subject, reason or refs), e.g. \"5df5034\" or \"FnCell\"." },
+        query: { type: "string", description: "Words that must all appear (subject, reason or refs), e.g. \"5df5034\" or \"FnCell\"; or a decision's id, e.g. \"D704\", to look it up in any of your projects. With nothing found in the current project, your other projects are searched too." },
         verdict: { type: "string", enum: [...VERDICTS] },
         channel: { type: "string", description: "Only this project (default: the current session's project, else all)." },
         include_superseded: { type: "boolean" },
@@ -656,15 +656,22 @@ export const tools: Tool[] = [
     },
     async run(env, me, a) {
       const project = a.channel ? await requireProject(env, me, a.channel) : env.session?.project || null;
-      const found = await findDecisions(env, me, {
-        project,
-        query: str(a, "query"),
-        verdict: str(a, "verdict")?.toLowerCase(),
-        current: !a.include_superseded,
-        limit: num(a, "limit", 20, 1, 100),
-      });
-      if (!found.length) return `No decisions${a.query ? ` matching "${a.query}"` : ""}${project ? ` in #${project}` : ""}.`;
-      return found.map((d) => fmtDecision(d, !project)).join("\n");
+      const query = str(a, "query");
+      // A decision cited by its id (a handoff that says "approved, D704") is found in any of your projects.
+      const cited = query?.trim().match(/^D(\d+)$/i);
+      if (cited) {
+        const d = await decisionById(env, me, Number(cited[1]));
+        return d ? fmtDecision(d, true) : `No decision D${cited[1]} in your projects.`;
+      }
+      const opts = { query, verdict: str(a, "verdict")?.toLowerCase(), current: !a.include_superseded, limit: num(a, "limit", 20, 1, 100) };
+      const found = await findDecisions(env, me, { ...opts, project });
+      if (found.length) return found.map((d) => fmtDecision(d, !project)).join("\n");
+      // Work moves between projects (a ticket decided in one, carried out in another): look in the others too.
+      if (project && !a.channel && query) {
+        const elsewhere = await findDecisions(env, me, opts);
+        if (elsewhere.length) return `Nothing in #${project}; in your other projects:\n${elsewhere.map((d) => fmtDecision(d, true)).join("\n")}`;
+      }
+      return `No decisions${query ? ` matching "${query}"` : ""}${project ? ` in #${project}${a.channel || !query ? "" : " or your other projects"}` : ""}.`;
     },
   },
   {
