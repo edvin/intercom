@@ -124,3 +124,16 @@ export async function pruneAttachments(env: Env, now = Date.now()): Promise<numb
   const res = await env.DB.prepare("DELETE FROM attachments WHERE created_at < ?").bind(now - RETENTION_DAYS * 86400_000).run();
   return res.meta.changes;
 }
+
+// ---- reading in the dashboard (reader.ts) ----
+
+/** Files read best as text, by extension (a browser upload of a .md often comes without a useful type). */
+const TEXT_EXT = /\.(md|markdown|mdx|txt|text|log|out|csv|tsv|json|jsonl|ndjson|ya?ml|toml|ini|cfg|conf|xml|html?|svg|diff|patch|sh|bash|zsh|sql|tsx?|jsx?|mjs|cjs|py|rb|go|rs|java|kt|swift|php|cs|c|h|cpp|css|scss|graphql|proto|tf|dockerfile|gitignore)$/i;
+export const MAX_READ = 2 * 1024 * 1024;
+
+/** Whether a file by this name reads in the dashboard rather than downloads (the chip in a message decides on this). */
+export const readableName = (name: string) => TEXT_EXT.test(name.trim());
+
+/** Whether this stored file can be shown as text. */
+export const readable = (a: Attachment) =>
+  a.bytes <= MAX_READ && (readableName(a.name) || /^text\/|\/(json|xml|yaml|x-yaml|csv|x-sh|javascript|typescript|x-diff)$/.test(a.mime));

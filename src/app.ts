@@ -1,7 +1,8 @@
 import { recordsBrief } from "./records";
 import { answerBtw, pendingBtw } from "./btw";
-import { getAttachment, isImage, readImage } from "./attachments";
+import { getAttachment, isImage, readImage, readable } from "./attachments";
 import { fetchLocalFile, fileReply } from "./localfiles";
+import { readerPage } from "./reader";
 import { askCode, codeQuery, codeReply, drawCode } from "./code";
 import { parseJobs } from "./jobs";
 import { type Env, type Message, type Proposal, type Session, LIVE, MEMBER_OF, postMessage, RECEIVES, UserError, activeLocks, address, isMyLock, ago, addActivity, lockIn, scopedLocks, cleanBranch, cleanClient, fromOwnUser, fromOwnAgent, DELEGATED_NOTE, staleFor, renameSession, setHost, setVersion, workingOn, authenticate, coMembers, fmtLock, fmtMessage, myProjects, moveSession, projectFor, resolveProject, setCwd, setOrigin, setPresence, setRepo, signedIn, tally, touchSession, unread } from "./lib";
@@ -728,6 +729,17 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
     }
     return redirect(back.pathname + back.search);
   }
+  const view = url.pathname.match(/^\/attachment\/(\d+)\/view$/);
+  if (view && req.method === "GET") {
+    // A shared text file (a Markdown review, a log) to read in the dashboard (reader.ts); anything else downloads.
+    const a = await getAttachment(env, me, Number(view[1]));
+    if (!a) return new Response("Not found", { status: 404 });
+    if (!readable(a)) return redirect(`/attachment/${a.id}`);
+    const buf = await readImage(env, a);
+    if (!buf) return new Response(soloCard("File", `<h1>This file has expired</h1><p class="muted">Shared files are kept 30 days.</p>`), { status: 410, headers: { "content-type": "text/html; charset=utf-8" } });
+    const agent = url.searchParams.get("agent");
+    return readerPage(a, buf, { source: url.searchParams.has("source"), agent: agent?.startsWith(`${me}/`) ? agent : null }) ?? redirect(`/attachment/${a.id}`);
+  }
   if (url.pathname.startsWith("/attachment/") && req.method === "GET") {
     // An image or file attached to a message, for whoever may read that message. Images show inline; any other
     // file (an agent's share) only ever downloads, so nothing it contains runs on this origin.
@@ -752,7 +764,7 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
     try {
       if (member !== me || !label) throw new UserError("You can only fetch files from your own agents.");
       const a = await fetchLocalFile(env, me, label, url.searchParams.get("path") ?? "");
-      return redirect(`/attachment/${a.id}`);
+      return redirect(readable(a) ? `/attachment/${a.id}/view?agent=${encodeURIComponent(`${member}/${label}`)}` : `/attachment/${a.id}`);
     } catch (e) {
       if (!(e instanceof UserError)) throw e;
       return new Response(soloCard("File", `<h1>Couldn't fetch the file</h1><p class="muted">${esc(e.message)}</p>`), { status: 404, headers: { "content-type": "text/html; charset=utf-8" } });

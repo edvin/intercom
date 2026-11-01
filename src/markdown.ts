@@ -1,4 +1,5 @@
 import { linkCode, linkRefs } from "./refs";
+import { readableName } from "./attachments";
 
 // Message text → HTML, safely: everything is escaped first, then the Markdown agents write (what Claude Code and
 // Codex render in a terminal) is turned into a small set of elements, and ANSI colour codes from pasted terminal
@@ -54,6 +55,8 @@ const fileLink = (path: string, agent: string, inner = path) =>
   `<a class="lfile" href="/agent-file?agent=${encodeURIComponent(agent)}&amp;path=${encodeURIComponent(path)}" target="_blank" rel="noopener" title="Open from ${agent.split("/")[1]}'s machine">${inner}</a>`;
 
 const ICON_IMAGE = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"/></svg>`;
+
+const ICON_FILE = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M8 13h8M8 17h5"/></svg>`;
 
 function inline(s: string, refs?: string | null, files?: string | null, code?: string | null): string {
   const codes: string[] = [];
@@ -191,6 +194,8 @@ export function md(text: string, refs?: string | null, files?: string | null, co
       `<a class="att" href="/attachment/${id}" target="_blank" rel="noopener" title="${name || `image #${id}`}"><img src="/attachment/${id}" alt="${name || `image #${id}`}" loading="lazy"></a>`,
     )
     .replace(/\[📎 file #(\d+):\s?([^\]<·]*?)\s*(?:·\s*([^\]<]*))?\]/g, (_, id: string, name: string, size = "") =>
-      `<a class="attf" href="/attachment/${id}" download="${name}" title="Download ${name}"><span class="attf-i">⤓</span><span class="attf-n">${name}</span>${size ? `<span class="attf-s">${size}</span>` : ""}</a>`,
+      readableName(name)
+        ? `<a class="attf" href="/attachment/${id}/view" target="_blank" rel="noopener" title="Read ${name}"><span class="attf-i">${ICON_FILE}</span><span class="attf-n">${name}</span>${size ? `<span class="attf-s">${size}</span>` : ""}</a>`
+        : `<a class="attf" href="/attachment/${id}" download="${name}" title="Download ${name}"><span class="attf-i">⤓</span><span class="attf-n">${name}</span>${size ? `<span class="attf-s">${size}</span>` : ""}</a>`,
     );
 }

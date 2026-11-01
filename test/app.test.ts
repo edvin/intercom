@@ -1500,7 +1500,12 @@ describe("share_file", () => {
     const out = await w.ok("bob", "share_file", { path: "/work/build.log", message: "The failing build:", _file: { name: "build.log", mime: "text/plain", data: b64("step 3 failed\n") } }, s);
     assert.match(out, /Sent DM \[\d+\] to bob\. It carries \[📎 file #1: build\.log · 14 B\]/);
     const page = await (await w.request("/dashboard", { as: "bob", cookie: true })).text();
-    assert.match(page, /<a class="attf" href="\/attachment\/1" download="build\.log"[^>]*>.*build\.log.*14 B/);
+    // A text file opens in the dashboard's reader; the raw bytes still only download.
+    assert.match(page, /<a class="attf" href="\/attachment\/1\/view" target="_blank"[^>]*>.*build\.log.*14 B/);
+    const read = await w.request("/attachment/1/view", { as: "bob", cookie: true });
+    assert.equal(read.headers.get("content-type"), "text/html; charset=utf-8");
+    assert.match(await read.text(), /<pre class="rdsrc"><code>step 3 failed\n<\/code><\/pre>/);
+    assert.equal((await w.request("/attachment/1/view", { as: "alice", cookie: true })).status, 404);
     const dl = await w.request("/attachment/1", { as: "bob", cookie: true });
     assert.equal(dl.headers.get("content-type"), "application/octet-stream");
     assert.match(dl.headers.get("content-disposition")!, /attachment; filename="build\.log"/);
@@ -1512,10 +1517,33 @@ describe("share_file", () => {
     // An HTML file never renders on our origin; a screenshot previews like a pasted image.
     await w.ok("bob", "share_file", { path: "x.html", _file: { name: "x.html", mime: "text/html", data: b64("<script>alert(1)</script>") }, to: "alice" }, s);
     assert.equal((await w.request("/attachment/2", { as: "alice", cookie: true })).headers.get("content-type"), "application/octet-stream");
+    assert.match(await (await w.request("/attachment/2/view", { as: "alice", cookie: true })).text(), /<code>&lt;script&gt;alert\(1\)&lt;\/script&gt;<\/code>/);
     await w.ok("bob", "share_file", { path: "shot.png", _file: { name: "shot.png", mime: "image/png", data: b64("png") }, channel: "billing" }, s);
     assert.match(await (await w.request("/dashboard?channel=billing", { as: "alice", cookie: true })).text(), /<a class="att" href="\/attachment\/3"/);
     assert.equal((await w.request("/attachment/3", { as: "alice", cookie: true })).headers.get("content-type"), "image/png");
     assert.match((await w.request("/attachment/3", { as: "alice", cookie: true })).headers.get("content-disposition")!, /inline; filename="shot\.png"/);
+  });
+
+  test("a Markdown review reads rendered in the dashboard, or as source; binary files go to the download", async () => {
+    const w = await standardWorld();
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=sf3&name=core", { as: "bob" });
+    const s = { id: "sf3", project: "billing-api" };
+    const review = "# Review\n\n- **Blocker:** <img src=x onerror=alert(1)>\n\n| a | b |\n|---|---|\n| 1 | 2 |\n";
+    await w.ok("bob", "share_file", { path: "/w/review.md", _file: { name: "review.md", mime: "text/markdown", data: Buffer.from(review).toString("base64") } }, s);
+    const page = await (await w.request("/dashboard", { as: "bob", cookie: true })).text();
+    assert.match(page, /<a class="attf" href="\/attachment\/1\/view"[^>]*title="Read review\.md"/);
+    const html = await (await w.request("/attachment/1/view", { as: "bob", cookie: true })).text();
+    assert.match(html, /<article class="md rdmd"><div class="mdh mdh1">Review<\/div><ul><li[^>]*><b>Blocker:<\/b> &lt;img src=x onerror=alert\(1\)&gt;<\/li><\/ul><div class="mdtable">/);
+    assert.match(html, /<a href="\/attachment\/1\/view\?source=1">Source<\/a>/);
+    assert.match(html, /href="\/attachment\/1" download="review\.md"/);
+    assert.match(await (await w.request("/attachment/1/view?source=1", { as: "bob", cookie: true })).text(), /<pre class="rdsrc"><code># Review/);
+    // A .bin, or a .txt that isn't text, goes to the download instead.
+    await w.ok("bob", "share_file", { path: "/w/a.bin", _file: { name: "a.bin", mime: "application/octet-stream", data: Buffer.from([0, 1, 2]).toString("base64") } }, s);
+    await w.ok("bob", "share_file", { path: "/w/b.txt", _file: { name: "b.txt", mime: "text/plain", data: Buffer.from([0xff, 0xfe, 0]).toString("base64") } }, s);
+    for (const id of [2, 3]) {
+      const r = await w.request(`/attachment/${id}/view`, { as: "bob", cookie: true, redirect: "manual" });
+      assert.equal(r.headers.get("location"), `/attachment/${id}`);
+    }
   });
 
   test("agent to agent: a file shared to another agent's address reaches it, and its local server fetches the bytes to save them", async () => {
@@ -1772,6 +1800,7 @@ describe("files your agents mention", () => {
     const png = btoa("png bytes");
     assert.deepEqual(await (await w.request("/api/file-reply", { as: "bob", ...body({ name: "step1.png", mime: "image/png", data: png }) })).json(), { ok: true });
     const r = await res;
+    assert.equal(r.headers.get("location"), "/attachment/1"); // an image: shown as it is
     assert.equal(r.status, 303);
     const img = await w.request(r.headers.get("location")!, { as: "bob", cookie: true });
     assert.equal(img.headers.get("content-type"), "image/png");
@@ -1790,6 +1819,27 @@ describe("files your agents mention", () => {
     // A teammate's agent's paths aren't links.
     const page = await (await w.request("/dashboard?view=agents&agent=bob/core", { as: "alice", cookie: true })).text();
     assert.doesNotMatch(page, /class="lfile"/);
+  });
+
+  test("a Markdown file the agent mentions opens in the reader, its own paths linking back to the agent", async () => {
+    const w = await setup();
+    await w.request("/api/activity?session=lf", {
+      as: "bob",
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ items: [{ at: Date.now(), kind: "text", text: "Wrote the review to /work/notes/review.md" }] }),
+    });
+    const res = open(w, "bob", "/work/notes/review.md");
+    while (!w.asked.length) await new Promise((r) => setTimeout(r, 5));
+    const data = btoa("## Findings\n\nSee /tmp/scratchpad/preview/step1.png\n");
+    await w.request("/api/file-reply", { as: "bob", method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ req: w.asked[0]!.req, name: "review.md", mime: "text/markdown", data }) });
+    const loc = (await res).headers.get("location")!;
+    assert.equal(loc, "/attachment/1/view?agent=bob%2Fcore");
+    const html = await (await w.request(loc, { as: "bob", cookie: true })).text();
+    assert.match(html, /<div class="mdh mdh2">Findings<\/div>/);
+    assert.match(html, /<a class="lfile" href="\/agent-file\?agent=bob%2Fcore&amp;path=%2Ftmp%2Fscratchpad%2Fpreview%2Fstep1\.png"/);
+    // Someone else's agent in the link doesn't make its paths links.
+    assert.doesNotMatch(await (await w.request("/attachment/1/view?agent=alice%2Fx", { as: "bob", cookie: true })).text(), /class="lfile"/);
   });
 
   test("the agent's error reaches the browser", async () => {

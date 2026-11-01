@@ -390,6 +390,14 @@ form.dropping{outline:2px dashed var(--accent);outline-offset:4px;border-radius:
 .lfile{overflow-wrap:anywhere;text-decoration:underline dotted;text-underline-offset:3px}.lfile code{color:inherit}
 .attf{display:inline-flex;align-items:center;gap:8px;margin:6px 8px 2px 0;padding:6px 11px 6px 8px;border:1px solid var(--line);border-radius:8px;background:var(--surface-2);color:var(--ink);text-decoration:none;font-family:"JetBrains Mono","Geist Mono",ui-monospace,monospace;font-size:12.5px;max-width:100%}
 .attf:hover{border-color:var(--accent);color:var(--ink)}.attf-i{display:grid;place-items:center;width:22px;height:22px;border-radius:6px;background:var(--accent-soft);color:var(--accent);font-size:13px}
+.reader{max-width:780px;margin:0 auto;padding:28px 20px calc(48px + env(safe-area-inset-bottom))}
+.rdtop .in{max-width:780px;padding:8px 14px}.rdname{min-width:0;display:flex;flex-direction:column;line-height:1.25}.rdname b{font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rdmd{font-size:15.5px;line-height:1.7}.rdmd .mdh{margin:1.4em 0 .5em}.rdmd .mdh:first-child{margin-top:0}.rdmd .mdh1{font-size:1.6em}.rdmd .mdh2{font-size:1.3em;padding-bottom:.25em;border-bottom:1px solid var(--line)}.rdmd .mdh3{font-size:1.1em}
+.rdmd p{margin:0 0 .9em}.rdmd ul,.rdmd ol{margin:.3em 0 .9em}.rdmd .mdpre{font-size:13px}.rdmd .mdtable{margin:.6em 0 1em}
+.rdmd .mdbox{line-height:1;vertical-align:-2px}
+.rdsrc code{background:none;border:0;padding:0;border-radius:0;font:inherit;color:inherit}
+.rdsrc{font-variant-ligatures:none;margin:0;white-space:pre-wrap;overflow-wrap:anywhere;font:12.5px/1.6 "JetBrains Mono","Geist Mono",ui-monospace,monospace;color:var(--ink)}
+@media (max-width:640px){.reader{padding:18px 16px calc(40px + env(safe-area-inset-bottom))}.rdmd{font-size:15px}}
 .attf-n{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.attf-s{color:var(--mute);font-size:11px;white-space:nowrap}
 .att{display:inline-block;margin:6px 8px 2px 0;vertical-align:top}.att img{display:block;max-width:min(360px,100%);max-height:240px;border-radius:8px;border:1px solid var(--line);background:var(--surface-2)}
 .att:hover img{border-color:var(--accent)}
