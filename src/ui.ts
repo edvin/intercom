@@ -1475,28 +1475,43 @@ export const SCRIPT = `
   const pushOk = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
   const pushJson = (u, b) => fetch(u, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b || {}) });
   const pushSub = async () => { if (!pushOk) return null; const r = await navigator.serviceWorker.getRegistration("/"); return r ? r.pushManager.getSubscription() : null; };
+  // Each step says where it got stuck: a failure here would otherwise look like a button that does nothing.
   async function pushOn() {
-    const perm = await Notification.requestPermission();
-    if (perm !== "granted") return false;
-    const reg = await navigator.serviceWorker.register("/sw.js"); await navigator.serviceWorker.ready;
-    let sub = await reg.pushManager.getSubscription();
-    if (!sub) {
-      const key = (await (await fetch("/push/key")).json()).key, raw = atob(key.replace(/-/g, "+").replace(/_/g, "/"));
-      sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: Uint8Array.from(raw, (c) => c.charCodeAt(0)) });
+    let step = "asking for permission";
+    try {
+      const perm = await Notification.requestPermission();
+      if (perm !== "granted") throw new Error(perm === "denied" ? "notifications are blocked for this site" : "permission wasn't given");
+      step = "installing the notification worker";
+      const reg = await navigator.serviceWorker.register("/sw.js", { updateViaCache: "none" });
+      await Promise.race([navigator.serviceWorker.ready, new Promise((_, no) => setTimeout(() => no(new Error("it didn't start within 10 s")), 10000))]);
+      step = "subscribing";
+      let sub = await reg.pushManager.getSubscription();
+      if (!sub) {
+        const key = (await (await fetch("/push/key")).json()).key, raw = atob(key.replace(/-/g, "+").replace(/_/g, "/"));
+        sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: Uint8Array.from(raw, (c) => c.charCodeAt(0)) });
+      }
+      step = "saving it on the hub";
+      const res = await pushJson("/push/subscribe", sub.toJSON());
+      if (!res.ok) throw new Error("the hub answered " + res.status);
+      return true;
+    } catch (err) {
+      pushErr = "Couldn't turn them on (" + step + "): " + ((err && (err.message || err.name)) || err);
+      return false;
     }
-    return (await pushJson("/push/subscribe", sub.toJSON())).ok;
   }
+  let pushErr = "";
   async function pushOff() { const sub = await pushSub(); if (sub) { await pushJson("/push/unsubscribe", { endpoint: sub.endpoint }); await sub.unsubscribe(); } }
   async function pushShow() {
     const sub = await pushSub().catch(() => null), perm = pushOk ? Notification.permission : "unsupported";
     $$("[data-pushon]").forEach((b) => (b.hidden = !pushOk || perm === "denied" || !!sub));
+    if (pushErr) $$("[data-pushon]").forEach((b) => (b.title = pushErr));
     $$("[data-pushctl]").forEach((c) => {
       const iphone = /iPhone|iPad/.test(navigator.userAgent) && !navigator.standalone;
       const say = (t) => { const s = $("[data-pushstate]", c); if (s) s.textContent = t; };
       $$("[data-pushtoggle], [data-pushtest]", c).forEach((b) => (b.hidden = !pushOk || perm === "denied"));
       const t = $("[data-pushtoggle]", c); if (t) t.textContent = sub ? "Turn off" : "Turn on";
       const x = $("[data-pushtest]", c); if (x) x.hidden = x.hidden || !sub;
-      say(!pushOk ? (iphone ? "On iPhone: add Intercom to your Home Screen (Share, then Add to Home Screen) and turn them on in the app." : "This browser can't show notifications.") : perm === "denied" ? "Blocked for this site in the browser's settings." : sub ? "On for this device." : "Off for this device.");
+      say(pushErr ? pushErr : !pushOk ? (iphone ? "On iPhone: add Intercom to your Home Screen (Share, then Add to Home Screen) and turn them on in the app." : "This browser can't show notifications.") : perm === "denied" ? "Blocked for this site in the browser's settings." : sub ? "On for this device." : "Off for this device.");
       c.hidden = false;
     });
     // Once a session, make sure the hub still has this device (it forgets ones whose push service said they're gone).
@@ -1509,8 +1524,9 @@ export const SCRIPT = `
     try {
       if ("pushtest" in b.dataset) { const n = (await (await pushJson("/push/test")).json()).sent; b.textContent = n ? "Sent" : "Not delivered"; setTimeout(() => (b.textContent = "Send a test"), 3000); }
       else if ("pushtoggle" in b.dataset && (await pushSub())) { await pushOff(); location.reload(); return; }
-      else if (await pushOn()) { if ("pushtoggle" in b.dataset) { location.reload(); return; } }
-    } catch (err) { console.log("push", err); }
+      else if (await pushOn()) { pushErr = ""; if ("pushtoggle" in b.dataset) { location.reload(); return; } }
+      else if (!$("[data-pushstate]")) alert(pushErr);
+    } catch (err) { pushErr = String((err && err.message) || err); }
     b.disabled = false; pushShow();
   });
   // The installed app's icon shows the count waiting for you; this keeps it right while the dashboard is open.
