@@ -807,6 +807,9 @@ body:has(#asks:not([hidden]):not(.min)) .toasts{right:auto;left:20px}
 export const SCRIPT = `
 (() => {
   const $ = (s, r = document) => r.querySelector(s), $$ = (s, r = document) => [...r.querySelectorAll(s)];
+  // Each live region remembers the HTML the hub drew it from, so a redraw that changes nothing leaves it alone.
+  $$("[data-region]").forEach((el) => (el._src = el.outerHTML));
+  $$("#asks .ask").forEach((c) => (c._src = c.outerHTML));
   const ICON_SPEAK = ${JSON.stringify(icon("volume", 13))}, ICON_STOP = ${JSON.stringify(icon("square", 13))};
   const rel = (ts) => { const s = Math.round((Date.now() - ts) / 1000);
     if (s < 45) return "just now"; if (s < 3600) return Math.max(1, Math.round(s / 60)) + "m ago";
@@ -1250,10 +1253,46 @@ export const SCRIPT = `
     } catch { restore(); toast("Network error — try again", true); }
     btns.forEach((b) => (b.disabled = false)); f._busy = false;
   }
+  // Waiting for you, redrawn card by card: a card that hasn't changed stays as it is (what you picked or typed in it,
+  // where you were reading), new ones join at the end, and the dock doesn't pop up again.
+  function asksMerge(el, next, src) {
+    const list = $(".asklist", el), cards = $$(".ask", list), old = new Map(cards.map((c) => [c.dataset.mid, c]));
+    // The card you're reading stays where it is on screen: the first one in view that's still there after.
+    const stays = new Set($$(".ask", $(".asklist", next)).map((c) => c.dataset.mid));
+    const top = list.getBoundingClientRect().top, anchor = cards.find((c) => stays.has(c.dataset.mid) && c.getBoundingClientRect().bottom > top + 1);
+    const at = anchor ? anchor.getBoundingClientRect().top - top : 0, fresh = [];
+    const keep = $$(".ask", $(".asklist", next)).map((c) => {
+      const csrc = c.outerHTML, o = old.get(c.dataset.mid);
+      if (o && (o._src === csrc || o.contains(document.activeElement))) return o;
+      c._src = csrc;
+      if (o) {
+        // Changed (an answer arrived on a review): carry over what was picked or typed in it.
+        $$("input, textarea, select", o).forEach((x) => {
+          if (!x.name) return;
+          const y = x.type === "radio" || x.type === "checkbox" ? c.querySelector('[name="' + CSS.escape(x.name) + '"][value="' + CSS.escape(x.value) + '"]') : c.querySelector('[name="' + CSS.escape(x.name) + '"]');
+          if (!y) return;
+          if (x.type === "radio" || x.type === "checkbox") y.checked = x.checked; else if (x.value) y.value = x.value;
+        });
+        const open = new Set($$("details", o).map((d, i) => d.open && i)); $$("details", c).forEach((d, i) => open.has(i) && (d.open = true));
+      } else c.classList.add("fresh");
+      fresh.push(c);
+      return c;
+    });
+    list.replaceChildren(...keep);
+    $(".askhd", el).replaceWith($(".askhd", next));
+    $(".askpill", el).replaceWith($(".askpill", next));
+    el.dataset.n = next.dataset.n; el._src = src;
+    if (anchor && anchor.isConnected) list.scrollTop += anchor.getBoundingClientRect().top - list.getBoundingClientRect().top - at;
+    $$(".askhd, .askpill", el).forEach((h) => bind(h));
+    fresh.forEach((c) => bind(c));
+  }
   async function swap(text) {
     const doc = new DOMParser().parseFromString(text, "text/html");
     $$("[data-region]").forEach((el) => {
-      const next = doc.getElementById(el.id); if (!next || el.contains(document.activeElement) && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) return;
+      const next = doc.getElementById(el.id); if (!next) return;
+      const src = next.outerHTML; if (el._src === src) return;
+      if (el.id === "asks" && !el.hidden && !next.hidden && $(".asklist", el) && $(".asklist", next)) return asksMerge(el, next, src);
+      if (el.contains(document.activeElement) && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) return;
       if ((el._imgs && el._imgs.length) || el._adding || Date.now() - (el._picking || 0) < 120000) return; // images waiting to be sent, being added or picked
       const open = new Set($$("details[open]", el).map((d) => d.id).filter(Boolean));
       // A thread you've scrolled up in stays where you are; one at the bottom follows new messages.
@@ -1271,6 +1310,7 @@ export const SCRIPT = `
           const anchor = rows[rows.length - 1].nextSibling;
           rows.sort((a, b) => pos(a) - pos(b)).forEach((r) => g.insertBefore(r, anchor)); }); }
       typed.forEach(([id, v]) => { const t = next.querySelector("#" + CSS.escape(id)); if (t && !t.value) t.value = v; });
+      next._src = src; $$(".ask", next).forEach((c) => (c._src = c.outerHTML));
       el.replaceWith(next);
       if (tb) { const nb = next.querySelector(".tbody"); if (nb) nb.scrollTop = tbTop; }
       $$("details", next).forEach((d) => d.id && open.has(d.id) && (d.open = true));
