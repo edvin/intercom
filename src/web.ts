@@ -1,6 +1,7 @@
 import { ticketView } from "./ticketview";
 import { reviewView } from "./reviewview";
 import { workView } from "./work";
+import { fleetView } from "./fleet";
 import { bargeIn, screenDialog } from "./screen";
 import { type Delivery, type Env, type Lock, deliveryMarks, issueToken, type Message, type Project, type Proposal, DELEGATE_PER_HOUR, LIVE, MAX_BODY, MEMBER_OF, RECEIVES, activeLocks, address, authenticate, coMembers, isAdmin, myProjects, normChannel, postMessage, roleIn, sha256, workingOn, newToken, HANDLE, limit, UserError, unsend, ago } from "./lib";
 import { agentsView } from "./agents";
@@ -573,7 +574,7 @@ export async function dashboard(url: URL, env: Env, me: string, cookie = ""): Pr
   const ownerOf = (project: string) => admin || pmRes.results.some((m) => m.project === project && m.member === me && m.role === "owner");
   const shownLocks = channel ? locks.filter((l) => l.channel === channel) : locks;
   const asked = url.searchParams.get("view");
-  const view = asked === "admin" && admin ? "admin" : asked === "account" ? "account" : asked === "ticket" ? "ticket" : asked === "review" ? "review" : asked === "work" ? "work" : asked === "agents" ? "agents" : "feed";
+  const view = asked === "admin" && admin ? "admin" : asked === "account" ? "account" : asked === "ticket" ? "ticket" : asked === "review" ? "review" : asked === "work" ? "work" : asked === "fleet" ? "fleet" : asked === "agents" ? "agents" : "feed";
 
   const { results: requests } = await env.DB.prepare(
     `SELECT r.project, r.member, r.note, r.created_at, m.org, m.github_login FROM join_requests r JOIN members m ON m.name = r.member
@@ -731,6 +732,8 @@ export async function dashboard(url: URL, env: Env, me: string, cookie = ""): Pr
         ? `<main class="pane"><div class="pane-in acctpane">${await accountSection(env, me, url.origin)}</div></main>`
       : view === "review"
         ? `<main class="pane">${await reviewView(env, me, Number(url.searchParams.get("id")), localPath(url.searchParams.get("back"), "/dashboard?view=agents"))}</main>`
+      : view === "fleet"
+        ? `<main class="pane">${await fleetView(env, me)}</main>`
       : view === "work"
         ? `<main class="pane">${await workView(env, me, url, decodeURIComponent(/(?:^|;\s*)ic_tz=([^;]+)/.exec(cookie)?.[1] ?? ""))}</main>`
       : view === "ticket"

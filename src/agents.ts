@@ -237,7 +237,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   const updateBar =
     stale.length && !dismissed
       ? `<div class="updatebar" id="updatebar" data-region title="${esc(`Outdated: ${stale.map((a) => a.label).join(", ")}. ${selfUpdating ? "The new version is downloaded on each machine by itself; restart them to load it." : "Run /intercom:update in one session per machine, then restart them to load it."}`)}">${icon("download", 14)}
-        <span class="grow"><b>intercom ${PLUGIN_VERSION}</b> · ${stale.length} session${stale.length > 1 ? "s" : ""} on an older version<span class="uphint"> · ${selfUpdating ? `restart ${stale.length > 1 ? "them" : "it"} to load it` : `run <code>/intercom:update</code>, then restart ${stale.length > 1 ? "them" : "it"}`}</span></span>
+        <span class="grow"><b>intercom ${PLUGIN_VERSION}</b> · ${stale.length} of your agents on an older version · <a href="/dashboard?view=fleet">See and update them</a></span>
         <button type="button" class="btn ghost xs icon" data-dismiss="ic_upd=${PLUGIN_VERSION}" title="Dismiss until the next version">${icon("x", 13)}</button></div>`
       : "";
   if (!nav.withChat) return { tree, main: "" };

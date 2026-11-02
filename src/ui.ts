@@ -794,6 +794,22 @@ body:has(.ide) .top .in{max-width:none;padding:8px 14px}
 .stkhead{margin:2px 0 4px;font-size:14px;font-weight:600;line-height:1.45;color:var(--ink)}.stkwhy{margin:0 0 8px;font-size:13px;line-height:1.5;color:var(--ink-2)}
 .stkmv{cursor:default;flex-wrap:wrap}.stkmv select{flex:1 1 140px;min-width:0;height:32px;font-size:13px}.stkmv .askoptx{flex-basis:100%}.k-stuck .askqt{margin:6px 0 8px}
 .wkpane{max-width:1160px;gap:18px;padding-bottom:96px}
+.flpane{max-width:1160px;gap:18px;padding-bottom:96px}
+.flhead{display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap}.flhead>div:first-child{flex:1;min-width:240px}.flhead h1{margin:0 0 4px;font-size:27px;font-weight:650;letter-spacing:-.022em}.flhead p{margin:0;font-size:14px}
+.flctl{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.flauto{display:inline-flex;align-items:center;padding:6px 12px;border-radius:9px;border:1px solid var(--line);background:var(--surface);font-size:13px}
+.flhow{margin:-6px 0 0;font-size:13px;line-height:1.55;color:var(--ink-2);max-width:90ch}
+.flhost{border:1px solid var(--line);border-radius:var(--r);background:var(--surface);box-shadow:var(--shadow);overflow:hidden}
+.flh{display:flex;align-items:center;gap:8px;margin:0;padding:14px 18px 10px;font-size:15px;font-weight:650}.flh .i{color:var(--mute)}
+.flnote{margin:0 18px 10px;padding:8px 12px 8px 32px;border-radius:9px;background:var(--green-soft);color:var(--ink);font-size:13px;line-height:1.55;position:relative}.flnote>.i{position:absolute;left:12px;top:11px;color:var(--green)}.flnote.warn{background:var(--amber-soft)}.flnote.warn>.i{color:var(--amber)}
+.flscroll{overflow-x:auto}
+.fltable{width:100%;border-collapse:collapse;font-size:13.5px}.fltable th{padding:6px 12px;font-size:11.5px;font-weight:600;color:var(--mute);text-align:left;white-space:nowrap;border-top:1px solid var(--line)}.fltable td{padding:9px 12px;border-top:1px solid var(--line);white-space:nowrap;vertical-align:middle}.fltable th:first-child,.fltable td:first-child{padding-left:18px}
+.flag{display:inline-flex;align-items:center;gap:8px}
+.flver{display:inline-flex;padding:1px 7px;border-radius:6px;font:600 12px "Geist Mono",ui-monospace,monospace;background:var(--amber-soft);color:var(--amber)}.flver.ok{background:var(--green-soft);color:var(--green)}
+.flstate{font-size:12.5px;color:var(--ink-2)}.flstate.s-working{color:var(--accent)}.flstate.s-waiting{color:var(--amber)}
+.flok{display:inline-flex;align-items:center;gap:4px;color:var(--green);font-size:12.5px;font-weight:600}.flwarn{color:var(--amber);font-size:12.5px;font-weight:600}
+.flact{text-align:right}.flact form{display:inline}.flact .btn{margin-left:4px}
+.flgone{font-size:13px;color:var(--ink-2)}.flgone summary{cursor:pointer;font-weight:600}.flgone ul{margin:8px 0 0;padding-left:18px;display:flex;flex-direction:column;gap:4px}
+@media (max-width:640px){.flpane{padding:12px 14px 88px}.flhead h1{font-size:22px}.fltable th:nth-child(2),.fltable td:nth-child(2),.fltable th:nth-child(4),.fltable td:nth-child(4),.fltable th:nth-child(5),.fltable td:nth-child(5),.fltable th:nth-child(6),.fltable td:nth-child(6),.flag .muted{display:none}.fltable td,.fltable th{padding:8px 8px}.fltable th:first-child,.fltable td:first-child{padding-left:14px}}
 .wkhead{display:flex;flex-direction:column;gap:12px}
 .wktitle{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}.wktitle h1{margin:0;font-size:27px;font-weight:650;letter-spacing:-.022em}.wkzone{font-size:12.5px;color:var(--mute)}
 .wkctl{display:flex;align-items:center;gap:8px;flex-wrap:wrap}

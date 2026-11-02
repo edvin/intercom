@@ -1046,7 +1046,7 @@ describe("plugin versions", () => {
     await w.request("/api/hook?event=SessionStart&project=billing-api&session=u1&name=core&version=0.1.0", { as: "bob" });
     const page = async (extra = "") =>
       (await w.request("/dashboard?view=agents", { headers: { cookie: `intercom_token=${w.tokens.bob}${extra}` } })).text();
-    assert.match(await page(), /id="updatebar"[^>]*title="Outdated: core\.[^"]*"[\s\S]*1 session on an older version[\s\S]*data-dismiss="ic_upd=/);
+    assert.match(await page(), /id="updatebar"[^>]*title="Outdated: core\.[^"]*"[\s\S]*1 of your agents on an older version · <a href="\/dashboard\?view=fleet">See and update them<\/a>[\s\S]*data-dismiss="ic_upd=/);
     assert.doesNotMatch(await page(`; ic_upd=${PLUGIN_VERSION}`), /id="updatebar"/);
     assert.match(await page("; ic_upd=0.0.1"), /id="updatebar"/); // an older dismissal doesn't hide a newer version
   });
@@ -3248,6 +3248,20 @@ describe("keeping agents running and current", () => {
     const dash = await page(w);
     assert.match(dash, /data-mid="fup2"[\s\S]*triage has been working for 30m with nothing new/);
     assert.match(dash, /data-mid="cup2"[\s\S]*triage(?:'|&#39;)s context is 90% full/);
+  });
+
+  test("a page of your agents and versions, by machine, updating one at a time", async () => {
+    const w = await setup();
+    const v = await (await w.request("/dashboard?view=fleet", { as: "bob", cookie: true })).text();
+    assert.match(v, /<h1>Agents and versions<\/h1><p class="muted">Intercom [\d.]+ is the newest\. 1 of 2 connected agents run an older one\./);
+    assert.match(v, /<h2 class="flh">[\s\S]*vms01<span class="badge">2<\/span><\/h2><p class="flnote">[\s\S]*triage can update the others here/);
+    assert.match(v, /<b>core<\/b>[\s\S]*?<span class="flver">0\.12\.6<\/span>[\s\S]*?through triage[\s\S]*?name="op" value="update-one"[\s\S]*?name="session" value="up1"/);
+    assert.match(v, /<b>triage<\/b>[\s\S]*?<span class="flver ok">[\s\S]*?up to date/);
+    const answer = (q: Record<string, unknown>) => (q.op === "panes" ? { text: "", panes: [{ session: "up1", pane: "%5", paneIsAgent: false, current: "claude", launch: "claude", version: "0.12.6" }] } : { text: "❯ \n" });
+    const { result } = await machine(w, () => w.form("/upkeep", "bob", { op: "update-one", session: "up1", back: "/dashboard?view=fleet" }), answer);
+    assert.match(ok(result)!, /^core: \/reload-plugins/);
+    // The dashboard's banner leads here.
+    assert.match(await page(w), /1 of your agents on an older version · <a href="\/dashboard\?view=fleet">See and update them<\/a>/);
   });
 
   test("the resume command keeps how it was started, never --continue", async () => {

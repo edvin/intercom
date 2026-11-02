@@ -1,7 +1,7 @@
 import { recordsBrief } from "./records";
 import { saveWorkSettings, workCsv } from "./work";
 import { dismissStuck, moveStuck, releaseSenders, wakeStuck } from "./stuck";
-import { compactAgent, compactOnStop, dismiss, restartAgent, setAuto, updateIdle } from "./upkeep";
+import { compactAgent, compactOnStop, dismiss, myRows, restartAgent, setAuto, updateAgent, updateIdle } from "./upkeep";
 import { KEY_NAMES, type ScreenQuery, askScreen, drawScreen, screenReply, sendNow, stopAgent } from "./screen";
 import { answerBtw, pendingBtw } from "./btw";
 import { getAttachment, isImage, readImage, readable } from "./attachments";
@@ -746,6 +746,11 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
       if (op === "update") {
         const done = await updateIdle(env, me, "from the dashboard");
         ok = done.length ? done.join(" · ") : "Nothing to update";
+      } else if (op === "update-one") {
+        const { rows, live } = await myRows(env, me);
+        const t = rows.find((r) => r.session_id === f("session"));
+        if (!t) throw new UserError("No such agent of yours.");
+        ok = await updateAgent(env, me, t, rows, live, "from the dashboard");
       } else if (op === "auto-on" || op === "auto-off") ok = await setAuto(env, me, op === "auto-on");
       else if (op === "restart") ok = await restartAgent(env, me, f("session"));
       else if (op === "compact" || op === "compact-now") ok = await compactAgent(env, me, f("session"), { rightAway: op === "compact-now" });

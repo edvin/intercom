@@ -135,6 +135,7 @@ function updatesCard(stale: UpRow[], me: string, back: string, auto: boolean): s
     <p class="stkhead">${stale.length} of your agents run${stale.length === 1 ? "s" : ""} an older intercom.</p>
     <p class="stkwhy">Updating types /reload-plugins into an idle one: same session, nothing lost (/restart instead if Claude Code itself has an update waiting). Busy ones are left alone.</p>
     <ul class="stklist">${names}</ul>
+    <p class="stkwhy"><a href="/dashboard?view=fleet">All your agents and their versions →</a></p>
     ${upkeepForm(back, { key: `upd:${PLUGIN_VERSION}` }, `<div class="askopts">${uopt("update", "Update the idle ones now", "Each is told to reload; you see how it went.", true)}${uopt(auto ? "auto-off" : "auto-on", auto ? "Stop updating them by themselves" : "Always do this by itself", auto ? "They're updated automatically when idle for 10 minutes." : "Idle agents get each new version within about 20 minutes.")}${uopt("dismiss", "Not now", "Shows again with the next version.")}</div>`)}
   </article>`;
 }
