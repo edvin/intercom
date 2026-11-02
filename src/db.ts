@@ -25,6 +25,8 @@ export function splitStatements(ddl: string): string[] {
 /** D1 conventions: undefined binds as NULL, booleans as 0/1. */
 export const bindable = (values: unknown[]) => values.map((v) => (v === undefined ? null : typeof v === "boolean" ? Number(v) : v));
 
+const HEAVY_ROWS = 5000;
+
 class SqlStmt implements Stmt {
   private readonly sql: SqlStorage;
   readonly query: string;
@@ -44,17 +46,24 @@ class SqlStmt implements Stmt {
     return this.sql.exec(this.query, ...(this.params as SqlStorageValue[]));
   }
 
+  /** Rows read is what a query costs here (the clock doesn't move during synchronous work): the heavy ones are logged. */
+  private rows<T>(cursor: SqlStorageCursor<Record<string, SqlStorageValue>>): T[] {
+    const out = cursor.toArray() as T[];
+    if (cursor.rowsRead >= HEAVY_ROWS) console.log("heavy-sql", cursor.rowsRead, this.query.replace(/\s+/g, " ").slice(0, 200));
+    return out;
+  }
+
   async first<T>(): Promise<T | null> {
-    return (this.exec().toArray()[0] as T | undefined) ?? null;
+    return (this.rows<T>(this.exec())[0] as T | undefined) ?? null;
   }
 
   async all<T>(): Promise<{ results: T[] }> {
-    return { results: this.exec().toArray() as T[] };
+    return { results: this.rows<T>(this.exec()) };
   }
 
   async run(): Promise<{ meta: { changes: number } }> {
     const cursor = this.exec();
-    cursor.toArray();
+    this.rows(cursor);
     return { meta: { changes: cursor.rowsWritten } };
   }
 }
