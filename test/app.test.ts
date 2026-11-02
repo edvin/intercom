@@ -2982,7 +2982,7 @@ describe("agents that don't take their messages", () => {
     assert.doesNotMatch(await page(w), /class="ask k-stuck"/);
     await age(w, 10);
     const dash = await page(w);
-    assert.match(dash, /<article class="ask k-stuck" data-mid="ualder">[\s\S]*1 message waiting: idle between turns[\s\S]*bob\/core[\s\S]*Can you rebuild the image\?[\s\S]*<option value="core">core · #billing<\/option><option value="triage">/);
+    assert.match(dash, /<article class="ask k-stuck" data-mid="ualder">[\s\S]*1 message for alder has gone unread for 10m[\s\S]*It(?:'|&#39;)s a Codex session that finished its last turn[\s\S]*<b>core<\/b>[\s\S]*Can you rebuild the image\?[\s\S]*<option value="core">core<\/option><option value="triage">triage<\/option>[\s\S]*Tell whoever sent them not to wait[\s\S]*Leave them, I(?:'|&#39;)ll wake it/);
     assert.match(dash, /Waiting for you<\/span><span class="badge amber">1/);
     // One notification per spell.
     const { stuckNote } = await import("../src/stuck.ts");
@@ -2990,7 +2990,7 @@ describe("agents that don't take their messages", () => {
     assert.equal(await stuckNote(w.env(), "bob", "alder"), null);
 
     const res = await w.form("/stuck", "bob", { agent: "alder", op: "move", to: "triage", back: "/dashboard?view=agents" });
-    assert.match(new URL(res.headers.get("location")!, ORIGIN).searchParams.get("ok")!, /Moved 1 message to triage; told 1 sender/);
+    assert.match(new URL(res.headers.get("location")!, ORIGIN).searchParams.get("ok")!, /^triage has them now; the sender was told$/);
     assert.match(await w.ok("bob", "inbox", {}, triage), /\(Meant for alder, which isn't answering; sent 10m ago\. You take it over\.\)\n\s*Can you rebuild the image\?/);
     assert.match(await w.ok("bob", "inbox", {}, core), /Your message to bob\/alder went to bob\/triage instead: alder wasn't answering/);
     assert.doesNotMatch(await page(w), /class="ask k-stuck"/);
@@ -3003,15 +3003,15 @@ describe("agents that don't take their messages", () => {
     await age(w, 20);
     assert.doesNotMatch(await page(w), /class="ask k-stuck"/);
     await age(w, 40);
-    assert.match(await page(w), /class="ask k-stuck"[\s\S]*1 message waiting: hasn(?:'|&#39;)t picked them up since 40m ago/);
+    assert.match(await page(w), /class="ask k-stuck"[\s\S]*It hasn(?:'|&#39;)t read anything since 40m ago, though it(?:'|&#39;)s connected/);
     assert.match(await w.ok("bob", "post", { to: "bob/alder", message: "Again?" }, core), /Note: bob\/alder hasn't picked up messages sent 40m ago\. It may be stuck/);
-    assert.match(new URL((await w.form("/stuck", "bob", { agent: "alder", op: "release", back: "/dashboard" })).headers.get("location")!, ORIGIN).searchParams.get("ok")!, /Told 1 sender not to wait/);
+    assert.match(new URL((await w.form("/stuck", "bob", { agent: "alder", op: "release", back: "/dashboard" })).headers.get("location")!, ORIGIN).searchParams.get("ok")!, /^The sender won't wait for alder any more$/);
     assert.match(await w.ok("bob", "inbox", {}, core), /bob\/alder hasn't read your message from 40m ago \(hasn't picked them up since 40m ago\)\. Don't wait for it/);
     assert.doesNotMatch(await page(w), /class="ask k-stuck"/);
     // A newer message brings the card back (once it's waited); dismissing hides it again.
     await w.ok("bob", "post", { to: "bob/alder", message: "Third." }, core);
     await age(w, 45);
-    assert.match(await page(w), /class="ask k-stuck"[\s\S]*3 messages waiting/);
+    assert.match(await page(w), /class="ask k-stuck"[\s\S]*3 messages for alder have gone unread for/);
     await w.form("/stuck", "bob", { agent: "alder", op: "dismiss", back: "/dashboard" });
     assert.doesNotMatch(await page(w), /class="ask k-stuck"/);
     // Taken after all: nothing stuck.

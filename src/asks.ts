@@ -3,7 +3,7 @@
 // counts, and one answered there leaves the dock.
 
 import { type Approval, type Question, pendingApprovals } from "./approvals";
-import { type Env } from "./lib";
+import { type Env, ago } from "./lib";
 import { type Review, OUTCOMES, agentOnline, findingsOf, onlineAgents, pendingReviews, threadOf } from "./reviews";
 import { type Stuck, stuckSessions } from "./stuck";
 import { pendingTickets } from "./tickets";
@@ -103,23 +103,35 @@ function reviewCard(r: Review, me: string, back: string, online: boolean, others
   </article>`;
 }
 
-/** An agent that isn't taking its messages (stuck.ts): what waits on it, and what to do. */
+/** An agent that isn't reading its messages (stuck.ts): what waits on it, why, and three plain choices. */
 function stuckCard(st: Stuck, me: string, back: string, online: { label: string; project: string | null }[]): string {
   const agent = `/dashboard?view=agents&agent=${encodeURIComponent(`${me}/${st.agent}`)}`;
   const home = online.find((o) => o.label === st.agent)?.project ?? null;
   const others = online.filter((o) => o.label !== st.agent).sort((a, b) => Number(b.project === home) - Number(a.project === home) || a.label.localeCompare(b.label));
   const n = st.messages.length;
+  const what = `${n} message${n > 1 ? "s" : ""}${st.handoffs.length ? ` and ${st.handoffs.length} handoff${st.handoffs.length > 1 ? "s" : ""}` : ""}`;
+  const from = (m: Stuck["messages"][number]) => (m.sender === me && !m.sender_agent ? "You" : m.sender_agent ? (m.sender === me ? m.sender_agent : `${m.sender}/${m.sender_agent}`) : m.sender);
   const list = st.messages
-    .slice(-5)
-    .map((m) => `<li><b>${esc(m.sender === me && !m.sender_agent ? "You" : m.sender_agent ? `${m.sender}/${m.sender_agent}` : m.sender)}</b> <span class="muted">${time(m.created_at)}</span><span class="stkb">${esc(m.body.replace(/\s+/g, " ").slice(0, 160))}</span></li>`)
+    .slice(-4)
+    .map((m) => `<li><b>${esc(from(m))}</b> <span class="muted">${time(m.created_at)}</span><span class="stkb">${esc(m.body.replace(/\s+/g, " ").slice(0, 160))}</span></li>`)
     .join("");
+  const opt = (value: string, title: string, sub: string) => `<button class="askopt" name="op" value="${value}"><span class="askoptx"><b>${title}</b><span>${sub}</span></span>${icon("arrow", 14)}</button>`;
   return `<article class="ask k-stuck" data-mid="u${esc(st.agent)}">
-    <header class="askwho">${agentAvatar(me, st.agent, "s")}<a href="${esc(agent)}" class="askname">${esc(st.agent)}</a><span class="askk">Not taking messages</span><span class="grow"></span>${time(st.since)}</header>
-    <p class="rvverdict">${n} message${n > 1 ? "s" : ""}${st.handoffs.length ? ` and ${st.handoffs.length} handoff${st.handoffs.length > 1 ? "s" : ""}` : ""} waiting: ${esc(st.reason)}.</p>
-    <ul class="stklist">${n > 5 ? `<li class="muted">and ${n - 5} earlier</li>` : ""}${list}${st.handoffs.map((h) => `<li><b>H${h.id}</b> <span class="muted">${time(h.created_at)}</span><span class="stkb">${esc(h.summary.slice(0, 160))}</span></li>`).join("")}</ul>
+    <header class="askwho">${agentAvatar(me, st.agent, "s")}<a href="${esc(agent)}" class="askname">${esc(st.agent)}</a><span class="askk">Not reading</span><span class="grow"></span>${time(st.since)}</header>
+    <p class="stkhead">${esc(what)} for ${esc(st.agent)} ${n + st.handoffs.length > 1 ? "have" : "has"} gone unread for ${esc(ago(st.since).replace(/ ago$/, ""))}.</p>
+    <p class="stkwhy">${esc(st.explain)}</p>
+    <ul class="stklist">${n > 4 ? `<li class="muted">and ${n - 4} earlier</li>` : ""}${list}${st.handoffs.map((h) => `<li><b>Handoff H${h.id}</b> <span class="muted">${time(h.created_at)}</span><span class="stkb">${esc(h.summary.slice(0, 160))}</span></li>`).join("")}</ul>
     <form method="post" action="/stuck">${hidden({ back, agent: st.agent })}
-      ${others.length ? `<div class="stkmove"><select name="to" aria-label="Move to">${others.map((o) => `<option value="${esc(o.label)}">${esc(o.label)}${o.project ? ` · #${esc(o.project)}` : ""}</option>`).join("")}</select><button name="op" value="move" class="btn sm primary">${icon("arrow", 13)}Move to it</button></div>` : ""}
-      <div class="askact"><button name="op" value="release" class="btn sm">Tell senders not to wait</button><button name="op" value="dismiss" class="btn sm ghost" title="Hide this until another message waits on it">I'll handle it</button></div>
+      <p class="askqt">What should happen?</p>
+      <div class="askopts">
+        ${
+          others.length
+            ? `<div class="askopt stkmv"><span class="askoptx"><b>Give them to another agent</b><span>It answers instead, and whoever sent them is told.</span></span><select name="to" aria-label="Which agent">${others.map((o) => `<option value="${esc(o.label)}">${esc(o.label)}</option>`).join("")}</select><button name="op" value="move" class="btn sm primary">Give</button></div>`
+            : ""
+        }
+        ${opt("release", "Tell whoever sent them not to wait", `They carry on without an answer. ${esc(st.agent)} still reads them once it's back.`)}
+        ${opt("dismiss", "Leave them, I'll wake it", `Nothing changes; ${st.client === "codex" ? "type anything in its terminal and it reads them" : "it reads them when it's back"}. This goes away until a new message waits.`)}
+      </div>
     </form>
   </article>`;
 }

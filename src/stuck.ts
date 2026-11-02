@@ -33,6 +33,8 @@ export interface Stuck {
   handoffs: { id: number; summary: string; created_at: number }[];
   maxId: number;
   client: string;
+  /** Why, in plain words for the card, and what wakes it. */
+  explain: string;
 }
 
 interface SessionRow {
@@ -44,27 +46,28 @@ interface SessionRow {
   state_detail: string;
   last_seen: number;
   active_at: number | null;
+  host: string;
 }
 
 /** Why a session can't take messages now, if it can't: "" when it can (as far as the hub knows). */
-export async function cantTake(env: Env, member: string, agent: string): Promise<{ reason: string; client: string; activeAt: number | null }> {
+export async function cantTake(env: Env, member: string, agent: string): Promise<{ reason: string; client: string; activeAt: number | null; host: string }> {
   const { results } = await env.DB.prepare(
-    "SELECT session_id, label, project, client, state, state_detail, last_seen, active_at FROM sessions WHERE member = ?1 AND (label = ?2 OR project = ?2) ORDER BY last_seen DESC LIMIT 20",
+    "SELECT session_id, label, project, client, state, state_detail, last_seen, active_at, host FROM sessions WHERE member = ?1 AND (label = ?2 OR project = ?2) ORDER BY last_seen DESC LIMIT 20",
   )
     .bind(member, agent)
     .all<SessionRow>();
-  if (!results.length) return { reason: "", client: "", activeAt: null };
+  if (!results.length) return { reason: "", client: "", activeAt: null, host: "" };
   const live = new Set(liveIds(env, member));
   const up = results.filter((s) => live.has(s.session_id) || Date.now() - s.last_seen < GONE_MS);
   const s = results[0]!;
   const activeAt = Math.max(...results.map((r) => r.active_at ?? 0)) || null;
-  if (!up.length) return { reason: `not connected (last seen ${ago(s.last_seen)})`, client: s.client, activeAt };
+  if (!up.length) return { reason: `not connected (last seen ${ago(s.last_seen)})`, client: s.client, activeAt, host: s.host };
   // A project address is fine while any of its sessions can take it.
   const able = up.filter((r) => !(r.client === "codex" && r.state === "idle") && !(r.state === "waiting" && /limit|login|account/i.test(r.state_detail)));
-  if (able.length) return { reason: "", client: s.client, activeAt };
+  if (able.length) return { reason: "", client: s.client, activeAt, host: s.host };
   const u = up[0]!;
-  if (u.state === "waiting") return { reason: `stopped: ${u.state_detail}`, client: u.client, activeAt };
-  return { reason: "idle between turns (a Codex session takes messages only when a turn starts, so only typing in its terminal wakes it)", client: u.client, activeAt };
+  if (u.state === "waiting") return { reason: `stopped: ${u.state_detail}`, client: u.client, activeAt, host: u.host };
+  return { reason: "idle between turns (a Codex session takes messages only when a turn starts, so only typing in its terminal wakes it)", client: u.client, activeAt, host: u.host };
 }
 
 /** Your sessions with direct messages waiting too long, oldest first; dismissed ones only come back with a newer message. */
@@ -96,7 +99,15 @@ export async function stuckSessions(env: Env, me: string, now = Date.now()): Pro
     const { results: handoffs } = await env.DB.prepare("SELECT id, summary, created_at FROM handoffs WHERE to_member = ? AND to_agent = ? AND status = 'pending' ORDER BY id")
       .bind(me, agent)
       .all<{ id: number; summary: string; created_at: number }>();
-    out.push({ agent, reason: why.reason || `hasn't picked them up since ${ago(oldest)}`, since: oldest, messages: msgs, handoffs, maxId, client: why.client });
+    const on = why.host ? ` on ${why.host}` : "";
+    const explain = why.reason.startsWith("idle")
+      ? `It's a Codex session that finished its last turn${why.activeAt ? ` ${ago(why.activeAt)}` : ""}. Codex only reads new messages when a turn starts, so it won't see these until someone types in its terminal${on}.`
+      : why.reason.startsWith("stopped")
+        ? `Its last turn stopped (${why.reason.slice(9)}), so it isn't reading. It picks them up when it runs again: type in its terminal${on}.`
+        : why.reason.startsWith("not connected")
+          ? `Its session isn't running (${why.reason.slice(14, -1)}). The next session with that name gets them.`
+          : `It hasn't read anything since ${ago(oldest)}, though it's connected. It may be stuck in a long task or waiting on its terminal${on}.`;
+    out.push({ agent, reason: why.reason || `hasn't picked them up since ${ago(oldest)}`, since: oldest, messages: msgs, handoffs, maxId, client: why.client, explain });
   }
   return out.sort((a, b) => a.since - b.since);
 }
@@ -178,7 +189,7 @@ export async function moveStuck(env: Env, me: string, agent: string, to: string)
   const told = await tellSenders(env, me, s, () => `Your message to ${address(me, agent)} went to ${address(me, to)} instead: ${agent} wasn't answering (${s.reason}). Expect the answer from ${to}.`);
   await mark(env, me, agent, "dismissed_upto", s.maxId);
   env.refreshWeb?.(me);
-  return `Moved ${s.messages.length} message${s.messages.length > 1 ? "s" : ""}${s.handoffs.length ? ` and ${s.handoffs.length} handoff${s.handoffs.length > 1 ? "s" : ""}` : ""} to ${to}${told ? `; told ${told} sender${told > 1 ? "s" : ""}` : ""}`;
+  return `${to} has them now${told ? `; the sender${told > 1 ? "s were" : " was"} told` : ""}`;
 }
 
 /** Tell the senders not to wait; the messages stay, for when the agent is back. */
@@ -187,14 +198,14 @@ export async function releaseSenders(env: Env, me: string, agent: string): Promi
   const told = await tellSenders(env, me, s, (m) => `${address(me, agent)} hasn't read your message from ${ago(m.created_at)} (${s.reason}). Don't wait for it: carry on, or ask another agent. It'll see your message when it's back.`);
   await mark(env, me, agent, "dismissed_upto", s.maxId);
   env.refreshWeb?.(me);
-  return told ? `Told ${told} sender${told > 1 ? "s" : ""} not to wait` : "Nobody was waiting but you";
+  return told ? `The sender${told > 1 ? "s" : ""} won't wait for ${agent} any more` : "Only you were waiting on it";
 }
 
 export async function dismissStuck(env: Env, me: string, agent: string): Promise<string> {
   const s = await one(env, me, agent);
   await mark(env, me, agent, "dismissed_upto", s.maxId);
   env.refreshWeb?.(me);
-  return `OK: ${agent}'s card comes back if another message waits on it`;
+  return `OK. This shows again only if a new message waits on ${agent}`;
 }
 
 /** The notification for a stuck agent (push ref "u<agent>"), once per oldest waiting message; null if it isn't stuck (yet). */

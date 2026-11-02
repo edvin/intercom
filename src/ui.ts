@@ -771,7 +771,8 @@ body:has(.ide) .top .in{max-width:none;padding:8px 14px}
 .tklz.warn{background:var(--amber-soft);color:var(--amber)}
 .k-stuck .askk{background:var(--amber-soft);color:var(--amber)}
 .stklist{list-style:none;margin:8px 0 10px;padding:0;display:flex;flex-direction:column;gap:6px;font-size:12.5px}.stklist li{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 8px;padding:6px 10px;border-radius:0 9px 9px 0;border-left:2px solid var(--line-strong);background:var(--surface)}.stklist time{font-size:11.5px}.stkb{flex-basis:100%;color:var(--ink-2);line-height:1.45;overflow-wrap:anywhere}
-.stkmove{display:flex;gap:6px;align-items:center;margin-bottom:8px}.stkmove select{flex:1;min-width:0;height:32px;font-size:13px}
+.stkhead{margin:2px 0 4px;font-size:14px;font-weight:600;line-height:1.45;color:var(--ink)}.stkwhy{margin:0 0 8px;font-size:13px;line-height:1.5;color:var(--ink-2)}
+.stkmv{cursor:default;flex-wrap:wrap}.stkmv select{flex:1 1 140px;min-width:0;height:32px;font-size:13px}.stkmv .askoptx{flex-basis:100%}.k-stuck .askqt{margin:6px 0 8px}
 .wkpane{max-width:1160px;gap:18px;padding-bottom:96px}
 .wkhead{display:flex;flex-direction:column;gap:12px}
 .wktitle{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}.wktitle h1{margin:0;font-size:27px;font-weight:650;letter-spacing:-.022em}.wkzone{font-size:12.5px;color:var(--mute)}
