@@ -129,6 +129,7 @@ function stuckCard(st: Stuck, me: string, back: string, online: { label: string;
             ? `<div class="askopt stkmv"><span class="askoptx"><b>Give them to another agent</b><span>It answers instead, and whoever sent them is told.</span></span><select name="to" aria-label="Which agent">${others.map((o) => `<option value="${esc(o.label)}">${esc(o.label)}</option>`).join("")}</select><button name="op" value="move" class="btn sm primary">Give</button></div>`
             : ""
         }
+        ${st.wake ? opt("wake", "Wake it now", `Types “read your intercom messages and carry on” into its terminal, as you would. It starts reading them.`) : ""}
         ${opt("release", "Tell whoever sent them not to wait", `They carry on without an answer. ${esc(st.agent)} still reads them once it's back.`)}
         ${opt("dismiss", "Leave them, I'll wake it", `Nothing changes; ${st.client === "codex" ? "type anything in its terminal and it reads them" : "it reads them when it's back"}. This goes away until a new message waits.`)}
       </div>

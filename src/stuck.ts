@@ -35,6 +35,8 @@ export interface Stuck {
   client: string;
   /** Why, in plain words for the card, and what wakes it. */
   explain: string;
+  /** Its terminal can be typed into from here (screen.ts): "wake it now" works. */
+  wake: boolean;
 }
 
 interface SessionRow {
@@ -47,27 +49,29 @@ interface SessionRow {
   last_seen: number;
   active_at: number | null;
   host: string;
+  screen: string;
 }
 
 /** Why a session can't take messages now, if it can't: "" when it can (as far as the hub knows). */
-export async function cantTake(env: Env, member: string, agent: string): Promise<{ reason: string; client: string; activeAt: number | null; host: string }> {
+export async function cantTake(env: Env, member: string, agent: string): Promise<{ reason: string; client: string; activeAt: number | null; host: string; wake: boolean }> {
   const { results } = await env.DB.prepare(
-    "SELECT session_id, label, project, client, state, state_detail, last_seen, active_at, host FROM sessions WHERE member = ?1 AND (label = ?2 OR project = ?2) ORDER BY last_seen DESC LIMIT 20",
+    "SELECT session_id, label, project, client, state, state_detail, last_seen, active_at, host, screen FROM sessions WHERE member = ?1 AND (label = ?2 OR project = ?2) ORDER BY last_seen DESC LIMIT 20",
   )
     .bind(member, agent)
     .all<SessionRow>();
-  if (!results.length) return { reason: "", client: "", activeAt: null, host: "" };
+  if (!results.length) return { reason: "", client: "", activeAt: null, host: "", wake: false };
   const live = new Set(liveIds(env, member));
   const up = results.filter((s) => live.has(s.session_id) || Date.now() - s.last_seen < GONE_MS);
   const s = results[0]!;
   const activeAt = Math.max(...results.map((r) => r.active_at ?? 0)) || null;
-  if (!up.length) return { reason: `not connected (last seen ${ago(s.last_seen)})`, client: s.client, activeAt, host: s.host };
+  if (!up.length) return { reason: `not connected (last seen ${ago(s.last_seen)})`, client: s.client, activeAt, host: s.host, wake: false };
   // A project address is fine while any of its sessions can take it.
   const able = up.filter((r) => !(r.client === "codex" && r.state === "idle") && !(r.state === "waiting" && /limit|login|account/i.test(r.state_detail)));
-  if (able.length) return { reason: "", client: s.client, activeAt, host: s.host };
+  const wake = up.some((r) => r.screen === "keys");
+  if (able.length) return { reason: "", client: s.client, activeAt, host: s.host, wake };
   const u = up[0]!;
-  if (u.state === "waiting") return { reason: `stopped: ${u.state_detail}`, client: u.client, activeAt, host: u.host };
-  return { reason: "idle between turns (a Codex session takes messages only when a turn starts, so only typing in its terminal wakes it)", client: u.client, activeAt, host: u.host };
+  if (u.state === "waiting") return { reason: `stopped: ${u.state_detail}`, client: u.client, activeAt, host: u.host, wake };
+  return { reason: "idle between turns (a Codex session takes messages only when a turn starts, so only typing in its terminal wakes it)", client: u.client, activeAt, host: u.host, wake };
 }
 
 /** Your sessions with direct messages waiting too long, oldest first; dismissed ones only come back with a newer message. */
@@ -107,7 +111,7 @@ export async function stuckSessions(env: Env, me: string, now = Date.now()): Pro
         : why.reason.startsWith("not connected")
           ? `Its session isn't running (${why.reason.slice(14, -1)}). The next session with that name gets them.`
           : `It hasn't read anything since ${ago(oldest)}, though it's connected. It may be stuck in a long task or waiting on its terminal${on}.`;
-    out.push({ agent, reason: why.reason || `hasn't picked them up since ${ago(oldest)}`, since: oldest, messages: msgs, handoffs, maxId, client: why.client, explain });
+    out.push({ agent, reason: why.reason || `hasn't picked them up since ${ago(oldest)}`, since: oldest, messages: msgs, handoffs, maxId, client: why.client, explain, wake: why.wake });
   }
   return out.sort((a, b) => a.since - b.since);
 }
@@ -227,4 +231,14 @@ export async function stuckNote(env: Env, me: string, agent: string): Promise<{ 
   await mark(env, me, agent, "notified_oldest", first);
   const n = s.messages.length;
   return { title: `${agent} isn't taking messages`, body: `${n} message${n > 1 ? "s" : ""} waiting since ${ago(s.since)}: ${s.reason}.`, again: null };
+}
+
+/** Wake it from here: type a line into its terminal (screen.ts), which starts a turn that reads what's waiting. */
+export async function wakeStuck(env: Env, me: string, agent: string): Promise<string> {
+  const s = await one(env, me, agent);
+  if (!s.wake) throw new UserError(`${agent}'s terminal can't be reached from here (not in tmux, or keys are off on its machine).`);
+  const { askScreen } = await import("./screen");
+  await askScreen(env, me, agent, { op: "keys", text: "You have intercom messages waiting: read them and carry on.", enter: true });
+  env.refreshWeb?.(me);
+  return `Woke ${agent}: it's reading its messages now`;
 }

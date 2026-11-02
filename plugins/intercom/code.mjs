@@ -289,3 +289,83 @@ async function answer(root, q) {
       throw new Error("Unknown request.");
   }
 }
+
+// ---- the screen: what this session's tmux pane shows, and keys sent to it, for its owner only ----
+// The hub asks only for the person the session belongs to (their dashboard or their Claude.ai connector); never for a
+// teammate or another agent. INTERCOM_SCREEN=0 in the config turns it off on this machine, INTERCOM_KEYS=0 just the keys.
+
+const tmux = (args) =>
+  new Promise((resolve) => {
+    execFile("tmux", args, { encoding: "utf8", timeout: 4000, maxBuffer: 4 * 1024 * 1024 }, (err, stdout, stderr) =>
+      resolve(err ? { err: String(stderr || err.message).trim().split("\n")[0] } : { out: stdout }),
+    );
+  });
+const ps = (pid) =>
+  new Promise((resolve) => execFile("ps", ["-o", "ppid=", "-p", String(pid)], { encoding: "utf8", timeout: 2000 }, (err, out) => resolve(err ? 0 : Number(out.trim()) || 0)));
+
+/** Keys that can be sent by name: the ones a stuck agent needs (answer a dialog, interrupt, scroll a list). */
+export const SCREEN_KEYS = {
+  enter: "Enter",
+  esc: "Escape",
+  "ctrl-c": "C-c",
+  up: "Up",
+  down: "Down",
+  left: "Left",
+  right: "Right",
+  tab: "Tab",
+  "shift-tab": "BTab",
+  space: "Space",
+  backspace: "BSpace",
+  y: "y",
+  n: "n",
+  ...Object.fromEntries([1, 2, 3, 4, 5, 6, 7, 8, 9].map((d) => [String(d), String(d)])),
+};
+
+/** The tmux pane this process runs in: $TMUX_PANE, or (when the agent didn't pass it on, as Codex may not) the pane whose process is one of our ancestors. */
+export async function findPane(env = process.env, ppid = process.ppid) {
+  if (env.TMUX_PANE && /^%\d+$/.test(env.TMUX_PANE)) return env.TMUX_PANE;
+  const r = await tmux(["list-panes", "-a", "-F", "#{pane_id} #{pane_pid}"]);
+  if (r.err) return null;
+  const panes = new Map(
+    r.out
+      .trim()
+      .split("\n")
+      .map((l) => l.split(" "))
+      .filter(([id, pid]) => /^%\d+$/.test(id) && pid)
+      .map(([id, pid]) => [Number(pid), id]),
+  );
+  for (let pid = ppid, i = 0; pid > 1 && i < 25; i++, pid = await ps(pid)) if (panes.has(pid)) return panes.get(pid);
+  return null;
+}
+
+/**
+ * capture: the pane as it looks now (colours as ANSI), and `history` lines above it. keys: send named keys and/or a
+ * line of text (typed literally, then Enter if asked), then capture what it looks like after.
+ */
+export async function screenRequest(q, { pane, keysOn = true } = {}) {
+  if (!pane) throw new Error("This session isn't running in tmux, so its screen can't be seen from here.");
+  if (q.op === "keys") {
+    if (!keysOn) throw new Error("Sending keys is turned off on that machine (INTERCOM_KEYS=0 in its intercom config).");
+    const keys = Array.isArray(q.keys) ? q.keys.slice(0, 20) : [];
+    for (const k of keys) if (!SCREEN_KEYS[k]) throw new Error(`Unknown key "${k}". Keys: ${Object.keys(SCREEN_KEYS).join(", ")}.`);
+    const text = typeof q.text === "string" ? q.text : "";
+    if (text.length > 1000) throw new Error("The text is over 1000 characters.");
+    if (/[\r\n]/.test(text)) throw new Error("Send one line at a time.");
+    for (const k of keys) {
+      const r = await tmux(["send-keys", "-t", pane, SCREEN_KEYS[k]]);
+      if (r.err) throw new Error(`tmux: ${r.err}`);
+    }
+    if (text) {
+      const r = await tmux(["send-keys", "-t", pane, "-l", "--", text]);
+      if (r.err) throw new Error(`tmux: ${r.err}`);
+    }
+    if (q.enter) await tmux(["send-keys", "-t", pane, "Enter"]);
+    await new Promise((r) => setTimeout(r, 600)); // let it redraw
+  }
+  const history = Math.max(0, Math.min(500, Number(q.history) || 0));
+  const cap = await tmux(["capture-pane", "-p", "-e", "-t", pane, ...(history ? ["-S", `-${history}`] : [])]);
+  if (cap.err) throw new Error(`tmux: ${cap.err}`);
+  const info = await tmux(["display-message", "-p", "-t", pane, "#{pane_width} #{pane_height} #{cursor_x} #{cursor_y}"]);
+  const [cols, rows, cx, cy] = (info.out ?? "").trim().split(" ").map(Number);
+  return { text: cap.out.replace(/\n+$/, "\n"), cols: cols || 0, rows: rows || 0, cursor: Number.isFinite(cx) ? [cx, cy + history] : null, keys: keysOn };
+}

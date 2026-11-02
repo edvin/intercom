@@ -50,6 +50,7 @@ import m0041 from "../migrations/0041_tickets.sql";
 import m0042 from "../migrations/0042_review_mr.sql";
 import m0043 from "../migrations/0043_work.sql";
 import m0044 from "../migrations/0044_stuck.sql";
+import m0045 from "../migrations/0045_screen.sql";
 
 /** A short fingerprint of the MCP tools (names, descriptions, schemas) this code offers. */
 const TOOLS_TAG = (() => {
@@ -103,6 +104,7 @@ const MIGRATIONS: [string, string][] = [
   ["0042_review_mr", m0042],
   ["0043_work", m0043],
   ["0044_stuck", m0044],
+  ["0045_screen", m0045],
 ];
 
 const DAY = 86400_000;
@@ -197,6 +199,7 @@ export class TeamHub extends DurableObject<WorkerEnv> {
       refreshWeb: (member: string) => this.refreshWeb(member),
       askFile: (member, sessionId, req, path) => this.askFile(member, sessionId, req, path),
       askCode: (member, sessionId, req, q) => this.toSession(member, sessionId, { type: "code-request", req, q }),
+      askScreen: (member, sessionId, req, q) => this.toSession(member, sessionId, { type: "screen-request", req, q }),
       files: this.env.FILES,
       wake: (at) => this.wake(at),
       github: id && secret ? { client_id: id, client_secret: secret } : undefined,
@@ -224,6 +227,9 @@ export class TeamHub extends DurableObject<WorkerEnv> {
     await setHost(env, me, sessionId, req.headers.get("x-intercom-host"));
     await setRepo(env, me, sessionId, raw);
     await setVersion(env, me, sessionId, req.headers.get("x-intercom-version"));
+    // Its screen (a tmux pane) can be seen and typed into by its owner, if its machine allows (screen.ts).
+    const screen = req.headers.get("x-intercom-screen");
+    await env.DB.prepare("UPDATE sessions SET screen = ? WHERE member = ? AND session_id = ?").bind(screen === "keys" || screen === "view" ? screen : "", me, sessionId).run();
     const mode = req.headers.get("x-intercom-mode") === "peek" ? "peek" : "push";
 
     const [client, server] = Object.values(new WebSocketPair());

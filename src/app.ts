@@ -1,6 +1,7 @@
 import { recordsBrief } from "./records";
 import { saveWorkSettings, workCsv } from "./work";
-import { dismissStuck, moveStuck, releaseSenders } from "./stuck";
+import { dismissStuck, moveStuck, releaseSenders, wakeStuck } from "./stuck";
+import { KEY_NAMES, type ScreenQuery, askScreen, drawScreen, screenReply } from "./screen";
 import { answerBtw, pendingBtw } from "./btw";
 import { getAttachment, isImage, readImage, readable } from "./attachments";
 import { fetchLocalFile, fileReply } from "./localfiles";
@@ -737,7 +738,10 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
     const agent = String(form.get("agent") ?? "");
     try {
       const op = String(form.get("op") ?? "");
-      u.searchParams.set("ok", op === "move" ? await moveStuck(env, me, agent, String(form.get("to") ?? "")) : op === "release" ? await releaseSenders(env, me, agent) : await dismissStuck(env, me, agent));
+      u.searchParams.set(
+        "ok",
+        op === "move" ? await moveStuck(env, me, agent, String(form.get("to") ?? "")) : op === "wake" ? await wakeStuck(env, me, agent) : op === "release" ? await releaseSenders(env, me, agent) : await dismissStuck(env, me, agent),
+      );
     } catch (e) {
       if (!(e instanceof UserError)) throw e;
       u.searchParams.set("err", e.message);
@@ -876,6 +880,30 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
       body = `<div class="codebar"><span class="grow"></span><button type="button" class="btn ghost xs icon" data-coderefresh title="Try again">${icon("refresh", 13)}</button></div><div class="empty">${icon("code", 26)}<div>Couldn't read its code</div><div class="small">${esc(e.message)}</div></div>`;
     }
     return new Response(body, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "content-security-policy": "default-src 'none'; frame-ancestors 'none'" } });
+  }
+  if ((url.pathname === "/agent-screen" && req.method === "GET") || (url.pathname === "/agent-keys" && req.method === "POST")) {
+    // An agent's screen (screen.ts): a fragment for the dashboard's screen window, after sending keys if asked.
+    const post = req.method === "POST";
+    if (post && !sameOrigin(req)) return new Response("Cross-origin request refused", { status: 403 });
+    const form = post ? await req.formData() : null;
+    const k = (form ? String(form.get("agent") ?? "") : url.searchParams.get("agent")) ?? "";
+    const [member, label] = k.split("/");
+    let body: string;
+    try {
+      if (member !== me || !label) throw new UserError("You can only see the screen of your own agents.");
+      const q: ScreenQuery = form
+        ? { op: "keys", keys: form.getAll("key").map(String).filter((x) => x in KEY_NAMES), text: String(form.get("text") ?? "").replace(/[\r\n]+/g, " ").slice(0, 1000), enter: form.get("enter") === "1", history: 200 }
+        : { op: "capture", history: 200 };
+      if (q.op === "keys" && !q.keys?.length && !q.text) throw new UserError("Pick a key or type something.");
+      body = drawScreen(await askScreen(env, me, label, q));
+    } catch (e) {
+      if (!(e instanceof UserError)) throw e;
+      body = `<div class="screrr">${icon("monitor", 22)}<p>${esc(e.message)}</p></div>`;
+    }
+    return new Response(body, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "content-security-policy": "default-src 'none'; frame-ancestors 'none'" } });
+  }
+  if (url.pathname === "/api/screen-reply" && req.method === "POST") {
+    return json({ ok: screenReply(me, (await req.json().catch(() => ({}))) as Record<string, unknown>) });
   }
   if (url.pathname === "/api/code-reply" && req.method === "POST") {
     return json({ ok: codeReply(me, (await req.json().catch(() => ({}))) as Record<string, unknown>) });

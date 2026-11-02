@@ -67,6 +67,7 @@ export class World {
   offline = new Set<string>();
   /** Code requests sent to local servers (askCode). */
   codeAsked: { member: string; sessionId: string; req: string; q: Record<string, string> }[] = [];
+  screenAsked: { member: string; sessionId: string; req: string; q: Record<string, unknown> }[] = [];
   tokens: Record<string, string> = {};
   /** Each member's browser token (as if signed in with GitHub): what `cookie: true` requests carry. */
   webTokens: Record<string, string> = {};
@@ -94,6 +95,7 @@ export class World {
       files: this.files,
       askFile: (member, sessionId, req, path) => !this.offline.has(sessionId) && !!this.asked.push({ member, sessionId, req, path }),
       askCode: (member, sessionId, req, q) => !this.offline.has(sessionId) && !!this.codeAsked.push({ member, sessionId, req, q: q as Record<string, string> }),
+      askScreen: (member, sessionId, req, q) => !this.offline.has(sessionId) && !!this.screenAsked.push({ member, sessionId, req, q: q as Record<string, unknown> }),
     };
   }
 

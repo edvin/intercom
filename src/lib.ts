@@ -28,6 +28,7 @@ export interface Env {
   askFile?: (member: string, sessionId: string, req: string, path: string) => boolean;
   /** Ask a session's local server about its repo (code.ts); false when it isn't connected. */
   askCode?: (member: string, sessionId: string, req: string, q: object) => boolean;
+  askScreen?: (member: string, sessionId: string, req: string, q: object) => boolean;
   /** Where message images live (R2). */
   files?: R2Bucket;
   /** Have the hub's alarm go off by `at` (to send a notification that's due then); undefined outside the hub. */

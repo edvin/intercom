@@ -2661,11 +2661,11 @@ describe("Claude.ai connector", () => {
     // Refused elsewhere: not the plugin's tools, not the dashboard. Added with /mcp, Claude gets the connector there.
     const viaMcp = await w.request("/mcp", { method: "POST", headers: { authorization: `Bearer ${access_token}`, "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }) });
     const mcpNames = ((await viaMcp.json()) as { result: { tools: { name: string }[] } }).result.tools.map((t) => t.name);
-    assert.deepEqual(mcpNames, ["agents", "agent_status", "ask", "compact", "conversation", "locks", "decisions", "proposals", "handoffs"]);
+    assert.deepEqual(mcpNames, ["agents", "agent_status", "ask", "compact", "screen", "keys", "conversation", "locks", "decisions", "proposals", "handoffs"]);
     assert.equal((await w.request("/mcp", { method: "POST", headers: { authorization: "Bearer nope" }, body: "{}" })).status, 401);
     assert.equal((await w.request("/api/whoami", { headers: { authorization: `Bearer ${access_token}` } })).status, 401);
     const names = (await rpc(w, access_token, "tools/list")).body.result.tools.map((t: { name: string }) => t.name);
-    assert.deepEqual(names, ["agents", "agent_status", "ask", "compact", "conversation", "locks", "decisions", "proposals", "handoffs"]);
+    assert.deepEqual(names, ["agents", "agent_status", "ask", "compact", "screen", "keys", "conversation", "locks", "decisions", "proposals", "handoffs"]);
     assert.equal((await rpc(w, access_token, "tools/call", { name: "invite", arguments: {} })).body.error.code, -32602);
     const ask = (await rpc(w, access_token, "tools/list")).body.result.tools.find((t: { name: string }) => t.name === "ask");
     assert.equal(ask.annotations.destructiveHint, true);
@@ -3041,3 +3041,79 @@ describe("agents that don't take their messages", () => {
     assert.equal((await (await import("../src/stuck.ts")).stuckSessions(w.env(), "bob")).length, 0);
   });
 });
+
+describe("an agent's screen", () => {
+  const SCREEN = "\x1b[1m\x1b[32m✻ Welcome\x1b[0m\n\x1b[38;5;208mDo you want to proceed?\x1b[39m\n❯ 1. Yes\n  2. No\n";
+  const setup = async () => {
+    const w = await standardWorld();
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=sc1&name=core", { as: "bob" });
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=sc2&name=docs", { as: "bob" });
+    await w.db.prepare("UPDATE sessions SET screen = 'keys' WHERE session_id = 'sc1'").run();
+    return w;
+  };
+  /** Do `go`, and answer the screen request it causes as the agent's machine would. */
+  const answering = async <T>(w: World, go: () => Promise<T>, data: object | null = { text: SCREEN, cols: 80, rows: 24, cursor: [2, 3], keys: true }) => {
+    const n = w.screenAsked.length;
+    const p = go();
+    const t0 = Date.now();
+    while (w.screenAsked.length === n && Date.now() - t0 < 500) await new Promise((r) => setTimeout(r, 5));
+    const ask = w.screenAsked[n];
+    if (ask) await w.request("/api/screen-reply", { as: ask.member, method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ req: ask.req, ...(data ? { data } : { error: "This session isn't running in tmux." }) }) });
+    return { result: await p, ask };
+  };
+
+  test("you see it in the dashboard, in colour, and send it keys; it's noted in its activity", async () => {
+    const w = await setup();
+    const dash = await (await w.request("/dashboard?view=agents&agent=bob/core", { as: "bob", cookie: true })).text();
+    assert.match(dash, /data-screen="bob\/core" data-screenkeys="1"/);
+    assert.match(dash, /<dialog id="dlg-screen"[\s\S]*data-key="ctrl-c"/);
+    assert.doesNotMatch(await (await w.request("/dashboard?view=agents&agent=bob/docs", { as: "bob", cookie: true })).text(), /data-screen=/);
+    const { result: r, ask } = await answering(w, () => w.request("/agent-screen?agent=bob/core", { as: "bob", cookie: true }).then((x) => x.text()));
+    assert.deepEqual(ask!.q, { op: "capture", history: 200 });
+    assert.match(r, /<pre class="term" style="--cols:80"><span class="f2 sb">✻ Welcome<\/span>\n<span style="color:rgb\(255,135,0\)">Do you want to proceed\?<\/span>\n❯ 1\. Yes/);
+    const { result: k, ask: ka } = await answering(w, () => w.form("/agent-keys", "bob", { agent: "bob/core", key: "2" }).then((x) => x.text()));
+    assert.deepEqual(ka!.q, { op: "keys", keys: ["2"], text: "", enter: false, history: 200 });
+    assert.match(k, /class="term"/);
+    const { ask: ta } = await answering(w, () => w.form("/agent-keys", "bob", { agent: "bob/core", text: "continue", enter: "1" }));
+    assert.deepEqual(ta!.q, { op: "keys", keys: [], text: "continue", enter: true, history: 200 });
+    const act = await w.db.prepare("SELECT text FROM activity WHERE session_id = 'sc1' AND kind = 'keys' ORDER BY id").all<{ text: string }>();
+    assert.deepEqual(act.results.map((x) => x.text), ["you sent keys from the dashboard: 2", "you sent keys from the dashboard: typed “continue”, Enter"]);
+    // Not another person's agent, not an agent's token, not one that isn't in tmux; its machine's own answer is shown.
+    assert.match(await (await w.request("/agent-screen?agent=alice/core", { as: "bob", cookie: true })).text(), /only see the screen of your own agents/);
+    assert.match(await (await w.request("/agent-screen?agent=bob/core", { as: "bob" })).text(), /can only be opened by its person/);
+    assert.match(await (await w.request("/agent-screen?agent=bob/docs", { as: "bob", cookie: true })).text(), /isn(?:'|&#39;)t running in tmux, its machine turned it off/);
+    await w.db.prepare("UPDATE sessions SET screen = 'view' WHERE session_id = 'sc1'").run();
+    assert.match(await (await w.form("/agent-keys", "bob", { agent: "bob/core", key: "enter" })).text(), /Sending keys to core is turned off on its machine/);
+  });
+
+  test("the drawing: colours by class or inline, styles, and everything else dropped", async () => {
+    const { screenHtml, plainScreen } = await import("../src/screen.ts");
+    assert.equal(screenHtml("a\x1b[31mred\x1b[0m <b>"), 'a<span class="f1">red</span> &lt;b&gt;');
+    assert.equal(screenHtml("\x1b[7mx\x1b[27my"), '<span class="finv binv">x</span>y');
+    assert.equal(screenHtml("\x1b[38;2;1;2;3mt\x1b]0;title\x07\x1b[?25l"), '<span style="color:rgb(1,2,3)">t</span>');
+    assert.equal(plainScreen(SCREEN), "✻ Welcome\nDo you want to proceed?\n❯ 1. Yes\n  2. No\n");
+  });
+
+  test("an agent that isn't reading can be woken from its card, by typing into its terminal", async () => {
+    const w = await setup();
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=sc3&name=alder", { as: "bob" });
+    await w.ok("bob", "inbox", {}, { id: "sc3", project: "billing-api" });
+    await w.db.prepare("UPDATE sessions SET screen = 'keys', client = 'codex', state = 'idle' WHERE session_id = 'sc1'").run();
+    await w.ok("bob", "post", { to: "bob/core", message: "Rebuild please" }, { id: "sc3", project: "billing-api" });
+    await w.db.prepare("UPDATE messages SET created_at = ? WHERE recipient_agent = 'core'").bind(Date.now() - 10 * 60_000).run();
+    assert.match(await (await w.request("/dashboard?view=agents", { as: "bob", cookie: true })).text(), /class="ask k-stuck"[\s\S]*value="wake"[\s\S]*Wake it now/);
+    const { result, ask } = await answering(w, () => w.form("/stuck", "bob", { agent: "core", op: "wake", back: "/dashboard" }));
+    assert.deepEqual(ask!.q, { op: "keys", text: "You have intercom messages waiting: read them and carry on.", enter: true });
+    assert.match(new URL(result.headers.get("location")!, ORIGIN).searchParams.get("ok")!, /Woke core: it's reading its messages now/);
+  });
+
+  test("the machine's side: only in tmux, only the keys it knows, and keys can be turned off", async () => {
+    const { screenRequest, SCREEN_KEYS } = await import("../plugins/intercom/code.mjs");
+    await assert.rejects(screenRequest({ op: "capture" }, { pane: null }), /isn't running in tmux/);
+    await assert.rejects(screenRequest({ op: "keys", keys: ["rm -rf"] }, { pane: "%0" }), /Unknown key "rm -rf"/);
+    await assert.rejects(screenRequest({ op: "keys", text: "a\nb" }, { pane: "%0" }), /one line at a time/);
+    await assert.rejects(screenRequest({ op: "keys", keys: ["enter"] }, { pane: "%0", keysOn: false }), /turned off on that machine/);
+    assert.equal(SCREEN_KEYS["ctrl-c"], "C-c");
+  });
+});
+

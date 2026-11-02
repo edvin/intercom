@@ -20,7 +20,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const VERSION = "0.12.31"; // kept in step with .claude-plugin/plugin.json (a test checks)
+const VERSION = "0.12.32"; // kept in step with .claude-plugin/plugin.json (a test checks)
 const DIR = path.join(os.homedir(), ".claude", "intercom");
 const CONFIG = path.join(DIR, "config");
 function readConf() {
@@ -270,6 +270,26 @@ async function answerCodeRequest(f) {
   );
 }
 
+// ---- the screen: this session's tmux pane, seen and typed into by its owner from the dashboard or Claude.ai ----
+
+let PANE = null;
+const screenOn = () => setting("INTERCOM_SCREEN") !== "0";
+const keysOn = () => screenOn() && setting("INTERCOM_KEYS") !== "0";
+
+async function answerScreenRequest(f) {
+  let body;
+  try {
+    if (!screenOn()) throw new Error("Seeing the screen is turned off on that machine (INTERCOM_SCREEN=0 in its intercom config).");
+    const { screenRequest } = await import("./code.mjs");
+    body = { data: await screenRequest(f.q ?? {}, { pane: PANE, keysOn: keysOn() }) };
+  } catch (e) {
+    body = { error: String(e.message ?? e).slice(0, 300) };
+  }
+  fetch(`${BASE}/api/screen-reply`, { method: "POST", headers: { authorization: headers.authorization, "content-type": "application/json" }, body: JSON.stringify({ req: f.req, ...body }), signal: AbortSignal.timeout(30_000) }).catch((e) =>
+    log("screen request failed:", e.message),
+  );
+}
+
 // ---- save_attachment: the attachment is fetched from the hub and written on this machine ----
 
 async function saveAttachment(params) {
@@ -315,6 +335,8 @@ const SETTINGS = {
   share_host: { key: "INTERCOM_SHARE_HOST", on: "1", off: "0", def: true, what: "show which machine your sessions run on (INTERCOM_HOST_NAME=… sets a nickname)", live: false },
   share_branch: { key: "INTERCOM_SHARE_BRANCH", on: "1", off: "0", def: true, what: "share this machine's git branch with project members", live: false },
   auto_status: { key: "INTERCOM_AUTO_STATUS", on: "1", off: "0", def: true, what: "let agents set their own status notes", live: false },
+  screen: { key: "INTERCOM_SCREEN", on: "1", off: "0", def: true, what: "let you see this machine's agents' terminals (tmux panes) from your dashboard and Claude.ai; only you, never teammates or other agents", live: false },
+  keys: { key: "INTERCOM_KEYS", on: "1", off: "0", def: true, what: "let you send keys (Enter, Esc, Ctrl+C, a typed line) to this machine's agents' terminals from your dashboard and Claude.ai; only you", live: false },
 };
 
 const SETTINGS_TOOL = {
@@ -844,6 +866,8 @@ function connect() {
       answerFileRequest(f);
     } else if (f.type === "code-request") {
       answerCodeRequest(f);
+    } else if (f.type === "screen-request") {
+      answerScreenRequest(f);
     } else if (f.type === "peek") {
       for (const m of markers("pending")) touch(m);
       notify(f.message);
@@ -890,7 +914,15 @@ function startChannel() {
   if (started || !BASE || !TOKEN) return;
   started = true;
   refreshSession();
-  connect();
+  // Which tmux pane we run in (if any), so the hub knows the screen can be seen and typed into.
+  import("./code.mjs")
+    .then((m) => m.findPane?.())
+    .then((p) => {
+      PANE = p ?? null;
+      if (PANE && screenOn()) headers["x-intercom-screen"] = keysOn() ? "keys" : "view";
+    })
+    .catch(() => {})
+    .finally(connect);
   // Codex: the SessionStart hook may run after we start; look for its note for a little while.
   if (headers["x-intercom-client"] === "codex") {
     let tries = 0;

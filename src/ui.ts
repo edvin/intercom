@@ -683,7 +683,7 @@ body:has(.ide) .top .in{max-width:none;padding:8px 14px}
 .tctx{font-size:10px;font-weight:650;font-variant-numeric:tabular-nums;color:var(--amber)}.tctx.red{color:var(--red)}
 .ctxb{font-variant-numeric:tabular-nums}.ctxb:not(.amber):not(.red){background:var(--surface-2);color:var(--ink-2)}
 .compacting{display:inline-flex;gap:4px;align-items:center;margin:0}.jobrow form{display:inline;margin:0}.jobrow .jobx{opacity:0;transition:opacity .12s}.jobrow:hover .jobx,.jobrow .jobx:focus{opacity:1}@media (hover:none){.jobrow .jobx{opacity:.7}}
-.meta-row .btn.compactbtn,.meta-row .compacting .btn{padding:1px 8px;font-size:11.5px;font-weight:500;color:var(--mute)}.meta-row .btn.compactbtn:hover,.meta-row .compacting .btn:hover{color:var(--ink)}
+.meta-row .btn.compactbtn,.meta-row .btn.scrbtn,.meta-row .compacting .btn{padding:1px 8px;font-size:11.5px;font-weight:500;color:var(--mute)}.meta-row .btn.compactbtn:hover,.meta-row .btn.scrbtn:hover,.meta-row .compacting .btn:hover{color:var(--ink)}
 .tdot{position:absolute;left:11px;width:6px;height:6px;border-radius:50%;background:var(--mute)}
 .tdot.idle{background:var(--green)}.tdot.work{background:var(--accent);animation:pulse 1.8s infinite}.tdot.wait{background:var(--red)}.tdot.off{background:transparent;box-shadow:inset 0 0 0 1px var(--mute)}
 .toff>summary{list-style:none;padding:3px 8px 3px 24px;font-size:11.5px;color:var(--mute);cursor:pointer}.toff>summary:hover{color:var(--ink-2)}
@@ -769,6 +769,26 @@ body:has(.ide) .top .in{max-width:none;padding:8px 14px}
 @keyframes tkin{from{opacity:.4;transform:translateY(3px)}to{opacity:1;transform:none}}@media (prefers-reduced-motion:reduce){.tkpanel{animation:none!important}}
 .tkpane section,.tkpane .tkpanel,.tkpane #tkdecision,.tkpane #rvdecision,.rvfind{scroll-margin-top:60px}
 .tklz.warn{background:var(--amber-soft);color:var(--amber)}
+.meta-row .btn.scrbtn{flex:none;gap:4px}
+.scrdlg{width:min(1180px,96vw);max-width:none;height:min(860px,90vh);padding:0;display:none;flex-direction:column;overflow:hidden}.scrdlg[open]{display:flex}
+.scrdlg .hd{display:flex;align-items:center;gap:10px;padding:12px 14px 12px 18px;border-bottom:1px solid var(--line)}.scrdlg .hd h2{margin:0;font-size:15px}
+.scrlive{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--green)}.scrlive .dot{width:7px;height:7px;border-radius:50%;background:var(--green);animation:pulse 1.8s infinite}
+.scrbody{flex:1;min-height:0;display:flex;flex-direction:column;background:#0b0d14}
+.scrwrap{flex:1;min-height:0;display:flex}
+.term{flex:1;margin:0;padding:14px 16px;overflow:auto;background:#0b0d14;color:#d6d8e4;font:12.5px/1.38 "JetBrains Mono","Geist Mono",ui-monospace,Menlo,monospace;white-space:pre;tab-size:8;font-variant-ligatures:none}
+.term .sb{font-weight:700}.term .sd{opacity:.6}.term .si{font-style:italic}.term .su{text-decoration:underline}.term .finv{color:#0b0d14}.term .binv{background:#d6d8e4}
+.term .f0{color:#3b3f51}.term .f1{color:#ff6b76}.term .f2{color:#3ddc97}.term .f3{color:#ffcb6b}.term .f4{color:#6ea8ff}.term .f5{color:#c792ea}.term .f6{color:#5ce1e6}.term .f7{color:#d6d8e4}
+.term .f8{color:#6b7081}.term .f9{color:#ff8a93}.term .f10{color:#6ff0b4}.term .f11{color:#ffe08a}.term .f12{color:#9cc4ff}.term .f13{color:#ddb3ff}.term .f14{color:#8ff1f4}.term .f15{color:#ffffff}
+.term .b0{background:#3b3f51}.term .b1{background:#b3343d}.term .b2{background:#1f8a5b}.term .b3{background:#a97a1d}.term .b4{background:#2f5fb3}.term .b5{background:#7b4ea8}.term .b6{background:#258a8e}.term .b7{background:#a9acb9}
+.term .b8{background:#555a6e}.term .b9{background:#d4505a}.term .b10{background:#2fae74}.term .b11{background:#c99a2e}.term .b12{background:#4a7fd6}.term .b13{background:#9b6cc9}.term .b14{background:#36aeb2}.term .b15{background:#e8e9ef}
+.scrmeta{flex:none;padding:5px 16px;font-size:11.5px;color:#8a8c9d;background:#0b0d14;border-top:1px solid rgba(255,255,255,.06)}
+.screrr{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:30px;color:#a7a9b8;text-align:center}.screrr p{margin:0;max-width:56ch;font-size:13.5px;line-height:1.5}
+.scrkeys{flex:none;display:flex;flex-direction:column;gap:8px;padding:10px 14px 12px;border-top:1px solid var(--line);background:var(--surface)}
+.scrrow{display:flex;flex-wrap:wrap;gap:5px}.scrk{min-width:40px;font-family:"Geist Mono",ui-monospace,monospace;font-size:12.5px}
+.scrtype{display:flex;gap:8px;align-items:center}.scrtype input[name=text]{flex:1;min-width:0;height:34px;font:13px "Geist Mono",ui-monospace,monospace}
+.screnter{display:inline-flex;align-items:center;gap:5px;font-size:12.5px;color:var(--ink-2);white-space:nowrap}.screnter input{margin:0}
+.scrnokeys{margin:0;padding:10px 16px;font-size:12.5px;color:var(--mute);border-top:1px solid var(--line)}
+@media (max-width:640px){.scrdlg{width:100vw;height:100dvh;max-height:none;border-radius:0}.term{font-size:11px;padding:10px}.scrk{min-width:36px;padding:0 10px}}
 .k-stuck .askk{background:var(--amber-soft);color:var(--amber)}
 .stklist{list-style:none;margin:8px 0 10px;padding:0;display:flex;flex-direction:column;gap:6px;font-size:12.5px}.stklist li{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 8px;padding:6px 10px;border-radius:0 9px 9px 0;border-left:2px solid var(--line-strong);background:var(--surface)}.stklist time{font-size:11.5px}.stkb{flex-basis:100%;color:var(--ink-2);line-height:1.45;overflow-wrap:anywhere}
 .stkhead{margin:2px 0 4px;font-size:14px;font-weight:600;line-height:1.45;color:var(--ink)}.stkwhy{margin:0 0 8px;font-size:13px;line-height:1.5;color:var(--ink-2)}
@@ -1347,6 +1367,52 @@ export const SCRIPT = `
     $$(".tknav a[data-tab]").forEach((a) => a.onclick = (e) => { e.preventDefault(); tkShow(a.dataset.tab, true); });
     const pane = tkPane(); if (pane) tkShow(pane.dataset.tab);
   }
+  // An agent's screen (screen.ts): its terminal, redrawn every 2 seconds while the window is open, and keys sent to it.
+  let scrTimer = null, scrAgent = "", scrBusy = false;
+  async function scrLoad(form) {
+    const body = document.getElementById("scrbody");
+    if (!body || (scrBusy && !form)) return;
+    scrBusy = true;
+    try {
+      const pre = body.querySelector("pre.term");
+      const atEnd = !pre || pre.scrollHeight - pre.scrollTop - pre.clientHeight < 40;
+      const keep = pre ? pre.scrollTop : 0;
+      const r = form
+        ? await fetch("/agent-keys", { method: "POST", body: form, credentials: "same-origin" })
+        : await fetch("/agent-screen?agent=" + encodeURIComponent(scrAgent), { credentials: "same-origin", cache: "no-store" });
+      body.innerHTML = await r.text();
+      const np = body.querySelector("pre.term");
+      if (np) np.scrollTop = atEnd ? np.scrollHeight : keep;
+    } catch {} finally { scrBusy = false; }
+  }
+  function bindScreen() {
+    const d = document.getElementById("dlg-screen");
+    $$("[data-screen]").forEach((b) => b.onclick = () => {
+      if (!d) return;
+      scrAgent = b.dataset.screen;
+      d.showModal();
+      scrLoad();
+      clearInterval(scrTimer);
+      scrTimer = setInterval(() => { if (!d.open) return clearInterval(scrTimer); if (!document.hidden) scrLoad(); }, 2000);
+    });
+    if (!d) return;
+    d.onclose = () => clearInterval(scrTimer);
+    $$(".scrk", d).forEach((k) => k.onclick = () => {
+      if (k.dataset.key === "ctrl-c" && !confirm("Send Ctrl+C? It interrupts what the agent is doing.")) return;
+      const f = new FormData(); f.set("agent", scrAgent); f.append("key", k.dataset.key); scrLoad(f);
+    });
+    const t = d.querySelector("[data-scrtype]");
+    if (!t) return;
+    const input = t.querySelector("input[name=text]"), enter = t.querySelector("input[name=enter]");
+    const send = () => {
+      if (!input.value.trim()) return input.focus();
+      const f = new FormData(); f.set("agent", scrAgent); f.set("text", input.value); if (enter.checked) f.set("enter", "1");
+      input.value = "";
+      scrLoad(f);
+    };
+    t.querySelector("[data-scrsend]").onclick = send;
+    input.onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); send(); } };
+  }
   // Your time zone, for the work log's days and its evening summary: a cookie the server reads, and the summary's form.
   function bindTz() {
     let z = ""; try { z = Intl.DateTimeFormat().resolvedOptions().timeZone || ""; } catch {}
@@ -1360,6 +1426,7 @@ export const SCRIPT = `
   function bind(root = document) {
     bindAsks();
     bindTz();
+    bindScreen();
     bindTabs();
     if (picked) { const b = document.querySelector('.bubble[data-mid="' + picked + '"]'); if (b && b.querySelector('[data-unsend="edit"]')) b.classList.add("picked"); else picked = null; }
     trailBack();
@@ -1523,6 +1590,7 @@ export const SCRIPT = `
       const src = sig(next.outerHTML); if (el._src === src) return;
       if (el.id === "asks" && !el.hidden && !next.hidden && $(".asklist", el) && $(".asklist", next)) return asksMerge(el, next, src);
       if (el.contains(document.activeElement) && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) return;
+      if (el.querySelector("dialog[open]")) return; // a dialog you have open isn't redrawn under you
       if ((el._imgs && el._imgs.length) || el._adding || Date.now() - (el._picking || 0) < 120000) return; // images waiting to be sent, being added or picked
       const open = new Set($$("details[open]", el).map((d) => d.id).filter(Boolean));
       // A thread you've scrolled up in stays where you are; one at the bottom follows new messages.

@@ -41,6 +41,7 @@ interface Agent {
   ctx_window?: number | null;
   ctx_at?: number | null;
   compact_req?: string | null;
+  screen?: string;
 }
 
 /** Which agent runs the session, in each tool's own colours. */
@@ -98,7 +99,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   const ph = (n: number) => Array.from({ length: n }, () => "?").join(",") || "NULL";
   const everyone = people.includes(me) ? people : [...people, me];
   const { results: agents } = await env.DB.prepare(
-    `SELECT member, session_id, label, project, project_pin, repo, loops, jobs, origin, branch, note, client, host, version, last_seen, state, state_detail, state_at, active_at, cwd, ui_at, ui_version, ctx_pct, ctx_tokens, ctx_window, ctx_at, compact_req FROM sessions
+    `SELECT member, session_id, label, project, project_pin, repo, loops, jobs, origin, branch, note, client, host, version, last_seen, state, state_detail, state_at, active_at, cwd, ui_at, ui_version, ctx_pct, ctx_tokens, ctx_window, ctx_at, compact_req, screen FROM sessions
      WHERE member IN (${ph(everyone.length)}) AND (member = ? OR project IN (${ph(mine.length)})) AND last_seen > ?
      ORDER BY member = ? DESC, last_seen DESC`,
   )
@@ -144,7 +145,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
     const [pm = "", pl = ""] = picked.split("/");
     agent =
       (await env.DB.prepare(
-        `SELECT member, session_id, label, project, project_pin, repo, loops, jobs, origin, branch, note, client, host, version, last_seen, state, state_detail, state_at, active_at, cwd, ui_at, ui_version, ctx_pct, ctx_tokens, ctx_window, ctx_at, compact_req FROM sessions
+        `SELECT member, session_id, label, project, project_pin, repo, loops, jobs, origin, branch, note, client, host, version, last_seen, state, state_detail, state_at, active_at, cwd, ui_at, ui_version, ctx_pct, ctx_tokens, ctx_window, ctx_at, compact_req, screen FROM sessions
          WHERE member = ? AND label = ? AND (member = ? OR project IN (${ph(mine.length)})) ORDER BY last_seen DESC LIMIT 1`,
       )
         .bind(pm, pl, me, ...mine)
@@ -377,6 +378,9 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   const canBtw = ownAgent && agent.client !== "codex";
   // Compact from the dashboard: the session's intercom-ui mod runs it when its turn ends (Claude Code only).
   const canCompact = ownAgent && !compactable(agent, isOn(agent));
+  // Its terminal (a tmux pane), seen and typed into from here (screen.ts).
+  const canScreen = ownAgent && isOn(agent) && !!agent.screen;
+  const screenCtl = canScreen ? `<button type="button" class="btn ghost xs scrbtn" data-screen="${esc(key(agent))}" data-screenkeys="${agent.screen === "keys" ? "1" : "0"}" data-screenname="${esc(agent.label)}" title="See its terminal and send it keys">${icon("monitor", 12)}Screen</button>` : "";
   const here = `/dashboard?view=agents&agent=${encodeURIComponent(key(agent))}`;
   const compactCtl = !canCompact
     ? ""
@@ -410,7 +414,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
           <h2 style="display:flex;gap:8px;align-items:center"><span class="grow" style="display:flex;gap:8px;align-items:center"><span class="aname">${esc(key(agent))}</span>${ownAgent ? `<button type="button" class="btn ghost xs icon renamebtn" data-open="dlg-rename" title="Rename this agent">${icon("pencil", 12)}</button>` : ""}${clientBadge(agent.client, true)}</span>${seg}
             <span class="fsz" title="Text size in the chat"><button type="button" class="btn ghost xs icon" data-fs="-1" title="Smaller text">A</button><button type="button" class="btn ghost xs icon" data-fs="1" title="Larger text">A</button></span>
             <button type="button" class="btn ghost xs icon ttog" data-relaytoggle title="Messages between agents: click to show or hide">${icon("messages", 14)}</button>${ownAgent ? `<button type="button" class="btn ghost xs icon ttog" data-acttoggle title="Follow what the agent is doing (commands, edits, its text; only you see this): click to turn on or off"><span class="when-on">${icon("eye", 14)}</span><span class="when-off">${icon("eyeOff", 14)}</span></button>` : ""}</h2>
-          <div class="meta-row">${stateBadge(agent)}${reviewBadge(agent)}${ctxBadge(agent)}${compactCtl}${takesCtl}<span>${agent.host ? `on <b style="color:var(--ink-2)">${esc(hostOf(agent))}</b>${ownAgent ? `<button type="button" class="btn ghost xs icon renamebtn" data-open="dlg-host" title="Rename this machine">${icon("pencil", 11)}</button>` : ""} · ` : ""}${agent.project ? `#${esc(agent.project)}` : "no project"}${ownAgent && agent.project_pin ? ` <span class="badge" title="Set from the dashboard for this session; its repo would put it in ${esc(agent.repo ? `whatever ${agent.repo} maps to` : "no project")}">pinned</span>` : ""}${ownAgent ? `<button type="button" class="btn ghost xs icon renamebtn" data-open="dlg-project" title="Choose its project">${icon("pencil", 11)}</button>` : ""}${agent.branch ? ` · ${icon("branch", 12)} ${esc(agent.branch)}` : ""}${ownAgent && agent.cwd ? `<span class="cwd" title="Working directory"> · ${icon("folder", 12)} ${esc(agent.cwd)}</span>` : ""}${on ? "" : ` · last seen ${ago(agent.last_seen)}`}${agent.note ? ` · “${esc(plainSpaces(agent.note))}”` : ""}</span></div>${loopsOf(agent).map((l) => `<div class="meta-row looprow"><span>${icon("repeat", 13)}${esc(describe(l))}</span></div>`).join("")}${jobsOf(agent).map((j) => `<div class="meta-row jobrow" title="${esc(j.command)}"><span>⧗ ${esc(jobName(j))} <span class="muted">· running ${duration(Date.now() - j.at)}</span></span><form method="post" action="/agent/job-dismiss" data-native>${hidden({ session: agent.session_id, id: j.id, back: `/dashboard?view=agents&agent=${encodeURIComponent(key(agent))}` })}<button class="btn ghost xs icon jobx" title="Not running any more? Remove it from this list">${icon("x", 11)}</button></form></div>`).join("")}
+          <div class="meta-row">${stateBadge(agent)}${reviewBadge(agent)}${ctxBadge(agent)}${compactCtl}${screenCtl}${takesCtl}<span>${agent.host ? `on <b style="color:var(--ink-2)">${esc(hostOf(agent))}</b>${ownAgent ? `<button type="button" class="btn ghost xs icon renamebtn" data-open="dlg-host" title="Rename this machine">${icon("pencil", 11)}</button>` : ""} · ` : ""}${agent.project ? `#${esc(agent.project)}` : "no project"}${ownAgent && agent.project_pin ? ` <span class="badge" title="Set from the dashboard for this session; its repo would put it in ${esc(agent.repo ? `whatever ${agent.repo} maps to` : "no project")}">pinned</span>` : ""}${ownAgent ? `<button type="button" class="btn ghost xs icon renamebtn" data-open="dlg-project" title="Choose its project">${icon("pencil", 11)}</button>` : ""}${agent.branch ? ` · ${icon("branch", 12)} ${esc(agent.branch)}` : ""}${ownAgent && agent.cwd ? `<span class="cwd" title="Working directory"> · ${icon("folder", 12)} ${esc(agent.cwd)}</span>` : ""}${on ? "" : ` · last seen ${ago(agent.last_seen)}`}${agent.note ? ` · “${esc(plainSpaces(agent.note))}”` : ""}</span></div>${loopsOf(agent).map((l) => `<div class="meta-row looprow"><span>${icon("repeat", 13)}${esc(describe(l))}</span></div>`).join("")}${jobsOf(agent).map((j) => `<div class="meta-row jobrow" title="${esc(j.command)}"><span>⧗ ${esc(jobName(j))} <span class="muted">· running ${duration(Date.now() - j.at)}</span></span><form method="post" action="/agent/job-dismiss" data-native>${hidden({ session: agent.session_id, id: j.id, back: `/dashboard?view=agents&agent=${encodeURIComponent(key(agent))}` })}<button class="btn ghost xs icon jobx" title="Not running any more? Remove it from this list">${icon("x", 11)}</button></form></div>`).join("")}
         </div>
       </div>
       ${on && agent.state === "waiting" && !pending.some((p) => p.session_id === agent.session_id) ? `<div class="toast err" style="box-shadow:none;margin:10px 14px 0">${icon("x")}<span><b>${esc(agent.label)} is waiting${agent.state_at ? ` (asked ${ago(agent.state_at)})` : ""}:</b> ${esc(agent.state_detail || "for approval or input")}. That can only be answered in its terminal (or with Claude's Remote Control). Already answered? Claude Code doesn't tell when, so this stays until the step you allowed has run. For unattended runs, start agents in a mode that doesn't stop to ask.</span></div>` : ""}
@@ -428,8 +432,18 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
         <div class="chips">${[...QUICK, ...(loopsOf(agent).length ? LOOP_CHIPS : [])].map((q) => `<button type="button" class="chip" data-chip="${esc(q)}">${esc(q)}</button>`).join("")}${on ? "" : '<span class="tiny muted" style="align-self:center">· not connected: the next session with this name gets it</span>'}</div>
       </form>`}
     </section>`;
+  const keyBtn = (k: string, label: string, title = "") => `<button type="button" class="btn sm scrk" data-key="${k}"${title ? ` title="${title}"` : ""}>${label}</button>`;
+  const screenDlg = canScreen
+    ? `<dialog id="dlg-screen" class="scrdlg"><div class="hd">${icon("monitor", 18)}<h2>${esc(agent.label)}</h2><span class="scrlive" title="Refreshes every 2 seconds while open"><span class="dot"></span>live</span><span class="grow"></span><button type="button" class="btn ghost sm icon" data-close title="Close">${icon("x", 15)}</button></div>
+        <div class="scrbody" id="scrbody"><div class="screrr"><p>Loading its screen…</p></div></div>
+        ${agent.screen === "keys" ? `<div class="scrkeys">
+          <div class="scrrow">${keyBtn("enter", "Enter")}${keyBtn("esc", "Esc")}${keyBtn("ctrl-c", "Ctrl+C", "Interrupts what it's doing")}${keyBtn("up", "↑", "Up")}${keyBtn("down", "↓", "Down")}${keyBtn("tab", "Tab")}${keyBtn("shift-tab", "⇧Tab", "Shift+Tab: switches mode in Claude Code")}${keyBtn("1", "1")}${keyBtn("2", "2")}${keyBtn("3", "3")}${keyBtn("y", "y")}${keyBtn("n", "n")}</div>
+          <div class="scrtype" data-scrtype><input name="text" maxlength="1000" placeholder="Type a line into its terminal" autocomplete="off"><label class="screnter" title="Press Enter after the text"><input type="checkbox" name="enter" value="1" checked>Enter</label><button type="button" class="btn sm primary" data-scrsend>${icon("send", 13)}Send</button></div>
+        </div>` : `<p class="scrnokeys">Sending keys is turned off on its machine (INTERCOM_KEYS=0).</p>`}
+      </dialog>`
+    : "";
   const dialogs = ownAgent
-    ? `${canCompact ? `<dialog id="dlg-compact"><div class="hd">${icon("layers", 18)}<h2>Compact ${esc(agent.label)}</h2></div>
+    ? `${screenDlg}${canCompact ? `<dialog id="dlg-compact"><div class="hd">${icon("layers", 18)}<h2>Compact ${esc(agent.label)}</h2></div>
         <form method="post" action="/agent/compact" data-native>${hidden({ session: agent.session_id, back: here })}<div class="bd stack">
           <p class="small muted" style="margin:0">Like /compact: the conversation so far becomes a summary, freeing its context${agent.ctx_pct != null ? ` (now ${agent.ctx_pct}% full)` : ""}. It runs when the current turn ends.</p>
           <label class="field">What the summary should keep (optional)<textarea name="instructions" rows="3" maxlength="500" placeholder="e.g. the deploy plan and the open review comments"></textarea></label>
