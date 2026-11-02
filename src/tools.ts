@@ -515,7 +515,7 @@ export const tools: Tool[] = [
   {
     name: "review",
     description:
-      "Ask your user to decide the important part of a code review (an MR or PR you reviewed): it shows as a card in their dashboard, where they post or drop each finding (its comment editable) and pick the outcome. Send only findings that need their call: a security or data-loss problem, a break for existing clients, behaviour that contradicts the ticket, a design trade-off, anything you're unsure of. Nits and mechanical fixes you handle yourself; with nothing important, don't use this. Be brief: they decide from this on a phone, so each summary says the problem and its consequence in a sentence or two, no background. Then carry on with other work; don't post those findings or approve until their decision arrives (a YOUR USER message about R<id>). Sending the same MR at the same head again keeps the waiting card (pass replace: true to change it); a new head replaces it. action \"list\" shows what is still waiting. action \"answer\" answers their follow-up question on the card; \"withdraw\" takes the card down (e.g. the MR was closed).",
+      "Ask your user to decide the important part of a code review (an MR or PR you reviewed): it shows as a card in their dashboard that opens a view of its own, where they read the MR, post or drop each finding (its comment editable), ask you about any of it and pick the outcome. They may not reach the forge from where they are, so copy the MR in: its description, author, branches, pipeline, files, commits and the diff; give each finding its file and line (the new side) so it shows in the diff where it applies; and name the ticket the MR implements (ticket: its key), so they see what was decided for it. Send only findings that need their call: a security or data-loss problem, a break for existing clients, behaviour that contradicts the ticket, a design trade-off, anything you're unsure of. Nits and mechanical fixes you handle yourself; with nothing important, don't use this. Be brief: they decide from this on a phone, so each summary says the problem and its consequence in a sentence or two, no background. Then carry on with other work; don't post those findings or approve until their decision arrives (a YOUR USER message about R<id>). Sending the same MR at the same head again keeps the waiting card (pass replace: true to change it); a new head replaces it. action \"list\" shows what is still waiting. action \"answer\" answers their follow-up question on the card; \"withdraw\" takes the card down (e.g. the MR was closed).",
     inputSchema: {
       type: "object",
       properties: {
@@ -536,11 +536,23 @@ export const tools: Tool[] = [
               summary: { type: "string", description: `The problem and what it causes, for your user (max ${LIMITS.summary} chars).` },
               comment: { type: "string", description: `The MR comment you'd post (max ${LIMITS.comment} chars).` },
               post: { type: "boolean", description: "Whether you recommend posting it (default true)." },
+              file: { type: "string", description: "The file it's about, as in the diff (e.g. src/totals.ts)." },
+              line: { type: "number", description: "The line it's about, on the new side of the diff." },
             },
             required: ["summary"],
           },
         },
         head: { type: "string", description: "The commit you reviewed (the MR's head sha)." },
+        description: { type: "string", description: "The MR's description, whole, as Markdown (max 20000 chars)." },
+        author: { type: "string", description: "Who opened the MR." },
+        state: { type: "string", description: "e.g. open, draft, merged." },
+        branch: { type: "string", description: "The MR's source branch." },
+        target: { type: "string", description: "The branch it merges into." },
+        pipeline: { type: "string", description: "e.g. passed, failed, running." },
+        files: { type: "array", maxItems: 200, items: { type: "object", properties: { path: { type: "string" }, added: { type: "number" }, removed: { type: "number" } }, required: ["path"] } },
+        commits: { type: "array", maxItems: 50, items: { type: "object", properties: { sha: { type: "string" }, title: { type: "string" } }, required: ["sha"] } },
+        diff: { type: "string", description: "The unified diff (git diff), max 300000 chars: past that, send the files that matter (files still lists them all)." },
+        ticket: { type: "string", description: "The key of the ticket the MR implements (e.g. SHOP-123), if any." },
         id: { type: "number", description: "answer / withdraw: the review, e.g. 12 for R12." },
         finding: { type: "number", description: "answer: the finding the question was about (1-based); omit for the review as a whole." },
         text: { type: "string", description: `answer: your answer (max ${LIMITS.answer} chars).` },

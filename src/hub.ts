@@ -47,6 +47,7 @@ import m0038 from "../migrations/0038_reviews.sql";
 import m0039 from "../migrations/0039_push.sql";
 import m0040 from "../migrations/0040_push_status.sql";
 import m0041 from "../migrations/0041_tickets.sql";
+import m0042 from "../migrations/0042_review_mr.sql";
 
 /** A short fingerprint of the MCP tools (names, descriptions, schemas) this code offers. */
 const TOOLS_TAG = (() => {
@@ -97,6 +98,7 @@ const MIGRATIONS: [string, string][] = [
   ["0039_push", m0039],
   ["0040_push_status", m0040],
   ["0041_tickets", m0041],
+  ["0042_review_mr", m0042],
 ];
 
 const DAY = 86400_000;

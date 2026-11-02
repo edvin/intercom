@@ -7,6 +7,7 @@
 import { type Env, GONE_MS, UserError, liveIds, postMessage } from "./lib";
 import { queuePush } from "./push";
 import { logDecision } from "./records";
+import { type TicketMR, TLIMITS, mrOf } from "./tickets";
 
 export const OUTCOMES = { approve: "Approve", approve_after: "Approve once fixed", request_changes: "Request changes", hold: "Hold" } as const;
 export type Outcome = keyof typeof OUTCOMES;
@@ -20,7 +21,25 @@ export interface Finding {
   summary: string;
   comment: string;
   post: boolean; // what the agent recommends
+  file?: string; // where in the MR (the new side's line), shown in its diff
+  line?: number;
 }
+
+/** The MR itself, copied in so the review reads without the forge (all optional: a bare review still works). */
+export interface ReviewData extends Omit<TicketMR, "url" | "title"> {
+  description: string;
+  author: string;
+}
+export const MR_LIMITS = { description: TLIMITS.description, diff: TLIMITS.diff };
+
+export const reviewData = (r: Review): ReviewData => {
+  const empty: ReviewData = { description: "", author: "", state: "", branch: "", target: "", pipeline: "", files: [], commits: [], diff: "" };
+  try {
+    return { ...empty, ...(JSON.parse(r.data || "{}") as Partial<ReviewData>) };
+  } catch {
+    return empty;
+  }
+};
 
 export interface Review {
   id: number;
@@ -34,6 +53,8 @@ export interface Review {
   recommend: Outcome;
   findings: string;
   head: string;
+  data: string;
+  ticket: string; // the key of the ticket the MR implements, if any
   status: "open" | "decided" | "withdrawn" | "replaced";
   decision: string | null;
   thread: string;
@@ -78,8 +99,18 @@ export async function openReview(env: Env, me: string, a: Record<string, unknown
       summary: short(f?.summary, `finding ${i + 1}'s summary`, LIMITS.summary),
       comment: short(f?.comment, `finding ${i + 1}'s comment`, LIMITS.comment, false),
       post: f?.post !== false,
+      ...(typeof f?.file === "string" && f.file.trim() ? { file: f.file.trim().replace(/^[ab]\//, "").slice(0, 400) } : {}),
+      ...(typeof f?.line === "number" && f.line >= 1 ? { line: Math.round(f.line) } : {}),
     };
   });
+  const mr = mrOf(a, "the MR", false);
+  if (mr.diff.length > MR_LIMITS.diff) throw new UserError(`The diff is ${mr.diff.length} characters; keep it under ${MR_LIMITS.diff}: send the diff of the files that matter (files still lists them all).`);
+  const description = typeof a.description === "string" ? a.description.replace(/\r\n?/g, "\n").trim() : "";
+  if (description.length > MR_LIMITS.description) throw new UserError(`The description is ${description.length} characters; keep it under ${MR_LIMITS.description}.`);
+  const author = typeof a.author === "string" ? a.author.trim().slice(0, 80) : "";
+  const { url: _u, title: _t, ...rest } = mr;
+  const data: ReviewData = { ...rest, description, author };
+  const ticket = typeof a.ticket === "string" ? a.ticket.trim().slice(0, 40) : "";
   const head = typeof a.head === "string" ? a.head.trim().slice(0, 64) : "";
   // A loop that checks every few hours would send the same review again: the card (and its questions) stays.
   if (head && a.replace !== true) {
@@ -88,10 +119,10 @@ export async function openReview(env: Env, me: string, a: Record<string, unknown
   }
   await env.DB.prepare("UPDATE reviews SET status = 'replaced', decided_at = ? WHERE member = ? AND url = ? AND status = 'open'").bind(Date.now(), me, url).run();
   const row = await env.DB.prepare(
-    `INSERT INTO reviews (member, session_id, label, project, url, title, verdict, recommend, findings, head, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
+    `INSERT INTO reviews (member, session_id, label, project, url, title, verdict, recommend, findings, head, data, ticket, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
   )
-    .bind(me, s.session_id, s.label, s.project || null, url, title, verdict, recommend, JSON.stringify(findings), head, Date.now())
+    .bind(me, s.session_id, s.label, s.project || null, url, title, verdict, recommend, JSON.stringify(findings), head, JSON.stringify(data), ticket, Date.now())
     .first<Review>();
   env.refreshWeb?.(me);
   await queuePush(env, me, `r${row!.id}`);

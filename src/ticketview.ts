@@ -27,7 +27,7 @@ export function ticketCard(t: Ticket, me: string, back: string): string {
   </article>`;
 }
 
-const tone = (s: string) => (/pass|success|merged|done|closed|resolved|fixed/i.test(s) ? " ok" : /fail|error|block|cancel|reject|declin/i.test(s) ? " bad" : /run|pend|progress|review|open|draft|test/i.test(s) ? " mid" : "");
+export const tone = (s: string) => (/pass|success|merged|done|closed|resolved|fixed/i.test(s) ? " ok" : /fail|error|block|cancel|reject|declin/i.test(s) ? " bad" : /run|pend|progress|review|open|draft|test/i.test(s) ? " mid" : "");
 
 /** A tracker date ("2026-10-28", "2026-10-30 14:02", ISO) the way people say it; anything else as the agent sent it. */
 export function when(s: string): string {
@@ -72,11 +72,11 @@ function priorityIcon(p: string): string {
   return c ? `<svg class="tkpi" viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>` : "";
 }
 
-const lozenge = (s: string) => `<span class="tklz${tone(s)}">${esc(s)}</span>`;
-const person = (name: string) => (name ? `<span class="tkwho">${avatar(name, "s")}<span>${esc(name)}</span></span>` : `<span class="tkwho none">${icon("user", 14)}<span>Unassigned</span></span>`);
-const row = (label: string, value: string) => (value ? `<div class="tkrow"><dt>${label}</dt><dd>${value}</dd></div>` : "");
+export const lozenge = (s: string) => `<span class="tklz${tone(s)}">${esc(s)}</span>`;
+export const person = (name: string) => (name ? `<span class="tkwho">${avatar(name, "s")}<span>${esc(name)}</span></span>` : `<span class="tkwho none">${icon("user", 14)}<span>Unassigned</span></span>`);
+export const row = (label: string, value: string) => (value ? `<div class="tkrow"><dt>${label}</dt><dd>${value}</dd></div>` : "");
 
-function mrBlock(m: TicketMR, i: number): string {
+export function mrBlock(m: TicketMR, i: number, noteAt?: (path: string, line: number) => string, bare = false): string {
   const added = m.files.reduce((n, f) => n + f.added, 0);
   const removed = m.files.reduce((n, f) => n + f.removed, 0);
   const files = m.files.length
@@ -87,9 +87,9 @@ function mrBlock(m: TicketMR, i: number): string {
   const commits = m.commits.length
     ? `<details class="tkcommits"><summary>${m.commits.length} commit${m.commits.length > 1 ? "s" : ""}</summary><ul>${m.commits.map((c) => `<li><code>${esc(c.sha.slice(0, 8))}</code> ${esc(c.title)}</li>`).join("")}</ul></details>`
     : "";
-  const diff = m.diff ? drawDiff(m.diff, () => "") : "";
+  const diff = m.diff ? drawDiff(m.diff, () => "", noteAt) : "";
   return `<section class="tkmr" id="mr${i + 1}">
-    <div class="tkmrh"><a class="tkmrt" href="${esc(m.url)}" target="_blank" rel="noopener noreferrer">${icon("branch", 14)}<span>${esc(m.title || m.url)}</span>${icon("link", 12)}</a></div>
+    ${bare ? "" : `<div class="tkmrh"><a class="tkmrt" href="${esc(m.url)}" target="_blank" rel="noopener noreferrer">${icon("branch", 14)}<span>${esc(m.title || m.url)}</span>${icon("link", 12)}</a></div>`}
     <p class="tkmeta">${m.state ? `<span class="tks${tone(m.state)}">${esc(m.state)}</span>` : ""}${m.pipeline ? `<span class="tks${tone(m.pipeline)}">pipeline ${esc(m.pipeline)}</span>` : ""}${m.branch ? `<code>${esc(m.branch)}</code>${m.target ? ` → <code>${esc(m.target)}</code>` : ""}` : ""}${m.files.length ? `<span class="muted">${m.files.length} file${m.files.length > 1 ? "s" : ""} · <span class="cadd">+${added}</span> <span class="cdel">−${removed}</span></span>` : ""}</p>
     ${files}${commits}
     ${diff ? `<div class="tkdiff">${diff}</div>` : m.files.length ? `<p class="small muted">The agent didn't send the diff; open the MR to see it.</p>` : ""}
@@ -130,7 +130,7 @@ export async function ticketView(env: Env, me: string, id: number, back: string)
     ...(d.mrs.length ? [["mr", d.mrs.length > 1 ? `MRs <span class="badge">${d.mrs.length}</span>` : "MR"]] : []),
     ["ask", `Ask ${esc(t.label)}${turns.length ? ` <span class="badge">${turns.length}</span>` : ""}${last && last.who !== "you" ? `<i class="tkdot" data-at="${last.at}" title="New answer"></i>` : ""}`],
   ]
-    .map(([k, l]) => `<a href="#${k}" data-tab="${k}" role="tab">${l}</a>`)
+    .map(([k, l]) => `<a href="#${k}" data-tab="${k}" role="tab"${k === "ticket" ? ` class="on"` : ""}>${l}</a>`)
     .join("");
   const nav = `<nav id="tknav" class="tknav" role="tablist" data-region>${tabs}<span class="grow"></span>${open ? `<a href="#tkdecision" class="tkgo" title="Decide">${icon("check", 13)}<span>Decide</span></a>` : ""}</nav>`;
   const links = d.links.length
@@ -177,7 +177,7 @@ export async function ticketView(env: Env, me: string, id: number, back: string)
     row("Repos", d.repos.length ? `<span class="tkrepos">${d.repos.map((r) => `<code>${esc(r)}</code>`).join("")}</span>` : ""),
     row(d.mrs.length > 1 ? "MRs" : "MR", d.mrs.length ? `<span class="tkrepos">${d.mrs.map((m, i) => `<a href="#mr${i + 1}" class="tkmrl">${icon("branch", 12)}${esc(m.state || "open")}${m.pipeline ? ` · ${esc(m.pipeline)}` : ""}</a>`).join("")}</span>` : ""),
   ].join("");
-  return `<div class="pane-in tkpane" data-tab="ticket" data-ticket="${t.id}">
+  return `<div class="pane-in tkpane" data-tab="ticket" data-tabs="t${t.id}">
     <div class="tkcrumb"><a class="btn ghost sm tkback" href="${esc(back)}">${icon("back", 14)}Back</a><span class="tksep">/</span>${f.type ? typeIcon(f.type) : ""}<a href="${esc(t.url)}" target="_blank" rel="noopener noreferrer" class="tkkeyl" title="Open in the tracker">${esc(t.key)}${icon("link", 12)}</a><span class="grow"></span><span class="tkfrom">${agentAvatar(me, t.label, "s")}<a href="${esc(agent)}">${esc(t.label)}</a><span>sent it ${time(t.created_at)}</span></span></div>
     <header class="tkhead"><h1>${esc(t.title)}</h1></header>
     <div class="tkgrid">
@@ -198,14 +198,14 @@ export async function ticketView(env: Env, me: string, id: number, back: string)
           <div class="md tkprose">${md(d.plan)}</div>
         </section>
         ${nav}
-        <article class="tksheet tkpanel" data-tab="ticket" id="tk-ticket" role="tabpanel">
+        <article class="tksheet tkpanel on" data-tab="ticket" id="tk-ticket" role="tabpanel">
           <section class="tksec">
             <h2 class="tkh2">Description</h2>
             ${d.description ? `<div class="md tkprose">${md(d.description)}</div>` : `<p class="tkempty">No description.</p>`}
           </section>
           ${links}${comments}
         </article>
-        ${d.mrs.length ? `<section class="tkcard tkpanel" data-tab="mr" id="tk-mrs" role="tabpanel">${d.mrs.map(mrBlock).join("")}</section>` : ""}
+        ${d.mrs.length ? `<section class="tkcard tkpanel" data-tab="mr" id="tk-mrs" role="tabpanel">${d.mrs.map((m, i) => mrBlock(m, i)).join("")}</section>` : ""}
         <section class="tkcard tkpanel" data-tab="ask" id="tk-talk" role="tabpanel">
           ${threadRegion(t, me, self)}
         </section>

@@ -1589,6 +1589,38 @@ describe("reviews", () => {
   };
   const loc = (r: Response) => new URL(r.headers.get("location")!, ORIGIN).searchParams;
 
+  test("a review carries the MR: read it in its own view, the findings where they apply in the diff, the ticket as you decided it", async () => {
+    const w = await setup();
+    // The ticket the MR implements, decided earlier (with changes to the plan).
+    await w.ok("bob", "ticket", { key: "SHOP-12", url: "https://tracker.example.com/browse/SHOP-12", title: "Invoices retry forever", verdict: "Valid.", plan: "Retry with backoff.", recommend: "go" }, core);
+    await w.form("/ticket/1", "bob", { decide: "1", outcome: "go_changes", plan: "Retry at most 5 times." });
+    const diff = "diff --git a/src/retry.ts b/src/retry.ts\n--- a/src/retry.ts\n+++ b/src/retry.ts\n@@ -1,3 +1,4 @@\n export async function retry(r: Res) {\n-  if (r.status === 200) return ok;\n+  if (r.status === 200 || r.status === 409) return ok;\n+  return fail;\n }\n";
+    const rich = { ...review, ticket: "SHOP-12", author: "Dana Berg", state: "open", branch: "fix/retry", target: "main", pipeline: "passed", description: "Retries **failed** invoices.", files: [{ path: "src/retry.ts", added: 2, removed: 1 }], commits: [{ sha: "abc1234", title: "Retry" }], diff,
+      findings: [{ ...review.findings[0], file: "b/src/retry.ts", line: 2 }, { ...review.findings[1], file: "src/queue.ts", line: 9 }] };
+    assert.match(await w.ok("bob", "review", rich, core), /R1 is waiting/);
+    const v = await (await w.request("/dashboard?view=review&id=1", { as: "bob", cookie: true })).text();
+    assert.match(v, /<h1>Retry failed invoices<\/h1>/);
+    assert.match(v, />!42<svg/);
+    assert.match(v, /<dt>Author<\/dt>[\s\S]*Dana Berg[\s\S]*<code>fix\/retry<\/code>/);
+    // Finding 1 sits under line 2 of the new side; finding 2's line isn't in the diff, so it only says where.
+    assert.match(v, /<tr class="da"><td class="ln"><\/td><td class="ln">2<\/td>[\s\S]*?<\/tr><tr class="dnote"><td colspan="3"><div class="rvnote s-blocker" id="rvat1">/);
+    assert.match(v, /<a class="rvloc" href="#rvat1">[\s\S]*src\/retry\.ts:2<\/a>/);
+    assert.match(v, /<span class="rvloc">[\s\S]*src\/queue\.ts:9<\/span>/);
+    assert.doesNotMatch(v, /id="rvat2"/);
+    assert.match(v, /Retries <b>failed<\/b> invoices/);
+    // The ticket box: the key opens the ticket, the decision and the plan as changed.
+    assert.match(v, /class="rvtkey" href="\/dashboard\?view=ticket&amp;id=1[^"]*">SHOP-12<\/a>[\s\S]*Go with changes<\/span><span class="tkboxm">you decided[\s\S]*The plan as you changed it[\s\S]*Retry at most 5 times/);
+    // Asking from the view, and deciding from it.
+    assert.match(loc(await w.form("/review/1", "bob", { ask: "1", a1: "Is 409 ever a real success?" })).get("ok")!, /Asked core/);
+    await w.ok("bob", "review", { action: "answer", id: 1, finding: 1, text: "Only for idempotent replays." }, core);
+    const v2 = await (await w.request("/dashboard?view=review&id=1", { as: "bob", cookie: true })).text();
+    assert.match(v2, /id="rvfind1"[\s\S]*Is 409 ever a real success\?[\s\S]*Only for idempotent replays/);
+    assert.match(v2, /data-tab="findings"[^>]*>Findings <span class="badge">2<\/span><i class="tkdot"/);
+    assert.match(loc(await w.form("/review/1", "bob", { decide: "1", outcome: "request_changes", f1: "post", f2: "drop", note: "" })).get("ok")!, /Sent to core: Request changes/);
+    assert.match(await (await w.request("/dashboard?view=review&id=1", { as: "bob", cookie: true })).text(), /You decided <b>Request changes<\/b>/);
+    assert.match((await w.tool("bob", "review", { ...rich, diff: "x".repeat(300_001) }, core)).text, /diff is 300001 characters/);
+  });
+
   test("short or nothing: long text, too many findings and empty reviews are sent back", async () => {
     const w = await setup();
     assert.match((await w.tool("bob", "review", { ...review, verdict: "x".repeat(200) }, core)).text, /verdict is 200 characters; keep it under 160/);
@@ -1605,7 +1637,9 @@ describe("reviews", () => {
     assert.match(dash, /Retry failed invoices/);
     // Full size, in a view of its own (the notification opens it).
     assert.match(dash, /class="btn ghost xs icon rvopen" href="\/dashboard\?view=review&amp;id=1&amp;back=/);
-    assert.match(await (await w.request("/dashboard?view=review&id=1", { as: "bob", cookie: true })).text(), /<div id="rvview" data-region><div class="rvfull"><article class="ask k-review" data-mid="r1">/);
+    const bare = await (await w.request("/dashboard?view=review&id=1", { as: "bob", cookie: true })).text();
+    assert.match(bare, /<h1>Retry failed invoices<\/h1>[\s\S]*core sent only its findings; the MR is on the forge/);
+    assert.doesNotMatch(bare, /data-tab="changes"/);
     assert.match(dash, /<input type="radio" name="f2" value="drop" checked>/);
     assert.match(dash, /<input type="radio" name="outcome" value="request_changes" checked>/);
     assert.match(dash, /Waiting for you<\/span><span class="badge amber">1/);
@@ -1735,8 +1769,8 @@ describe("tickets", () => {
     assert.match(v, /relates to<\/span><b>SHOP-9<\/b>/);
     assert.match(v, /Fix the filter in <code>totals\.ts<\/code>/);
     assert.match(v, /pipeline passed[\s\S]*<code>fix\/zero-vat<\/code> → <code>main<\/code>/);
-    assert.match(v, /class="pane-in tkpane" data-tab="ticket" data-ticket="1"/);
-    assert.match(v, /<nav id="tknav" class="tknav" role="tablist" data-region><a href="#ticket" data-tab="ticket"[^>]*>Ticket[\s\S]*href="#mr" data-tab="mr"[\s\S]*href="#ask" data-tab="ask"/);
+    assert.match(v, /class="pane-in tkpane" data-tab="ticket" data-tabs="t1"/);
+    assert.match(v, /<nav id="tknav" class="tknav" role="tablist" data-region><a href="#ticket" data-tab="ticket" role="tab" class="on">Ticket[\s\S]*href="#mr" data-tab="mr"[\s\S]*href="#ask" data-tab="ask"/);
     assert.match(v, /class="tkcard tkpanel" data-tab="mr" id="tk-mrs"[\s\S]*class="tkcard tkpanel" data-tab="ask" id="tk-talk"/);
     assert.match(v, /<table class="diff">[\s\S]*class="da"[\s\S]*ls\.reduce/);
     assert.match(v, /<input type="radio" name="p0" value="Yes">/);

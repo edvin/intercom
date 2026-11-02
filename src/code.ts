@@ -249,7 +249,8 @@ export const fid = (path: string) => {
 const BIG = 800; // a file's diff longer than this starts folded
 
 /** A unified diff, file by file; `href` links each file's name to the whole file ("" for none). */
-export function drawDiff(diff: string, href: (path: string) => string): string {
+/** `noteAt` adds a row under a line of the new side (a review's finding, say), or "" for none. */
+export function drawDiff(diff: string, href: (path: string) => string, noteAt: (path: string, line: number) => string = () => ""): string {
   const files = parseDiff(diff);
   if (!files.length) return "";
   return files
@@ -269,10 +270,11 @@ export function drawDiff(diff: string, href: (path: string) => string): string {
           }
           const c = l[0];
           const body = highlight(l.slice(1), lang, st);
-          if (c === "+") return `<tr class="da"><td class="ln"></td><td class="ln">${b++}</td><td class="dc"><span class="dmk">+</span>${body}</td></tr>`;
+          const under = (n: number) => { const x = c === "-" || c === "\\" ? "" : noteAt(f.path, n); return x ? `<tr class="dnote"><td colspan="3">${x}</td></tr>` : ""; };
+          if (c === "+") return `<tr class="da"><td class="ln"></td><td class="ln">${b}</td><td class="dc"><span class="dmk">+</span>${body}</td></tr>${under(b++)}`;
           if (c === "-") return `<tr class="dd"><td class="ln">${a++}</td><td class="ln"></td><td class="dc"><span class="dmk">−</span>${body}</td></tr>`;
           if (c === "\\") return `<tr class="dx"><td class="ln"></td><td class="ln"></td><td class="dc muted">${esc(l)}</td></tr>`;
-          return `<tr><td class="ln">${a++}</td><td class="ln">${b++}</td><td class="dc"><span class="dmk"> </span>${body}</td></tr>`;
+          return `<tr><td class="ln">${a++}</td><td class="ln">${b}</td><td class="dc"><span class="dmk"> </span>${body}</td></tr>${under(b++)}`;
         })
         .join("");
       const note = f.meta.filter((m) => /^(new|deleted) file|^rename from|^Binary/.test(m)).map((m) => m.replace(/ mode \d+$/, "").replace(/^Binary files .* differ$/, "binary file")).join(" · ");

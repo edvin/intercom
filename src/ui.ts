@@ -761,13 +761,40 @@ body:has(.ide) .top .in{max-width:none;padding:8px 14px}
 .tknav{position:sticky;top:0;z-index:5;display:flex;align-items:flex-end;gap:2px;overflow-x:auto;scrollbar-width:none;margin:2px 0 -6px;padding:4px 0 0;background:var(--bg);border-bottom:1px solid var(--line)}
 .tknav::-webkit-scrollbar{display:none}
 .tknav a[data-tab]{position:relative;flex:none;display:inline-flex;align-items:center;gap:7px;padding:9px 14px 11px;margin-bottom:-1px;border-bottom:2px solid transparent;font-size:14px;font-weight:600;color:var(--mute);text-decoration:none;transition:color .15s,border-color .15s}.tknav a[data-tab]:hover{color:var(--ink);border-bottom-color:var(--line-strong);text-decoration:none}
-.tkpane[data-tab=ticket] .tknav a[data-tab=ticket],.tkpane[data-tab=mr] .tknav a[data-tab=mr],.tkpane[data-tab=ask] .tknav a[data-tab=ask]{color:var(--ink);border-bottom-color:var(--accent)}
+.tknav a[data-tab].on{color:var(--ink);border-bottom-color:var(--accent)}
 .tknav a[data-tab]:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;border-radius:6px}
 .tkdot{width:7px;height:7px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}.tkdot[hidden]{display:none}
 .tkgo{flex:none;display:inline-flex;align-items:center;gap:6px;margin:0 0 7px;padding:5px 12px;border-radius:8px;font-size:13px;font-weight:600;color:var(--accent);background:var(--accent-soft);text-decoration:none}.tkgo:hover{text-decoration:none;filter:brightness(1.08)}
-.tkpane .tkpanel{display:none}.tkpane[data-tab=ticket] .tkpanel[data-tab=ticket]{display:flex}.tkpane[data-tab=mr] .tkpanel[data-tab=mr],.tkpane[data-tab=ask] .tkpanel[data-tab=ask]{display:block}.tkpane[data-tab] .tkpanel{animation:tkin .18s ease-out}
+.tkpane .tkpanel{display:none}.tkpane .tkpanel.on{display:block;animation:tkin .18s ease-out}.tkpane .tksheet.tkpanel.on{display:flex}
 @keyframes tkin{from{opacity:.4;transform:translateY(3px)}to{opacity:1;transform:none}}@media (prefers-reduced-motion:reduce){.tkpanel{animation:none!important}}
-.tkpane section,.tkpane .tkpanel,.tkpane #tkdecision{scroll-margin-top:60px}
+.tkpane section,.tkpane .tkpanel,.tkpane #tkdecision,.tkpane #rvdecision,.rvfind{scroll-margin-top:60px}
+.tklz.warn{background:var(--amber-soft);color:var(--amber)}
+.tkboxp{margin:0;font-size:13px;line-height:1.5;color:var(--ink-2)}
+.tkboxm{font-size:12.5px;color:var(--mute)}
+.rvtkey{font-size:13px;font-weight:650;color:var(--accent);text-decoration:none}a.rvtkey:hover{text-decoration:underline}
+.rvttitle{margin:0 0 10px;font-size:14px;font-weight:550;line-height:1.45;color:var(--ink)}
+.rvtstate{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;margin-bottom:8px}
+.rvtplan{margin-top:6px;border-top:1px solid var(--line);padding-top:8px}.rvtplan summary{cursor:pointer;font-size:12.5px;font-weight:600;color:var(--ink-2)}.rvtplan .tkprose{margin-top:8px;font-size:13.5px}
+.rvfindings{display:none}.tkpane .rvfindings.on #rvfindings{display:flex;flex-direction:column;gap:14px}
+.rvfind{padding:18px 22px;border-radius:var(--r);border:1px solid var(--line);border-left:3px solid var(--line-strong);background:var(--surface);box-shadow:var(--shadow)}
+.rvfind.s-blocker{border-left-color:var(--red)}.rvfind.s-important{border-left-color:var(--amber)}.rvfind.s-question{border-left-color:var(--accent-2)}
+.rvfind:target{box-shadow:0 0 0 3px var(--accent-soft),var(--shadow)}
+.rvfindh{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.rvfindn{font-size:12.5px;font-weight:600;color:var(--mute)}
+.rvloc{display:inline-flex;align-items:center;gap:5px;max-width:100%;font:500 12.5px "Geist Mono",ui-monospace,monospace;color:var(--ink-2);padding:3px 8px;border-radius:7px;background:var(--surface-2);border:1px solid var(--line);text-decoration:none;overflow-wrap:anywhere}a.rvloc:hover{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 35%,transparent);text-decoration:none}
+.rvfinds{margin:10px 0 0;font-size:15.5px;font-weight:550;line-height:1.55;color:var(--ink);text-wrap:pretty}
+.rvcomment{margin-top:12px;padding:10px 14px;border-radius:10px;background:var(--surface-2);border:1px solid var(--line)}.rvcomment .tkprose{font-size:14px}
+.rvfind .tkthread:not(:empty){margin-top:12px}
+.rvnote{display:flex;align-items:baseline;flex-wrap:wrap;gap:6px 10px;margin:6px 10px 8px 98px;padding:9px 12px;border-radius:10px;border:1px solid var(--line-strong);border-left:3px solid var(--line-strong);background:var(--surface);font:13.5px/1.5 Geist,ui-sans-serif,system-ui,sans-serif;white-space:normal;color:var(--ink)}
+.rvnote.s-blocker{border-left-color:var(--red)}.rvnote.s-important{border-left-color:var(--amber)}.rvnote.s-question{border-left-color:var(--accent-2)}
+.rvnote:target{box-shadow:0 0 0 3px var(--accent-soft)}
+.rvnoten{font-size:12px;font-weight:650;color:var(--mute)}.rvnotes{flex:1 1 260px;min-width:0}.rvnotel{font-size:12.5px;font-weight:600}
+tr.dnote td{padding:0;background:var(--surface-2)}
+.rvposts{display:flex;flex-direction:column;gap:8px;margin-bottom:18px}
+.rvpost{padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--surface)}
+.rvposth{display:flex;align-items:center;gap:10px}.rvpostsum{flex:1;min-width:0;font-size:14px;line-height:1.4;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.rvpost:has(input[value=drop]:checked) .rvpostsum{color:var(--mute);text-decoration:line-through;text-decoration-color:var(--line-strong)}
+.rvpostc{margin-top:8px}.rvpostc summary{cursor:pointer;font-size:12.5px;font-weight:600;color:var(--ink-2)}.rvpostc textarea{margin-top:8px}
+.rvdecide .rvgone{margin-bottom:14px}
 .tkprose{font-size:15px;line-height:1.7;color:var(--ink);overflow-wrap:anywhere;max-width:74ch}
 .tkprose p{margin:0 0 .85em}
 .tkprose .mdh{margin:1.4em 0 .5em;font-weight:650;letter-spacing:-.012em;line-height:1.3;color:var(--ink)}.tkprose .mdh:first-child{margin-top:0}
@@ -821,7 +848,7 @@ body:has(.ide) .top .in{max-width:none;padding:8px 14px}
 .tkdecide .askact{margin-top:16px;justify-content:flex-end}
 .tkout label{font-size:13px}.tkout label:has(input[value=decline]:checked){color:var(--red)}.tkout label:has(input[value=go]:checked),.tkout label:has(input[value=go_changes]:checked){color:var(--green)}
 .tkdone{display:flex;align-items:center;gap:10px;padding:14px 18px;border-radius:var(--r);background:var(--surface);border:1px solid var(--line);font-size:14.5px}.tkdone>.i{flex:none;color:var(--green)}
-@media (max-width:640px){.tknav a[data-tab]{padding:9px 11px 11px}.tkgo{padding:5px 9px}.tkgo span{display:none}.tkpane{padding:10px 14px 88px}.tkhead h1{font-size:22px;margin:6px 0 16px}.tksec,.tkcard,.tkverdict{padding:16px}.tkfrom>span:last-child{display:none}.tkask{flex-direction:column;align-items:stretch}.tkturn{max-width:100%}.tkprose{font-size:15.5px}.tkc .tkprose,.tkverdict .tkprose{font-size:15px}.tkrel{width:auto}.tklink{flex-wrap:wrap;gap:4px 10px}.tkltitle{flex-basis:100%;white-space:normal;order:5}}
+@media (max-width:640px){.rvnote{margin:6px 8px 8px}.rvfind{padding:14px 16px}.rvposth{flex-wrap:wrap}.rvpostsum{flex-basis:100%;order:3}.tknav a[data-tab]{padding:9px 11px 11px}.tkgo{padding:5px 9px}.tkgo span{display:none}.tkpane{padding:10px 14px 88px}.tkhead h1{font-size:22px;margin:6px 0 16px}.tksec,.tkcard,.tkverdict{padding:16px}.tkfrom>span:last-child{display:none}.tkask{flex-direction:column;align-items:stretch}.tkturn{max-width:100%}.tkprose{font-size:15.5px}.tkc .tkprose,.tkverdict .tkprose{font-size:15px}.tkrel{width:auto}.tklink{flex-wrap:wrap;gap:4px 10px}.tkltitle{flex-basis:100%;white-space:normal;order:5}}
 /* What your agents wait on: a dock in the corner of every dashboard page. */
 .asks{position:fixed;right:20px;bottom:20px;z-index:45;width:min(420px,calc(100vw - 32px));display:flex;flex-direction:column;align-items:flex-end;pointer-events:none}
 .asks>*{pointer-events:auto}
@@ -1236,37 +1263,44 @@ export const SCRIPT = `
   // A ticket's tabs (ticketview.ts): the open one is the page's hash (#mr, #ask), so it survives a reload and Back; a
   // link to something inside a tab (an MR, a file in its diff) opens that tab first. Ask's dot is an answer you haven't
   // seen there yet.
-  function tkPane() { return document.querySelector(".tkpane[data-ticket]"); }
+  function tkPane() { return document.querySelector(".tkpane[data-tabs]"); }
   function tkShow(tab, write) {
     const pane = tkPane(); if (!pane) return;
-    const has = (k) => !!pane.querySelector('.tkpanel[data-tab="' + k + '"]');
-    if (!has(tab)) tab = "ticket";
+    const panels = $$(".tkpanel[data-tab]", pane);
+    if (!panels.length) return;
+    if (!panels.some((p) => p.dataset.tab === tab)) tab = panels[0].dataset.tab;
     const was = pane.dataset.tab; pane.dataset.tab = tab;
-    if (write) history.replaceState(history.state, "", location.pathname + location.search + (tab === "ticket" ? "" : "#" + tab));
+    panels.forEach((p) => p.classList.toggle("on", p.dataset.tab === tab));
+    $$(".tknav a[data-tab]", pane).forEach((a) => a.classList.toggle("on", a.dataset.tab === tab));
+    if (write) history.replaceState(history.state, "", location.pathname + location.search + (tab === panels[0].dataset.tab ? "" : "#" + tab));
     if (write && was !== tab) { const nav = document.getElementById("tknav"); if (nav && nav.getBoundingClientRect().top <= 1) pane.querySelector('.tkpanel[data-tab="' + tab + '"]').scrollIntoView({ block: "start" }); }
     tkDots();
   }
   function tkDots() {
     const pane = tkPane(); if (!pane) return;
-    const key = "ic_tkseen_" + pane.dataset.ticket;
-    $$(".tkdot", pane).forEach((d) => {
+    $$(".tknav a[data-tab] .tkdot", pane).forEach((d) => {
+      const tab = d.closest("a").dataset.tab, key = "ic_tkseen_" + pane.dataset.tabs + "_" + tab;
       let seen = 0; try { seen = Number(localStorage.getItem(key) || 0); } catch {}
       const at = Number(d.dataset.at);
-      if (pane.dataset.tab === "ask" && at > seen) { try { localStorage.setItem(key, String(at)); } catch {} seen = at; }
+      if (pane.dataset.tab === tab && at > seen) { try { localStorage.setItem(key, String(at)); } catch {} seen = at; }
       d.hidden = at <= seen;
     });
   }
   function tkHash() {
     const pane = tkPane(); if (!pane) return;
     const h = decodeURIComponent(location.hash.slice(1));
-    if (!h || h === "ticket" || h === "mr" || h === "ask") return tkShow(h || "ticket");
+    if (!h) return tkShow(pane.dataset.tab);
+    if (pane.querySelector('.tkpanel[data-tab="' + CSS.escape(h) + '"]')) return tkShow(h);
     const el = document.getElementById(h), panel = el && el.closest(".tkpanel");
-    if (panel) { tkShow(panel.dataset.tab); requestAnimationFrame(() => el.scrollIntoView({ block: "start" })); }
+    if (!panel) return;
+    tkShow(panel.dataset.tab);
+    const fold = el.closest("details"); if (fold) fold.open = true;
+    requestAnimationFrame(() => el.scrollIntoView({ block: "center" }));
   }
   window.addEventListener("hashchange", tkHash);
   function bindTabs() {
     $$(".tknav a[data-tab]").forEach((a) => a.onclick = (e) => { e.preventDefault(); tkShow(a.dataset.tab, true); });
-    tkDots();
+    const pane = tkPane(); if (pane) tkShow(pane.dataset.tab);
   }
   function bind(root = document) {
     bindAsks();

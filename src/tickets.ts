@@ -126,6 +126,21 @@ const link = (v: unknown, what: string, required = false): string => {
 };
 const count = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? Math.max(0, Math.round(v)) : 0);
 
+/** An MR as an agent sends it (with a ticket, or with a review): its link, state, branches, files, commits and diff. */
+export function mrOf(m: Record<string, unknown>, what: string, urlRequired = true): TicketMR {
+  return {
+    url: link(m.url, `${what}'s link`, urlRequired),
+    title: text(m.title, `${what}'s title`, TLIMITS.title),
+    state: text(m.state, `${what}'s state`, TLIMITS.field),
+    branch: text(m.branch, `${what}'s branch`, 200),
+    target: text(m.target, `${what}'s target branch`, 200),
+    pipeline: text(m.pipeline, `${what}'s pipeline`, TLIMITS.field),
+    files: list(m.files, `files in ${what}`, TLIMITS.files).map((x) => ({ path: text(x.path, "a file's path", 400, true), added: count(x.added), removed: count(x.removed) })),
+    commits: list(m.commits, `commits in ${what}`, TLIMITS.commits).map((x) => ({ sha: text(x.sha, "a commit's sha", 64, true), title: text(x.title, "a commit's title", 300) })),
+    diff: typeof m.diff === "string" ? m.diff.replace(/\r\n?/g, "\n") : "",
+  };
+}
+
 /** A ticket from an agent: an open one with the same key is kept (unless `replace`), so a loop's next run sends nothing new. */
 export async function openTicket(env: Env, me: string, a: Record<string, unknown>): Promise<Ticket & { kept?: boolean }> {
   const s = env.session;
@@ -172,20 +187,10 @@ export async function openTicket(env: Env, me: string, a: Record<string, unknown
   }
   let diffs = 0;
   const mrs = list(a.mrs, "MRs", TLIMITS.mrs).map((m, i) => {
-    const diff = typeof m.diff === "string" ? m.diff.replace(/\r\n?/g, "\n") : "";
-    diffs += diff.length;
+    const mr = mrOf(m, `MR ${i + 1}`);
+    diffs += mr.diff.length;
     if (diffs > TLIMITS.diff) throw new UserError(`The MRs' diffs are over ${TLIMITS.diff} characters together; send the diff of the files that matter (files still lists them all).`);
-    return {
-      url: link(m.url, `MR ${i + 1}'s link`, true),
-      title: text(m.title, `MR ${i + 1}'s title`, TLIMITS.title),
-      state: text(m.state, `MR ${i + 1}'s state`, TLIMITS.field),
-      branch: text(m.branch, `MR ${i + 1}'s branch`, 200),
-      target: text(m.target, `MR ${i + 1}'s target branch`, 200),
-      pipeline: text(m.pipeline, `MR ${i + 1}'s pipeline`, TLIMITS.field),
-      files: list(m.files, `files in MR ${i + 1}`, TLIMITS.files).map((x) => ({ path: text(x.path, "a file's path", 400, true), added: count(x.added), removed: count(x.removed) })),
-      commits: list(m.commits, `commits in MR ${i + 1}`, TLIMITS.commits).map((x) => ({ sha: text(x.sha, "a commit's sha", 64, true), title: text(x.title, "a commit's title", 300) })),
-      diff,
-    };
+    return mr;
   });
   const data: TicketData = {
     fields,

@@ -182,7 +182,7 @@ async function noteFor(env: Env, me: string, ref: string, extra: string): Promis
   }
   const r = await env.DB.prepare("SELECT label, title, verdict FROM reviews WHERE id = ? AND member = ? AND status = 'open'").bind(id, me).first<{ label: string; title: string; verdict: string }>();
   if (!r) return null;
-  if (ref[0] === "q") return { title: `${r.label} answered you`, body: clip(`${r.title}: ${extra}`, 180), tag: `r${id}q`, url: agentUrl(r.label), count: 0, ttl: 86400 };
+  if (ref[0] === "q") return { title: `${r.label} answered you`, body: clip(`${r.title}: ${extra}`, 180), tag: `r${id}q`, url: `/dashboard?view=review&id=${id}`, count: 0, ttl: 86400 };
   return { title: `Review: ${clip(r.title, 60)}`, body: clip(`${r.label}: ${r.verdict}`, 180), tag: ref, url: `/dashboard?view=review&id=${id}`, count: 0, ttl: 86400 };
 }
 

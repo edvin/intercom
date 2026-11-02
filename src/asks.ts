@@ -6,6 +6,7 @@ import { type Approval, type Question, pendingApprovals } from "./approvals";
 import { type Env } from "./lib";
 import { type Review, OUTCOMES, agentOnline, findingsOf, onlineAgents, pendingReviews, threadOf } from "./reviews";
 import { pendingTickets } from "./tickets";
+import { reviewHref } from "./reviewview";
 import { ticketCard } from "./ticketview";
 import { agentAvatar, esc, hidden, icon, md, time } from "./ui";
 
@@ -58,7 +59,7 @@ function card(p: Approval, me: string, back: string, now: number): string {
 const SEV = { blocker: "Blocker", important: "Important", question: "Question" } as const;
 
 /** A review waiting for your call: post or drop each finding, ask about one, pick the outcome. One form; the buttons say what to do. */
-function reviewCard(r: Review, me: string, back: string, online: boolean, others: string[], full = false): string {
+function reviewCard(r: Review, me: string, back: string, online: boolean, others: string[]): string {
   const agent = `/dashboard?view=agents&agent=${encodeURIComponent(`${me}/${r.label}`)}`;
   const turns = threadOf(r);
   const thread = (n: number) =>
@@ -89,8 +90,8 @@ function reviewCard(r: Review, me: string, back: string, online: boolean, others
         others.length ? `<span class="rvmove"><select name="to">${others.map((o) => `<option>${esc(o)}</option>`).join("")}</select><button name="move" value="1" class="btn xs">Move</button></span>` : ""
       }</div>`;
   return `<article class="ask k-review" data-mid="r${r.id}">
-    <header class="askwho">${agentAvatar(me, r.label, "s")}<a href="${esc(agent)}" class="askname">${esc(r.label)}</a><span class="askk">Review R${r.id}</span><span class="grow"></span>${time(r.created_at)}${full ? "" : `<a class="btn ghost xs icon rvopen" href="/dashboard?view=review&amp;id=${r.id}${back.includes("view=review") ? "" : `&amp;back=${esc(encodeURIComponent(back))}`}" title="Open it full size">${icon("eye", 13)}</a>`}</header>
-    <a class="rvtitle" href="${esc(r.url)}" target="_blank" rel="noopener noreferrer">${esc(r.title)}${icon("link", 12)}</a>
+    <header class="askwho">${agentAvatar(me, r.label, "s")}<a href="${esc(agent)}" class="askname">${esc(r.label)}</a><span class="askk">Review R${r.id}</span><span class="grow"></span>${time(r.created_at)}<a class="btn ghost xs icon rvopen" href="${esc(reviewHref(r.id, back))}" title="Open it full size: the MR, the findings in its diff, the ticket">${icon("eye", 13)}</a></header>
+    <a class="rvtitle" href="${esc(reviewHref(r.id, back))}">${esc(r.title)}</a>
     <p class="rvverdict">${esc(r.verdict)}</p>
     <form method="post" action="/review/${r.id}">${hidden({ back })}<button name="enter" value="1" hidden></button>
       ${move}${findings}${thread(0)}${ask(0, "Ask about the review")}
@@ -120,20 +121,4 @@ export async function asksDock(env: Env, me: string, back: string): Promise<stri
         .join("")}${tickets.map((t) => ticketCard(t, me, back)).join("")}</div>
     </div>
   </section>`;
-}
-
-/** A review full size, in the dashboard's main pane: the same card with room to read (long findings, comments). */
-export async function reviewView(env: Env, me: string, id: number, back: string): Promise<string> {
-  const r = await env.DB.prepare("SELECT * FROM reviews WHERE id = ? AND member = ?").bind(id, me).first<Review>();
-  const self = `/dashboard?view=review&id=${id}${back ? `&back=${encodeURIComponent(back)}` : ""}`;
-  const body = !r
-    ? `<div class="empty"><h2>No such review</h2></div>`
-    : r.status !== "open"
-      ? `<div class="tkdone">${icon(r.status === "decided" ? "check" : "clock", 15)}<span>${r.status === "decided" ? "You decided this review." : `${esc(r.label)} withdrew or replaced this review.`} <a href="${esc(r.url)}" target="_blank" rel="noopener noreferrer">${esc(r.title)}</a></span></div>`
-      : await (async () => {
-          const agents = await onlineAgents(env, me);
-          const names = [...new Set(agents.map((a) => a.label))].filter((l) => l !== r.label);
-          return `<div class="rvfull">${reviewCard(r, me, self, agentOnline(env, r, agents), names, true)}</div>`;
-        })();
-  return `<div class="pane-in tkpane"><a class="btn ghost sm tkback" href="${esc(back)}">${icon("back", 14)}Back</a><div id="rvview" data-region>${body}</div></div>`;
 }
