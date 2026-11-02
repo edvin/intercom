@@ -7,6 +7,7 @@
 // and it never reaches your phone. When a notification is due it's built from the item as it is then, so anything
 // answered, decided or withdrawn meanwhile is skipped.
 
+import { daySummary, scheduleSummary } from "./work";
 import { type Env } from "./lib";
 
 /** How long an approval waits for you at your desk before it reaches your phone. */
@@ -173,6 +174,10 @@ async function noteFor(env: Env, me: string, ref: string, extra: string): Promis
     const body = a.kind === "permission" ? a.summary : a.kind === "plan" ? a.summary.replace(/^Plan: /, "") : a.summary;
     return { title, body: clip(body, 180), tag: ref, url: agentUrl(a.label), count: 0, ttl: Math.max(60, Math.round((a.expires_at - Date.now()) / 1000)) };
   }
+  if (ref === "s") {
+    const sum = await daySummary(env, me, extra);
+    return sum ? { title: sum.title, body: clip(sum.body, 240), tag: `s${extra}`, url: `/dashboard?view=work&date=${extra}`, count: 0, ttl: 43200 } : null;
+  }
   if (ref[0] === "t" || ref[0] === "k") {
     const t = await env.DB.prepare("SELECT key, label, title, verdict FROM tickets WHERE id = ? AND member = ? AND status = 'open'").bind(id, me).first<{ key: string; label: string; title: string; verdict: string }>();
     if (!t) return null;
@@ -244,6 +249,7 @@ export async function sendDuePushes(env: Env, now = Date.now()): Promise<number 
     } catch (e) {
       console.log("push", q.ref, String(e));
     }
+    if (q.ref === "s") await scheduleSummary(env, q.member, Date.now() + 3_600_000).catch(() => undefined); // tomorrow's
   }
   const next = await env.DB.prepare("SELECT MIN(due_at) AS at FROM push_queue").first<{ at: number | null }>();
   return next?.at ?? null;

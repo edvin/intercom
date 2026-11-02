@@ -206,6 +206,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
     <nav class="ttop">
       <button type="button" class="tl" data-kopen>${icon("search", 14)}<span>Search</span><span class="kbd kbd-k" style="margin-left:auto">⌘K</span></button>
       <a class="tl${nav.view === "feed" && !nav.channel ? " on" : ""}" href="/dashboard">${icon("layers", 14)}<span>Everything</span>${nav.votesTotal ? `<span class="badge accent">${nav.votesTotal}</span>` : ""}</a>
+      <a class="tl${nav.view === "work" ? " on" : ""}" href="/dashboard?view=work">${icon("check", 14)}<span>Work</span></a>
       ${pending.length ? `<button type="button" class="tl warn" data-asksopen>${icon("bell", 14)}<span>Waiting for you</span><span class="badge amber">${pending.length}</span></button>` : ""}
     </nav>
     <div class="tsec"><span>Projects</span><button type="button" class="btn ghost xs icon" data-open="dlg-create" title="New project">${icon("plus", 13)}</button></div>

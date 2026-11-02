@@ -55,6 +55,8 @@ export interface Review {
   head: string;
   data: string;
   ticket: string; // the key of the ticket the MR implements, if any
+  closed: "" | "merged" | "closed"; // what became of the MR after the decision, as the agent reported
+  closed_at: number | null;
   status: "open" | "decided" | "withdrawn" | "replaced";
   decision: string | null;
   thread: string;
@@ -282,4 +284,15 @@ export async function moveReview(env: Env, me: string, id: number, to: string): 
   await postMessage(env, { channel: r.project || target.project || "dm", sender: me, recipient: me, recipient_agent: target.label, body });
   env.refreshWeb?.(me);
   return `Moved R${id} to ${target.label}`;
+}
+
+/** The agent reports what became of a reviewed MR: merged or closed. */
+export async function closeReview(env: Env, me: string, id: number, state: string): Promise<string> {
+  if (state !== "merged" && state !== "closed") throw new UserError('state must be "merged" or "closed".');
+  const r = await env.DB.prepare("SELECT * FROM reviews WHERE id = ? AND member = ?").bind(id, me).first<Review>();
+  if (!r) throw new UserError(`No review R${id}.`);
+  if (r.status === "open") throw new UserError(`R${id} is still waiting for your user's decision; if the MR was merged or closed meanwhile, withdraw the review instead.`);
+  await env.DB.prepare("UPDATE reviews SET closed = ?, closed_at = ? WHERE id = ?").bind(state, Date.now(), id).run();
+  env.refreshWeb?.(me);
+  return `R${id} is marked ${state} in your user's work log.`;
 }

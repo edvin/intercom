@@ -1,4 +1,5 @@
 import { recordsBrief } from "./records";
+import { saveWorkSettings, workCsv } from "./work";
 import { answerBtw, pendingBtw } from "./btw";
 import { getAttachment, isImage, readImage, readable } from "./attachments";
 import { fetchLocalFile, fileReply } from "./localfiles";
@@ -726,6 +727,26 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
       u.searchParams.set("err", e.message);
     }
     return redirect(u.pathname + u.search);
+  }
+  if (url.pathname === "/work/settings" && req.method === "POST") {
+    // The work log's evening summary (work.ts): on or off, at an hour, in the browser's time zone.
+    if (!sameOrigin(req)) return new Response("Cross-origin request refused", { status: 403 });
+    const form = await req.formData();
+    const u = new URL(localPath(form.get("back"), "/dashboard?view=work"), url);
+    u.searchParams.set("ok", await saveWorkSettings(env, me, form.get("on") === "1", Number(form.get("hour")), String(form.get("tz") ?? "")));
+    return redirect(u.pathname + u.search);
+  }
+  if (url.pathname === "/work.csv" && req.method === "GET") {
+    try {
+      const from = url.searchParams.get("from") ?? "";
+      const to = url.searchParams.get("to") ?? "";
+      return new Response(await workCsv(env, me, from, to, url.searchParams.get("tz")), {
+        headers: { "content-type": "text/csv; charset=utf-8", "content-disposition": `attachment; filename="work-${from}-to-${to}.csv"`, "cache-control": "no-store" },
+      });
+    } catch (e) {
+      if (!(e instanceof UserError)) throw e;
+      return new Response(e.message, { status: 400 });
+    }
   }
   if (url.pathname.startsWith("/ticket/") && req.method === "POST") {
     // A ticket's view (ticketview.ts): ask the agent about it, or send the decision.

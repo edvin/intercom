@@ -1,6 +1,6 @@
 import { setAway } from "./approvals";
-import { type Review, LIMITS, OUTCOMES, SEVERITIES, answerReview, openReview, pendingReviews, withdrawReview } from "./reviews";
-import { TICKET_OUTCOMES, TLIMITS, answerTicket, openTicket, pendingTickets, withdrawTicket } from "./tickets";
+import { type Review, LIMITS, OUTCOMES, SEVERITIES, answerReview, closeReview, openReview, pendingReviews, withdrawReview } from "./reviews";
+import { TICKET_OUTCOMES, TLIMITS, answerTicket, finishTicket, openTicket, pendingTickets, withdrawTicket } from "./tickets";
 import { RETENTION_DAYS as ATTACHMENT_DAYS, fileMarker, getAttachment, isImage, isText, linkImages, marker, readImage, size, storeFile, toBase64 } from "./attachments";
 import { HANDOFF_STATES, OPEN_HANDOFF, VERDICTS, createHandoff, crewRoles, findDecisions, decisionById, fmtCrew, fmtDecision, fmtHandoff, listHandoffs, logDecision, updateHandoff } from "./records";
 import { adminsInvite, githubRepo } from "./github";
@@ -515,11 +515,11 @@ export const tools: Tool[] = [
   {
     name: "review",
     description:
-      "Ask your user to decide the important part of a code review (an MR or PR you reviewed): it shows as a card in their dashboard that opens a view of its own, where they read the MR, post or drop each finding (its comment editable), ask you about any of it and pick the outcome. They may not reach the forge from where they are, so copy the MR in: its description, author, branches, pipeline, files, commits and the diff; give each finding its file and line (the new side) so it shows in the diff where it applies; and name the ticket the MR implements (ticket: its key), so they see what was decided for it. Send only findings that need their call: a security or data-loss problem, a break for existing clients, behaviour that contradicts the ticket, a design trade-off, anything you're unsure of. Nits and mechanical fixes you handle yourself; with nothing important, don't use this. Be brief: they decide from this on a phone, so each summary says the problem and its consequence in a sentence or two, no background. Then carry on with other work; don't post those findings or approve until their decision arrives (a YOUR USER message about R<id>). Sending the same MR at the same head again keeps the waiting card (pass replace: true to change it); a new head replaces it. action \"list\" shows what is still waiting. action \"answer\" answers their follow-up question on the card; \"withdraw\" takes the card down (e.g. the MR was closed).",
+      "Ask your user to decide the important part of a code review (an MR or PR you reviewed): it shows as a card in their dashboard that opens a view of its own, where they read the MR, post or drop each finding (its comment editable), ask you about any of it and pick the outcome. They may not reach the forge from where they are, so copy the MR in: its description, author, branches, pipeline, files, commits and the diff; give each finding its file and line (the new side) so it shows in the diff where it applies; and name the ticket the MR implements (ticket: its key), so they see what was decided for it. Send only findings that need their call: a security or data-loss problem, a break for existing clients, behaviour that contradicts the ticket, a design trade-off, anything you're unsure of. Nits and mechanical fixes you handle yourself; with nothing important, don't use this. Be brief: they decide from this on a phone, so each summary says the problem and its consequence in a sentence or two, no background. Then carry on with other work; don't post those findings or approve until their decision arrives (a YOUR USER message about R<id>). Sending the same MR at the same head again keeps the waiting card (pass replace: true to change it); a new head replaces it. action \"list\" shows what is still waiting. action \"answer\" answers their follow-up question on the card; \"withdraw\" takes the card down (e.g. the MR was closed). After their decision, when the MR is merged or closed, report it with action \"closed\" (id, state: merged or closed): it goes in their work log.",
     inputSchema: {
       type: "object",
       properties: {
-        action: { type: "string", enum: ["open", "answer", "withdraw", "list"], description: "open (default): send a review. answer: reply to your user's question about R<id>. withdraw: take R<id> down. list: the reviews still waiting for your user (check before sending, e.g. in a recurring loop)." },
+        action: { type: "string", enum: ["open", "answer", "withdraw", "list", "closed"], description: "closed: the reviewed MR R<id> was merged or closed (state). open (default): send a review. answer: reply to your user's question about R<id>. withdraw: take R<id> down. list: the reviews still waiting for your user (check before sending, e.g. in a recurring loop)." },
         replace: { type: "boolean", description: "open: replace a waiting review of the same MR at the same head (e.g. your findings changed). Without it, that one is kept and nothing is sent." },
         url: { type: "string", description: "The MR's (or PR's) web link." },
         title: { type: "string", description: `The MR's title (max ${LIMITS.title} chars).` },
@@ -545,7 +545,7 @@ export const tools: Tool[] = [
         head: { type: "string", description: "The commit you reviewed (the MR's head sha)." },
         description: { type: "string", description: "The MR's description, whole, as Markdown (max 20000 chars)." },
         author: { type: "string", description: "Who opened the MR." },
-        state: { type: "string", description: "e.g. open, draft, merged." },
+        state: { type: "string", description: "The MR's state, e.g. open, draft, merged. With action closed: merged or closed." },
         branch: { type: "string", description: "The MR's source branch." },
         target: { type: "string", description: "The branch it merges into." },
         pipeline: { type: "string", description: "e.g. passed, failed, running." },
@@ -562,6 +562,7 @@ export const tools: Tool[] = [
       const action = str(a, "action") ?? "open";
       if (action === "answer") return answerReview(env, me, num(a, "id", 0, 1, Number.MAX_SAFE_INTEGER), a.finding ? num(a, "finding", 0, 1, 99) : 0, str(a, "text", true));
       if (action === "withdraw") return withdrawReview(env, me, num(a, "id", 0, 1, Number.MAX_SAFE_INTEGER));
+      if (action === "closed") return closeReview(env, me, num(a, "id", 0, 1, Number.MAX_SAFE_INTEGER), str(a, "state") ?? "");
       if (action === "list") {
         const open = await pendingReviews(env, me);
         if (!open.length) return "No reviews are waiting for your user.";
@@ -575,11 +576,13 @@ export const tools: Tool[] = [
   {
     name: "ticket",
     description:
-      `Ask your user to decide how to handle a ticket (Jira, GitHub issue...) before any work on it starts: it shows as a card in their dashboard and opens in a view of its own, where they read the ticket, see its MRs, ask you follow-up questions, answer yours and decide: ${Object.values(TICKET_OUTCOMES).join(", ")}. They may not reach the tracker or the forge from where they are, so copy the ticket in: its fields, the whole description and the comments as Markdown, linked issues, and for each MR its files, commits and the diff. Images from the ticket: download each, share_file it with hold: true, and put the marker it returns ([📎 image #N]) where the image belongs in the description or a comment. Your own part is short: a one-line verdict (still valid? what's actually wrong?), the plan (repos, approach, rough size) and at most ${TLIMITS.questions} questions only they can answer. Then carry on with other work; don't start the ticket until their decision arrives (a YOUR USER message about T<id>). Sending the same key again keeps the waiting card (replace: true changes it). action "list" shows what is still waiting; "answer" answers their follow-up question; "withdraw" takes the card down (e.g. the ticket was closed or reassigned).`,
+      `Ask your user to decide how to handle a ticket (Jira, GitHub issue...) before any work on it starts: it shows as a card in their dashboard and opens in a view of its own, where they read the ticket, see its MRs, ask you follow-up questions, answer yours and decide: ${Object.values(TICKET_OUTCOMES).join(", ")}. They may not reach the tracker or the forge from where they are, so copy the ticket in: its fields, the whole description and the comments as Markdown, linked issues, and for each MR its files, commits and the diff. Images from the ticket: download each, share_file it with hold: true, and put the marker it returns ([📎 image #N]) where the image belongs in the description or a comment. Your own part is short: a one-line verdict (still valid? what's actually wrong?), the plan (repos, approach, rough size) and at most ${TLIMITS.questions} questions only they can answer. Then carry on with other work; don't start the ticket until their decision arrives (a YOUR USER message about T<id>). Sending the same key again keeps the waiting card (replace: true changes it). action "list" shows what is still waiting; "answer" answers their follow-up question; "withdraw" takes the card down (e.g. the ticket was closed or reassigned). When the work they said go to is finished, report it with action "done" (id, mr: the MR's link, merged: true once it's merged, text: a line on the result), or "dropped" (id, text: why); it goes in their work log and evening summary. Report done again with merged: true when the MR merges later.`,
     inputSchema: {
       type: "object",
       properties: {
-        action: { type: "string", enum: ["open", "answer", "withdraw", "list"], description: "open (default): send a ticket. answer: reply to your user's question about T<id>. withdraw: take T<id> down. list: the tickets still waiting for your user." },
+        action: { type: "string", enum: ["open", "answer", "withdraw", "list", "done", "dropped"], description: "open (default): send a ticket. answer: reply to your user's question about T<id>. withdraw: take T<id> down. list: the tickets still waiting for your user. done: the work on T<id> is finished (mr, merged, text). dropped: it was stopped (text: why)." },
+        mr: { type: "string", description: "done: the MR's (or PR's) link." },
+        merged: { type: "boolean", description: "done: whether the MR is merged." },
         replace: { type: "boolean", description: "open: replace the waiting card for the same key (e.g. the ticket or your plan changed)." },
         key: { type: "string", description: "The ticket's key, e.g. SHOP-123." },
         url: { type: "string", description: "The ticket's web link." },
@@ -622,7 +625,7 @@ export const tools: Tool[] = [
             properties: {
               url: { type: "string" },
               title: { type: "string" },
-              state: { type: "string", description: "e.g. open, draft, merged." },
+              state: { type: "string", description: "The MR's state, e.g. open, draft, merged. With action closed: merged or closed." },
               branch: { type: "string" },
               target: { type: "string" },
               pipeline: { type: "string", description: "e.g. passed, failed, running." },
@@ -633,14 +636,16 @@ export const tools: Tool[] = [
             required: ["url"],
           },
         },
-        id: { type: "number", description: "answer / withdraw: the ticket card, e.g. 4 for T4." },
-        text: { type: "string", description: `answer: your answer, Markdown (max ${TLIMITS.answer} chars).` },
+        id: { type: "number", description: "answer / withdraw / done / dropped: the ticket card, e.g. 4 for T4." },
+        text: { type: "string", description: `answer: your answer, Markdown (max ${TLIMITS.answer} chars). done / dropped: one line on the result, or why it was dropped.` },
       },
     },
     async run(env, me, a) {
       const action = str(a, "action") ?? "open";
       if (action === "answer") return answerTicket(env, me, num(a, "id", 0, 1, Number.MAX_SAFE_INTEGER), str(a, "text", true));
       if (action === "withdraw") return withdrawTicket(env, me, num(a, "id", 0, 1, Number.MAX_SAFE_INTEGER));
+      if (action === "done" || action === "dropped")
+        return finishTicket(env, me, num(a, "id", 0, 1, Number.MAX_SAFE_INTEGER), { outcome: action, mr: str(a, "mr") ?? "", merged: a.merged === true, text: str(a, "text") ?? "" });
       if (action === "list") {
         const open = await pendingTickets(env, me);
         if (!open.length) return "No tickets are waiting for your user.";

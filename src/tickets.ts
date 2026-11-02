@@ -84,6 +84,11 @@ export interface Ticket {
   thread: string;
   created_at: number;
   decided_at: number | null;
+  outcome: "" | "done" | "dropped"; // what became of it after the decision, as the agent reported
+  outcome_at: number | null;
+  outcome_note: string;
+  outcome_mr: string;
+  merged: number;
 }
 
 export interface TicketTurn {
@@ -319,4 +324,23 @@ export async function answerTicket(env: Env, me: string, id: number, answer: str
   env.refreshWeb?.(me);
   await queuePush(env, me, `k${t.id}`, 0, a);
   return `Your answer is in T${id}'s view. Wait for the decision before starting.`;
+}
+
+/** The agent reports what became of a ticket you said go to: done (its MR, merged or not, a line on the result) or dropped. */
+export async function finishTicket(env: Env, me: string, id: number, a: { outcome: "done" | "dropped"; mr: string; merged: boolean; text: string }): Promise<string> {
+  const t = await env.DB.prepare("SELECT * FROM tickets WHERE id = ? AND member = ?").bind(id, me).first<Ticket>();
+  if (!t) throw new UserError(`No ticket T${id}.`);
+  if (t.status !== "decided") throw new UserError(t.status === "open" ? `T${id} isn't decided yet: wait for your user's decision.` : `T${id} was ${t.status}; nothing to report.`);
+  const dec = t.decision ? (JSON.parse(t.decision) as TicketDecision) : null;
+  if (dec && dec.outcome !== "go" && dec.outcome !== "go_changes") throw new UserError(`Your user decided ${TICKET_OUTCOMES[dec.outcome]} for T${id}: there's no work to report.`);
+  const note = a.text.trim().replace(/\s*\n\s*/g, " ");
+  if (!note) throw new UserError(a.outcome === "done" ? "Say in a line what was done." : "Say in a line why it was dropped.");
+  if (note.length > 300) throw new UserError(`The note is ${note.length} characters; keep it to a line (under 300).`);
+  const mr = a.mr.trim();
+  if (mr && !/^https?:\/\/\S+$/.test(mr)) throw new UserError("mr must be the MR's (or PR's) web link.");
+  await env.DB.prepare("UPDATE tickets SET outcome = ?, outcome_at = ?, outcome_note = ?, outcome_mr = ?, merged = ? WHERE id = ?")
+    .bind(a.outcome, Date.now(), note, mr, a.merged ? 1 : 0, id)
+    .run();
+  env.refreshWeb?.(me);
+  return `T${id} (${t.key}) is marked ${a.outcome === "done" ? `done${a.merged ? ", merged" : ""}` : "dropped"} in your user's work log.${a.outcome === "done" && !a.merged && mr ? ' When the MR merges, report it again with merged: true.' : ""}`;
 }

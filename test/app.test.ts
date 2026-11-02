@@ -2898,3 +2898,61 @@ describe("notifications (web push)", () => {
     }
   });
 });
+
+describe("work log", () => {
+  const triage = { id: "wk1", project: "billing-api" };
+  const setup = async () => {
+    const w = await standardWorld();
+    await w.request(`/api/hook?event=SessionStart&project=billing-api&session=wk1&name=triage`, { as: "bob" });
+    await w.ok("bob", "inbox", {}, triage);
+    return w;
+  };
+  const ticket = { key: "SHOP-12", url: "https://tracker.example.com/browse/SHOP-12", title: "Invoices drop 0% VAT lines", verdict: "Valid.", plan: "Fix the filter.", recommend: "go" };
+  const review = { url: "https://git.example.com/shop/billing/-/merge_requests/9", title: "Retry failed invoices", verdict: "A 409 counts as paid.", recommend: "request_changes", findings: [{ severity: "blocker", summary: "409 is success.", comment: "Fail on 409?" }, { severity: "question", summary: "Backoff in the worker.", post: false }] };
+
+  test("tickets and reviews go in your day: decided, done and merged, with stats per agent, a CSV and an evening summary", async () => {
+    const w = await setup();
+    await w.ok("bob", "ticket", ticket, triage);
+    // Done only after a go.
+    assert.match((await w.tool("bob", "ticket", { action: "done", id: 1, text: "Fixed." }, triage)).text, /isn't decided yet/);
+    await w.form("/ticket/1", "bob", { decide: "1", outcome: "go" });
+    assert.match((await w.tool("bob", "ticket", { action: "done", id: 1, mr: "SHOP-12", text: "Fixed." }, triage)).text, /must be the MR's/);
+    assert.match(await w.ok("bob", "ticket", { action: "done", id: 1, mr: "https://git.example.com/shop/billing/-/merge_requests/8", merged: true, text: "Both sums count zero-rated lines." }, triage), /T1 \(SHOP-12\) is marked done, merged/);
+    await w.ok("bob", "review", review, triage);
+    assert.match((await w.tool("bob", "review", { action: "closed", id: 1, state: "merged" }, triage)).text, /still waiting for your user's decision/);
+    await w.form("/review/1", "bob", { decide: "1", outcome: "request_changes", f1: "post", f2: "drop" });
+    assert.match(await w.ok("bob", "review", { action: "closed", id: 1, state: "merged" }, triage), /R1 is marked merged/);
+
+    const v = await (await w.request("/dashboard?view=work", { as: "bob", cookie: true })).text();
+    assert.match(v, /<h1>Today<\/h1>/);
+    assert.match(v, /Tickets decided<\/span><b class="wkv">1<\/b><span class="wks">1 Go<\/span>/);
+    assert.match(v, /Shipped<\/span><b class="wkv">1<\/b>/);
+    assert.match(v, /MRs reviewed<\/span><b class="wkv">1<\/b><span class="wks">1 sent back · 1 merged<\/span>/);
+    assert.match(v, /triage sent SHOP-12[\s\S]*You decided Go on SHOP-12[\s\S]*SHOP-12 shipped: Both sums count zero-rated lines\.[\s\S]*You decided Request changes[\s\S]*Merged/);
+    assert.match(v, /<td><span class="wkag">[\s\S]*triage<\/span><\/td><td>1<span class="muted">\/1<\/span><\/td><td title="">100%<\/td>[\s\S]*<td>50%<\/td><\/tr>/);
+    assert.match(v, /class="tl on" href="\/dashboard\?view=work"/);
+    // The week, with a bar per day.
+    const wk = await (await w.request("/dashboard?view=work&range=week", { as: "bob", cookie: true })).text();
+    assert.equal((wk.match(/class="wkbar"/g) ?? []).length, 7);
+
+    const csv = await (await w.request(`/work.csv?from=2020-01-01&to=2099-01-01&tz=UTC`, { as: "bob", cookie: true })).text();
+    assert.match(csv, /^date,time,kind,outcome,agent,what,title,link\n/);
+    assert.match(csv, /ticket-decided,go,triage,You decided Go on SHOP-12,Invoices drop 0% VAT lines,/);
+    assert.match(csv, /review-closed,,triage,Merged,Retry failed invoices,https:\/\/git\.example\.com/);
+
+    // The evening summary: turned on in the view, and what it says.
+    const res = await w.form("/work/settings", "bob", { on: "1", hour: "18", tz: "Europe/Oslo", back: "/dashboard?view=work" });
+    assert.match(new URL(res.headers.get("location")!, ORIGIN).searchParams.get("ok")!, /Evening summary on, at 18:00 \(Europe\/Oslo\)/);
+    const { daySummary, dateIn } = await import("../src/work.ts");
+    const sum = await daySummary(w.env(), "bob", dateIn("Europe/Oslo", Date.now()));
+    assert.deepEqual(sum, { title: "Today: 1 shipped, 1 decided, 1 reviewed", body: "Tickets: 1 decided (1 Go), 1 shipped. MRs: 1 reviewed, 1 sent back, 1 merged." });
+  });
+
+  test("days follow your time zone", async () => {
+    const { localTime, dateIn } = await import("../src/work.ts");
+    assert.equal(new Date(localTime("2026-11-02", 18, "Europe/Oslo")).toISOString(), "2026-11-02T17:00:00.000Z");
+    assert.equal(new Date(localTime("2026-07-02", 18, "Europe/Oslo")).toISOString(), "2026-07-02T16:00:00.000Z");
+    assert.equal(new Date(localTime("2026-03-29", 3, "Europe/Oslo")).toISOString(), "2026-03-29T01:00:00.000Z");
+    assert.equal(dateIn("America/New_York", Date.parse("2026-11-02T03:00:00Z")), "2026-11-01");
+  });
+});

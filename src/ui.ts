@@ -769,6 +769,47 @@ body:has(.ide) .top .in{max-width:none;padding:8px 14px}
 @keyframes tkin{from{opacity:.4;transform:translateY(3px)}to{opacity:1;transform:none}}@media (prefers-reduced-motion:reduce){.tkpanel{animation:none!important}}
 .tkpane section,.tkpane .tkpanel,.tkpane #tkdecision,.tkpane #rvdecision,.rvfind{scroll-margin-top:60px}
 .tklz.warn{background:var(--amber-soft);color:var(--amber)}
+.wkpane{max-width:1160px;gap:18px;padding-bottom:96px}
+.wkhead{display:flex;flex-direction:column;gap:12px}
+.wktitle{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}.wktitle h1{margin:0;font-size:27px;font-weight:650;letter-spacing:-.022em}.wkzone{font-size:12.5px;color:var(--mute)}
+.wkctl{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.wkrange{display:inline-flex}.wkrange a{display:inline-flex;align-items:center;padding:4px 12px;border-radius:6px;font-size:13px;font-weight:600;color:var(--mute);text-decoration:none}.wkrange a:hover{color:var(--ink);text-decoration:none}.wkrange a.on{background:var(--surface);color:var(--ink);box-shadow:var(--shadow)}
+.wknav{display:inline-flex;align-items:center;gap:2px}.wknav .wkprev svg{transform:rotate(180deg)}
+.wksum{display:inline-flex;align-items:center;gap:8px;padding:3px 6px 3px 10px;border-radius:9px;border:1px solid var(--line);background:var(--surface);font-size:13px;color:var(--ink-2)}.wksum>.i{color:var(--mute)}
+.wksum select{height:28px;padding:0 6px;font-size:12.5px}
+.wkswitch{display:inline-flex;align-items:center;gap:7px;cursor:pointer;font-weight:550}.wkswitch input{width:15px;height:15px;margin:0;accent-color:var(--accent)}
+.wktiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px}
+.wktile{display:flex;flex-direction:column;gap:2px;padding:14px 16px;border-radius:var(--r);border:1px solid var(--line);background:var(--surface);box-shadow:var(--shadow);min-width:0}
+.wkl{font-size:12px;font-weight:600;color:var(--mute)}.wkv{font-size:26px;font-weight:650;letter-spacing:-.02em;line-height:1.2;color:var(--ink);font-variant-numeric:tabular-nums}.wks{font-size:12px;line-height:1.4;color:var(--ink-2)}
+.wkbox{padding:16px 18px;border-radius:var(--r);border:1px solid var(--line);background:var(--surface);box-shadow:var(--shadow);min-width:0}
+.wkh{display:flex;align-items:center;gap:7px;margin:0 0 12px;font-size:13.5px;font-weight:650;color:var(--ink)}.wkh .i{color:var(--mute)}
+.wknote{margin:10px 0 0;font-size:12px;color:var(--mute);line-height:1.45}
+.wkbars{display:flex;align-items:stretch;gap:6px;height:150px}.wkbars.dense{gap:3px}
+.wkbar{position:relative;flex:1;min-width:0;display:flex;flex-direction:column;justify-content:flex-end;gap:6px;text-decoration:none;border-radius:6px}
+.wkbar::before{content:"";position:absolute;inset:0 0 20px;border-bottom:1px solid var(--line)}
+.wkbarv{position:relative;display:block;height:calc((100% - 20px) * var(--h) / 100);min-height:2px;margin:0 auto;width:min(100%,34px);border-radius:4px 4px 0 0;background:var(--accent);transition:filter .15s}
+.wkbarl{height:14px;font-size:11px;line-height:14px;text-align:center;color:var(--mute);white-space:nowrap;overflow:hidden}
+.wkbar:hover .wkbarv,.wkbar:focus-visible .wkbarv{filter:brightness(1.15)}
+.wkbar:hover::after,.wkbar:focus-visible::after{content:attr(data-tip);position:absolute;bottom:calc(100% - 14px);left:50%;transform:translateX(-50%);z-index:3;width:max-content;max-width:240px;padding:6px 9px;border-radius:8px;background:var(--ink);color:var(--bg);font-size:12px;line-height:1.35;white-space:normal;pointer-events:none;box-shadow:var(--shadow-lg)}
+.wkgrid{display:grid;grid-template-columns:minmax(0,1fr);gap:18px;align-items:start}
+@media (min-width:1100px){.wkgrid{grid-template-columns:minmax(0,1fr) 410px}.wkside{position:sticky;top:12px}}
+.wkmain{display:flex;flex-direction:column;gap:16px;min-width:0}.wkside{display:flex;flex-direction:column;gap:12px;min-width:0}
+.wkday{display:flex;flex-direction:column;gap:6px}.wkdayh{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:650;color:var(--ink-2);text-decoration:none;padding:0 4px}.wkdayh:hover{color:var(--accent);text-decoration:none}
+.wklist{display:flex;flex-direction:column;border-radius:var(--r);border:1px solid var(--line);background:var(--surface);box-shadow:var(--shadow);overflow:hidden}
+.wkev{display:flex;align-items:center;gap:12px;padding:10px 14px;border-top:1px solid var(--line);color:var(--ink);text-decoration:none;min-width:0}.wkev:first-child{border-top:0}.wkev:hover{background:var(--surface-2);text-decoration:none}
+.wkt{flex:none;width:40px;font-size:12.5px;color:var(--mute);font-variant-numeric:tabular-nums}
+.wkic{flex:none;display:grid;place-items:center;width:26px;height:26px;border-radius:8px;background:var(--surface-2);color:var(--ink-2)}
+.wkev.t-ok .wkic{background:var(--green-soft);color:var(--green)}.wkev.t-bad .wkic{background:var(--red-soft);color:var(--red)}.wkev.t-warn .wkic{background:var(--amber-soft);color:var(--amber)}
+.wkev.k-ticket-done .wkic{background:var(--green);color:#fff}
+.wkx{flex:1;min-width:0;display:flex;flex-direction:column}.wkw{font-size:14px;font-weight:550;line-height:1.4;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.wktt{font-size:12.5px;color:var(--mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wkempty{display:flex;flex-direction:column;align-items:center;gap:8px;padding:40px 20px;border-radius:var(--r);border:1px dashed var(--line-strong);color:var(--mute);text-align:center}.wkempty p{margin:0;max-width:44ch;font-size:13.5px}
+.wkgo{display:flex;flex-direction:column;gap:2px;margin:0 -8px}.wkgoi{display:flex;align-items:center;gap:10px;padding:7px 8px;border-radius:8px;color:var(--ink);text-decoration:none;min-width:0}.wkgoi:hover{background:var(--surface-2);text-decoration:none}
+.wkage{flex:none;font-size:12px;font-weight:600;color:var(--amber);font-variant-numeric:tabular-nums}
+.wkscroll{overflow-x:auto;margin:0 -4px}
+.wktable{width:100%;border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-nums}.wktable th{font-size:11.5px;font-weight:600;color:var(--mute);text-align:right;padding:4px 5px;white-space:nowrap}.wktable td{text-align:right;padding:7px 5px;border-top:1px solid var(--line);white-space:nowrap}.wktable th:first-child,.wktable td:first-child{text-align:left}
+.wkag{display:inline-flex;align-items:center;gap:7px;font-weight:550}
+.wkdl{margin:0;display:flex;flex-direction:column;gap:6px}.wkdl div{display:flex;justify-content:space-between;gap:10px;font-size:13.5px}.wkdl dt{color:var(--ink-2)}.wkdl dd{margin:0;font-weight:600;font-variant-numeric:tabular-nums}
+@media (max-width:640px){.wkpane{padding:12px 14px 88px}.wktitle h1{font-size:22px}.wktiles{grid-template-columns:repeat(2,minmax(0,1fr))}.wkv{font-size:22px}.wkbars{height:120px}.wkt{width:36px}.wkev{gap:10px;padding:10px 12px}}
 .tkboxp{margin:0;font-size:13px;line-height:1.5;color:var(--ink-2)}
 .tkboxm{font-size:12.5px;color:var(--mute)}
 .rvtkey{font-size:13px;font-weight:650;color:var(--accent);text-decoration:none}a.rvtkey:hover{text-decoration:underline}
@@ -1302,8 +1343,19 @@ export const SCRIPT = `
     $$(".tknav a[data-tab]").forEach((a) => a.onclick = (e) => { e.preventDefault(); tkShow(a.dataset.tab, true); });
     const pane = tkPane(); if (pane) tkShow(pane.dataset.tab);
   }
+  // Your time zone, for the work log's days and its evening summary: a cookie the server reads, and the summary's form.
+  function bindTz() {
+    let z = ""; try { z = Intl.DateTimeFormat().resolvedOptions().timeZone || ""; } catch {}
+    if (!z) return;
+    $$("input[data-tz]").forEach((i) => (i.value = z));
+    const want = "ic_tz=" + encodeURIComponent(z);
+    if (document.cookie.split("; ").includes(want)) return;
+    document.cookie = want + "; path=/; max-age=31536000; samesite=lax";
+    if (new URL(location.href).searchParams.get("view") === "work") location.reload();
+  }
   function bind(root = document) {
     bindAsks();
+    bindTz();
     bindTabs();
     if (picked) { const b = document.querySelector('.bubble[data-mid="' + picked + '"]'); if (b && b.querySelector('[data-unsend="edit"]')) b.classList.add("picked"); else picked = null; }
     trailBack();
