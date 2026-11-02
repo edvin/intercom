@@ -7,7 +7,7 @@
 # lets the user decide to go ahead. It never blocks on its own in Claude Code.
 # Never fails: any error just means no intercom context this time.
 
-VERSION=0.12.30 # kept in step with .claude-plugin/plugin.json (a test checks)
+VERSION=0.12.31 # kept in step with .claude-plugin/plugin.json (a test checks)
 D="$HOME/.claude/intercom"
 event="${1:-UserPromptSubmit}"
 client="${2:-claude}"
@@ -164,9 +164,45 @@ if [ -z "$INTERCOM_URL" ] || [ -z "$INTERCOM_TOKEN" ]; then
   exit 0
 fi
 
+# The repository, read from its files instead of running git: on macOS /usr/bin/git goes through xcrun, which now and
+# then rebuilds its cache for up to a minute, and no hook may wait on that (a prompt's hook times out after 5 seconds).
+# Sets gtop (the work tree), gdir (its git dir: .git, or a worktree's) and gcommon (where the config lives).
+git_find() {
+  gtop=""; gdir=""; gcommon=""
+  d="$workdir"
+  while [ -n "$d" ]; do
+    if [ -d "$d/.git" ]; then gtop="$d"; gdir="$d/.git"; break; fi
+    if [ -f "$d/.git" ]; then
+      gtop="$d"; gdir=$(sed -n 's/^gitdir: //p' "$d/.git" | head -n 1)
+      case "$gdir" in /*) ;; ?*) gdir="$d/$gdir" ;; esac
+      break
+    fi
+    [ "$d" = "/" ] && break
+    d=$(dirname "$d")
+  done
+  [ -n "$gdir" ] || return 1
+  gcommon="$gdir"
+  if [ -f "$gdir/commondir" ]; then
+    c=$(head -n 1 "$gdir/commondir")
+    case "$c" in /*) gcommon="$c" ;; *) gcommon="$gdir/$c" ;; esac
+  fi
+  return 0
+}
+# The origin remote's URL, from the repo's config.
+git_origin() {
+  [ -f "$gcommon/config" ] || return 0
+  awk '/^[[:space:]]*\[/ { ins = ($0 ~ /^[[:space:]]*\[remote "origin"\]/) }
+       ins && /^[[:space:]]*url[[:space:]]*=/ { sub(/^[^=]*=[[:space:]]*/, ""); sub(/[[:space:]]+$/, ""); print; exit }' "$gcommon/config"
+}
+# The checked-out branch; nothing when detached.
+git_branch() {
+  [ -f "$gdir/HEAD" ] && sed -n 's#^ref: refs/heads/##p' "$gdir/HEAD" | head -n 1
+}
+
 repo_name() {
-  p=$(git -C "$workdir" remote get-url origin 2>/dev/null | sed -e 's#\.git$##' -e 's#.*[/:]##')
-  [ -n "$p" ] || p=$(basename "$(git -C "$workdir" rev-parse --show-toplevel 2>/dev/null || echo "$workdir")")
+  git_find
+  p=$(git_origin | sed -e 's#\.git$##' -e 's#.*[/:]##')
+  [ -n "$p" ] || p=$(basename "${gtop:-$workdir}")
   printf '%s' "$p"
 }
 
@@ -253,15 +289,16 @@ elif [ "$event" != "SessionStart" ] && [ -f "$pcache" ]; then
   project=$(cat "$pcache")
 else
   # owner/repo of a GitHub origin, so unlinked sessions can be pointed at projects open to its collaborators.
-  remote=$(git -C "$workdir" remote get-url origin 2>/dev/null | sed -n -e 's#\.git$##' -e 's#.*github\.com[:/]\([^/]*/[^/]*\)$#\1#p')
+  git_find
+  remote=$(git_origin | sed -n -e 's#\.git$##' -e 's#.*github\.com[:/]\([^/]*/[^/]*\)$#\1#p')
   # The repo's web address (no credentials), so MR/issue refs like !3742 link to it on the dashboard.
-  [ "$event" = "SessionStart" ] && origin=$(git -C "$workdir" remote get-url origin 2>/dev/null | sed -e 's#://[^@/]*@#://#')
+  [ "$event" = "SessionStart" ] && origin=$(git_origin | sed -e 's#://[^@/]*@#://#')
   project=$(repo_name)
   [ -n "$session" ] && printf '%s' "$project" > "$pcache"
 fi
 
 branch=""
-[ "$INTERCOM_SHARE_BRANCH" = "0" ] || branch=$(git -C "$workdir" branch --show-current 2>/dev/null)
+[ "$INTERCOM_SHARE_BRANCH" = "0" ] || branch=$(git_find && git_branch)
 # The machine, as teammates see it (INTERCOM_HOST_NAME nickname, or the short hostname; INTERCOM_SHARE_HOST=0: none).
 host=""
 [ "$INTERCOM_SHARE_HOST" = "0" ] || host="${INTERCOM_HOST_NAME:-$(hostname -s 2>/dev/null || hostname)}"
