@@ -867,7 +867,7 @@ body:has(.ide) .top .in{max-width:none;padding:8px 14px}
 .rvsum{margin:5px 0 0;font-size:13.5px;line-height:1.45;color:var(--ink);text-wrap:pretty}
 .rvseg{display:inline-flex;flex:none;gap:2px;padding:2px;border-radius:8px;background:var(--surface-2);border:1px solid var(--line)}
 .rvseg label{display:inline-flex;align-items:center;padding:3px 9px;border-radius:6px;font-size:12px;font-weight:600;color:var(--mute);cursor:pointer;white-space:nowrap}
-.rvseg input{position:absolute;opacity:0;pointer-events:none}.rvseg label:hover{color:var(--ink)}
+.rvseg label{position:relative}.rvseg input{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;pointer-events:none}.rvseg label:hover{color:var(--ink)}
 .rvseg label:has(input:checked){background:var(--surface);color:var(--ink);box-shadow:var(--shadow)}.rvseg label:has(input[value=drop]:checked){color:var(--mute)}
 .rvseg label:has(input:focus-visible){outline:2px solid var(--accent);outline-offset:1px}
 .rvseg.wide{display:flex;flex-wrap:wrap}.rvseg.wide label{flex:1 1 auto;justify-content:center;padding:6px 8px}
