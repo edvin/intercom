@@ -797,6 +797,8 @@ body:has(.ide) .top .in{max-width:none;padding:8px 14px}
 .wkhead{display:flex;flex-direction:column;gap:12px}
 .wktitle{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}.wktitle h1{margin:0;font-size:27px;font-weight:650;letter-spacing:-.022em}.wkzone{font-size:12.5px;color:var(--mute)}
 .wkctl{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.wksearch{display:flex;align-items:center;gap:6px;flex:1 1 260px;max-width:420px;min-width:0;height:34px;padding:0 6px 0 11px;border-radius:9px;border:1px solid var(--line);background:var(--surface);color:var(--mute)}.wksearch:focus-within{border-color:color-mix(in srgb,var(--accent) 55%,transparent);box-shadow:0 0 0 3px var(--accent-soft)}.wksearch input[type=search]{flex:1;min-width:0;height:30px;padding:0;border:0;background:none;box-shadow:none;font-size:13.5px}.wksearch input[type=search]:focus{outline:none;box-shadow:none}
+.wkev mark{background:color-mix(in srgb,var(--amber) 30%,transparent);color:inherit;border-radius:3px;padding:0 1px}
 .wkrange{display:inline-flex}.wkrange a{display:inline-flex;align-items:center;padding:4px 12px;border-radius:6px;font-size:13px;font-weight:600;color:var(--mute);text-decoration:none}.wkrange a:hover{color:var(--ink);text-decoration:none}.wkrange a.on{background:var(--surface);color:var(--ink);box-shadow:var(--shadow)}
 .wknav{display:inline-flex;align-items:center;gap:2px}.wknav .wkprev svg{transform:rotate(180deg)}
 .wksum{display:inline-flex;align-items:center;gap:8px;padding:3px 6px 3px 10px;border-radius:9px;border:1px solid var(--line);background:var(--surface);font-size:13px;color:var(--ink-2)}.wksum>.i{color:var(--mute)}

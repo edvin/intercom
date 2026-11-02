@@ -424,9 +424,55 @@ function dayBars(days: string[], events: WorkEvent[], tz: string, base: string):
     .join("")}</div>`;
 }
 
+/** Search the work log (a year back): every word must be in what happened, its title or its agent. */
+export async function searchWork(env: Env, me: string, query: string, tz: string): Promise<WorkEvent[]> {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean).slice(0, 8);
+  if (!words.length) return [];
+  const now = Date.now();
+  const events = await workEvents(env, me, { from: now - 365 * DAY, to: now + DAY });
+  return events.filter((e) => words.every((w) => `${e.what} ${e.title} ${e.agent} ${e.outcome ?? ""}`.toLowerCase().includes(w))).reverse().slice(0, 300);
+}
+
+/** Marks the searched words in a piece of text (already plain). */
+function marked(text: string, words: string[]): string {
+  if (!words.length) return esc(text);
+  const lower = text.toLowerCase();
+  const hits: [number, number][] = [];
+  for (const w of words) for (let i = lower.indexOf(w); i >= 0; i = lower.indexOf(w, i + w.length)) hits.push([i, i + w.length]);
+  hits.sort((a, b) => a[0] - b[0]);
+  let out = "";
+  let at = 0;
+  for (const [a, b] of hits) {
+    if (a < at) continue;
+    out += `${esc(text.slice(at, a))}<mark>${esc(text.slice(a, b))}</mark>`;
+    at = b;
+  }
+  return out + esc(text.slice(at));
+}
+
 export async function workView(env: Env, me: string, url: URL, cookieTz: string | null): Promise<string> {
   const settings = await workSettings(env, me);
   const tz = validTz(cookieTz || settings.tz);
+  const query = (url.searchParams.get("q") ?? "").trim().slice(0, 120);
+  const searchBox = `<form class="wksearch" method="get" action="/dashboard" data-native role="search"><input type="hidden" name="view" value="work">${icon("search", 15)}<input type="search" name="q" value="${esc(query)}" placeholder="Search your work: a ticket, an MR, an agent, a word" aria-label="Search your work" autocomplete="off">${query ? `<a class="btn ghost xs" href="/dashboard?view=work" title="Clear">${icon("x", 13)}</a>` : ""}</form>`;
+  if (query) {
+    const words = query.toLowerCase().split(/\s+/).filter(Boolean).slice(0, 8);
+    const found = await searchWork(env, me, query, tz);
+    const byDay = new Map<string, WorkEvent[]>();
+    for (const e of found) {
+      const d = dateIn(tz, e.at);
+      byDay.set(d, [...(byDay.get(d) ?? []), e]);
+    }
+    const back = `/dashboard?view=work&q=${encodeURIComponent(query)}`;
+    const row = (e: WorkEvent) => eventRow(me, tz, { ...e }, back).replace(`<span class="wkw">${esc(e.what)}</span>`, `<span class="wkw">${marked(e.what, words)}</span>`).replace(`<span class="wktt">${esc(e.title)}</span>`, `<span class="wktt">${marked(e.title, words)}</span>`);
+    const list = found.length
+      ? [...byDay.entries()].map(([d, es]) => `<div class="wkday"><a class="wkdayh" href="/dashboard?view=work&amp;range=day&amp;date=${d}">${esc(dayLabel(d, { weekday: "long", day: "numeric", month: "short", year: "numeric" }))}<span class="badge">${es.length}</span></a><div class="wklist">${es.map(row).join("")}</div></div>`).join("")
+      : `<div class="wkempty">${icon("search", 18)}<p>Nothing in your work log matches “${esc(query)}”. It searches tickets, reviews, deploys, handoffs and decisions from the last year, by key, title, agent and what happened.</p></div>`;
+    return `<div class="pane-in wkpane">
+      <header class="wkhead"><div class="wktitle"><h1>Search</h1><span class="wkzone">${found.length >= 300 ? "the newest 300" : `${found.length} found`}</span></div><div class="wkctl">${searchBox}<span class="grow"></span><a class="btn ghost sm" href="/dashboard?view=work">${icon("back", 14)}Back to today</a></div></header>
+      <section class="wkmain">${list}</section>
+    </div>`;
+  }
   const today = dateIn(tz, Date.now());
   const range = (["day", "week", "month"] as const).find((r) => r === url.searchParams.get("range")) ?? "day";
   const asked = url.searchParams.get("date") ?? "";
@@ -520,6 +566,7 @@ export async function workView(env: Env, me: string, url: URL, cookieTz: string 
       <div class="wkctl">
         <div class="rvseg wkrange">${(["day", "week", "month"] as const).map((r) => `<a href="${href(r, date)}"${r === range ? ' class="on"' : ""}>${r[0]!.toUpperCase() + r.slice(1)}</a>`).join("")}</div>
         <div class="wknav"><a class="btn ghost sm icon wkprev" href="${href(range, prev)}" title="Earlier">${icon("chevron", 15)}</a>${isNow ? "" : `<a class="btn ghost sm" href="${href(range, today)}">Today</a>`}${next <= today ? `<a class="btn ghost sm icon wknext" href="${href(range, next)}" title="Later">${icon("chevron", 15)}</a>` : ""}</div>
+        ${searchBox}
         <span class="grow"></span>
         ${summary}
         <a class="btn ghost sm" href="/work.csv?from=${first}&amp;to=${next}&amp;tz=${encodeURIComponent(tz)}" download>${icon("download", 14)}CSV</a>

@@ -2970,6 +2970,19 @@ describe("work log", () => {
     assert.deepEqual(sum, { title: "Today: 1 shipped, 1 decided, 1 reviewed", body: "Tickets: 1 decided (1 Go), 1 shipped. MRs: 1 reviewed, 1 sent back, 1 merged." });
   });
 
+  test("search finds what happened by key, title or agent, a year back, with the words marked", async () => {
+    const w = await setup();
+    await w.ok("bob", "ticket", ticket, triage);
+    await w.form("/ticket/1", "bob", { decide: "1", outcome: "go" });
+    await w.ok("bob", "review", review, triage);
+    const v = await (await w.request(`/dashboard?view=work&q=${encodeURIComponent("shop-12 go")}`, { as: "bob", cookie: true })).text();
+    assert.match(v, /<h1>Search<\/h1><span class="wkzone">1 found<\/span>/);
+    assert.match(v, /<span class="wkw">You decided <mark>Go<\/mark> on <mark>SHOP-12<\/mark><\/span>/);
+    assert.match(await (await w.request("/dashboard?view=work&q=retry", { as: "bob", cookie: true })).text(), /1 found[\s\S]*<mark>Retry<\/mark> failed invoices/);
+    assert.match(await (await w.request("/dashboard?view=work&q=nowhere", { as: "bob", cookie: true })).text(), /Nothing in your work log matches “nowhere”/);
+    assert.match(await (await w.request("/dashboard?view=work", { as: "bob", cookie: true })).text(), /<form class="wksearch" method="get" action="\/dashboard" data-native/);
+  });
+
   test("days follow your time zone", async () => {
     const { localTime, dateIn } = await import("../src/work.ts");
     assert.equal(new Date(localTime("2026-11-02", 18, "Europe/Oslo")).toISOString(), "2026-11-02T17:00:00.000Z");
