@@ -922,13 +922,14 @@ export async function deliveryMarks(env: Env, me: string, msgs: Message[]): Prom
   const recent = Date.now() - GONE_MS;
   for (const m of dms) {
     const detail = m.recipient === me;
-    if (m.cancelled_at || m.held_at) {
-      out.set(m.id, { state: m.cancelled_at ? "cancelled" : "held", detail });
-      continue;
-    }
+    // Delivered first: a message you barged in with (screen.ts) is delivered, and kept out of later reads.
     const d = got.get(m.id);
     if (d) {
       out.set(m.id, detail ? { state: "delivered", at: d.at, label: d.label, detail } : { state: "delivered", detail });
+      continue;
+    }
+    if (m.cancelled_at || m.held_at) {
+      out.set(m.id, { state: m.cancelled_at ? "cancelled" : "held", detail });
       continue;
     }
     if (!detail) {

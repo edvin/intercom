@@ -3130,6 +3130,24 @@ describe("an agent's screen", () => {
     assert.match(dash, /<article class="ask k-wait" data-mid="wsc1">[\s\S]*core is waiting: needs approval\.[\s\S]*data-screen="bob\/core" data-screenkeys="1" data-screenname="core" data-screenclient="codex"[^>]*>[\s\S]*?See it and answer/);
   });
 
+  test("a message it hasn't taken yet can barge in: typed into its terminal now, then delivered, and never read twice", async () => {
+    const w = await setup();
+    await w.db.prepare("UPDATE sessions SET version = '0.12.34' WHERE session_id = 'sc1'").run();
+    const r = await w.form("/action/post", "bob", { to: "bob/core", message: "stop the deploy", back: "/dashboard?view=agents&agent=bob/core" });
+    const id = new URL(r.headers.get("location")!, ORIGIN).searchParams.get("ok")!.match(/\[(\d+)\]/)![1]!;
+    const chat = async () => (await w.request("/dashboard?view=agents&agent=bob/core", { as: "bob", cookie: true })).text();
+    assert.match(await chat(), /data-unsend="now" title="Send it now/);
+    const { result, ask } = await answering(w, () => w.form("/action/unsend", "bob", { id, op: "now", back: "/dashboard?view=agents&agent=bob/core" }));
+    assert.deepEqual(ask!.q, { op: "keys", text: "stop the deploy", after: ["ctrl-x", "ctrl-s"] });
+    assert.match(new URL(result.headers.get("location")!, ORIGIN).searchParams.get("ok")!, /^core: sent now \(Ctrl\+X Ctrl\+S\)/);
+    // Delivered (to core), no longer open, and its next read doesn't bring it again.
+    const after = await chat();
+    assert.doesNotMatch(after, /data-unsend="now"/);
+    assert.match(after, new RegExp(`data-mid="${id}"[^>]*>[\\s\\S]*?Delivered to core`));
+    assert.doesNotMatch(await w.ok("bob", "inbox", {}, { id: "sc1", project: "billing-api" }), /stop the deploy/);
+    assert.match(new URL((await w.form("/action/unsend", "bob", { id, op: "now", back: "/dashboard" })).headers.get("location")!, ORIGIN).searchParams.get("err")!, /can't be sent now any more|already has it/);
+  });
+
   test("the drawing: colours by class or inline, styles, and everything else dropped", async () => {
     const { screenHtml, plainScreen } = await import("../src/screen.ts");
     assert.equal(screenHtml("a\x1b[31mred\x1b[0m <b>"), 'a<span class="f1">red</span> &lt;b&gt;');

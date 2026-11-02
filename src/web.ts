@@ -1,7 +1,7 @@
 import { ticketView } from "./ticketview";
 import { reviewView } from "./reviewview";
 import { workView } from "./work";
-import { screenDialog } from "./screen";
+import { bargeIn, screenDialog } from "./screen";
 import { type Delivery, type Env, type Lock, deliveryMarks, issueToken, type Message, type Project, type Proposal, DELEGATE_PER_HOUR, LIVE, MAX_BODY, MEMBER_OF, RECEIVES, activeLocks, address, authenticate, coMembers, isAdmin, myProjects, normChannel, postMessage, roleIn, sha256, workingOn, newToken, HANDLE, limit, UserError, unsend, ago } from "./lib";
 import { agentsView } from "./agents";
 import { askBtw } from "./btw";
@@ -229,6 +229,16 @@ export async function handleAction(req: Request, env: Env, me: string, action: s
     return redirect(u.pathname + u.search);
   }
   // A DM you wrote that no agent has yet: held while you edit it, then sent edited (from the chat box) or as it was, or cancelled.
+  if (action === "unsend" && f("op") === "now") {
+    // Barge in with a message the agent hasn't taken yet (screen.ts).
+    const u = new URL(back, req.url);
+    try {
+      u.searchParams.set("ok", await bargeIn(env, me, Number(f("id"))));
+    } catch (e) {
+      u.searchParams.set("err", (e as Error).message.split("\n")[0]);
+    }
+    return redirect(u.pathname + u.search);
+  }
   const op = action === "post" && f("edit") ? "edit" : action === "unsend" ? f("op") : undefined;
   if (op === "edit" || op === "hold" || op === "send" || op === "cancel") {
     const u = new URL(back, req.url);

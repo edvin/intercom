@@ -3,7 +3,7 @@
 // the pane on its machine when asked (plugins/intercom/code.mjs); nothing of the screen is stored here. Every key sent
 // is noted in the agent's activity, so there's a trail.
 
-import { type Env, UserError, liveIds } from "./lib";
+import { type Env, UserError, liveIds, recordDelivery } from "./lib";
 import { esc, icon } from "./ui";
 
 export interface ScreenData {
@@ -270,4 +270,23 @@ export function screenDialog(): string {
     </div>
     <p class="scrnokeys" data-scrnokeys hidden>Sending keys is turned off on its machine (INTERCOM_KEYS=0).</p>
   </dialog>`;
+}
+
+/**
+ * A message you wrote in the dashboard that the agent hasn't taken yet: barge in with it instead (send now into its
+ * terminal). The message then counts as delivered, and it's kept out of the agent's next read so it doesn't come twice.
+ */
+export async function bargeIn(env: Env, me: string, id: number): Promise<string> {
+  const m = await env.DB.prepare("SELECT * FROM messages WHERE id = ? AND sender = ? AND sender_agent IS NULL AND recipient = ? AND recipient_agent IS NOT NULL AND cancelled_at IS NULL")
+    .bind(id, me, me)
+    .first<{ id: number; body: string; recipient_agent: string; held_at: number | null }>();
+  if (!m) throw new UserError("That message can't be sent now any more.");
+  if (await env.DB.prepare("SELECT 1 FROM deliveries WHERE message_id = ?").bind(id).first()) throw new UserError("It already has it.");
+  const s = await screenTarget(env, me, m.recipient_agent);
+  if (s.screen !== "keys") throw new UserError(`Sending keys to ${s.label} is turned off on its machine (INTERCOM_KEYS=0).`);
+  const r = await sendNow(env, me, s.label, m.body);
+  await env.DB.prepare("UPDATE messages SET cancelled_at = ?, held_at = NULL WHERE id = ?").bind(Date.now(), id).run();
+  await recordDelivery(env, id, me, s.session_id, s.label).run();
+  env.refreshWeb?.(me);
+  return `${s.label}: ${r.how}`;
 }
