@@ -784,12 +784,12 @@ body:has(.ide) .top .in{max-width:none;padding:8px 14px}
 .scrmeta{flex:none;padding:5px 16px;font-size:11.5px;color:#8a8c9d;background:#0b0d14;border-top:1px solid rgba(255,255,255,.06)}
 .screrr{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:30px;color:#a7a9b8;text-align:center}.screrr p{margin:0;max-width:56ch;font-size:13.5px;line-height:1.5}
 .scrkeys{flex:none;display:flex;flex-direction:column;gap:8px;padding:10px 14px 12px;border-top:1px solid var(--line);background:var(--surface)}
-.scrrow{display:flex;flex-wrap:wrap;gap:5px}.scrk{min-width:40px;font-family:"Geist Mono",ui-monospace,monospace;font-size:12.5px}
+.scrrow{display:flex;flex-wrap:wrap;gap:5px;align-items:center}.scrsep{width:1px;height:20px;background:var(--line-strong);margin:0 3px}.scrstop{gap:5px}.scrnote{color:#c6c8d6}.scrk{min-width:40px;font-family:"Geist Mono",ui-monospace,monospace;font-size:12.5px}
 .scrtype{display:flex;gap:8px;align-items:center}.scrtype input[name=text]{flex:1;min-width:0;height:34px;font:13px "Geist Mono",ui-monospace,monospace}
 .screnter{display:inline-flex;align-items:center;gap:5px;font-size:12.5px;color:var(--ink-2);white-space:nowrap}.screnter input{margin:0}
 .scrnokeys{margin:0;padding:10px 16px;font-size:12.5px;color:var(--mute);border-top:1px solid var(--line)}
 @media (max-width:640px){.scrdlg{width:100vw;height:100dvh;max-height:none;border-radius:0}.term{font-size:11px;padding:10px}.scrk{min-width:36px;padding:0 10px}}
-.k-stuck .askk{background:var(--amber-soft);color:var(--amber)}
+.k-stuck .askk,.k-wait .askk{background:var(--amber-soft);color:var(--amber)}.asklook{flex:none}.k-wait .asklook{height:30px;padding:0 12px;font-size:12.5px;border-color:var(--line-strong)}
 .stklist{list-style:none;margin:8px 0 10px;padding:0;display:flex;flex-direction:column;gap:6px;font-size:12.5px}.stklist li{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 8px;padding:6px 10px;border-radius:0 9px 9px 0;border-left:2px solid var(--line-strong);background:var(--surface)}.stklist time{font-size:11.5px}.stkb{flex-basis:100%;color:var(--ink-2);line-height:1.45;overflow-wrap:anywhere}
 .stkhead{margin:2px 0 4px;font-size:14px;font-weight:600;line-height:1.45;color:var(--ink)}.stkwhy{margin:0 0 8px;font-size:13px;line-height:1.5;color:var(--ink-2)}
 .stkmv{cursor:default;flex-wrap:wrap}.stkmv select{flex:1 1 140px;min-width:0;height:32px;font-size:13px}.stkmv .askoptx{flex-basis:100%}.k-stuck .askqt{margin:6px 0 8px}
@@ -1390,28 +1390,38 @@ export const SCRIPT = `
     $$("[data-screen]").forEach((b) => b.onclick = () => {
       if (!d) return;
       scrAgent = b.dataset.screen;
+      d.querySelector("[data-scrname]").textContent = b.dataset.screenname || scrAgent;
+      const keys = b.dataset.screenkeys === "1";
+      d.querySelector("[data-scrkeys]").hidden = !keys;
+      d.querySelector("[data-scrnokeys]").hidden = keys;
+      // Codex takes a line into the running turn with Enter: one Send is enough there.
+      d.querySelector("[data-scrnow]").hidden = b.dataset.screenclient === "codex";
+      d.querySelector("#scrbody").innerHTML = '<div class="screrr"><p>Loading its screen…</p></div>';
       d.showModal();
       scrLoad();
       clearInterval(scrTimer);
       scrTimer = setInterval(() => { if (!d.open) return clearInterval(scrTimer); if (!document.hidden) scrLoad(); }, 2000);
     });
-    if (!d) return;
-    d.onclose = () => clearInterval(scrTimer);
+    if (!d || d._bound) return;
+    d._bound = true;
+    d.addEventListener("close", () => clearInterval(scrTimer));
+    const post = (fields) => { const f = new FormData(); f.set("agent", scrAgent); for (const [k, v] of fields) f.append(k, v); return scrLoad(f); };
     $$(".scrk", d).forEach((k) => k.onclick = () => {
-      if (k.dataset.key === "ctrl-c" && !confirm("Send Ctrl+C? It interrupts what the agent is doing.")) return;
-      const f = new FormData(); f.set("agent", scrAgent); f.append("key", k.dataset.key); scrLoad(f);
+      if (k.dataset.key === "ctrl-c" && !confirm("Send Ctrl+C? It interrupts what the agent is doing (twice exits it).")) return;
+      post([["key", k.dataset.key]]);
     });
-    const t = d.querySelector("[data-scrtype]");
-    if (!t) return;
-    const input = t.querySelector("input[name=text]"), enter = t.querySelector("input[name=enter]");
-    const send = () => {
+    d.querySelector("[data-scrstop]").onclick = () => { if (confirm("Stop what it's doing now? (Esc: the session stays.)")) post([["stop", "1"]]); };
+    const input = d.querySelector("[data-scrtype] input[name=text]"), enter = d.querySelector("[data-scrtype] input[name=enter]");
+    const send = (now) => {
       if (!input.value.trim()) return input.focus();
-      const f = new FormData(); f.set("agent", scrAgent); f.set("text", input.value); if (enter.checked) f.set("enter", "1");
+      const fields = [["text", input.value]];
+      if (now) fields.push(["now", "1"]); else if (enter.checked) fields.push(["enter", "1"]);
       input.value = "";
-      scrLoad(f);
+      post(fields);
     };
-    t.querySelector("[data-scrsend]").onclick = send;
-    input.onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); send(); } };
+    d.querySelector("[data-scrsend]").onclick = () => send(false);
+    d.querySelector("[data-scrnow]").onclick = () => send(true);
+    input.onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); send(e.metaKey || e.ctrlKey); } };
   }
   // Your time zone, for the work log's days and its evening summary: a cookie the server reads, and the summary's form.
   function bindTz() {

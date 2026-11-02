@@ -4,7 +4,7 @@
 // is noted in the agent's activity, so there's a trail.
 
 import { type Env, UserError, liveIds } from "./lib";
-import { esc } from "./ui";
+import { esc, icon } from "./ui";
 
 export interface ScreenData {
   text: string; // the pane, with its colours as ANSI escapes
@@ -15,7 +15,7 @@ export interface ScreenData {
   via?: string;
 }
 
-export type ScreenQuery = { op: "capture"; history?: number } | { op: "keys"; keys?: string[]; text?: string; enter?: boolean; history?: number };
+export type ScreenQuery = { op: "capture"; history?: number } | { op: "keys"; keys?: string[]; text?: string; enter?: boolean; after?: string[]; history?: number };
 
 /** The keys the dashboard and Claude.ai can send, with how they're shown. */
 export const KEY_NAMES: Record<string, string> = {
@@ -32,6 +32,9 @@ export const KEY_NAMES: Record<string, string> = {
   backspace: "Backspace",
   y: "y",
   n: "n",
+  "ctrl-x": "Ctrl+X",
+  "ctrl-s": "Ctrl+S",
+  "ctrl-k": "Ctrl+K",
   ...Object.fromEntries([1, 2, 3, 4, 5, 6, 7, 8, 9].map((d) => [String(d), String(d)])),
 };
 
@@ -43,13 +46,15 @@ interface Target {
   session_id: string;
   label: string;
   screen: string;
+  client: string;
+  version: string;
 }
 
 /** One of your agents whose screen can be reached, or why not. */
 export async function screenTarget(env: Env, me: string, label: string): Promise<Target> {
   // Only you yourself: from your browser (signed in with GitHub) or Claude.ai; never an agent's token.
   if (env.authKind !== "web" && env.authKind !== "connector") throw new UserError("An agent's screen can only be opened by its person, from the dashboard or Claude.ai.");
-  const s = await env.DB.prepare("SELECT session_id, label, screen, last_seen FROM sessions WHERE member = ? AND label = ? ORDER BY last_seen DESC LIMIT 1").bind(me, label).first<Target & { last_seen: number }>();
+  const s = await env.DB.prepare("SELECT session_id, label, screen, client, version, last_seen FROM sessions WHERE member = ? AND label = ? ORDER BY last_seen DESC LIMIT 1").bind(me, label).first<Target & { last_seen: number }>();
   if (!s) throw new UserError(`You have no agent named ${label}.`);
   if (!liveIds(env, me).includes(s.session_id) && env.live) throw new UserError(`${label} isn't connected right now.`);
   if (!s.screen) throw new UserError(`${label}'s screen can't be seen from here: it isn't running in tmux, its machine turned it off (INTERCOM_SCREEN=0), or its intercom is older than 0.12.32 (run /intercom:update there and restart it).`);
@@ -75,7 +80,7 @@ export async function askScreen(env: Env, me: string, label: string, q: ScreenQu
   const r = await reply;
   if ("error" in r) throw new UserError(r.error);
   if (q.op === "keys") {
-    const what = [...(q.keys ?? []).map((k) => KEY_NAMES[k] ?? k), q.text ? `typed “${q.text.slice(0, 120)}”` : "", q.enter && q.text ? "Enter" : ""].filter(Boolean).join(", ");
+    const what = [...(q.keys ?? []).map((k) => KEY_NAMES[k] ?? k), q.text ? `typed “${q.text.slice(0, 120)}”` : "", q.enter && q.text ? "Enter" : "", q.after?.length ? q.after.map((k) => KEY_NAMES[k] ?? k).join(" ") : ""].filter(Boolean).join(", ");
     await env.DB.prepare("INSERT INTO activity (member, session_id, at, kind, text) VALUES (?, ?, ?, 'keys', ?)")
       .bind(me, s.session_id, Date.now(), `you sent keys${env.authKind === "connector" ? " from Claude.ai" : " from the dashboard"}: ${what}`)
       .run();
@@ -185,6 +190,50 @@ export function screenHtml(text: string): string {
 }
 
 /** The dashboard's screen window body: the pane, sized like the terminal, and whether keys may be sent. */
-export function drawScreen(d: ScreenData): string {
-  return `<div class="scrwrap" data-keys="${d.keys ? "1" : "0"}"><pre class="term" style="--cols:${d.cols || 80}">${screenHtml(d.text)}</pre></div><div class="scrmeta">${d.cols}×${d.rows}${d.keys ? "" : " · sending keys is turned off on its machine"}</div>`;
+export function drawScreen(d: ScreenData, note = ""): string {
+  return `<div class="scrwrap" data-keys="${d.keys ? "1" : "0"}"><pre class="term" style="--cols:${d.cols || 80}">${screenHtml(d.text)}</pre></div><div class="scrmeta">${d.cols}×${d.rows}${d.keys ? "" : " · sending keys is turned off on its machine"}${note ? ` · <span class="scrnote">${esc(note)}</span>` : ""}</div>`;
+}
+
+const atLeast = (v: string, want: string) => {
+  const a = v.split(".").map(Number);
+  const b = want.split(".").map(Number);
+  for (let i = 0; i < 3; i++) if ((a[i] ?? 0) !== (b[i] ?? 0)) return (a[i] ?? 0) > (b[i] ?? 0);
+  return true;
+};
+
+/**
+ * Barge in: put a message in front of the agent now, not after its turn. Claude Code: type it and press Ctrl+X Ctrl+S
+ * ("send now": it's read at the next step instead of the end of the turn). Codex: type it and press Enter, which steers
+ * a running turn.
+ */
+export async function sendNow(env: Env, me: string, label: string, text: string): Promise<{ data: ScreenData; how: string }> {
+  const line = text.replace(/[\r\n]+/g, " ").trim().slice(0, 1000);
+  if (!line) throw new UserError("Type what to send.");
+  const s = await screenTarget(env, me, label);
+  if (s.client === "codex") return { data: await askScreen(env, me, label, { op: "keys", text: line, enter: true }), how: "typed into its terminal and sent (Codex takes it into the running turn)" };
+  if (!atLeast(s.version || "0", "0.12.33"))
+    return { data: await askScreen(env, me, label, { op: "keys", text: line, enter: true }), how: `typed and queued for the end of its turn (sending it right away needs intercom 0.12.33 on ${label}; /reload-plugins there gets it)` };
+  return { data: await askScreen(env, me, label, { op: "keys", text: line, after: ["ctrl-x", "ctrl-s"] }), how: "sent now (Ctrl+X Ctrl+S): it reads it at its next step" };
+}
+
+/** Stop what it's doing: Esc interrupts the running turn in Claude Code and in Codex; the session stays. */
+export async function stopAgent(env: Env, me: string, label: string): Promise<ScreenData> {
+  return askScreen(env, me, label, { op: "keys", keys: ["esc"] });
+}
+
+/** What a button that opens an agent's screen carries: who, whether keys may be sent, and which kind of agent. */
+export const screenAttrs = (key: string, label: string, screen: string, client: string) =>
+  `data-screen="${esc(key)}" data-screenkeys="${screen === "keys" ? "1" : "0"}" data-screenname="${esc(label)}" data-screenclient="${client === "codex" ? "codex" : "claude"}"`;
+
+/** The screen window, once per dashboard page: any [data-screen] button opens it for its agent. */
+export function screenDialog(): string {
+  const k = (key: string, label: string, title = "") => `<button type="button" class="btn sm scrk" data-key="${key}"${title ? ` title="${title}"` : ""}>${label}</button>`;
+  return `<dialog id="dlg-screen" class="scrdlg"><div class="hd">${icon("monitor", 18)}<h2 data-scrname></h2><span class="scrlive" title="Redrawn every 2 seconds while open"><span class="dot"></span>live</span><span class="grow"></span><button type="button" class="btn ghost sm icon" data-close title="Close">${icon("x", 15)}</button></div>
+    <div class="scrbody" id="scrbody"><div class="screrr"><p>Loading its screen…</p></div></div>
+    <div class="scrkeys" data-scrkeys>
+      <div class="scrrow"><button type="button" class="btn sm danger scrstop" data-scrstop title="Interrupt what it's doing (Esc); the session stays">${icon("square", 12)}Stop</button><span class="scrsep"></span>${k("enter", "Enter")}${k("esc", "Esc")}${k("ctrl-c", "Ctrl+C", "Interrupts; twice exits")}${k("up", "↑", "Up")}${k("down", "↓", "Down")}${k("tab", "Tab")}${k("shift-tab", "⇧Tab", "Shift+Tab: switches mode in Claude Code")}${k("1", "1")}${k("2", "2")}${k("3", "3")}${k("y", "y")}${k("n", "n")}</div>
+      <div class="scrtype" data-scrtype><input name="text" maxlength="1000" placeholder="Message it, or type a line into its terminal" autocomplete="off"><label class="screnter" title="Press Enter after the text"><input type="checkbox" name="enter" value="1" checked>Enter</label><button type="button" class="btn sm" data-scrsend title="Type it (with Enter: sent when it's ready, after its current turn)">${icon("send", 13)}Send</button><button type="button" class="btn sm primary" data-scrnow title="Barge in: it reads this at its next step, not after the whole turn">${icon("arrow", 13)}Send now</button></div>
+    </div>
+    <p class="scrnokeys" data-scrnokeys hidden>Sending keys is turned off on its machine (INTERCOM_KEYS=0).</p>
+  </dialog>`;
 }

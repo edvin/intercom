@@ -1,7 +1,7 @@
 import { recordsBrief } from "./records";
 import { saveWorkSettings, workCsv } from "./work";
 import { dismissStuck, moveStuck, releaseSenders, wakeStuck } from "./stuck";
-import { KEY_NAMES, type ScreenQuery, askScreen, drawScreen, screenReply } from "./screen";
+import { KEY_NAMES, type ScreenQuery, askScreen, drawScreen, screenReply, sendNow, stopAgent } from "./screen";
 import { answerBtw, pendingBtw } from "./btw";
 import { getAttachment, isImage, readImage, readable } from "./attachments";
 import { fetchLocalFile, fileReply } from "./localfiles";
@@ -891,11 +891,17 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
     let body: string;
     try {
       if (member !== me || !label) throw new UserError("You can only see the screen of your own agents.");
-      const q: ScreenQuery = form
-        ? { op: "keys", keys: form.getAll("key").map(String).filter((x) => x in KEY_NAMES), text: String(form.get("text") ?? "").replace(/[\r\n]+/g, " ").slice(0, 1000), enter: form.get("enter") === "1", history: 200 }
-        : { op: "capture", history: 200 };
-      if (q.op === "keys" && !q.keys?.length && !q.text) throw new UserError("Pick a key or type something.");
-      body = drawScreen(await askScreen(env, me, label, q));
+      if (form?.get("stop") === "1") body = drawScreen(await stopAgent(env, me, label));
+      else if (form?.get("now") === "1") {
+        const r = await sendNow(env, me, label, String(form.get("text") ?? ""));
+        body = drawScreen(r.data, r.how);
+      } else {
+        const q: ScreenQuery = form
+          ? { op: "keys", keys: form.getAll("key").map(String).filter((x) => x in KEY_NAMES), text: String(form.get("text") ?? "").replace(/[\r\n]+/g, " ").slice(0, 1000), enter: form.get("enter") === "1", history: 200 }
+          : { op: "capture", history: 200 };
+        if (q.op === "keys" && !q.keys?.length && !q.text) throw new UserError("Pick a key or type something.");
+        body = drawScreen(await askScreen(env, me, label, q));
+      }
     } catch (e) {
       if (!(e instanceof UserError)) throw e;
       body = `<div class="screrr">${icon("monitor", 22)}<p>${esc(e.message)}</p></div>`;

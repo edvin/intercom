@@ -318,6 +318,9 @@ export const SCREEN_KEYS = {
   backspace: "BSpace",
   y: "y",
   n: "n",
+  "ctrl-x": "C-x", // Claude Code: Ctrl+X Ctrl+S sends what's typed now (barge in), Ctrl+X Ctrl+K stops its subagents
+  "ctrl-s": "C-s",
+  "ctrl-k": "C-k",
   ...Object.fromEntries([1, 2, 3, 4, 5, 6, 7, 8, 9].map((d) => [String(d), String(d)])),
 };
 
@@ -347,7 +350,8 @@ export async function screenRequest(q, { pane, keysOn = true } = {}) {
   if (q.op === "keys") {
     if (!keysOn) throw new Error("Sending keys is turned off on that machine (INTERCOM_KEYS=0 in its intercom config).");
     const keys = Array.isArray(q.keys) ? q.keys.slice(0, 20) : [];
-    for (const k of keys) if (!SCREEN_KEYS[k]) throw new Error(`Unknown key "${k}". Keys: ${Object.keys(SCREEN_KEYS).join(", ")}.`);
+    const after = Array.isArray(q.after) ? q.after.slice(0, 10) : []; // keys pressed after the text (e.g. send it now)
+    for (const k of [...keys, ...after]) if (!SCREEN_KEYS[k]) throw new Error(`Unknown key "${k}". Keys: ${Object.keys(SCREEN_KEYS).join(", ")}.`);
     const text = typeof q.text === "string" ? q.text : "";
     if (text.length > 1000) throw new Error("The text is over 1000 characters.");
     if (/[\r\n]/.test(text)) throw new Error("Send one line at a time.");
@@ -360,6 +364,11 @@ export async function screenRequest(q, { pane, keysOn = true } = {}) {
       if (r.err) throw new Error(`tmux: ${r.err}`);
     }
     if (q.enter) await tmux(["send-keys", "-t", pane, "Enter"]);
+    for (const k of after) {
+      await new Promise((r) => setTimeout(r, 80)); // a chord's keys one after another, as typed
+      const r = await tmux(["send-keys", "-t", pane, SCREEN_KEYS[k]]);
+      if (r.err) throw new Error(`tmux: ${r.err}`);
+    }
     await new Promise((r) => setTimeout(r, 600)); // let it redraw
   }
   const history = Math.max(0, Math.min(500, Number(q.history) || 0));

@@ -3,6 +3,7 @@
 // what it answers comes back here. Its project posts show in the thread as activity.
 
 import { stuckSessions } from "./stuck";
+import { screenAttrs } from "./screen";
 import { awayState, pendingApprovals } from "./approvals";
 import { pendingReviews } from "./reviews";
 import { pendingTickets } from "./tickets";
@@ -380,7 +381,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   const canCompact = ownAgent && !compactable(agent, isOn(agent));
   // Its terminal (a tmux pane), seen and typed into from here (screen.ts).
   const canScreen = ownAgent && isOn(agent) && !!agent.screen;
-  const screenCtl = canScreen ? `<button type="button" class="btn ghost xs scrbtn" data-screen="${esc(key(agent))}" data-screenkeys="${agent.screen === "keys" ? "1" : "0"}" data-screenname="${esc(agent.label)}" title="See its terminal and send it keys">${icon("monitor", 12)}Screen</button>` : "";
+  const screenCtl = canScreen ? `<button type="button" class="btn ghost xs scrbtn" ${screenAttrs(key(agent), agent.label, agent.screen ?? "", agent.client ?? "")} title="See its terminal and send it keys">${icon("monitor", 12)}Screen</button>` : "";
   const here = `/dashboard?view=agents&agent=${encodeURIComponent(key(agent))}`;
   const compactCtl = !canCompact
     ? ""
@@ -432,18 +433,8 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
         <div class="chips">${[...QUICK, ...(loopsOf(agent).length ? LOOP_CHIPS : [])].map((q) => `<button type="button" class="chip" data-chip="${esc(q)}">${esc(q)}</button>`).join("")}${on ? "" : '<span class="tiny muted" style="align-self:center">· not connected: the next session with this name gets it</span>'}</div>
       </form>`}
     </section>`;
-  const keyBtn = (k: string, label: string, title = "") => `<button type="button" class="btn sm scrk" data-key="${k}"${title ? ` title="${title}"` : ""}>${label}</button>`;
-  const screenDlg = canScreen
-    ? `<dialog id="dlg-screen" class="scrdlg"><div class="hd">${icon("monitor", 18)}<h2>${esc(agent.label)}</h2><span class="scrlive" title="Refreshes every 2 seconds while open"><span class="dot"></span>live</span><span class="grow"></span><button type="button" class="btn ghost sm icon" data-close title="Close">${icon("x", 15)}</button></div>
-        <div class="scrbody" id="scrbody"><div class="screrr"><p>Loading its screen…</p></div></div>
-        ${agent.screen === "keys" ? `<div class="scrkeys">
-          <div class="scrrow">${keyBtn("enter", "Enter")}${keyBtn("esc", "Esc")}${keyBtn("ctrl-c", "Ctrl+C", "Interrupts what it's doing")}${keyBtn("up", "↑", "Up")}${keyBtn("down", "↓", "Down")}${keyBtn("tab", "Tab")}${keyBtn("shift-tab", "⇧Tab", "Shift+Tab: switches mode in Claude Code")}${keyBtn("1", "1")}${keyBtn("2", "2")}${keyBtn("3", "3")}${keyBtn("y", "y")}${keyBtn("n", "n")}</div>
-          <div class="scrtype" data-scrtype><input name="text" maxlength="1000" placeholder="Type a line into its terminal" autocomplete="off"><label class="screnter" title="Press Enter after the text"><input type="checkbox" name="enter" value="1" checked>Enter</label><button type="button" class="btn sm primary" data-scrsend>${icon("send", 13)}Send</button></div>
-        </div>` : `<p class="scrnokeys">Sending keys is turned off on its machine (INTERCOM_KEYS=0).</p>`}
-      </dialog>`
-    : "";
   const dialogs = ownAgent
-    ? `${screenDlg}${canCompact ? `<dialog id="dlg-compact"><div class="hd">${icon("layers", 18)}<h2>Compact ${esc(agent.label)}</h2></div>
+    ? `${canCompact ? `<dialog id="dlg-compact"><div class="hd">${icon("layers", 18)}<h2>Compact ${esc(agent.label)}</h2></div>
         <form method="post" action="/agent/compact" data-native>${hidden({ session: agent.session_id, back: here })}<div class="bd stack">
           <p class="small muted" style="margin:0">Like /compact: the conversation so far becomes a summary, freeing its context${agent.ctx_pct != null ? ` (now ${agent.ctx_pct}% full)` : ""}. It runs when the current turn ends.</p>
           <label class="field">What the summary should keep (optional)<textarea name="instructions" rows="3" maxlength="500" placeholder="e.g. the deploy plan and the open review comments"></textarea></label>

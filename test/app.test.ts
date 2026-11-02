@@ -2661,11 +2661,11 @@ describe("Claude.ai connector", () => {
     // Refused elsewhere: not the plugin's tools, not the dashboard. Added with /mcp, Claude gets the connector there.
     const viaMcp = await w.request("/mcp", { method: "POST", headers: { authorization: `Bearer ${access_token}`, "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }) });
     const mcpNames = ((await viaMcp.json()) as { result: { tools: { name: string }[] } }).result.tools.map((t) => t.name);
-    assert.deepEqual(mcpNames, ["agents", "agent_status", "ask", "compact", "screen", "keys", "conversation", "locks", "decisions", "proposals", "handoffs"]);
+    assert.deepEqual(mcpNames, ["agents", "agent_status", "ask", "compact", "screen", "keys", "stop", "conversation", "locks", "decisions", "proposals", "handoffs"]);
     assert.equal((await w.request("/mcp", { method: "POST", headers: { authorization: "Bearer nope" }, body: "{}" })).status, 401);
     assert.equal((await w.request("/api/whoami", { headers: { authorization: `Bearer ${access_token}` } })).status, 401);
     const names = (await rpc(w, access_token, "tools/list")).body.result.tools.map((t: { name: string }) => t.name);
-    assert.deepEqual(names, ["agents", "agent_status", "ask", "compact", "screen", "keys", "conversation", "locks", "decisions", "proposals", "handoffs"]);
+    assert.deepEqual(names, ["agents", "agent_status", "ask", "compact", "screen", "keys", "stop", "conversation", "locks", "decisions", "proposals", "handoffs"]);
     assert.equal((await rpc(w, access_token, "tools/call", { name: "invite", arguments: {} })).body.error.code, -32602);
     const ask = (await rpc(w, access_token, "tools/list")).body.result.tools.find((t: { name: string }) => t.name === "ask");
     assert.equal(ask.annotations.destructiveHint, true);
@@ -3084,6 +3084,29 @@ describe("an agent's screen", () => {
     assert.match(await (await w.request("/agent-screen?agent=bob/docs", { as: "bob", cookie: true })).text(), /isn(?:'|&#39;)t running in tmux, its machine turned it off/);
     await w.db.prepare("UPDATE sessions SET screen = 'view' WHERE session_id = 'sc1'").run();
     assert.match(await (await w.form("/agent-keys", "bob", { agent: "bob/core", key: "enter" })).text(), /Sending keys to core is turned off on its machine/);
+  });
+
+  test("send now barges in (Ctrl+X Ctrl+S in Claude Code, Enter in Codex), stop interrupts, and a terminal wait gets a card", async () => {
+    const w = await setup();
+    // An older plugin can't press keys after the text: it's typed and queued, and you're told why.
+    const { result: old, ask: oa } = await answering(w, () => w.form("/agent-keys", "bob", { agent: "bob/core", text: "stop and run the tests", now: "1" }).then((x) => x.text()));
+    assert.deepEqual(oa!.q, { op: "keys", text: "stop and run the tests", enter: true });
+    assert.match(old, /queued for the end of its turn \(sending it right away needs intercom 0\.12\.33/);
+    await w.db.prepare("UPDATE sessions SET version = '0.12.33' WHERE session_id = 'sc1'").run();
+    const { result: now, ask: na } = await answering(w, () => w.form("/agent-keys", "bob", { agent: "bob/core", text: "stop and run the tests", now: "1" }).then((x) => x.text()));
+    assert.deepEqual(na!.q, { op: "keys", text: "stop and run the tests", after: ["ctrl-x", "ctrl-s"] });
+    assert.match(now, /sent now \(Ctrl\+X Ctrl\+S\)/);
+    await w.db.prepare("UPDATE sessions SET client = 'codex' WHERE session_id = 'sc1'").run();
+    const { ask: ca } = await answering(w, () => w.form("/agent-keys", "bob", { agent: "bob/core", text: "use the staging db", now: "1" }));
+    assert.deepEqual(ca!.q, { op: "keys", text: "use the staging db", enter: true });
+    const { ask: sa } = await answering(w, () => w.form("/agent-keys", "bob", { agent: "bob/core", stop: "1" }));
+    assert.deepEqual(sa!.q, { op: "keys", keys: ["esc"] });
+    const act = await w.db.prepare("SELECT text FROM activity WHERE session_id = 'sc1' AND kind = 'keys' ORDER BY id DESC LIMIT 2").all<{ text: string }>();
+    assert.deepEqual(act.results.map((x) => x.text), ["you sent keys from the dashboard: Esc", "you sent keys from the dashboard: typed “use the staging db”, Enter"]);
+    // Waiting on its terminal (Codex's own prompt, say), with no card: a card that opens its screen.
+    await w.db.prepare("UPDATE sessions SET state = 'waiting', state_detail = 'needs approval', state_at = ? WHERE session_id = 'sc1'").bind(Date.now() - 60_000).run();
+    const dash = await (await w.request("/dashboard?view=agents", { as: "bob", cookie: true })).text();
+    assert.match(dash, /<article class="ask k-wait" data-mid="wsc1">[\s\S]*core is waiting: needs approval\.[\s\S]*data-screen="bob\/core" data-screenkeys="1" data-screenname="core" data-screenclient="codex"[^>]*>[\s\S]*?See it and answer/);
   });
 
   test("the drawing: colours by class or inline, styles, and everything else dropped", async () => {
