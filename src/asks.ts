@@ -7,6 +7,8 @@ import { type Env, ago } from "./lib";
 import { type Review, OUTCOMES, agentOnline, findingsOf, onlineAgents, pendingReviews, threadOf } from "./reviews";
 import { type Stuck, stuckSessions } from "./stuck";
 import { screenAttrs } from "./screen";
+import { type Row as UpRow, exitedAgents, frozenAgents, fullAgents, myRows, since, staleAgents, upkeepOf } from "./upkeep";
+import { PLUGIN_VERSION } from "./version";
 import { pendingTickets } from "./tickets";
 import { reviewHref } from "./reviewview";
 import { ticketCard } from "./ticketview";
@@ -120,6 +122,52 @@ function waitCard(w: { session_id: string; label: string; screen: string; client
   </article>`;
 }
 
+// ---- keeping agents running and current (upkeep.ts) ----
+
+const upkeepForm = (back: string, fields: Record<string, string>, body: string) => `<form method="post" action="/upkeep">${hidden({ back, ...fields })}${body}</form>`;
+const uopt = (op: string, title: string, sub: string, primary = false) =>
+  `<button class="askopt${primary ? " uprimary" : ""}" name="op" value="${op}"><span class="askoptx"><b>${title}</b><span>${sub}</span></span>${icon("arrow", 14)}</button>`;
+
+function updatesCard(stale: UpRow[], me: string, back: string, auto: boolean): string {
+  const names = stale.map((r) => `<li><b>${esc(r.label)}</b> <span class="muted">intercom ${esc(r.version || "?")}${r.host ? ` · ${esc(r.host)}` : ""}${r.state === "working" ? " · busy" : ""}</span></li>`).join("");
+  return `<article class="ask k-upkeep" data-mid="upd">
+    <header class="askwho"><span class="upic">${icon("refresh", 14)}</span><span class="askname">Updates</span><span class="askk">Intercom ${esc(PLUGIN_VERSION)}</span></header>
+    <p class="stkhead">${stale.length} of your agents run${stale.length === 1 ? "s" : ""} an older intercom.</p>
+    <p class="stkwhy">Updating types /reload-plugins into an idle one: same session, nothing lost (/restart instead if Claude Code itself has an update waiting). Busy ones are left alone.</p>
+    <ul class="stklist">${names}</ul>
+    ${upkeepForm(back, { key: `upd:${PLUGIN_VERSION}` }, `<div class="askopts">${uopt("update", "Update the idle ones now", "Each is told to reload; you see how it went.", true)}${uopt(auto ? "auto-off" : "auto-on", auto ? "Stop updating them by themselves" : "Always do this by itself", auto ? "They're updated automatically when idle for 10 minutes." : "Idle agents get each new version within about 20 minutes.")}${uopt("dismiss", "Not now", "Shows again with the next version.")}</div>`)}
+  </article>`;
+}
+
+function frozenCard(r: UpRow, me: string, back: string): string {
+  const x = { label: r.label, screen: r.screen, client: r.client };
+  return `<article class="ask k-wait" data-mid="f${esc(r.session_id)}">
+    <header class="askwho">${agentAvatar(me, r.label, "s")}<span class="askname">${esc(r.label)}</span><span class="askk">May be frozen</span><span class="grow"></span>${time(Math.max(r.active_at ?? 0, r.state_at ?? 0))}</header>
+    <p class="stkhead">${esc(r.label)} has been working for ${esc(since(Math.max(r.active_at ?? 0, r.state_at ?? 0)).replace(/ ago$/, ""))} with nothing new.</p>
+    <p class="stkwhy">It may be on a long command, waiting on something in its terminal, or stuck. Look before you stop it.</p>
+    ${upkeepForm(back, { session: r.session_id, key: `frozen:${r.session_id}`, value: String(Math.max(r.active_at ?? 0, r.state_at ?? 0)) }, `<div class="askact">${r.screen ? lookBtn(me, x, "Look at it") : ""}<button name="op" value="dismiss" class="btn sm ghost">It's fine</button></div>`)}
+  </article>`;
+}
+
+function exitedCard(r: UpRow, me: string, back: string): string {
+  return `<article class="ask k-stuck" data-mid="x${esc(r.session_id)}">
+    <header class="askwho">${agentAvatar(me, r.label, "s")}<span class="askname">${esc(r.label)}</span><span class="askk">Stopped running</span><span class="grow"></span>${time(r.last_seen)}</header>
+    <p class="stkhead">${esc(r.label)} stopped ${esc(since(r.last_seen))} without ending its session.</p>
+    <p class="stkwhy">It crashed or was killed${r.host ? ` on ${esc(r.host)}` : ""}. Restarting runs it again in its pane, resumed by its session id, so it carries on with the same conversation.</p>
+    ${upkeepForm(back, { session: r.session_id, key: `exited:${r.session_id}`, value: String(r.last_seen) }, `<div class="askopts">${uopt("restart", "Restart it", "The command it was started with, plus --resume and its session.", true)}${uopt("dismiss", "Leave it", "It ended for a reason; don't offer this again.")}</div>`)}
+  </article>`;
+}
+
+function fullCard(r: UpRow, me: string, back: string): string {
+  const bucket = Math.floor((r.ctx_pct ?? 0) / 5) * 5;
+  return `<article class="ask k-wait" data-mid="c${esc(r.session_id)}">
+    <header class="askwho">${agentAvatar(me, r.label, "s")}<span class="askname">${esc(r.label)}</span><span class="askk">Context ${r.ctx_pct}%</span></header>
+    <p class="stkhead">${esc(r.label)}'s context is ${r.ctx_pct}% full.</p>
+    <p class="stkwhy">Near the limit it compacts by itself, in the middle of whatever it does. Compacting now, between turns, keeps that on your terms.</p>
+    ${upkeepForm(back, { session: r.session_id, key: `full:${r.session_id}`, value: String(bucket) }, `<div class="askopts">${uopt("compact", "Compact it", r.state === "working" ? "When its current turn ends." : "Now: it's idle.", true)}${uopt("dismiss", "Not now", "Asks again at 5% more.")}</div>`)}
+  </article>`;
+}
+
 /** An agent that isn't reading its messages (stuck.ts): what waits on it, why, and three plain choices. */
 function stuckCard(st: Stuck, me: string, back: string, online: { label: string; project: string | null }[]): string {
   const agent = `/dashboard?view=agents&agent=${encodeURIComponent(`${me}/${st.agent}`)}`;
@@ -170,8 +218,16 @@ export async function asksDock(env: Env, me: string, back: string): Promise<stri
   const screens: Screens = new Map(seen.map((x) => [x.session_id, x]));
   const carded = new Set([...pending.map((p) => p.session_id), ...stuck.map((x) => x.agent)]);
   const waits = seen.filter((x) => x.state === "waiting" && !carded.has(x.session_id) && !carded.has(x.label) && !/limit|login|account/i.test(x.state_detail) && Date.now() - (x.state_at ?? 0) > 20_000);
-  if (!pending.length && !reviews.length && !tickets.length && !stuck.length && !waits.length) return `<div id="asks" data-region hidden></div>`;
-  const n = pending.length + reviews.length + tickets.length + stuck.length + waits.length;
+  // Keeping them running and current (upkeep.ts).
+  const { rows: ups, live: upLive } = await myRows(env, me);
+  const { auto, dismissed } = await upkeepOf(env, me);
+  const stale = dismissed[`upd:${PLUGIN_VERSION}`] ? [] : staleAgents(ups, upLive, true);
+  const frozen = frozenAgents(ups, upLive).filter((r) => (dismissed[`frozen:${r.session_id}`] ?? -1) < Math.max(r.active_at ?? 0, r.state_at ?? 0));
+  const exited = exitedAgents(ups, upLive).filter((r) => (dismissed[`exited:${r.session_id}`] ?? -1) < r.last_seen);
+  const full = fullAgents(ups, upLive).filter((r) => (dismissed[`full:${r.session_id}`] ?? -1) < Math.floor((r.ctx_pct ?? 0) / 5) * 5);
+  const upkeepCards = [...exited.map((r) => exitedCard(r, me, back)), ...frozen.map((r) => frozenCard(r, me, back)), ...full.map((r) => fullCard(r, me, back)), ...(stale.length ? [updatesCard(stale, me, back, auto)] : [])];
+  if (!pending.length && !reviews.length && !tickets.length && !stuck.length && !waits.length && !upkeepCards.length) return `<div id="asks" data-region hidden></div>`;
+  const n = pending.length + reviews.length + tickets.length + stuck.length + waits.length + upkeepCards.length;
   const agents = reviews.length || stuck.length ? await onlineAgents(env, me) : [];
   const names = [...new Set(agents.map((a) => a.label))];
   const now = Date.now();
@@ -181,7 +237,7 @@ export async function asksDock(env: Env, me: string, back: string): Promise<stri
       <div class="askhd"><span class="askdot"></span><b>Waiting for you</b><span class="badge amber">${n}</span><span class="grow"></span><span class="small muted askor">or answer in the terminal</span><button type="button" class="btn ghost xs askpush" data-pushon hidden title="Get a notification on this device when something is waiting for you">${icon("bell", 13)}Notify me</button><button type="button" class="btn ghost xs icon" data-askstoggle title="Minimize">${icon("chevron", 14)}</button></div>
       <div class="asklist">${pending.map((p) => card(p, me, back, now, screens)).join("")}${waits.map((w) => waitCard(w, me)).join("")}${reviews
         .map((r) => reviewCard(r, me, back, agentOnline(env, r, agents), names.filter((l) => l !== r.label)))
-        .join("")}${tickets.map((t) => ticketCard(t, me, back)).join("")}${stuck.map((st) => stuckCard(st, me, back, agents)).join("")}</div>
+        .join("")}${tickets.map((t) => ticketCard(t, me, back)).join("")}${stuck.map((st) => stuckCard(st, me, back, agents)).join("")}${upkeepCards.join("")}</div>
     </div>
   </section>`;
 }

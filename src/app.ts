@@ -1,6 +1,7 @@
 import { recordsBrief } from "./records";
 import { saveWorkSettings, workCsv } from "./work";
 import { dismissStuck, moveStuck, releaseSenders, wakeStuck } from "./stuck";
+import { compactAgent, dismiss, restartAgent, setAuto, updateIdle } from "./upkeep";
 import { KEY_NAMES, type ScreenQuery, askScreen, drawScreen, screenReply, sendNow, stopAgent } from "./screen";
 import { answerBtw, pendingBtw } from "./btw";
 import { getAttachment, isImage, readImage, readable } from "./attachments";
@@ -724,6 +725,30 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
         });
         u.searchParams.set("ok", await decideReview(env, me, id, { outcome: field("outcome") as Outcome, findings, note: field("note").trim().slice(0, 500) }));
       }
+    } catch (e) {
+      if (!(e instanceof UserError)) throw e;
+      u.searchParams.set("err", e.message);
+    }
+    return redirect(u.pathname + u.search);
+  }
+  if (url.pathname === "/upkeep" && req.method === "POST") {
+    // Keeping your agents running and current (upkeep.ts), from its cards in Waiting for you.
+    if (!sameOrigin(req)) return new Response("Cross-origin request refused", { status: 403 });
+    const form = await req.formData();
+    const u = new URL(localPath(form.get("back"), "/dashboard?view=agents"), url);
+    const f = (k: string) => String(form.get(k) ?? "");
+    try {
+      if (env.authKind !== "web") throw new UserError("Only from your dashboard.");
+      const op = f("op");
+      let ok: string;
+      if (op === "update") {
+        const done = await updateIdle(env, me, "from the dashboard");
+        ok = done.length ? done.join(" · ") : "Nothing to update";
+      } else if (op === "auto-on" || op === "auto-off") ok = await setAuto(env, me, op === "auto-on");
+      else if (op === "restart") ok = await restartAgent(env, me, f("session"));
+      else if (op === "compact") ok = await compactAgent(env, me, f("session"));
+      else ok = await dismiss(env, me, f("key"), Number(f("value")) || 1);
+      u.searchParams.set("ok", ok);
     } catch (e) {
       if (!(e instanceof UserError)) throw e;
       u.searchParams.set("err", e.message);

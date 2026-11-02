@@ -15,7 +15,17 @@ export interface ScreenData {
   via?: string;
 }
 
-export type ScreenQuery = { op: "capture"; history?: number } | { op: "keys"; keys?: string[]; text?: string; enter?: boolean; after?: string[]; history?: number };
+export type ScreenQuery = { op: "capture"; history?: number; pane?: string } | { op: "keys"; keys?: string[]; text?: string; enter?: boolean; after?: string[]; history?: number; pane?: string };
+
+/** An agent on a machine, as another agent there sees it (code.mjs agentPanes). */
+export interface AgentPane {
+  session: string;
+  pane: string | null;
+  paneIsAgent: boolean;
+  current: string;
+  launch: string;
+  version: string;
+}
 
 /** The keys the dashboard and Claude.ai can send, with how they're shown. */
 export const KEY_NAMES: Record<string, string> = {
@@ -39,7 +49,7 @@ export const KEY_NAMES: Record<string, string> = {
 };
 
 const WAIT_MS = 12_000;
-type Reply = { data: ScreenData } | { error: string };
+type Reply = { data: ScreenData & { panes?: AgentPane[] } } | { error: string };
 const waiting = new Map<string, { member: string; done: (r: Reply) => void }>();
 
 interface Target {
@@ -65,10 +75,24 @@ export async function screenTarget(env: Env, me: string, label: string): Promise
 export async function askScreen(env: Env, me: string, label: string, q: ScreenQuery): Promise<ScreenData> {
   const s = await screenTarget(env, me, label);
   if (q.op === "keys" && s.screen !== "keys") throw new UserError(`Sending keys to ${label} is turned off on its machine (INTERCOM_KEYS=0).`);
+  return askSession(env, me, s, q, { label, by: env.authKind === "connector" ? "from Claude.ai" : "from the dashboard" });
+}
+
+/**
+ * The request itself, to the session `via` (its own pane, or with q.pane another pane on its machine). Keys sent are
+ * noted in the activity of the session they went to (`target`, when another than `via`).
+ */
+export async function askSession(
+  env: Env,
+  me: string,
+  via: { session_id: string; label: string },
+  q: ScreenQuery | { op: "panes" },
+  note: { label: string; by: string; target?: string },
+): Promise<ScreenData & { panes?: AgentPane[] }> {
   if (!env.askScreen) throw new UserError("The screen isn't available here.");
   const req = crypto.randomUUID();
   const reply = new Promise<Reply>((resolve) => {
-    const timer = setTimeout(() => done({ error: `${label} didn't answer within ${WAIT_MS / 1000} seconds.` }), WAIT_MS);
+    const timer = setTimeout(() => done({ error: `${note.label} didn't answer within ${WAIT_MS / 1000} seconds.` }), WAIT_MS);
     const done = (r: Reply) => {
       clearTimeout(timer);
       waiting.delete(req);
@@ -76,16 +100,16 @@ export async function askScreen(env: Env, me: string, label: string, q: ScreenQu
     };
     waiting.set(req, { member: me, done });
   });
-  if (!env.askScreen(me, s.session_id, req, q)) waiting.get(req)?.done({ error: `${label} isn't connected right now.` });
+  if (!env.askScreen(me, via.session_id, req, q)) waiting.get(req)?.done({ error: `${via.label} isn't connected right now.` });
   const r = await reply;
   if ("error" in r) throw new UserError(r.error);
   if (q.op === "keys") {
     const what = [...(q.keys ?? []).map((k) => KEY_NAMES[k] ?? k), q.text ? `typed “${q.text.slice(0, 120)}”` : "", q.enter && q.text ? "Enter" : "", q.after?.length ? q.after.map((k) => KEY_NAMES[k] ?? k).join(" ") : ""].filter(Boolean).join(", ");
     await env.DB.prepare("INSERT INTO activity (member, session_id, at, kind, text) VALUES (?, ?, ?, 'keys', ?)")
-      .bind(me, s.session_id, Date.now(), `you sent keys${env.authKind === "connector" ? " from Claude.ai" : " from the dashboard"}: ${what}`)
+      .bind(me, note.target ?? via.session_id, Date.now(), `${note.by.startsWith("by itself") ? "intercom sent keys" : "you sent keys"} ${note.by}${note.target && note.target !== via.session_id ? ` (through ${via.label})` : ""}: ${what}`)
       .run();
   }
-  return { ...r.data, via: s.label };
+  return { ...r.data, via: via.label };
 }
 
 /** A local server's answer to a screen request. */
@@ -94,8 +118,18 @@ export function screenReply(me: string, body: { req?: unknown; data?: unknown; e
   if (!w || w.member !== me) return false;
   if (typeof body.error === "string") w.done({ error: body.error.slice(0, 300) });
   else if (body.data && typeof body.data === "object" && typeof (body.data as ScreenData).text === "string") {
-    const d = body.data as ScreenData;
-    w.done({ data: { text: d.text.slice(0, 400_000), cols: Number(d.cols) || 0, rows: Number(d.rows) || 0, cursor: Array.isArray(d.cursor) ? [Number(d.cursor[0]), Number(d.cursor[1])] : null, keys: !!d.keys } });
+    const d = body.data as ScreenData & { panes?: unknown };
+    const panes = Array.isArray(d.panes)
+      ? (d.panes as Record<string, unknown>[]).slice(0, 100).map((p) => ({
+          session: String(p.session ?? ""),
+          pane: typeof p.pane === "string" && /^%\d+$/.test(p.pane) ? p.pane : null,
+          paneIsAgent: !!p.paneIsAgent,
+          current: String(p.current ?? "").slice(0, 60),
+          launch: String(p.launch ?? "").slice(0, 500),
+          version: String(p.version ?? "").slice(0, 20),
+        }))
+      : undefined;
+    w.done({ data: { text: d.text.slice(0, 400_000), cols: Number(d.cols) || 0, rows: Number(d.rows) || 0, cursor: Array.isArray(d.cursor) ? [Number(d.cursor[0]), Number(d.cursor[1])] : null, keys: !!d.keys, ...(panes ? { panes } : {}) } });
   } else w.done({ error: "The agent sent an empty answer." });
   return true;
 }

@@ -346,6 +346,13 @@ export async function findPane(env = process.env, ppid = process.ppid) {
  * line of text (typed literally, then Enter if asked), then capture what it looks like after.
  */
 export async function screenRequest(q, { pane, keysOn = true } = {}) {
+  // Another agent's pane on this machine (one whose own intercom can't take keys, or that exited): its owner asks
+  // through this one. Only a pane id; tmux refuses anything that isn't a pane of this machine's tmux.
+  if (q.pane !== undefined) {
+    if (typeof q.pane !== "string" || !/^%\d+$/.test(q.pane)) throw new Error("Not a tmux pane.");
+    pane = q.pane;
+  }
+  if (q.op === "panes") return { text: "", cols: 0, rows: 0, cursor: null, keys: keysOn, panes: await agentPanes() };
   if (!pane) throw new Error("This session isn't running in tmux, so its screen can't be seen from here.");
   if (q.op === "keys") {
     if (!keysOn) throw new Error("Sending keys is turned off on that machine (INTERCOM_KEYS=0 in its intercom config).");
@@ -377,4 +384,72 @@ export async function screenRequest(q, { pane, keysOn = true } = {}) {
   const info = await tmux(["display-message", "-p", "-t", pane, "#{pane_width} #{pane_height} #{cursor_x} #{cursor_y}"]);
   const [cols, rows, cx, cy] = (info.out ?? "").trim().split(" ").map(Number);
   return { text: cap.out.replace(/\n+$/, "\n"), cols: cols || 0, rows: rows || 0, cursor: Number.isFinite(cx) ? [cx, cy + history] : null, keys: keysOn };
+}
+
+// ---- the agents on this machine: which tmux pane each runs in and how it was started ----
+// For keeping them up to date and restarting one that exited, from another agent on the same machine (an agent whose
+// own intercom is too old to take keys, or that's gone). Found through the intercom servers running here: each is a
+// child of its agent and carries its session in its environment.
+
+const sh = (cmd, args) =>
+  new Promise((resolve) => execFile(cmd, args, { encoding: "utf8", timeout: 4000, maxBuffer: 4 * 1024 * 1024 }, (err, out) => resolve(err ? "" : out)));
+
+async function envOf(pid) {
+  try {
+    return Object.fromEntries(
+      fs
+        .readFileSync(`/proc/${pid}/environ`, "utf8")
+        .split("\0")
+        .map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1)]),
+    );
+  } catch {
+    // macOS: ps shows a process's environment after its command (only for your own processes).
+    const out = await sh("ps", ["eww", "-o", "command=", "-p", String(pid)]);
+    return Object.fromEntries([...out.matchAll(/(?:^|\s)(CLAUDE_CODE_SESSION_ID|TMUX_PANE|TMUX)=(\S+)/g)].map((m) => [m[1], m[2]]));
+  }
+}
+
+/** Every agent on this machine that runs an intercom server: its session, pane (if in tmux), command line and intercom version. */
+export async function agentPanes() {
+  const ps = await sh("ps", ["-eo", "pid=,ppid=,args="]);
+  const procs = ps
+    .split("\n")
+    .map((l) => l.trim().match(/^(\d+)\s+(\d+)\s+(.*)$/))
+    .filter(Boolean)
+    .map((m) => ({ pid: Number(m[1]), ppid: Number(m[2]), args: m[3] }));
+  const byPid = new Map(procs.map((p) => [p.pid, p]));
+  const panesOut = await sh("tmux", ["list-panes", "-a", "-F", "#{pane_id} #{pane_pid} #{pane_current_command}"]);
+  const panes = new Map(
+    panesOut
+      .trim()
+      .split("\n")
+      .filter(Boolean)
+      .map((l) => l.split(" "))
+      .map(([id, pid, cmd]) => [Number(pid), { id, cmd }]),
+  );
+  const current = new Map([...panes.values()].map((p) => [p.id, p.cmd]));
+  const out = [];
+  for (const p of procs.filter((x) => /intercom-channel\.mjs/.test(x.args))) {
+    const env = await envOf(p.pid);
+    const session = env.CLAUDE_CODE_SESSION_ID;
+    if (!session) continue; // Codex sessions say where they are themselves
+    let pane = /^%\d+$/.test(env.TMUX_PANE ?? "") ? env.TMUX_PANE : null;
+    for (let pid = p.ppid, i = 0; !pane && pid > 1 && i < 25; i++, pid = byPid.get(pid)?.ppid ?? 0) if (panes.has(pid)) pane = panes.get(pid).id;
+    const agent = byPid.get(p.ppid);
+    out.push({
+      session,
+      pane,
+      // The pane's own program is the agent (exiting it closes the pane), or a shell runs it.
+      paneIsAgent: !!pane && [...panes.entries()].some(([pid, x]) => x.id === pane && pid === p.ppid),
+      current: pane ? current.get(pane) ?? "" : "",
+      launch: (agent?.args ?? "").slice(0, 500),
+      version: p.args.match(/intercom\/([\d.]+)\/intercom-channel/)?.[1] ?? "",
+    });
+  }
+  return out;
+}
+
+/** What the agent this server belongs to was started with: its command line. */
+export async function launchOf(pid = process.ppid) {
+  return (await sh("ps", ["-o", "args=", "-p", String(pid)])).trim().slice(0, 500);
 }

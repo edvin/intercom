@@ -20,7 +20,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const VERSION = "0.12.33"; // kept in step with .claude-plugin/plugin.json (a test checks)
+const VERSION = "0.12.34"; // kept in step with .claude-plugin/plugin.json (a test checks)
 const DIR = path.join(os.homedir(), ".claude", "intercom");
 const CONFIG = path.join(DIR, "config");
 function readConf() {
@@ -916,10 +916,15 @@ function startChannel() {
   refreshSession();
   // Which tmux pane we run in (if any), so the hub knows the screen can be seen and typed into.
   import("./code.mjs")
-    .then((m) => m.findPane?.())
-    .then((p) => {
-      PANE = p ?? null;
-      if (PANE && screenOn()) headers["x-intercom-screen"] = keysOn() ? "keys" : "view";
+    .then(async (m) => {
+      PANE = (await m.findPane?.()) ?? null;
+      if (PANE && screenOn()) {
+        headers["x-intercom-screen"] = keysOn() ? "keys" : "view";
+        headers["x-intercom-pane"] = PANE;
+      }
+      // How this agent was started, so its owner can restart it the same way (resumed by its session).
+      const launch = await m.launchOf?.();
+      if (launch) headers["x-intercom-launch"] = encodeURIComponent(launch);
     })
     .catch(() => {})
     .finally(connect);

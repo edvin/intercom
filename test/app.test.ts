@@ -3140,3 +3140,84 @@ describe("an agent's screen", () => {
   });
 });
 
+describe("keeping agents running and current", () => {
+  const setup = async () => {
+    const w = await standardWorld();
+    for (const [id, name] of [["up1", "core"], ["up2", "triage"]] as const) await w.request(`/api/hook?event=SessionStart&project=billing-api&session=${id}&name=${name}`, { as: "bob" });
+    // triage is current and can reach other panes on vms01; core runs an old intercom there.
+    await w.db.prepare("UPDATE sessions SET host = 'vms01', version = ?, screen = 'keys', pane = '%2' WHERE session_id = 'up2'").bind(PLUGIN_VERSION).run();
+    await w.db.prepare("UPDATE sessions SET host = 'vms01', version = '0.12.6', state = 'idle', launch = 'claude --dangerously-skip-permissions --resume up1' WHERE session_id = 'up1'").run();
+    return w;
+  };
+  /** Do `go`, answering each request it makes through `answer` (by query), as triage's machine would. */
+  const machine = async <T>(w: World, go: () => Promise<T>, answer: (q: Record<string, unknown>) => object) => {
+    const seen: Record<string, unknown>[] = [];
+    let done = false;
+    const p = go().finally(() => (done = true));
+    let n = w.screenAsked.length;
+    while (!done) {
+      while (w.screenAsked.length > n) {
+        const ask = w.screenAsked[n++]!;
+        seen.push(ask.q);
+        await w.request("/api/screen-reply", { as: ask.member, method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ req: ask.req, data: { cols: 80, rows: 24, cursor: null, keys: true, ...answer(ask.q) } }) });
+      }
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    return { result: await p, seen };
+  };
+  const page = async (w: World) => (await w.request("/dashboard?view=agents", { as: "bob", cookie: true })).text();
+  const ok = (r: Response) => new URL(r.headers.get("location")!, ORIGIN).searchParams.get("ok") ?? new URL(r.headers.get("location")!, ORIGIN).searchParams.get("err");
+
+  test("an old agent is updated in place through another on its machine: /reload-plugins, or /restart when Claude Code waits for one", async () => {
+    const w = await setup();
+    assert.match(await page(w), /<article class="ask k-upkeep" data-mid="upd">[\s\S]*1 of your agents runs an older intercom[\s\S]*<b>core<\/b> <span class="muted">intercom 0\.12\.6 · vms01/);
+    const answer = (q: Record<string, unknown>) =>
+      q.op === "panes" ? { text: "", panes: [{ session: "up1", pane: "%5", paneIsAgent: false, current: "claude", launch: "claude", version: "0.12.6" }] } : { text: "❯ \n  ⏵⏵ bypass permissions on\n" };
+    const { result, seen } = await machine(w, () => w.form("/upkeep", "bob", { op: "update", back: "/dashboard" }), answer);
+    assert.equal(ok(result), `core: /reload-plugins (intercom 0.12.6 → ${PLUGIN_VERSION})`);
+    assert.deepEqual(seen, [{ op: "panes" }, { op: "capture", pane: "%5" }, { op: "keys", text: "/reload-plugins", enter: true, pane: "%5" }]);
+    const act = await w.db.prepare("SELECT text FROM activity WHERE session_id = 'up1' AND kind = 'keys'").first<{ text: string }>();
+    assert.equal(act!.text, "you sent keys from the dashboard (through triage): typed “/reload-plugins”, Enter");
+    // Claude Code has an update waiting: /restart.
+    const cli = (q: Record<string, unknown>) => (q.op === "panes" ? answer(q) : { text: "✔ Update installed · /restart to apply\n❯ \n" });
+    const { result: r2, seen: s2 } = await machine(w, () => w.form("/upkeep", "bob", { op: "update", back: "/dashboard" }), cli);
+    assert.match(ok(r2)!, /core: \/restart \(a Claude Code update was waiting\)/);
+    assert.deepEqual(s2[2], { op: "keys", text: "/restart", enter: true, pane: "%5" });
+    // A busy one is left alone; automatic updates can be turned on.
+    await w.db.prepare("UPDATE sessions SET state = 'working' WHERE session_id = 'up1'").run();
+    assert.equal(ok(await w.form("/upkeep", "bob", { op: "update", back: "/dashboard" })), "core: busy, left alone");
+    assert.equal(ok(await w.form("/upkeep", "bob", { op: "auto-on", back: "/dashboard" })), "Your idle agents update by themselves now");
+    assert.match(await page(w), /Stop updating them by themselves/);
+  });
+
+  test("one that stopped without ending is restarted in its pane, resumed by its session id; one frozen or nearly full gets a card", async () => {
+    const w = await setup();
+    await w.db.prepare("UPDATE sessions SET last_seen = ?, pane = '%5' WHERE session_id = 'up1'").bind(Date.now() - 15 * 60_000).run();
+    assert.match(await page(w), /<article class="ask k-stuck" data-mid="xup1">[\s\S]*core stopped 15m ago without ending its session/);
+    const shell = (q: Record<string, unknown>) => ({ text: q.op === "capture" ? "Resume this session with:\nclaude --resume up1\nedvin@vms01:~/projects/billing$ " : "" });
+    const { result, seen } = await machine(w, () => w.form("/upkeep", "bob", { op: "restart", session: "up1", back: "/dashboard" }), shell);
+    assert.equal(ok(result), "Restarting core in its pane: claude --dangerously-skip-permissions --resume up1");
+    assert.deepEqual(seen, [{ op: "capture", pane: "%5" }, { op: "keys", text: "claude --dangerously-skip-permissions --resume up1", enter: true, pane: "%5" }]);
+    // Not when the pane isn't at a shell prompt.
+    const busy = (q: Record<string, unknown>) => ({ text: q.op === "capture" ? "Compiling…\n[####      ] 40%" : "" });
+    assert.match(ok((await machine(w, () => w.form("/upkeep", "bob", { op: "restart", session: "up1", back: "/dashboard" }), busy)).result)!, /doesn't show a shell prompt/);
+    // Leave it: the card goes.
+    await w.form("/upkeep", "bob", { op: "dismiss", key: "exited:up1", value: String(Date.now()), back: "/dashboard" });
+    assert.doesNotMatch(await page(w), /data-mid="xup1"/);
+    // Working for half an hour with nothing new; context 90%.
+    await w.db.prepare("UPDATE sessions SET last_seen = ?, state = 'working', state_at = ?, active_at = ?, ctx_pct = 90 WHERE session_id = 'up2'").bind(Date.now(), Date.now() - 30 * 60_000, Date.now() - 30 * 60_000).run();
+    const dash = await page(w);
+    assert.match(dash, /data-mid="fup2"[\s\S]*triage has been working for 30m with nothing new/);
+    assert.match(dash, /data-mid="cup2"[\s\S]*triage(?:'|&#39;)s context is 90% full/);
+  });
+
+  test("the resume command keeps how it was started, never --continue", async () => {
+    const { resumeCommand } = await import("../src/upkeep.ts");
+    assert.equal(resumeCommand({ launch: "claude --dangerously-skip-permissions --resume old-id", session_id: "new-id", client: "claude" }), "claude --dangerously-skip-permissions --resume new-id");
+    assert.equal(resumeCommand({ launch: "/home/x/.local/bin/claude -c --model opus", session_id: "s1", client: "claude" }), "/home/x/.local/bin/claude --model opus --resume s1");
+    assert.equal(resumeCommand({ launch: "claude --dangerously-load-development-channels plugin:intercom@intercom", session_id: "s1", client: "claude" }), "INTERCOM_CHANNEL=1 claude --dangerously-load-development-channels plugin:intercom@intercom --resume s1");
+    assert.equal(resumeCommand({ launch: "node /usr/lib/codex", session_id: "019e-abc", client: "codex" }), "codex resume 019e-abc");
+    assert.throws(() => resumeCommand({ launch: "claude; rm -rf ~", session_id: "s1", client: "claude" }), /shell characters/);
+  });
+});
+

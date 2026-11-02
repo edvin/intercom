@@ -51,6 +51,8 @@ import m0042 from "../migrations/0042_review_mr.sql";
 import m0043 from "../migrations/0043_work.sql";
 import m0044 from "../migrations/0044_stuck.sql";
 import m0045 from "../migrations/0045_screen.sql";
+import m0046 from "../migrations/0046_upkeep.sql";
+import { upkeepTick } from "./upkeep";
 
 /** A short fingerprint of the MCP tools (names, descriptions, schemas) this code offers. */
 const TOOLS_TAG = (() => {
@@ -105,6 +107,7 @@ const MIGRATIONS: [string, string][] = [
   ["0043_work", m0043],
   ["0044_stuck", m0044],
   ["0045_screen", m0045],
+  ["0046_upkeep", m0046],
 ];
 
 const DAY = 86400_000;
@@ -167,11 +170,18 @@ export class TeamHub extends DurableObject<WorkerEnv> {
       await this.ctx.storage.put("prune_at", pruneAt);
     }
     const next = await sendDuePushes(this.appEnv(), now);
-    await this.ctx.storage.setAlarm(Math.min(pruneAt, next ?? Infinity));
+    // Idle agents of those who asked for it are updated in place (upkeep.ts), every 20 minutes.
+    let upkeepAt = (await this.ctx.storage.get<number>("upkeep_at")) ?? 0;
+    if (now >= upkeepAt) {
+      upkeepAt = (await upkeepTick(this.appEnv())) ?? now + DAY;
+      await this.ctx.storage.put("upkeep_at", upkeepAt);
+    }
+    await this.ctx.storage.setAlarm(Math.min(pruneAt, upkeepAt, next ?? Infinity));
   }
 
-  /** Have the alarm go off by `at`, if it isn't due sooner already. */
+  /** Have the alarm go off by `at`, if it isn't due sooner already (and the upkeep with it). */
   private async wake(at: number): Promise<void> {
+    if ((((await this.ctx.storage.get<number>("upkeep_at")) ?? 0) > at)) await this.ctx.storage.put("upkeep_at", at);
     const cur = await this.ctx.storage.getAlarm();
     if (cur === null || at < cur) await this.ctx.storage.setAlarm(at);
   }
@@ -229,7 +239,14 @@ export class TeamHub extends DurableObject<WorkerEnv> {
     await setVersion(env, me, sessionId, req.headers.get("x-intercom-version"));
     // Its screen (a tmux pane) can be seen and typed into by its owner, if its machine allows (screen.ts).
     const screen = req.headers.get("x-intercom-screen");
-    await env.DB.prepare("UPDATE sessions SET screen = ? WHERE member = ? AND session_id = ?").bind(screen === "keys" || screen === "view" ? screen : "", me, sessionId).run();
+    const pane = req.headers.get("x-intercom-pane") ?? "";
+    let launch = "";
+    try {
+      launch = decodeURIComponent(req.headers.get("x-intercom-launch") ?? "").slice(0, 500);
+    } catch {}
+    await env.DB.prepare("UPDATE sessions SET screen = ?, pane = ?, launch = ? WHERE member = ? AND session_id = ?")
+      .bind(screen === "keys" || screen === "view" ? screen : "", /^%\d+$/.test(pane) ? pane : "", launch, me, sessionId)
+      .run();
     const mode = req.headers.get("x-intercom-mode") === "peek" ? "peek" : "push";
 
     const [client, server] = Object.values(new WebSocketPair());
