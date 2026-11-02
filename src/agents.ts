@@ -9,7 +9,7 @@ import { pendingTickets } from "./tickets";
 import { AUTO_UPDATE_SINCE, PLUGIN_VERSION, outdated } from "./version";
 import { activeLoops, describe, parseLoops } from "./loops";
 import { activeJobs, duration, jobName, parseJobs } from "./jobs";
-import { BTW_TIMEOUT, NO_MOD, btwFor, modAnswers } from "./btw";
+import { BTW_TIMEOUT, NO_MOD, btwFor, compactable, modAnswers } from "./btw";
 import { type Activity, type Env, type Message, DELEGATE_PER_HOUR, LIVE, address, ago, deliveryMarks, short, hostNames, myProjects } from "./lib";
 import { agentAvatar, agentHue, agentLink, agentName, avatar, deliveryMark, esc, hidden, icon, md, plainSpaces, time } from "./ui";
 
@@ -376,8 +376,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   const ownAgent = agent.member === me;
   const canBtw = ownAgent && agent.client !== "codex";
   // Compact from the dashboard: the session's intercom-ui mod runs it when its turn ends (Claude Code only).
-  const [ma = 0, mb = 0, mc = 0] = (agent.ui_version || "0").split(".").map(Number);
-  const canCompact = canBtw && isOn(agent) && modAnswers(agent) && ma * 1e6 + mb * 1e3 + mc >= 2008; // intercom-ui 0.2.8
+  const canCompact = ownAgent && !compactable(agent, isOn(agent));
   const here = `/dashboard?view=agents&agent=${encodeURIComponent(key(agent))}`;
   const compactCtl = !canCompact
     ? ""

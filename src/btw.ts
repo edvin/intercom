@@ -22,6 +22,16 @@ export const BTW_TIMEOUT = 10 * 60_000;
 const MOD_GONE = 3 * 60_000; // the mod polls every few seconds; quiet this long, it isn't there
 
 /** Whether a session's intercom-ui mod is polling, and new enough to answer side questions (0.2.4; older polls had no version). */
+/** Whether a session can be compacted from outside its terminal: a Claude Code session whose intercom-ui mod (0.2.8+) is running; else why not. */
+export function compactable(s: { client?: string | null; ui_at?: number | null; ui_version?: string | null; label: string }, on: boolean): string {
+  if (s.client === "codex") return `${s.label} is a Codex session: compacting from outside its terminal works for Claude Code sessions only. Type /compact in its terminal.`;
+  if (!on) return `${s.label} isn't connected, so there's nothing to compact now.`;
+  const [a = 0, b = 0, c = 0] = (s.ui_version || "0").split(".").map(Number);
+  if (!modAnswers({ ui_at: s.ui_at, ui_version: s.ui_version ?? "" }) || a * 1e6 + b * 1e3 + c < 2008)
+    return `${s.label} can't be compacted from here: its intercom-ui mod (0.2.8 or newer) isn't running. Type /compact in its terminal, or run /intercom:update there.`;
+  return "";
+}
+
 export function modAnswers(s: { ui_at?: number | null; ui_version?: string }): boolean {
   if (!s.ui_at || Date.now() - s.ui_at > MOD_GONE) return false;
   const [a = 0, b = 0, c = 0] = (s.ui_version || "0.2.4").split(".").map(Number);

@@ -2661,11 +2661,11 @@ describe("Claude.ai connector", () => {
     // Refused elsewhere: not the plugin's tools, not the dashboard. Added with /mcp, Claude gets the connector there.
     const viaMcp = await w.request("/mcp", { method: "POST", headers: { authorization: `Bearer ${access_token}`, "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }) });
     const mcpNames = ((await viaMcp.json()) as { result: { tools: { name: string }[] } }).result.tools.map((t) => t.name);
-    assert.deepEqual(mcpNames, ["agents", "agent_status", "ask", "conversation", "locks", "decisions", "proposals", "handoffs"]);
+    assert.deepEqual(mcpNames, ["agents", "agent_status", "ask", "compact", "conversation", "locks", "decisions", "proposals", "handoffs"]);
     assert.equal((await w.request("/mcp", { method: "POST", headers: { authorization: "Bearer nope" }, body: "{}" })).status, 401);
     assert.equal((await w.request("/api/whoami", { headers: { authorization: `Bearer ${access_token}` } })).status, 401);
     const names = (await rpc(w, access_token, "tools/list")).body.result.tools.map((t: { name: string }) => t.name);
-    assert.deepEqual(names, ["agents", "agent_status", "ask", "conversation", "locks", "decisions", "proposals", "handoffs"]);
+    assert.deepEqual(names, ["agents", "agent_status", "ask", "compact", "conversation", "locks", "decisions", "proposals", "handoffs"]);
     assert.equal((await rpc(w, access_token, "tools/call", { name: "invite", arguments: {} })).body.error.code, -32602);
     const ask = (await rpc(w, access_token, "tools/list")).body.result.tools.find((t: { name: string }) => t.name === "ask");
     assert.equal(ask.annotations.destructiveHint, true);
@@ -2716,6 +2716,28 @@ describe("Claude.ai connector", () => {
     assert.equal((await prune(w.env(), undefined, Date.now() + 29 * 86400_000)).connectors, 0);
     assert.equal((await prune(w.env(), undefined, Date.now() + 31 * 86400_000)).connectors, 1);
     assert.equal((await rpc(w, t, "tools/list")).status, 401);
+  });
+
+  test("compacts an agent when its turn ends, like the dashboard's button; not a Codex session or one without the mod", async () => {
+    const w = await standardWorld();
+    const { client_id, params, verifier } = await connect(w);
+    const code = new URL((await w.form("/oauth/authorize", "bob", { ...params, action: "allow" })).headers.get("location")!).searchParams.get("code")!;
+    const { access_token: t } = (await (await w.request("/oauth/token", { method: "POST", body: new URLSearchParams({ grant_type: "authorization_code", code, client_id, redirect_uri: params.redirect_uri, code_verifier: verifier }) })).json()) as { access_token: string };
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=c1&name=fabricate-kernel", { as: "bob" });
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=c2&name=alder&client=codex", { as: "bob" });
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=c3&name=docs", { as: "bob" });
+    await w.db.prepare("UPDATE sessions SET ui_at = ?, ui_version = '0.2.10', ctx_pct = 82 WHERE session_id = 'c1'").bind(Date.now()).run();
+    await w.db.prepare("UPDATE sessions SET client = 'codex' WHERE session_id = 'c2'").run();
+
+    assert.match((await rpc(w, t, "tools/list")).body.result.tools.map((x: { name: string }) => x.name).join(","), /compact/);
+    assert.match(await call(w, t, "compact", { agent: "kernel", instructions: "keep the failing test list" }), /^fabricate-kernel will compact in a moment \(it's idle\); its context is 82% full now, keeping: keep the failing test list\./);
+    // The session's mod picks it up, as from the dashboard.
+    const ui = (await (await w.request("/api/ui?project=billing-api&session=c1&mod=0.2.10", { as: "bob" })).json()) as { compact: { instructions: string } | null };
+    assert.equal(ui.compact?.instructions, "keep the failing test list");
+    assert.match(await call(w, t, "compact", { agent: "kernel", cancel: true }), /Called off: fabricate-kernel won't be compacted\./);
+    assert.match(await call(w, t, "compact", { agent: "kernel", cancel: true }), /has no compaction waiting/);
+    assert.match(await call(w, t, "compact", { agent: "alder" }), /alder is a Codex session: .*Type \/compact in its terminal\./);
+    assert.match(await call(w, t, "compact", { agent: "docs" }), /docs can't be compacted from here: its intercom-ui mod \(0\.2\.8 or newer\) isn't running/);
   });
 });
 
