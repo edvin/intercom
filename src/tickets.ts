@@ -14,6 +14,9 @@ export type TicketOutcome = keyof typeof TICKET_OUTCOMES;
 const RECOMMEND = ["go", "park", "decline"] as const;
 
 /** The card is short (a phone, between other things); the ticket's own text may be long, it's read in a view of its own. */
+/** An option that is really an outcome (park it, decline, go ahead, don't do it). */
+export const OUTCOME_LIKE = /\b(park(ed)?|declin(e|ed)|go ahead|(don't|do not|won't|will not) (do|fix|start)|skip (it|this|the ticket)|close (it|this|the ticket))\b/i;
+
 export const TLIMITS = {
   key: 40,
   title: 200,
@@ -161,6 +164,12 @@ export async function openTicket(env: Env, me: string, a: Record<string, unknown
     question: text(q.question, `question ${i + 1}`, TLIMITS.question, true),
     options: (Array.isArray(q.options) ? q.options : []).slice(0, TLIMITS.options).map((o, j) => text(o, `question ${i + 1}'s option ${j + 1}`, TLIMITS.option, true)),
   }));
+  // Whether to do the ticket at all is the decision itself, always there to pick (Go, Go with changes, Park, Decline):
+  // a question offering it too would ask the same thing twice.
+  for (const [i, q] of questions.entries()) {
+    const o = q.options.find((x) => OUTCOME_LIKE.test(x));
+    if (o) throw new UserError(`Question ${i + 1} offers "${o}", but whether to do the ticket is the decision itself: your user always picks Go, Go with changes, Park or Decline. Ask only about how to do it (scope, approach, who to tell), or drop the question.`);
+  }
   let diffs = 0;
   const mrs = list(a.mrs, "MRs", TLIMITS.mrs).map((m, i) => {
     const diff = typeof m.diff === "string" ? m.diff.replace(/\r\n?/g, "\n") : "";

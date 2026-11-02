@@ -1714,6 +1714,8 @@ describe("tickets", () => {
     assert.match((await w.tool("bob", "ticket", { ...ticket, plan: "" }, triage)).text, /needs the proposed plan/);
     assert.match((await w.tool("bob", "ticket", { ...ticket, questions: Array(4).fill({ question: "?" }) }, triage)).text, /send at most 3/);
     assert.match((await w.tool("bob", "ticket", { ...ticket, url: "SHOP-12" }, triage)).text, /must be a web link/);
+    assert.match((await w.tool("bob", "ticket", { ...ticket, questions: [{ question: "Now or later?", options: ["Fix it now", "Just park it"] }] }, triage)).text, /Question 1 offers "Just park it", but whether to do the ticket is the decision itself/);
+    assert.match((await w.tool("bob", "ticket", { ...ticket, questions: [{ question: "Which first?", options: ["Don't fix it, close the ticket"] }] }, triage)).text, /offers "Don't fix it, close the ticket"/);
     assert.match((await w.tool("bob", "ticket", { ...ticket, mrs: [{ ...ticket.mrs[0], diff: "x".repeat(300_001) }] }, triage)).text, /diffs are over 300000/);
     assert.match((await w.tool("bob", "ticket", ticket)).text, /come from an agent session/);
   });

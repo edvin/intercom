@@ -598,7 +598,7 @@ export const tools: Tool[] = [
         questions: {
           type: "array",
           maxItems: TLIMITS.questions,
-          description: "Questions only your user can answer, if any; each may offer options to pick from (they can also type an answer).",
+          description: "Questions only your user can answer about how to do it (scope, approach, who to tell), if any; each may offer options to pick from (they can also type an answer). Never whether to do it: Go, Go with changes, Park and Decline are always there to pick, so an option like \"just park it\" is refused.",
           items: { type: "object", properties: { question: { type: "string" }, options: { type: "array", items: { type: "string" }, maxItems: TLIMITS.options } }, required: ["question"] },
         },
         mrs: {
