@@ -7,7 +7,7 @@
 // An agent too old to take keys, or that's gone, is reached through another of your agents on the same machine.
 
 import { compactable } from "./btw";
-import { type Env, GONE_MS, UserError, ago, liveIds } from "./lib";
+import { type Env, GONE_MS, UserError, ago, liveIds, postMessage } from "./lib";
 import { type AgentPane, type ScreenData, type ScreenQuery, askSession, plainScreen } from "./screen";
 import { PLUGIN_VERSION } from "./version";
 
@@ -35,6 +35,7 @@ export interface Row {
   launch: string;
   ctx_pct: number | null;
   compact_req: string | null;
+  compact_prep: string | null;
   ui_at: number | null;
   ui_version: string;
 }
@@ -49,7 +50,7 @@ const atLeast = (v: string, want: string) => v === want || newer(v, want);
 
 export async function myRows(env: Env, me: string): Promise<{ rows: Row[]; live: (r: Row) => boolean }> {
   const { results } = await env.DB.prepare(
-    `SELECT session_id, label, project, client, version, state, state_detail, state_at, active_at, last_seen, host, screen, pane, launch, ctx_pct, compact_req, ui_at, ui_version
+    `SELECT session_id, label, project, client, version, state, state_detail, state_at, active_at, last_seen, host, screen, pane, launch, ctx_pct, compact_req, compact_prep, ui_at, ui_version
      FROM sessions WHERE member = ? AND last_seen > ? ORDER BY last_seen DESC`,
   )
     .bind(me, Date.now() - 86_400_000)
@@ -176,25 +177,101 @@ export async function restartAgent(env: Env, me: string, sessionId: string): Pro
 // ---- context ----
 
 export function fullAgents(rows: Row[], live: (r: Row) => boolean): Row[] {
-  return rows.filter((r) => live(r) && (r.ctx_pct ?? 0) >= FULL_PCT && !r.compact_req);
+  return rows.filter((r) => live(r) && (r.ctx_pct ?? 0) >= FULL_PCT && !r.compact_req && !r.compact_prep);
 }
 
-/** Compact it: through its mod when it runs one (when its turn ends), else by typing /compact when it's idle. */
-export async function compactAgent(env: Env, me: string, sessionId: string): Promise<string> {
+const PREP_WAIT_MS = 10 * 60_000;
+
+/** What the agent is told before it's compacted. */
+export const prepText = (instructions: string) =>
+  `You'll be compacted when this turn ends: the conversation so far becomes a summary. Before that, save anything you'd lose: write notes or state you'll need into a file, log decisions and handoffs on the intercom, update your status note. Don't start new work. End your turn with one line starting "Keep:" that says what the summary must keep (the task, where you are, what's next).${instructions ? ` I also want the summary to keep: ${instructions}` : ""}`;
+
+/**
+ * Compact an agent. By default it's told first (prepText) and compacted when that turn ends, with what it says to keep;
+ * `rightAway` compacts at once (through its mod when its turn ends, or /compact typed when it's idle).
+ */
+export async function compactAgent(env: Env, me: string, sessionId: string, opts: { rightAway?: boolean; instructions?: string } = {}): Promise<string> {
   const { rows, live } = await myRows(env, me);
   const t = rows.find((r) => r.session_id === sessionId);
-  if (!t || !live(t)) throw new UserError("That agent isn't connected.");
-  if (!compactable(t, true)) {
-    await env.DB.prepare("UPDATE sessions SET compact_req = ? WHERE member = ? AND session_id = ?").bind(JSON.stringify({ id: crypto.randomUUID(), instructions: "" }), me, sessionId).run();
-    env.refreshWeb?.(me);
-    return `${t.label} compacts ${t.state === "working" ? "when its turn ends" : "now"}`;
+  if (!t) throw new UserError("No such agent of yours");
+  if (!live(t)) throw new UserError(`${t.label} isn't connected.`);
+  const instructions = (opts.instructions ?? "").replace(/[\r\n]+/g, " ").trim().slice(0, 500);
+  if (opts.rightAway) return finishCompact(env, me, t, instructions, rows, live);
+  // The mod (or the session's own hooks) gets this to it as from you; a Codex session between turns only reads it
+  // when a turn starts, so it's typed into its terminal instead.
+  const body = prepText(instructions);
+  let msg = 0;
+  if (t.client === "codex" && t.state !== "working") {
+    const at = await locate(env, me, t, rows, live);
+    if (!at) throw new UserError(`${t.label} can't be reached to tell it first: compact it right away, or in its terminal.`);
+    await ask(env, me, at, t, { op: "keys", text: body, enter: true }, "from the dashboard");
+  } else {
+    msg = await postMessage(env, { channel: t.project || "dm", sender: me, sender_agent: null, recipient: me, recipient_agent: t.label, body });
   }
-  if (t.state === "working") throw new UserError(`${t.label} is in the middle of a turn: compact it when it's idle.`);
+  await env.DB.prepare("UPDATE sessions SET compact_prep = ? WHERE member = ? AND session_id = ?").bind(JSON.stringify({ id: crypto.randomUUID(), msg, at: Date.now(), instructions }), me, sessionId).run();
+  await queueCompactCheck(env, me, sessionId, "timeout", Date.now() + PREP_WAIT_MS);
+  env.refreshWeb?.(me);
+  return `${t.label} was told to save its state; it's compacted when that turn ends (or in 10 minutes)`;
+}
+
+/** The compaction itself: through its mod when it runs one (when its turn ends), else /compact typed into its terminal. */
+async function finishCompact(env: Env, me: string, t: Row, instructions: string, rows?: Row[], live?: (r: Row) => boolean): Promise<string> {
+  await env.DB.prepare("UPDATE sessions SET compact_prep = NULL WHERE member = ? AND session_id = ?").bind(me, t.session_id).run();
+  if (!compactable(t, true)) {
+    await env.DB.prepare("UPDATE sessions SET compact_req = ? WHERE member = ? AND session_id = ?").bind(JSON.stringify({ id: crypto.randomUUID(), instructions }), me, t.session_id).run();
+    env.refreshWeb?.(me);
+    return `${t.label} compacts ${t.state === "working" ? "when its turn ends" : "now"}${instructions ? `, keeping: ${instructions}` : ""}`;
+  }
+  if (!rows || !live) ({ rows, live } = await myRows(env, me));
   const at = await locate(env, me, t, rows, live);
   if (!at) throw new UserError(`${t.label} can't be compacted from here: type /compact in its terminal.`);
-  await ask(env, me, at, t, { op: "keys", text: "/compact", enter: true }, "from the dashboard");
+  await ask(env, me, at, t, { op: "keys", text: `/compact${instructions ? ` ${instructions}` : ""}`, enter: true }, "from the dashboard");
   env.refreshWeb?.(me);
-  return `Typed /compact into ${t.label}'s terminal`;
+  return `Typed /compact into ${t.label}'s terminal${instructions ? `, keeping: ${instructions}` : ""}`;
+}
+
+async function queueCompactCheck(env: Env, me: string, sessionId: string, mode: "finish" | "timeout", due: number): Promise<void> {
+  const ref = `z${mode[0]}${sessionId}`;
+  await env.DB.prepare("DELETE FROM push_queue WHERE member = ? AND ref = ?").bind(me, ref).run();
+  await env.DB.prepare("INSERT INTO push_queue (member, ref, due_at, extra) VALUES (?, ?, ?, ?)").bind(me, ref, due, sessionId).run();
+  await env.wake?.(due);
+}
+
+/**
+ * A turn ended (Stop hook): if the agent was told it'll be compacted and has read that, take its "Keep:" line and
+ * compact it in a moment (from the alarm: the hook mustn't wait on its terminal).
+ */
+export async function compactOnStop(env: Env, me: string, sessionId: string, lastMessage: string): Promise<void> {
+  const row = await env.DB.prepare("SELECT compact_prep FROM sessions WHERE member = ? AND session_id = ?").bind(me, sessionId).first<{ compact_prep: string | null }>();
+  if (!row?.compact_prep) return;
+  let prep: { msg: number; at: number; instructions: string; keep?: string };
+  try {
+    prep = JSON.parse(row.compact_prep);
+  } catch {
+    return;
+  }
+  // Told in its terminal (msg 0), or the message reached it before this turn ended.
+  if (prep.msg && !(await env.DB.prepare("SELECT 1 FROM deliveries WHERE message_id = ?").bind(prep.msg).first())) return;
+  const keep = lastMessage.match(/^[\s*_>#-]*keep:[*_]*\s*(.+)$/im)?.[1]?.replace(/[*_`]+/g, "").trim().slice(0, 500) ?? "";
+  await env.DB.prepare("UPDATE sessions SET compact_prep = ? WHERE member = ? AND session_id = ?").bind(JSON.stringify({ ...prep, keep, done: true }), me, sessionId).run();
+  await queueCompactCheck(env, me, sessionId, "finish", Date.now() + 2000);
+}
+
+/** From the alarm (push ref "zf…" / "zt…"): compact a prepared agent, with what it said to keep, or without after the wait. */
+export async function compactDue(env: Env, me: string, sessionId: string): Promise<void> {
+  const { rows, live } = await myRows(env, me);
+  const t = rows.find((r) => r.session_id === sessionId);
+  const row = await env.DB.prepare("SELECT compact_prep FROM sessions WHERE member = ? AND session_id = ?").bind(me, sessionId).first<{ compact_prep: string | null }>();
+  if (!t || !row?.compact_prep || !live(t)) return;
+  const prep = JSON.parse(row.compact_prep) as { at: number; instructions: string; keep?: string; done?: boolean };
+  if (!prep.done && Date.now() - prep.at < PREP_WAIT_MS - 5000) return;
+  const instructions = [prep.keep, prep.instructions].filter(Boolean).join(". ").slice(0, 500);
+  try {
+    const done = await finishCompact(env, me, t, instructions, rows, live);
+    console.log("compact", me, t.label, done);
+  } catch (e) {
+    console.log("compact", me, t.label, String(e));
+  }
 }
 
 // ---- settings and cards put away ----

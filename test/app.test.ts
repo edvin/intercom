@@ -2593,7 +2593,7 @@ describe("context and compaction", () => {
     assert.match(html, /data-open="dlg-compact"/);
     const form = new URLSearchParams({ session: "cc1", instructions: "keep the deploy plan", back: "/dashboard?view=agents&agent=bob/core" });
     const res = await w.request("/agent/compact", { as: "bob", cookie: true, method: "POST", headers: { origin: ORIGIN, "content-type": "application/x-www-form-urlencoded" }, body: form });
-    assert.equal(new URL(res.headers.get("location")!, ORIGIN).searchParams.get("ok"), "core compacts when its turn ends");
+    assert.equal(new URL(res.headers.get("location")!, ORIGIN).searchParams.get("ok"), "core compacts now, keeping: keep the deploy plan");
     const asked = (await poll()).compact!;
     assert.equal(asked.instructions, "keep the deploy plan");
     assert.match(await page(), /compacting when idle/);
@@ -2718,7 +2718,7 @@ describe("Claude.ai connector", () => {
     assert.equal((await rpc(w, t, "tools/list")).status, 401);
   });
 
-  test("compacts an agent when its turn ends, like the dashboard's button; not a Codex session or one without the mod", async () => {
+  test("compacts an agent: told first to save its state and say what to keep, or right away through its mod", async () => {
     const w = await standardWorld();
     const { client_id, params, verifier } = await connect(w);
     const code = new URL((await w.form("/oauth/authorize", "bob", { ...params, action: "allow" })).headers.get("location")!).searchParams.get("code")!;
@@ -2730,14 +2730,22 @@ describe("Claude.ai connector", () => {
     await w.db.prepare("UPDATE sessions SET client = 'codex' WHERE session_id = 'c2'").run();
 
     assert.match((await rpc(w, t, "tools/list")).body.result.tools.map((x: { name: string }) => x.name).join(","), /compact/);
-    assert.match(await call(w, t, "compact", { agent: "kernel", instructions: "keep the failing test list" }), /^fabricate-kernel will compact in a moment \(it's idle\); its context is 82% full now, keeping: keep the failing test list\./);
-    // The session's mod picks it up, as from the dashboard.
+    // Right away: through its mod, as from the dashboard.
+    assert.match(await call(w, t, "compact", { agent: "kernel", instructions: "keep the failing test list", right_away: true }), /^fabricate-kernel compacts now, keeping: keep the failing test list/);
     const ui = (await (await w.request("/api/ui?project=billing-api&session=c1&mod=0.2.10", { as: "bob" })).json()) as { compact: { instructions: string } | null };
     assert.equal(ui.compact?.instructions, "keep the failing test list");
     assert.match(await call(w, t, "compact", { agent: "kernel", cancel: true }), /Called off: fabricate-kernel won't be compacted\./);
     assert.match(await call(w, t, "compact", { agent: "kernel", cancel: true }), /has no compaction waiting/);
-    assert.match(await call(w, t, "compact", { agent: "alder" }), /alder is a Codex session: .*Type \/compact in its terminal\./);
-    assert.match(await call(w, t, "compact", { agent: "docs" }), /docs can't be compacted from here: its intercom-ui mod \(0\.2\.8 or newer\) isn't running/);
+    // By default it's told first; when that turn ends, it's compacted with what it said to keep.
+    assert.match(await call(w, t, "compact", { agent: "kernel", instructions: "the deploy plan" }), /fabricate-kernel was told to save its state; it(?:'|’)s compacted when that turn ends/);
+    const told = await w.ok("bob", "inbox", {}, { id: "c1", project: "billing-api" });
+    assert.match(told, /You(?:'|’)ll be compacted when this turn ends[\s\S]*End your turn with one line starting "Keep:"[\s\S]*I also want the summary to keep: the deploy plan/);
+    await w.request("/api/hook?event=Stop&project=billing-api&session=c1", { as: "bob", method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ hook_event_name: "Stop", last_assistant_message: "Saved notes to NOTES.md.\n\n**Keep:** flange stage 2, the 3 failing tests, next: fix the bend relief" }) });
+    const { sendDuePushes } = await import("../src/push.ts");
+    await sendDuePushes(w.env(), Date.now() + 5000);
+    const ui2 = (await (await w.request("/api/ui?project=billing-api&session=c1&mod=0.2.10", { as: "bob" })).json()) as { compact: { instructions: string } | null };
+    assert.equal(ui2.compact?.instructions, "flange stage 2, the 3 failing tests, next: fix the bend relief. the deploy plan");
+    assert.match(await call(w, t, "compact", { agent: "docs", right_away: true }), /docs can't be compacted from here: type \/compact in its terminal/);
   });
 });
 

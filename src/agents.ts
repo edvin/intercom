@@ -42,6 +42,7 @@ interface Agent {
   ctx_window?: number | null;
   ctx_at?: number | null;
   compact_req?: string | null;
+  compact_prep?: string | null;
   screen?: string;
 }
 
@@ -100,7 +101,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   const ph = (n: number) => Array.from({ length: n }, () => "?").join(",") || "NULL";
   const everyone = people.includes(me) ? people : [...people, me];
   const { results: agents } = await env.DB.prepare(
-    `SELECT member, session_id, label, project, project_pin, repo, loops, jobs, origin, branch, note, client, host, version, last_seen, state, state_detail, state_at, active_at, cwd, ui_at, ui_version, ctx_pct, ctx_tokens, ctx_window, ctx_at, compact_req, screen FROM sessions
+    `SELECT member, session_id, label, project, project_pin, repo, loops, jobs, origin, branch, note, client, host, version, last_seen, state, state_detail, state_at, active_at, cwd, ui_at, ui_version, ctx_pct, ctx_tokens, ctx_window, ctx_at, compact_req, compact_prep, screen FROM sessions
      WHERE member IN (${ph(everyone.length)}) AND (member = ? OR project IN (${ph(mine.length)})) AND last_seen > ?
      ORDER BY member = ? DESC, last_seen DESC`,
   )
@@ -146,7 +147,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
     const [pm = "", pl = ""] = picked.split("/");
     agent =
       (await env.DB.prepare(
-        `SELECT member, session_id, label, project, project_pin, repo, loops, jobs, origin, branch, note, client, host, version, last_seen, state, state_detail, state_at, active_at, cwd, ui_at, ui_version, ctx_pct, ctx_tokens, ctx_window, ctx_at, compact_req, screen FROM sessions
+        `SELECT member, session_id, label, project, project_pin, repo, loops, jobs, origin, branch, note, client, host, version, last_seen, state, state_detail, state_at, active_at, cwd, ui_at, ui_version, ctx_pct, ctx_tokens, ctx_window, ctx_at, compact_req, compact_prep, screen FROM sessions
          WHERE member = ? AND label = ? AND (member = ? OR project IN (${ph(mine.length)})) ORDER BY last_seen DESC LIMIT 1`,
       )
         .bind(pm, pl, me, ...mine)
@@ -385,8 +386,8 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   const here = `/dashboard?view=agents&agent=${encodeURIComponent(key(agent))}`;
   const compactCtl = !canCompact
     ? ""
-    : agent.compact_req
-      ? `<form method="post" action="/agent/compact" class="compacting" data-native>${hidden({ session: agent.session_id, back: here, cancel: "1" })}<span class="badge amber" title="Its intercom-ui mod compacts it when the current turn ends">compacting when idle…</span><button class="btn ghost xs">Call off</button></form>`
+    : agent.compact_req || agent.compact_prep
+      ? `<form method="post" action="/agent/compact" class="compacting" data-native>${hidden({ session: agent.session_id, back: here, cancel: "1" })}<span class="badge amber" title="${agent.compact_prep ? "It was told to save its state; it's compacted when that turn ends" : "Its intercom-ui mod compacts it when the current turn ends"}">${agent.compact_prep ? "saving its state, then compacting…" : "compacting when idle…"}</span><button class="btn ghost xs">Call off</button></form>`
       : `<button type="button" class="btn ghost xs compactbtn" data-open="dlg-compact" title="Compact its context (like /compact)">Compact</button>`;
   // Whether it takes work your other agents hand it (lib.ts delegatedTo): a switch on your own agents.
   const takesWork = ownAgent && !(await env.DB.prepare("SELECT 1 FROM agent_prefs WHERE member = ? AND label = ? AND takes_work = 0").bind(me, agent.label).first());
@@ -438,6 +439,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
         <form method="post" action="/agent/compact" data-native>${hidden({ session: agent.session_id, back: here })}<div class="bd stack">
           <p class="small muted" style="margin:0">Like /compact: the conversation so far becomes a summary, freeing its context${agent.ctx_pct != null ? ` (now ${agent.ctx_pct}% full)` : ""}. It runs when the current turn ends.</p>
           <label class="field">What the summary should keep (optional)<textarea name="instructions" rows="3" maxlength="500" placeholder="e.g. the deploy plan and the open review comments"></textarea></label>
+          <label class="check"><input type="checkbox" name="first" value="1" checked> Tell it first, so it can save its state and say what to keep (one more turn)</label>
         </div><div class="ft"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary">${icon("layers", 14)}Compact</button></div></form></dialog>` : ""}
       <dialog id="dlg-rename"><div class="hd">${icon("pencil", 18)}<h2>Rename ${esc(agent.label)}</h2></div>
         <form method="post" action="/agent/rename" data-native>${hidden({ session: agent.session_id, back: "/dashboard?view=agents" })}<div class="bd stack">

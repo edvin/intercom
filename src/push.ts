@@ -9,6 +9,7 @@
 
 import { daySummary, scheduleSummary } from "./work";
 import { stuckNote, stuckSessions } from "./stuck";
+import { compactDue } from "./upkeep";
 import { type Env } from "./lib";
 
 /** How long an approval waits for you at your desk before it reaches your phone. */
@@ -244,6 +245,15 @@ export async function sendDuePushes(env: Env, now = Date.now()): Promise<number 
   const { results } = await env.DB.prepare("SELECT * FROM push_queue WHERE due_at <= ? ORDER BY due_at LIMIT 50").bind(now).all<{ id: number; member: string; ref: string; extra: string }>();
   for (const q of results) {
     await env.DB.prepare("DELETE FROM push_queue WHERE id = ?").bind(q.id).run();
+    if (q.ref[0] === "z") {
+      // A compaction that warned first (upkeep.ts): its turn ended, or the wait is over.
+      try {
+        await compactDue(env, q.member, q.extra);
+      } catch (e) {
+        console.log("compact", q.ref, String(e));
+      }
+      continue;
+    }
     if (q.ref[0] === "u") {
       // A DM to one of their agents may not have been taken (stuck.ts): notify once, or look again later.
       try {

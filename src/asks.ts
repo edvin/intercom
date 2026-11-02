@@ -164,7 +164,7 @@ function fullCard(r: UpRow, me: string, back: string): string {
     <header class="askwho">${agentAvatar(me, r.label, "s")}<span class="askname">${esc(r.label)}</span><span class="askk">Context ${r.ctx_pct}%</span></header>
     <p class="stkhead">${esc(r.label)}'s context is ${r.ctx_pct}% full.</p>
     <p class="stkwhy">Near the limit it compacts by itself, in the middle of whatever it does. Compacting now, between turns, keeps that on your terms.</p>
-    ${upkeepForm(back, { session: r.session_id, key: `full:${r.session_id}`, value: String(bucket) }, `<div class="askopts">${uopt("compact", "Compact it", r.state === "working" ? "When its current turn ends." : "Now: it's idle.", true)}${uopt("dismiss", "Not now", "Asks again at 5% more.")}</div>`)}
+    ${upkeepForm(back, { session: r.session_id, key: `full:${r.session_id}`, value: String(bucket) }, `<div class="askopts">${uopt("compact", "Compact it", "It's told first, saves what it would lose and says what the summary must keep; then it's compacted.", true)}${uopt("compact-now", "Compact right away", r.state === "working" ? "When its current turn ends, without a warning." : "Now, without a warning.")}${uopt("dismiss", "Not now", "Asks again at 5% more.")}</div>`)}
   </article>`;
 }
 

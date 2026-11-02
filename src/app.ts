@@ -1,7 +1,7 @@
 import { recordsBrief } from "./records";
 import { saveWorkSettings, workCsv } from "./work";
 import { dismissStuck, moveStuck, releaseSenders, wakeStuck } from "./stuck";
-import { compactAgent, dismiss, restartAgent, setAuto, updateIdle } from "./upkeep";
+import { compactAgent, compactOnStop, dismiss, restartAgent, setAuto, updateIdle } from "./upkeep";
 import { KEY_NAMES, type ScreenQuery, askScreen, drawScreen, screenReply, sendNow, stopAgent } from "./screen";
 import { answerBtw, pendingBtw } from "./btw";
 import { getAttachment, isImage, readImage, readable } from "./attachments";
@@ -218,6 +218,8 @@ async function handleHook(url: URL, env: Env, me: string, input: { last_assistan
   if (event === "Stop") {
     // A turn that ended isn't waiting on anything any more.
     if (session) await closeSessionApprovals(env, me, session.session_id);
+    // Told it'd be compacted and it has saved its state: compacted now, with what it said to keep (upkeep.ts).
+    if (session) await compactOnStop(env, me, session.session_id, typeof input.last_assistant_message === "string" ? input.last_assistant_message : "");
     // The turn answered what you wrote from the dashboard: its final message is the reply (unless the agent posted one).
     if (session) await replyFromTurn(env, me, session, typeof input.last_assistant_message === "string" ? input.last_assistant_message : "");
     // Finishing a turn: if the user wrote to this session from the dashboard, keep going with that instead of stopping.
@@ -746,7 +748,7 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
         ok = done.length ? done.join(" · ") : "Nothing to update";
       } else if (op === "auto-on" || op === "auto-off") ok = await setAuto(env, me, op === "auto-on");
       else if (op === "restart") ok = await restartAgent(env, me, f("session"));
-      else if (op === "compact") ok = await compactAgent(env, me, f("session"));
+      else if (op === "compact" || op === "compact-now") ok = await compactAgent(env, me, f("session"), { rightAway: op === "compact-now" });
       else ok = await dismiss(env, me, f("key"), Number(f("value")) || 1);
       u.searchParams.set("ok", ok);
     } catch (e) {
@@ -986,11 +988,18 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
     if (!sameOrigin(req)) return new Response("Cross-origin request refused", { status: 403 });
     const form = await req.formData();
     const back = new URL(localPath(form.get("back"), "/dashboard?view=agents"), url);
-    const req_ = form.get("cancel") ? null : JSON.stringify({ id: crypto.randomUUID(), instructions: String(form.get("instructions") ?? "").trim().slice(0, 500) });
-    const done = await env.DB.prepare("UPDATE sessions SET compact_req = ? WHERE member = ? AND session_id = ? AND client != 'codex' RETURNING label")
-      .bind(req_, me, String(form.get("session") ?? ""))
-      .first<{ label: string }>();
-    back.searchParams.set(done ? "ok" : "err", done ? (req_ ? `${done.label} compacts when its turn ends` : "Compaction called off") : "No such agent of yours");
+    const sid = String(form.get("session") ?? "");
+    if (form.get("cancel")) {
+      const done = await env.DB.prepare("UPDATE sessions SET compact_req = NULL, compact_prep = NULL WHERE member = ? AND session_id = ? RETURNING label").bind(me, sid).first<{ label: string }>();
+      back.searchParams.set(done ? "ok" : "err", done ? "Compaction called off" : "No such agent of yours");
+    } else {
+      try {
+        back.searchParams.set("ok", await compactAgent(env, me, sid, { rightAway: form.get("first") !== "1", instructions: String(form.get("instructions") ?? "") }));
+      } catch (e) {
+        if (!(e instanceof UserError)) throw e;
+        back.searchParams.set("err", e.message);
+      }
+    }
     return redirect(back.pathname + back.search);
   }
   if (url.pathname.startsWith("/api/compact/") && req.method === "POST") {

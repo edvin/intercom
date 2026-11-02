@@ -7,7 +7,7 @@
 import { type Env, LIVE, UserError, ago, hostNames, issueToken, limit, liveIds, newToken, postMessage, rateLimit, sha256 } from "./lib";
 import type { McpServer } from "./app";
 import { type Tool, num, str, tools } from "./tools";
-import { compactable } from "./btw";
+import { compactAgent } from "./upkeep";
 import { KEY_NAMES, askScreen, plainScreen, sendNow, stopAgent } from "./screen";
 import { LOGO, avatar, esc, hidden, html, icon } from "./ui";
 import { sameOrigin, soloCard } from "./web";
@@ -414,41 +414,27 @@ const connectorTools: Tool[] = [
   {
     name: "compact",
     description:
-      "Compact one of the user's Claude Code agents, like typing /compact in its terminal: the conversation so far becomes a summary, freeing its context. It runs when the agent's current turn ends. Optional instructions say what the summary should keep. cancel: true calls off a compaction that hasn't run yet. Codex sessions, and Claude Code sessions without the intercom-ui mod, can only be compacted in their terminal; the answer says so.",
+      "Compact one of the user's agents, like typing /compact in its terminal: the conversation so far becomes a summary, freeing its context. By default it's told first, saves what it would lose and says what the summary must keep, and is compacted when that turn ends (right_away skips that). Optional instructions say what the summary should keep. cancel: true calls off a compaction that hasn't run yet. Codex sessions, and Claude Code sessions without the intercom-ui mod, can only be compacted in their terminal; the answer says so.",
     inputSchema: {
       type: "object",
       properties: {
         agent: agentProp,
         instructions: { type: "string", description: "What the summary should focus on or keep, like /compact's argument (max 500 chars). Optional." },
         cancel: { type: "boolean", description: "Call off a compaction that's waiting to run." },
+        right_away: { type: "boolean", description: "Compact without telling it first (by default it's asked to save its state and say what to keep, and compacted when that turn ends)." },
       },
       required: ["agent"],
     },
     // The agent loses the detail of its conversation: clients should confirm it.
     annotations: { destructiveHint: true, openWorldHint: false },
     async run(env, me, args) {
-      const { agent, on } = await findAgent(env, me, str(args, "agent", true));
+      const { agent } = await findAgent(env, me, str(args, "agent", true));
       if (args.cancel === true) {
-        if (!agent.compact_req) return `${agent.label} has no compaction waiting.`;
-        await env.DB.prepare("UPDATE sessions SET compact_req = NULL WHERE member = ? AND session_id = ?").bind(me, agent.session_id).run();
+        const r = await env.DB.prepare("UPDATE sessions SET compact_req = NULL, compact_prep = NULL WHERE member = ? AND session_id = ? AND (compact_req IS NOT NULL OR compact_prep IS NOT NULL) RETURNING label").bind(me, agent.session_id).first();
         env.refreshWeb?.(me);
-        return `Called off: ${agent.label} won't be compacted.`;
+        return r ? `Called off: ${agent.label} won't be compacted.` : `${agent.label} has no compaction waiting.`;
       }
-      const no = compactable(agent, on);
-      if (no) {
-        // No mod to run it, or a Codex session: type /compact into its terminal instead, when it can be reached and is idle.
-        const viaTerminal = on && (await env.DB.prepare("SELECT screen FROM sessions WHERE member = ? AND session_id = ?").bind(me, agent.session_id).first<{ screen: string }>())?.screen === "keys";
-        if (!viaTerminal) return no;
-        if (agent.state === "working") return `${agent.label} is in the middle of a turn; ask again when it's idle (compacting it from its terminal types /compact, which only works between turns).`;
-        const instructions = (str(args, "instructions") ?? "").replace(/[\r\n]+/g, " ").slice(0, 500);
-        await askScreen(env, me, agent.label, { op: "keys", text: `/compact${instructions ? ` ${instructions}` : ""}`, enter: true });
-        return `Typed /compact${instructions ? ` ${instructions}` : ""} into ${agent.label}'s terminal; it's compacting now. Check with screen or agent_status.`;
-      }
-      const instructions = (str(args, "instructions") ?? "").slice(0, 500);
-      await env.DB.prepare("UPDATE sessions SET compact_req = ? WHERE member = ? AND session_id = ?").bind(JSON.stringify({ id: crypto.randomUUID(), instructions }), me, agent.session_id).run();
-      env.refreshWeb?.(me);
-      const working = agent.state === "working";
-      return `${agent.label} will compact ${working ? "when its current turn ends" : "in a moment (it's idle)"}${agent.ctx_pct != null ? `; its context is ${agent.ctx_pct}% full now` : ""}${instructions ? `, keeping: ${instructions}` : ""}. Check with agent_status; to call it off, use compact with cancel: true.`;
+      return compactAgent(env, me, agent.session_id, { rightAway: args.right_away === true, instructions: str(args, "instructions") ?? "" });
     },
   },
   {
