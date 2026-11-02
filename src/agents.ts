@@ -2,6 +2,7 @@
 // What you write there reaches that session as YOUR USER (your own agents act on it like a typed prompt);
 // what it answers comes back here. Its project posts show in the thread as activity.
 
+import { stuckSessions } from "./stuck";
 import { awayState, pendingApprovals } from "./approvals";
 import { pendingReviews } from "./reviews";
 import { pendingTickets } from "./tickets";
@@ -202,12 +203,13 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   const loose = agents.filter((a) => a.member === me && (!a.project || !nav.mine.includes(a.project)));
   const { away, waitMin } = await awayState(env, me);
   const pending = [...(await pendingApprovals(env, me)), ...reviews, ...tickets];
+  const waitingN = pending.length + (await stuckSessions(env, me)).length;
   const tree = `<aside class="tree" id="tree" data-region>
     <nav class="ttop">
       <button type="button" class="tl" data-kopen>${icon("search", 14)}<span>Search</span><span class="kbd kbd-k" style="margin-left:auto">⌘K</span></button>
       <a class="tl${nav.view === "feed" && !nav.channel ? " on" : ""}" href="/dashboard">${icon("layers", 14)}<span>Everything</span>${nav.votesTotal ? `<span class="badge accent">${nav.votesTotal}</span>` : ""}</a>
       <a class="tl${nav.view === "work" ? " on" : ""}" href="/dashboard?view=work">${icon("check", 14)}<span>Work</span></a>
-      ${pending.length ? `<button type="button" class="tl warn" data-asksopen>${icon("bell", 14)}<span>Waiting for you</span><span class="badge amber">${pending.length}</span></button>` : ""}
+      ${waitingN ? `<button type="button" class="tl warn" data-asksopen>${icon("bell", 14)}<span>Waiting for you</span><span class="badge amber">${waitingN}</span></button>` : ""}
     </nav>
     <div class="tsec"><span>Projects</span><button type="button" class="btn ghost xs icon" data-open="dlg-create" title="New project">${icon("plus", 13)}</button></div>
     <div class="tbody">${projectNodes || '<p class="tempty">No projects yet.</p>'}${loose.length ? branch("~none", '<span class="th">∅</span>No project', null, loose, "", false) : ""}</div>

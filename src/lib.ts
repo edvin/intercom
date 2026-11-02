@@ -375,6 +375,16 @@ export async function delegatedTo(env: Env, sender: string, senderAgent: string 
   return (n?.n ?? 0) < DELEGATE_PER_HOUR;
 }
 
+/** Queue a look at whether a DM to `member`'s agent was taken (push ref "u<agent>"), for people who get notifications. */
+async function watchDelivery(env: Env, member: string, agent: string): Promise<void> {
+  if (!(await env.DB.prepare("SELECT 1 FROM push_subs WHERE member = ?").bind(member).first())) return;
+  const ref = `u${agent}`;
+  if (await env.DB.prepare("SELECT 1 FROM push_queue WHERE member = ? AND ref = ?").bind(member, ref).first()) return;
+  const due = Date.now() + 6 * 60_000;
+  await env.DB.prepare("INSERT INTO push_queue (member, ref, due_at, extra) VALUES (?, ?, ?, '')").bind(member, ref, due).run();
+  await env.wake?.(due);
+}
+
 export async function postMessage(
   env: Env,
   m: {
@@ -413,6 +423,9 @@ export async function postMessage(
       !senderAgent && (env.authKind === "web" || env.authKind === "connector") ? 1 : 0,
     )
     .first<Message>();
+  // A DM to one agent: look again in a while, to notify its person if it's still waiting (stuck.ts).
+  if (m.recipient && m.recipient_agent && (m.kind ?? "message") !== "event" && !(m.sender === m.recipient && senderAgent === m.recipient_agent))
+    await watchDelivery(env, m.recipient, m.recipient_agent);
   // A post from a session counts as it being active.
   if (env.session && (m.sender_agent ?? env.session.label) === env.session.label)
     await env.DB.prepare("UPDATE sessions SET active_at = ? WHERE member = ? AND session_id = ?").bind(row!.created_at, m.sender, env.session.session_id).run();

@@ -2956,3 +2956,66 @@ describe("work log", () => {
     assert.equal(dateIn("America/New_York", Date.parse("2026-11-02T03:00:00Z")), "2026-11-01");
   });
 });
+
+describe("agents that don't take their messages", () => {
+  const core = { id: "st1", project: "billing-api" };
+  const alder = { id: "st2", project: "billing-api" };
+  const triage = { id: "st3", project: "billing-api" };
+  const setup = async () => {
+    const w = await standardWorld();
+    for (const [id, name] of [["st1", "core"], ["st2", "alder"], ["st3", "triage"]] as const) {
+      await w.request(`/api/hook?event=SessionStart&project=billing-api&session=${id}&name=${name}`, { as: "bob" });
+      await w.ok("bob", "inbox", {}, { id, project: "billing-api" });
+    }
+    // alder is a Codex session between turns: nothing can wake it.
+    await w.env().DB.prepare("UPDATE sessions SET client = 'codex', state = 'idle' WHERE session_id = 'st2'").run();
+    return w;
+  };
+  const age = (w: World, minutes: number) => w.env().DB.prepare("UPDATE messages SET created_at = ? WHERE recipient_agent = 'alder'").bind(Date.now() - minutes * 60_000).run();
+  const page = async (w: World) => (await w.request("/dashboard?view=agents", { as: "bob", cookie: true })).text();
+
+  test("the sender hears it won't be read soon; the person gets a card to move the messages to another agent", async () => {
+    const w = await setup();
+    assert.match(await w.ok("bob", "post", { to: "bob/alder", message: "Can you rebuild the image?" }, core), /Sent DM \[\d+\] to bob\/alder\. Note: bob\/alder is idle between turns \(a Codex session takes messages only when a turn starts[\s\S]*don't block on it/);
+    assert.match(await w.ok("bob", "team", {}, core), /bob\/alder \[Codex[^\]]*\]: #billing \(active just now · idle \(last active [^)]*\), can't be woken · 1 unread\)/);
+    // Not a card yet: it was just sent.
+    assert.doesNotMatch(await page(w), /class="ask k-stuck"/);
+    await age(w, 10);
+    const dash = await page(w);
+    assert.match(dash, /<article class="ask k-stuck" data-mid="ualder">[\s\S]*1 message waiting: idle between turns[\s\S]*bob\/core[\s\S]*Can you rebuild the image\?[\s\S]*<option value="core">core · #billing<\/option><option value="triage">/);
+    assert.match(dash, /Waiting for you<\/span><span class="badge amber">1/);
+    // One notification per spell.
+    const { stuckNote } = await import("../src/stuck.ts");
+    assert.deepEqual(await stuckNote(w.env(), "bob", "alder"), { title: "alder isn't taking messages", body: "1 message waiting since 10m ago: idle between turns (a Codex session takes messages only when a turn starts, so only typing in its terminal wakes it).", again: null });
+    assert.equal(await stuckNote(w.env(), "bob", "alder"), null);
+
+    const res = await w.form("/stuck", "bob", { agent: "alder", op: "move", to: "triage", back: "/dashboard?view=agents" });
+    assert.match(new URL(res.headers.get("location")!, ORIGIN).searchParams.get("ok")!, /Moved 1 message to triage; told 1 sender/);
+    assert.match(await w.ok("bob", "inbox", {}, triage), /\(Meant for alder, which isn't answering; sent 10m ago\. You take it over\.\)\n\s*Can you rebuild the image\?/);
+    assert.match(await w.ok("bob", "inbox", {}, core), /Your message to bob\/alder went to bob\/triage instead: alder wasn't answering/);
+    assert.doesNotMatch(await page(w), /class="ask k-stuck"/);
+  });
+
+  test("a session that just doesn't read: after half an hour; tell the senders not to wait, or dismiss until the next message", async () => {
+    const w = await setup();
+    await w.env().DB.prepare("UPDATE sessions SET client = 'claude', state = '' WHERE session_id = 'st2'").run();
+    await w.ok("bob", "post", { to: "bob/alder", message: "Status of the build?" }, core);
+    await age(w, 20);
+    assert.doesNotMatch(await page(w), /class="ask k-stuck"/);
+    await age(w, 40);
+    assert.match(await page(w), /class="ask k-stuck"[\s\S]*1 message waiting: hasn(?:'|&#39;)t picked them up since 40m ago/);
+    assert.match(await w.ok("bob", "post", { to: "bob/alder", message: "Again?" }, core), /Note: bob\/alder hasn't picked up messages sent 40m ago\. It may be stuck/);
+    assert.match(new URL((await w.form("/stuck", "bob", { agent: "alder", op: "release", back: "/dashboard" })).headers.get("location")!, ORIGIN).searchParams.get("ok")!, /Told 1 sender not to wait/);
+    assert.match(await w.ok("bob", "inbox", {}, core), /bob\/alder hasn't read your message from 40m ago \(hasn't picked them up since 40m ago\)\. Don't wait for it/);
+    assert.doesNotMatch(await page(w), /class="ask k-stuck"/);
+    // A newer message brings the card back (once it's waited); dismissing hides it again.
+    await w.ok("bob", "post", { to: "bob/alder", message: "Third." }, core);
+    await age(w, 45);
+    assert.match(await page(w), /class="ask k-stuck"[\s\S]*3 messages waiting/);
+    await w.form("/stuck", "bob", { agent: "alder", op: "dismiss", back: "/dashboard" });
+    assert.doesNotMatch(await page(w), /class="ask k-stuck"/);
+    // Taken after all: nothing stuck.
+    await w.ok("bob", "inbox", {}, alder);
+    assert.equal((await (await import("../src/stuck.ts")).stuckSessions(w.env(), "bob")).length, 0);
+  });
+});

@@ -1,5 +1,6 @@
 import { setAway } from "./approvals";
 import { type Review, LIMITS, OUTCOMES, SEVERITIES, answerReview, closeReview, openReview, pendingReviews, withdrawReview } from "./reviews";
+import { sendWarning, teamNote } from "./stuck";
 import { TICKET_OUTCOMES, TLIMITS, answerTicket, finishTicket, openTicket, pendingTickets, withdrawTicket } from "./tickets";
 import { RETENTION_DAYS as ATTACHMENT_DAYS, fileMarker, getAttachment, isImage, isText, linkImages, marker, readImage, size, storeFile, toBase64 } from "./attachments";
 import { HANDOFF_STATES, OPEN_HANDOFF, VERDICTS, createHandoff, crewRoles, findDecisions, decisionById, fmtCrew, fmtDecision, fmtHandoff, listHandoffs, logDecision, updateHandoff } from "./records";
@@ -123,7 +124,7 @@ async function send(env: Env, me: string, a: Args, body: string): Promise<{ id: 
       .all<{ session_id: string; last_seen: number }>();
     const live = new Set(liveIds(env, recipient));
     const up = matches.some((m) => live.has(m.session_id) || Date.now() - m.last_seen < GONE_MS);
-    if (up) return { id, text: sent };
+    if (up) return { id, text: sent + (await sendWarning(env, recipient, recipient_agent)) };
     return { id, text: `${sent} Note: no ${address(recipient, recipient_agent)} session is connected right now${matches[0] ? ` (last seen ${ago(matches[0].last_seen)})` : ""}. It's kept for them: the next session with that name gets it.` };
   }
   const channel = await projectArg(env, me, a.channel);
@@ -719,7 +720,7 @@ export const tools: Tool[] = [
         to_agent = agent ? normChannel(agent) : null;
       }
       const h = await createHandoff(env, me, { project, ref: str(a, "ref", true), summary: str(a, "summary", true), evidence: str(a, "evidence"), gates: str(a, "gates"), to_member, to_agent });
-      return `Recorded handoff H${h.id}${to_member ? ` and sent it to ${address(to_member, to_agent)}` : ` in #${project}`}. You'll hear when its status changes.`;
+      return `Recorded handoff H${h.id}${to_member ? ` and sent it to ${address(to_member, to_agent)}` : ` in #${project}`}. You'll hear when its status changes.${to_member && to_agent ? await sendWarning(env, to_member, to_agent) : ""}`;
     },
   },
   {
@@ -987,8 +988,17 @@ export const tools: Tool[] = [
           .all<{ member: string; session_id: string; label: string; project: string; branch: string; note: string; last_seen: number; client: string; host: string }>(),
       ]);
       const connected = env.live?.() ?? new Set<string>();
+      // Connected isn't the same as listening: say when one is idle in a way nothing wakes, or has messages piling up.
+      const notes = new Map<string, string>();
+      for (const s of sessions)
+        if ((connected.has(`${s.member}/${s.session_id}`) || Date.now() - s.last_seen < GONE_MS) && (s.member === me || mine.has(s.project)))
+          notes.set(`${s.member}/${s.session_id}`, await teamNote(env, s.member, s.label));
       const state = (s: { member: string; session_id: string; last_seen: number }) =>
-        connected.has(`${s.member}/${s.session_id}`) ? "● connected" : Date.now() - s.last_seen < GONE_MS ? `active ${ago(s.last_seen)}` : `not connected, last seen ${ago(s.last_seen)}`;
+        connected.has(`${s.member}/${s.session_id}`)
+          ? `● connected${notes.get(`${s.member}/${s.session_id}`) ?? ""}`
+          : Date.now() - s.last_seen < GONE_MS
+            ? `active ${ago(s.last_seen)}${notes.get(`${s.member}/${s.session_id}`) ?? ""}`
+            : `not connected, last seen ${ago(s.last_seen)}`;
       const mineFirst = [...results.filter((r) => r.name === me), ...results.filter((r) => r.name !== me)];
       const out = mineFirst
         .map((r) => {

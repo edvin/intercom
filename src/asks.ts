@@ -5,6 +5,7 @@
 import { type Approval, type Question, pendingApprovals } from "./approvals";
 import { type Env } from "./lib";
 import { type Review, OUTCOMES, agentOnline, findingsOf, onlineAgents, pendingReviews, threadOf } from "./reviews";
+import { type Stuck, stuckSessions } from "./stuck";
 import { pendingTickets } from "./tickets";
 import { reviewHref } from "./reviewview";
 import { ticketCard } from "./ticketview";
@@ -102,14 +103,36 @@ function reviewCard(r: Review, me: string, back: string, online: boolean, others
   </article>`;
 }
 
+/** An agent that isn't taking its messages (stuck.ts): what waits on it, and what to do. */
+function stuckCard(st: Stuck, me: string, back: string, online: { label: string; project: string | null }[]): string {
+  const agent = `/dashboard?view=agents&agent=${encodeURIComponent(`${me}/${st.agent}`)}`;
+  const home = online.find((o) => o.label === st.agent)?.project ?? null;
+  const others = online.filter((o) => o.label !== st.agent).sort((a, b) => Number(b.project === home) - Number(a.project === home) || a.label.localeCompare(b.label));
+  const n = st.messages.length;
+  const list = st.messages
+    .slice(-5)
+    .map((m) => `<li><b>${esc(m.sender === me && !m.sender_agent ? "You" : m.sender_agent ? `${m.sender}/${m.sender_agent}` : m.sender)}</b> <span class="muted">${time(m.created_at)}</span><span class="stkb">${esc(m.body.replace(/\s+/g, " ").slice(0, 160))}</span></li>`)
+    .join("");
+  return `<article class="ask k-stuck" data-mid="u${esc(st.agent)}">
+    <header class="askwho">${agentAvatar(me, st.agent, "s")}<a href="${esc(agent)}" class="askname">${esc(st.agent)}</a><span class="askk">Not taking messages</span><span class="grow"></span>${time(st.since)}</header>
+    <p class="rvverdict">${n} message${n > 1 ? "s" : ""}${st.handoffs.length ? ` and ${st.handoffs.length} handoff${st.handoffs.length > 1 ? "s" : ""}` : ""} waiting: ${esc(st.reason)}.</p>
+    <ul class="stklist">${n > 5 ? `<li class="muted">and ${n - 5} earlier</li>` : ""}${list}${st.handoffs.map((h) => `<li><b>H${h.id}</b> <span class="muted">${time(h.created_at)}</span><span class="stkb">${esc(h.summary.slice(0, 160))}</span></li>`).join("")}</ul>
+    <form method="post" action="/stuck">${hidden({ back, agent: st.agent })}
+      ${others.length ? `<div class="stkmove"><select name="to" aria-label="Move to">${others.map((o) => `<option value="${esc(o.label)}">${esc(o.label)}${o.project ? ` · #${esc(o.project)}` : ""}</option>`).join("")}</select><button name="op" value="move" class="btn sm primary">${icon("arrow", 13)}Move to it</button></div>` : ""}
+      <div class="askact"><button name="op" value="release" class="btn sm">Tell senders not to wait</button><button name="op" value="dismiss" class="btn sm ghost" title="Hide this until another message waits on it">I'll handle it</button></div>
+    </form>
+  </article>`;
+}
+
 /** The dock, for the bottom corner of every dashboard page (an empty placeholder keeps live redraws able to fill it). */
 export async function asksDock(env: Env, me: string, back: string): Promise<string> {
   const pending = await pendingApprovals(env, me);
   const reviews = await pendingReviews(env, me);
   const tickets = await pendingTickets(env, me);
-  if (!pending.length && !reviews.length && !tickets.length) return `<div id="asks" data-region hidden></div>`;
-  const n = pending.length + reviews.length + tickets.length;
-  const agents = reviews.length ? await onlineAgents(env, me) : [];
+  const stuck = await stuckSessions(env, me);
+  if (!pending.length && !reviews.length && !tickets.length && !stuck.length) return `<div id="asks" data-region hidden></div>`;
+  const n = pending.length + reviews.length + tickets.length + stuck.length;
+  const agents = reviews.length || stuck.length ? await onlineAgents(env, me) : [];
   const names = [...new Set(agents.map((a) => a.label))];
   const now = Date.now();
   return `<section class="asks" id="asks" data-region data-n="${n}" aria-label="Waiting for you">
@@ -118,7 +141,7 @@ export async function asksDock(env: Env, me: string, back: string): Promise<stri
       <div class="askhd"><span class="askdot"></span><b>Waiting for you</b><span class="badge amber">${n}</span><span class="grow"></span><span class="small muted askor">or answer in the terminal</span><button type="button" class="btn ghost xs askpush" data-pushon hidden title="Get a notification on this device when something is waiting for you">${icon("bell", 13)}Notify me</button><button type="button" class="btn ghost xs icon" data-askstoggle title="Minimize">${icon("chevron", 14)}</button></div>
       <div class="asklist">${pending.map((p) => card(p, me, back, now)).join("")}${reviews
         .map((r) => reviewCard(r, me, back, agentOnline(env, r, agents), names.filter((l) => l !== r.label)))
-        .join("")}${tickets.map((t) => ticketCard(t, me, back)).join("")}</div>
+        .join("")}${tickets.map((t) => ticketCard(t, me, back)).join("")}${stuck.map((st) => stuckCard(st, me, back, agents)).join("")}</div>
     </div>
   </section>`;
 }

@@ -769,6 +769,9 @@ body:has(.ide) .top .in{max-width:none;padding:8px 14px}
 @keyframes tkin{from{opacity:.4;transform:translateY(3px)}to{opacity:1;transform:none}}@media (prefers-reduced-motion:reduce){.tkpanel{animation:none!important}}
 .tkpane section,.tkpane .tkpanel,.tkpane #tkdecision,.tkpane #rvdecision,.rvfind{scroll-margin-top:60px}
 .tklz.warn{background:var(--amber-soft);color:var(--amber)}
+.k-stuck .askk{background:var(--amber-soft);color:var(--amber)}
+.stklist{list-style:none;margin:8px 0 10px;padding:0;display:flex;flex-direction:column;gap:6px;font-size:12.5px}.stklist li{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 8px;padding:6px 10px;border-radius:0 9px 9px 0;border-left:2px solid var(--line-strong);background:var(--surface)}.stklist time{font-size:11.5px}.stkb{flex-basis:100%;color:var(--ink-2);line-height:1.45;overflow-wrap:anywhere}
+.stkmove{display:flex;gap:6px;align-items:center;margin-bottom:8px}.stkmove select{flex:1;min-width:0;height:32px;font-size:13px}
 .wkpane{max-width:1160px;gap:18px;padding-bottom:96px}
 .wkhead{display:flex;flex-direction:column;gap:12px}
 .wktitle{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}.wktitle h1{margin:0;font-size:27px;font-weight:650;letter-spacing:-.022em}.wkzone{font-size:12.5px;color:var(--mute)}

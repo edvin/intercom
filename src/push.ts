@@ -8,6 +8,7 @@
 // answered, decided or withdrawn meanwhile is skipped.
 
 import { daySummary, scheduleSummary } from "./work";
+import { stuckNote, stuckSessions } from "./stuck";
 import { type Env } from "./lib";
 
 /** How long an approval waits for you at your desk before it reaches your phone. */
@@ -158,7 +159,7 @@ async function waitingCount(env: Env, me: string): Promise<number> {
   const a = await env.DB.prepare("SELECT COUNT(*) AS n FROM approvals WHERE member = ? AND decision IS NULL AND expires_at > ?").bind(me, Date.now()).first<{ n: number }>();
   const r = await env.DB.prepare("SELECT COUNT(*) AS n FROM reviews WHERE member = ? AND status = 'open'").bind(me).first<{ n: number }>();
   const t = await env.DB.prepare("SELECT COUNT(*) AS n FROM tickets WHERE member = ? AND status = 'open'").bind(me).first<{ n: number }>();
-  return (a?.n ?? 0) + (r?.n ?? 0) + (t?.n ?? 0);
+  return (a?.n ?? 0) + (r?.n ?? 0) + (t?.n ?? 0) + (await stuckSessions(env, me)).length;
 }
 
 /** The notification for a queued item as it is now; null when it's no longer waiting. */
@@ -243,6 +244,19 @@ export async function sendDuePushes(env: Env, now = Date.now()): Promise<number 
   const { results } = await env.DB.prepare("SELECT * FROM push_queue WHERE due_at <= ? ORDER BY due_at LIMIT 50").bind(now).all<{ id: number; member: string; ref: string; extra: string }>();
   for (const q of results) {
     await env.DB.prepare("DELETE FROM push_queue WHERE id = ?").bind(q.id).run();
+    if (q.ref[0] === "u") {
+      // A DM to one of their agents may not have been taken (stuck.ts): notify once, or look again later.
+      try {
+        const st = await stuckNote(env, q.member, q.ref.slice(1));
+        if (st?.title) await sendNote(env, q.member, { title: st.title, body: clip(st.body, 240), tag: q.ref, url: "/dashboard?view=agents", count: await waitingCount(env, q.member), ttl: 86400 });
+        else if (st?.again) {
+          await env.DB.prepare("INSERT INTO push_queue (member, ref, due_at, extra) VALUES (?, ?, ?, '')").bind(q.member, q.ref, st.again).run();
+        }
+      } catch (e) {
+        console.log("push", q.ref, String(e));
+      }
+      continue;
+    }
     try {
       const note = await noteFor(env, q.member, q.ref, q.extra);
       if (note) await sendNote(env, q.member, { ...note, count: await waitingCount(env, q.member) });

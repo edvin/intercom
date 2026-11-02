@@ -1,5 +1,6 @@
 import { recordsBrief } from "./records";
 import { saveWorkSettings, workCsv } from "./work";
+import { dismissStuck, moveStuck, releaseSenders } from "./stuck";
 import { answerBtw, pendingBtw } from "./btw";
 import { getAttachment, isImage, readImage, readable } from "./attachments";
 import { fetchLocalFile, fileReply } from "./localfiles";
@@ -722,6 +723,21 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
         });
         u.searchParams.set("ok", await decideReview(env, me, id, { outcome: field("outcome") as Outcome, findings, note: field("note").trim().slice(0, 500) }));
       }
+    } catch (e) {
+      if (!(e instanceof UserError)) throw e;
+      u.searchParams.set("err", e.message);
+    }
+    return redirect(u.pathname + u.search);
+  }
+  if (url.pathname === "/stuck" && req.method === "POST") {
+    // An agent that isn't taking its messages (stuck.ts): move them to another agent, tell the senders, or dismiss.
+    if (!sameOrigin(req)) return new Response("Cross-origin request refused", { status: 403 });
+    const form = await req.formData();
+    const u = new URL(localPath(form.get("back"), "/dashboard?view=agents"), url);
+    const agent = String(form.get("agent") ?? "");
+    try {
+      const op = String(form.get("op") ?? "");
+      u.searchParams.set("ok", op === "move" ? await moveStuck(env, me, agent, String(form.get("to") ?? "")) : op === "release" ? await releaseSenders(env, me, agent) : await dismissStuck(env, me, agent));
     } catch (e) {
       if (!(e instanceof UserError)) throw e;
       u.searchParams.set("err", e.message);
