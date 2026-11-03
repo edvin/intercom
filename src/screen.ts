@@ -225,7 +225,7 @@ export function screenHtml(text: string): string {
 
 /** The dashboard's screen window body: the pane, sized like the terminal, and whether keys may be sent. */
 export function drawScreen(d: ScreenData, note = ""): string {
-  return `<div class="scrwrap" data-keys="${d.keys ? "1" : "0"}"><pre class="term" style="--cols:${d.cols || 80}">${screenHtml(d.text)}</pre></div><div class="scrmeta">${d.cols}×${d.rows}${d.keys ? "" : " · sending keys is turned off on its machine"}${note ? ` · <span class="scrnote">${esc(note)}</span>` : ""}</div>`;
+  return `<div class="scrwrap" data-keys="${d.keys ? "1" : "0"}"><pre class="term" style="--cols:${d.cols || 80};--rows:${d.rows || 30}">${screenHtml(d.text)}</pre></div><div class="scrmeta">${d.cols}×${d.rows}${d.keys ? "" : " · sending keys is turned off on its machine"}${note ? ` · <span class="scrnote">${esc(note)}</span>` : ""}</div>`;
 }
 
 const atLeast = (v: string, want: string) => {

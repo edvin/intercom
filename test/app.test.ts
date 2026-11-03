@@ -3091,7 +3091,7 @@ describe("an agent's screen", () => {
     assert.doesNotMatch(await (await w.request("/dashboard?view=agents&agent=bob/docs", { as: "bob", cookie: true })).text(), /data-screen=/);
     const { result: r, ask } = await answering(w, () => w.request("/agent-screen?agent=bob/core", { as: "bob", cookie: true }).then((x) => x.text()));
     assert.deepEqual(ask!.q, { op: "capture", history: 200 });
-    assert.match(r, /<pre class="term" style="--cols:80"><span class="f2 sb">✻ Welcome<\/span>\n<span style="color:rgb\(255,135,0\)">Do you want to proceed\?<\/span>\n❯ 1\. Yes/);
+    assert.match(r, /<pre class="term" style="--cols:80;--rows:24"><span class="f2 sb">✻ Welcome<\/span>\n<span style="color:rgb\(255,135,0\)">Do you want to proceed\?<\/span>\n❯ 1\. Yes/);
     const { result: k, ask: ka } = await answering(w, () => w.form("/agent-keys", "bob", { agent: "bob/core", key: "2" }).then((x) => x.text()));
     assert.deepEqual(ka!.q, { op: "keys", keys: ["2"], text: "", enter: false, history: 200 });
     assert.match(k, /class="term"/);

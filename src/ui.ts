@@ -770,11 +770,11 @@ body:has(.ide) .top .in{max-width:none;padding:8px 14px}
 .tkpane section,.tkpane .tkpanel,.tkpane #tkdecision,.tkpane #rvdecision,.rvfind{scroll-margin-top:60px}
 .tklz.warn{background:var(--amber-soft);color:var(--amber)}
 .meta-row .btn.scrbtn{flex:none;gap:4px}
-.scrdlg{width:min(1180px,96vw);max-width:none;height:min(860px,90vh);padding:0;display:none;flex-direction:column;overflow:hidden}.scrdlg[open]{display:flex}
+.scrdlg{width:min(96vw,max(720px,calc(var(--cols,110) * var(--cw,7.55px) + 50px)));max-width:none;height:fit-content;max-height:94vh;padding:0;display:none;flex-direction:column;overflow:hidden}.scrdlg[open]{display:flex}
 .scrdlg .hd{display:flex;align-items:center;gap:10px;padding:12px 14px 12px 18px;border-bottom:1px solid var(--line)}.scrdlg .hd h2{margin:0;font-size:15px}
 .scrlive{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--green)}.scrlive .dot{width:7px;height:7px;border-radius:50%;background:var(--green);animation:pulse 1.8s infinite}
-.scrbody{flex:1;min-height:0;display:flex;flex-direction:column;background:#0b0d14}
-.scrwrap{flex:1;min-height:0;display:flex}
+.scrbody{flex:0 1 auto;min-height:0;display:flex;flex-direction:column;background:#0b0d14}
+.scrwrap{flex:0 1 auto;height:calc(var(--rows,30) * 17.25px + 30px);min-height:120px;display:flex}
 .term{flex:1;margin:0;padding:14px 16px;overflow:auto;background:#0b0d14;color:#d6d8e4;font:12.5px/1.38 "JetBrains Mono","Geist Mono",ui-monospace,Menlo,monospace;white-space:pre;tab-size:8;font-variant-ligatures:none}
 .term .sb{font-weight:700}.term .sd{opacity:.6}.term .si{font-style:italic}.term .su{text-decoration:underline}.term .finv{color:#0b0d14}.term .binv{background:#d6d8e4}
 .term .f0{color:#3b3f51}.term .f1{color:#ff6b76}.term .f2{color:#3ddc97}.term .f3{color:#ffcb6b}.term .f4{color:#6ea8ff}.term .f5{color:#c792ea}.term .f6{color:#5ce1e6}.term .f7{color:#d6d8e4}
@@ -788,7 +788,7 @@ body:has(.ide) .top .in{max-width:none;padding:8px 14px}
 .scrtype{display:flex;gap:8px;align-items:center}.scrtype input[name=text]{flex:1;min-width:0;height:34px;font:13px "Geist Mono",ui-monospace,monospace}
 .screnter{display:inline-flex;align-items:center;gap:5px;font-size:12.5px;color:var(--ink-2);white-space:nowrap}.screnter input{margin:0}
 .scrnokeys{margin:0;padding:10px 16px;font-size:12.5px;color:var(--mute);border-top:1px solid var(--line)}
-@media (max-width:640px){.scrdlg{width:100vw;height:100dvh;max-height:none;border-radius:0}.term{font-size:11px;padding:10px}.scrk{min-width:36px;padding:0 10px}}
+@media (max-width:640px){.scrdlg{width:100vw;height:100dvh;max-height:none;border-radius:0}.scrbody{flex:1 1 0}.scrwrap{flex:1 1 0;height:auto;min-height:0}.term{font-size:11px;padding:10px}.scrk{min-width:36px;padding:0 10px}}
 .k-stuck .askk,.k-wait .askk{background:var(--amber-soft);color:var(--amber)}.asklook{flex:none}.upic{display:grid;place-items:center;width:22px;height:22px;border-radius:7px;background:var(--accent-soft);color:var(--accent)}.k-upkeep .askk{background:var(--accent-soft);color:var(--accent)}.uprimary{border-color:color-mix(in srgb,var(--accent) 45%,transparent)}.k-wait .asklook{height:30px;padding:0 12px;font-size:12.5px;border-color:var(--line-strong)}
 .stklist{list-style:none;margin:8px 0 10px;padding:0;display:flex;flex-direction:column;gap:6px;font-size:12.5px}.stklist li{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 8px;padding:6px 10px;border-radius:0 9px 9px 0;border-left:2px solid var(--line-strong);background:var(--surface)}.stklist time{font-size:11.5px}.stkb{flex-basis:100%;color:var(--ink-2);line-height:1.45;overflow-wrap:anywhere}
 .stkhead{margin:2px 0 4px;font-size:14px;font-weight:600;line-height:1.45;color:var(--ink)}.stkwhy{margin:0 0 8px;font-size:13px;line-height:1.5;color:var(--ink-2)}
@@ -1386,7 +1386,7 @@ export const SCRIPT = `
     const pane = tkPane(); if (pane) tkShow(pane.dataset.tab);
   }
   // An agent's screen (screen.ts): its terminal, redrawn every 2 seconds while the window is open, and keys sent to it.
-  let scrTimer = null, scrAgent = "", scrBusy = false;
+  let scrTimer = null, scrAgent = "", scrBusy = false, scrCw = 0;
   async function scrLoad(form) {
     const body = document.getElementById("scrbody");
     if (!body || (scrBusy && !form)) return;
@@ -1400,6 +1400,13 @@ export const SCRIPT = `
         : await fetch("/agent-screen?agent=" + encodeURIComponent(scrAgent), { credentials: "same-origin", cache: "no-store" });
       body.innerHTML = await r.text();
       const np = body.querySelector("pre.term");
+      // The window grows to fit the terminal (columns and rows), as far as the screen allows; CSS caps it.
+      const dlg = document.getElementById("dlg-screen");
+      if (np && dlg) {
+        if (!scrCw) { const m = document.createElement("span"); m.textContent = "0".repeat(50); np.appendChild(m); scrCw = m.getBoundingClientRect().width / 50; m.remove(); if (scrCw) dlg.style.setProperty("--cw", scrCw + "px"); }
+        dlg.style.setProperty("--cols", np.style.getPropertyValue("--cols") || "110");
+        dlg.style.setProperty("--rows", np.style.getPropertyValue("--rows") || "30");
+      }
       if (np) np.scrollTop = atEnd ? np.scrollHeight : keep;
     } catch {} finally { scrBusy = false; }
   }
