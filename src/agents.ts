@@ -207,11 +207,13 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   const { away, waitMin } = await awayState(env, me);
   const pending = [...(await pendingApprovals(env, me)), ...reviews, ...tickets];
   const waitingN = pending.length + (await stuckSessions(env, me)).length;
+  const stale = agents.filter((a) => a.member === me && isOn(a) && outdated(a.version));
   const tree = `<aside class="tree" id="tree" data-region>
     <nav class="ttop">
       <button type="button" class="tl" data-kopen>${icon("search", 14)}<span>Search</span><span class="kbd kbd-k" style="margin-left:auto">⌘K</span></button>
       <a class="tl${nav.view === "feed" && !nav.channel ? " on" : ""}" href="/dashboard">${icon("layers", 14)}<span>Everything</span>${nav.votesTotal ? `<span class="badge accent">${nav.votesTotal}</span>` : ""}</a>
       <a class="tl${nav.view === "work" ? " on" : ""}" href="/dashboard?view=work">${icon("check", 14)}<span>Work</span></a>
+      <a class="tl${nav.view === "fleet" ? " on" : ""}" href="/dashboard?view=fleet" title="Your agents by machine, the intercom each runs, and updating them">${icon("monitor", 14)}<span>Agents · versions</span>${stale.length ? `<span class="badge amber" title="On an older intercom">${stale.length}</span>` : ""}</a>
       ${waitingN ? `<button type="button" class="tl warn" data-asksopen>${icon("bell", 14)}<span>Waiting for you</span><span class="badge amber">${waitingN}</span></button>` : ""}
     </nav>
     <div class="tsec"><span>Projects</span><button type="button" class="btn ghost xs icon" data-open="dlg-create" title="New project">${icon("plus", 13)}</button></div>
@@ -230,7 +232,6 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
     </div><div class="ft"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary">${away ? "I'm back" : "I'm leaving"}</button></div></form></dialog>`;
 
   // One line, until dismissed for this version (the next version shows it again).
-  const stale = agents.filter((a) => a.member === me && isOn(a) && outdated(a.version));
   const dismissed = cookie.split(/;\s*/).includes(`ic_upd=${PLUGIN_VERSION}`);
   // Sessions on a version that downloads releases itself only need a restart; older ones need /intercom:update first.
   const selfUpdating = stale.every((a) => !outdated(a.version, AUTO_UPDATE_SINCE));
