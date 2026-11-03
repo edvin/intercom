@@ -93,7 +93,7 @@ export async function reviewView(env: Env, me: string, id: number, back: string)
         <div class="rvfindh">${sev(f)}<span class="rvfindn">Finding ${n}</span><span class="grow"></span>${locHtml}</div>
         <p class="rvfinds">${esc(f.summary)}</p>
         ${f.comment ? `<div class="rvcomment"><span class="askh">The comment ${esc(r.label)} would post${f.post ? "" : " (it suggests dropping it)"}</span><div class="md tkprose">${md(f.comment)}</div></div>` : ""}
-        <div class="tkthread">${turnsHtml(r, me, n)}</div>
+        <div class="tkthread" id="rvturns${n}" data-region>${turnsHtml(r, me, n)}</div>
         ${open ? askForm(r, n, self, `Ask ${r.label} about this finding`) : ""}
       </article>`;
     })
@@ -194,7 +194,7 @@ export async function reviewView(env: Env, me: string, id: number, back: string)
         <section class="tkpanel on rvfindings" data-tab="findings" role="tabpanel"><div id="rvfindings" data-region>${findings}</div></section>
         ${hasChanges ? `<section class="tkcard tkpanel" data-tab="changes" role="tabpanel">${changes}</section>` : ""}
         ${d.description ? `<article class="tksheet tkpanel" data-tab="description" role="tabpanel"><section class="tksec"><h2 class="tkh2">Description</h2><div class="md tkprose">${md(d.description)}</div></section></article>` : ""}
-        <section class="tkcard tkpanel" data-tab="ask" role="tabpanel"><div id="rvthread" data-region><div class="tkthread">${
+        <section class="tkcard tkpanel" data-tab="ask" role="tabpanel"><div id="rvthread"><div class="tkthread" id="rvturns0" data-region>${
           turnsHtml(r, me, 0) || (open ? `<p class="small muted">Ask ${esc(r.label)} anything about the MR or its review. The answer shows here, and on your phone.</p>` : "")
         }</div>${open ? askForm(r, 0, self, `Ask ${r.label} about the MR or the review`) : ""}</div></section>
         <div id="rvdecision" data-region>${decision}</div>

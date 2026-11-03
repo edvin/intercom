@@ -1621,6 +1621,9 @@ export const SCRIPT = `
   async function swap(text) {
     const doc = new DOMParser().parseFromString(text, "text/html");
     $$("[data-region]").forEach((el) => {
+      // A region inside another one that was just redrawn came with it. A thread has a region of its own, apart from
+      // its question box, so an answer shows while you're typing the next question.
+      if (!el.isConnected) return;
       const next = doc.getElementById(el.id); if (!next) return;
       const src = sig(next.outerHTML); if (el._src === src) return;
       if (el.id === "asks" && !el.hidden && !next.hidden && $(".asklist", el) && $(".asklist", next)) return asksMerge(el, next, src);

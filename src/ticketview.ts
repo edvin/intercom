@@ -103,7 +103,7 @@ function threadRegion(t: Ticket, me: string, self: string): string {
     t.status === "open"
       ? `<form method="post" action="/ticket/${t.id}" class="tkask">${hidden({ back: self })}<textarea name="ask_text" id="tkask${t.id}" rows="2" class="tkta" placeholder="Ask ${esc(t.label)} about the ticket, the plan or the MR" data-enter maxlength="500"></textarea><button name="ask" value="1" class="btn sm">${icon("send", 13)}Ask</button></form>`
       : "";
-  return `<div id="tkthread" data-region><div class="tkthread">${
+  return `<div id="tkthread"><div class="tkthread" id="tkturns" data-region>${
     turns.length
       ? turns.map((x) => `<div class="tkturn${x.who === "you" ? " mine" : ""}" data-mid="k${x.at}"><div class="tkturnh">${x.who === "you" ? avatar(me, "s") : agentAvatar(me, t.label, "s")}<b>${x.who === "you" ? "You" : esc(x.who)}</b>${time(x.at)}</div><div class="md">${md(x.text)}</div></div>`).join("")
       : t.status === "open" ? `<p class="small muted">Ask ${esc(t.label)} anything about the ticket or the plan. The answer shows here, and on your phone.</p>` : ""
