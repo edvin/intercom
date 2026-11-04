@@ -885,6 +885,31 @@ describe("answering agents from the dashboard, whoever answers first", () => {
     assert.equal((await poll(w, id3)).status, "closed");
   });
 
+  test("a question shows what led to it: the agent's last words, its steps since your prompt, and a side question about it", async () => {
+    const w = await standardWorld();
+    await start(w, "l1");
+    const n = Date.now();
+    const items = [
+      { at: n - 9000, kind: "text", text: "Earlier work that isn't part of this." },
+      { at: n - 8000, kind: "prompt", text: "fix the registrar sentence" },
+      { at: n - 7000, kind: "read", text: "read src/registrar.ts" },
+      { at: n - 6000, kind: "text", text: "Dominic wants a **contract check** before the sentence ships." },
+    ];
+    await w.request("/api/activity?session=l1", { method: "POST", as: "bob", body: JSON.stringify({ items }) });
+    const { id } = (await (await ask(w, "l1", color)).json()) as { id: number };
+    let html = await dock(w);
+    assert.match(html, /<div class="askwhy md"[^>]*>[\s\S]*<strong>contract check<\/strong>|<div class="askwhy md"[^>]*>[\s\S]*<b>contract check<\/b>/);
+    assert.match(html, new RegExp(`id="lead-${id}"><summary>[\\s\\S]*What it did before asking · 1 step<`));
+    assert.match(html, /read src\/registrar\.ts/);
+    assert.doesNotMatch(html, /Earlier work/);
+    assert.doesNotMatch(html, /askabout/); // its intercom-ui mod isn't running: no side questions
+    await w.db.prepare("UPDATE sessions SET ui_at = ?, ui_version = '0.2.8' WHERE session_id = 'l1'").bind(Date.now()).run();
+    assert.match(await dock(w), new RegExp(`id="askab-${id}"`));
+    await w.form("/action/post", "bob", { mode: "btw", session: "l1", message: "Who is Dominic?", back: "/dashboard" });
+    html = await dock(w);
+    assert.match(html, /<div class="rvturn mine"><b>You<\/b> Who is Dominic\?<\/div><div class="rvturn"><b>l1<\/b> <span class="muted">asking…/);
+  });
+
   test("a plan: approve it, or keep planning with what to change", async () => {
     const w = await standardWorld();
     await start(w, "p1");

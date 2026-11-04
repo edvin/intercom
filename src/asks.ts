@@ -3,7 +3,8 @@
 // counts, and one answered there leaves the dock.
 
 import { type Approval, type Question, pendingApprovals } from "./approvals";
-import { type Env, ago } from "./lib";
+import { type Activity, type Env, ago } from "./lib";
+import { type Btw, BTW_TIMEOUT, modAnswers } from "./btw";
 import { type Review, OUTCOMES, agentOnline, findingsOf, onlineAgents, pendingReviews, threadOf } from "./reviews";
 import { type Stuck, stuckSessions } from "./stuck";
 import { screenAttrs } from "./screen";
@@ -45,7 +46,67 @@ type Screens = Map<string, { label: string; screen: string; client: string }>;
 const lookBtn = (me: string, x: { label: string; screen: string; client: string } | undefined, text = "") =>
   x ? `<button type="button" class="btn ghost xs${text ? "" : " icon"} asklook" ${screenAttrs(`${me}/${x.label}`, x.label, x.screen, x.client)} title="See its terminal${x.screen === "keys" ? " and answer there" : ""}">${icon("monitor", 13)}${text}</button>` : "";
 
-function card(p: Approval, me: string, back: string, now: number, screens: Screens = new Map()): string {
+// What led to a question, a plan or a permission prompt: the agent's steps since your last prompt to it, up to the ask
+// (its explanation is usually the text it wrote just before), and side questions you asked about it on the card.
+export interface LeadUp {
+  acts: Activity[]; // oldest first
+  btws: Btw[];
+  canAsk: boolean; // a Claude Code session whose intercom-ui mod answers side questions
+}
+const LEAD_KINDS = ["text", "cmd", "edit", "read", "tool"];
+const LEAD_MAX = 30;
+const STEP_ICON: Record<string, string> = { cmd: "$", edit: "✎", read: "·", tool: "⚙", text: "●" };
+
+export async function leadUps(env: Env, me: string, pending: Approval[]): Promise<Map<number, LeadUp>> {
+  const out = new Map<number, LeadUp>();
+  for (const p of pending) {
+    const since = await env.DB.prepare("SELECT MAX(at) AS at FROM activity WHERE member = ? AND session_id = ? AND kind = 'prompt' AND at <= ?")
+      .bind(me, p.session_id, p.created_at)
+      .first<{ at: number | null }>();
+    // The transcript reaches the hub a little after the hook that asked, so the last minute after the ask counts too.
+    const { results } = await env.DB.prepare(
+      `SELECT id, session_id, at, kind, text FROM activity WHERE member = ? AND session_id = ? AND at > ? AND at <= ? AND kind IN (${LEAD_KINDS.map(() => "?").join(",")}) ORDER BY id DESC LIMIT ?`,
+    )
+      .bind(me, p.session_id, since?.at ?? 0, p.created_at + 60_000, ...LEAD_KINDS, LEAD_MAX)
+      .all<Activity>();
+    const { results: btws } = await env.DB.prepare("SELECT * FROM btw WHERE member = ? AND session_id = ? AND created_at >= ? ORDER BY id")
+      .bind(me, p.session_id, p.created_at)
+      .all<Btw>();
+    const s = await env.DB.prepare("SELECT client, ui_at, ui_version FROM sessions WHERE member = ? AND session_id = ?")
+      .bind(me, p.session_id)
+      .first<{ client: string; ui_at: number | null; ui_version: string }>();
+    out.set(p.id, { acts: results.reverse(), btws, canAsk: !!s && s.client !== "codex" && modAnswers(s) });
+  }
+  return out;
+}
+
+function leadUpHtml(p: Approval, lead: LeadUp | undefined, back: string, now: number): string {
+  if (!lead) return "";
+  const texts = lead.acts.filter((a) => a.kind === "text");
+  const why = texts[texts.length - 1];
+  const rest = lead.acts.filter((a) => a !== why);
+  const row = (a: Activity) =>
+    `<div class="act act-${esc(a.kind)}"><span class="aic">${STEP_ICON[a.kind] ?? "·"}</span><span class="atx${a.kind === "text" ? " md" : ""}">${a.kind === "text" ? md(a.text) : esc(a.text.replace(/\n/g, " · "))}</span><span class="when">${time(a.at)}</span></div>`;
+  const steps = rest.length
+    ? `<details class="asklead" id="lead-${p.id}"><summary>${icon("chevron", 11)}What it did before asking · ${rest.length} step${rest.length === 1 ? "" : "s"}${lead.acts.length >= LEAD_MAX ? " (the latest)" : ""}</summary><div class="askleadlist">${rest.map(row).join("")}</div></details>`
+    : "";
+  const turns = lead.btws
+    .map((b) => {
+      const late = b.status === "pending" && now - b.created_at > BTW_TIMEOUT;
+      const a = b.status === "answered" ? `<div class="md">${md(b.answer)}</div>` : b.status === "failed" || late ? `<span class="muted">no answer${b.reason ? `: ${esc(b.reason)}` : ""}</span>` : `<span class="muted">asking…</span>`;
+      return `<div class="rvturn mine"><b>You</b> ${esc(b.question)}</div><div class="rvturn"><b>${esc(p.label)}</b> ${a}</div>`;
+    })
+    .join("");
+  const ask = lead.canAsk
+    ? `<details class="rvask askabout" id="askab-${p.id}"${lead.btws.length ? " open" : ""}><summary>${icon("message", 12)}Ask ${esc(p.label)} about it</summary>
+        <form method="post" action="/action/post" class="rvaskrow">${hidden({ back, session: p.session_id, mode: "btw" })}<input name="message" class="asktype" placeholder="What do you need to know first?" autocomplete="off" maxlength="2000" required><button class="btn xs">Ask</button></form>
+        <p class="askhint">A side question: it answers from what it knows now, without leaving the question or adding to its context.</p></details>`
+    : "";
+  if (!why && !steps && !turns && !ask) return "";
+  return `<div class="askctx">${why ? `<div class="askwhy md" title="What ${esc(p.label)} wrote before asking">${md(why.text)}</div>` : ""}${steps}${turns}${ask}</div>`;
+}
+
+function card(p: Approval, me: string, back: string, now: number, screens: Screens = new Map(), lead?: LeadUp): string {
   const agent = `/dashboard?view=agents&agent=${encodeURIComponent(`${me}/${p.label}`)}`;
   const deadline = p.away ? `<span class="askdue" title="Away mode: unanswered, it's denied then">denied in ${Math.max(0, Math.round((p.expires_at - now) / 60000))}m</span>` : "";
   const head = `<header class="askwho">${agentAvatar(me, p.label, "s")}<a href="${esc(agent)}" class="askname">${esc(p.label)}</a><span class="askk">${p.kind === "permission" ? esc(p.tool) : KIND[p.kind]}</span><span class="grow"></span>${deadline}${time(p.created_at)}${lookBtn(me, screens.get(p.session_id))}</header>`;
@@ -61,7 +122,7 @@ function card(p: Approval, me: string, back: string, now: number, screens: Scree
       <form method="post" action="/approval/${p.id}">${hidden({ back })}<input name="note" class="asktype" placeholder="Note for the agent (optional)" autocomplete="off">
       <div class="askact"><button name="decision" value="allow" class="btn sm primary">${icon("check", 14)}Allow</button><button name="decision" value="deny" class="btn sm danger">${icon("x", 14)}Deny</button></div></form>`;
   }
-  return `<article class="ask k-${p.kind}" data-mid="a${p.id}">${head}${body}</article>`;
+  return `<article class="ask k-${p.kind}" data-mid="a${p.id}">${head}${leadUpHtml(p, lead, back, now)}${body}</article>`;
 }
 
 const SEV = { blocker: "Blocker", important: "Important", question: "Question" } as const;
@@ -206,6 +267,7 @@ function stuckCard(st: Stuck, me: string, back: string, online: { label: string;
 /** The dock, for the bottom corner of every dashboard page (an empty placeholder keeps live redraws able to fill it). */
 export async function asksDock(env: Env, me: string, back: string): Promise<string> {
   const pending = await pendingApprovals(env, me);
+  const leads = await leadUps(env, me, pending);
   const reviews = await pendingReviews(env, me);
   const tickets = await pendingTickets(env, me);
   const stuck = await stuckSessions(env, me);
@@ -236,7 +298,7 @@ export async function asksDock(env: Env, me: string, back: string): Promise<stri
     <button type="button" class="askpill" data-askstoggle title="Show what your agents are waiting on"><span class="askdot"></span><b>${n}</b> waiting for you${icon("chevron", 14)}</button>
     <div class="askpanel">
       <div class="askhd"><span class="askdot"></span><b>Waiting for you</b><span class="badge amber">${n}</span><span class="grow"></span><span class="small muted askor">or answer in the terminal</span><button type="button" class="btn ghost xs askpush" data-pushon hidden title="Get a notification on this device when something is waiting for you">${icon("bell", 13)}Notify me</button><button type="button" class="btn ghost xs icon" data-askstoggle title="Minimize">${icon("chevron", 14)}</button></div>
-      <div class="asklist">${pending.map((p) => card(p, me, back, now, screens)).join("")}${waits.map((w) => waitCard(w, me)).join("")}${reviews
+      <div class="asklist">${pending.map((p) => card(p, me, back, now, screens, leads.get(p.id))).join("")}${waits.map((w) => waitCard(w, me)).join("")}${reviews
         .map((r) => reviewCard(r, me, back, agentOnline(env, r, agents), names.filter((l) => l !== r.label)))
         .join("")}${tickets.map((t) => ticketCard(t, me, back)).join("")}${stuck.map((st) => stuckCard(st, me, back, agents)).join("")}${upkeepCards.join("")}</div>
     </div>

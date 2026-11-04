@@ -986,6 +986,11 @@ tr.dnote td{padding:0;background:var(--surface-2)}
 .asktype{width:100%;height:34px;margin-top:8px;font-size:13px;border-radius:10px;background:var(--surface)}
 .askact{display:flex;gap:8px;justify-content:flex-end;margin-top:10px}
 .askcode{margin:0 0 2px;padding:10px 12px;border-radius:10px;background:var(--surface);border:1px solid var(--line);font-family:"Geist Mono",ui-monospace,monospace;font-size:12.5px;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere;max-height:150px;overflow:auto;color:var(--ink)}
+.askctx{margin:0 0 10px;display:flex;flex-direction:column;gap:4px}
+.askwhy{max-height:200px;overflow:auto;padding:8px 12px;border-radius:10px;background:var(--surface-2);font-size:13px;line-height:1.5;color:var(--ink-2);overflow-wrap:anywhere}.askwhy>:first-child{margin-top:0}.askwhy>:last-child{margin-bottom:0}
+.asklead>summary{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--mute);cursor:pointer;list-style:none;user-select:none;padding:2px 0}.asklead>summary::-webkit-details-marker{display:none}.asklead>summary:hover{color:var(--ink)}.asklead>summary svg{transition:transform .15s}.asklead[open]>summary svg{transform:rotate(90deg)}
+.askleadlist{max-height:240px;overflow:auto;margin-top:4px;padding:4px 8px;border-radius:10px;border:1px solid var(--line);font-size:12.5px}
+.askabout .askhint{margin:4px 0 0}
 .askplan{max-height:260px;overflow:auto;padding:4px 14px;border-radius:10px;background:var(--surface);border:1px solid var(--line);font-size:13px}
 .rvbadge{border:0;font:inherit;font-size:11.5px;font-weight:600;cursor:pointer;height:22px;padding:0 9px 0 7px;gap:5px}.rvbadge:hover{background:color-mix(in srgb,var(--amber) 22%,transparent)}
 .k-review .askk{background:var(--accent-soft);color:var(--accent)}
