@@ -774,7 +774,8 @@ body:has(.ide) .top .in{max-width:none;padding:8px 14px}
 .scrdlg{width:min(96vw,max(720px,calc(var(--cols,110) * var(--cw,7.55px) + 50px)));max-width:none;height:fit-content;max-height:94vh;padding:0;display:none;flex-direction:column;overflow:hidden}.scrdlg[open]{display:flex}
 .scrdlg .hd{display:flex;align-items:center;gap:10px;padding:12px 14px 12px 18px;border-bottom:1px solid var(--line)}.scrdlg .hd h2{margin:0;font-size:15px}
 .subs{flex:none;margin:10px 14px 0;border:1px solid var(--line);border-radius:12px;background:var(--surface);max-height:42vh;overflow:auto}.subs[hidden]{display:none}
-.subhd{display:flex;align-items:center;gap:7px;padding:8px 12px;font-size:12.5px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--surface);z-index:1}.subhd .muted{margin-left:2px}
+.subhd{display:flex;align-items:center;gap:7px;padding:8px 12px;font-size:12.5px;position:sticky;top:0;background:var(--surface);z-index:1;cursor:pointer;list-style:none;min-width:0;border-radius:12px}.subhd::-webkit-details-marker{display:none}.subhd:hover{background:var(--surface-2)}.subhd .muted{margin-left:2px;flex:none}.subbox[open]>.subhd{border-bottom:1px solid var(--line);border-radius:12px 12px 0 0}
+.subnow{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink-2)}.subbox[open] .subhd .subspin,.subbox[open] .subnow{display:none}.subcaret{margin-left:auto;flex:none;display:grid;color:var(--mute);transition:transform .15s}.subbox[open] .subcaret{transform:rotate(90deg)}
 .subag{border-bottom:1px solid var(--line)}.subag:last-child{border-bottom:0}
 .subag>summary,.submore>summary{display:flex;align-items:center;gap:8px;padding:7px 12px;cursor:pointer;list-style:none;font-size:13px;min-width:0}.subag>summary::-webkit-details-marker,.submore>summary::-webkit-details-marker{display:none}
 .subag>summary:hover,.submore>summary:hover{background:var(--surface-2)}
@@ -789,7 +790,7 @@ body:has(.ide) .top .in{max-width:none;padding:8px 14px}
 .substeps{display:flex;flex-direction:column;max-height:260px;overflow:auto}.subresult{font-size:13px}
 .submore>summary{color:var(--mute);font-size:12px}
 .tsub{display:inline-flex;align-items:center;gap:2px;font-size:10.5px;font-weight:650;color:var(--accent)}
-@media (max-width:640px){.subs{margin:8px 8px 0;max-height:36vh}.submeta{display:none}.subag[open] .submeta{display:inline}.subbody{padding-left:12px}}
+@media (max-width:640px){.subs{margin:8px 8px 0;max-height:36vh}.subhd{padding:7px 10px}.submeta{display:none}.subag[open] .submeta{display:inline}.subbody{padding-left:12px}}
 .scrfit{gap:5px}.scrfit[aria-pressed=true]{background:var(--accent-soft);color:var(--accent);border-color:color-mix(in srgb,var(--accent) 40%,transparent)}
 .scrlive{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--green)}.scrlive .dot{width:7px;height:7px;border-radius:50%;background:var(--green);animation:pulse 1.8s infinite}
 .scrbody{flex:0 1 auto;min-height:0;display:flex;flex-direction:column;background:#0b0d14}
@@ -1502,7 +1503,13 @@ export const SCRIPT = `
     document.cookie = want + "; path=/; max-age=31536000; samesite=lax";
     if (new URL(location.href).searchParams.get("view") === "work") location.reload();
   }
+  // The subagents strip in an agent's chat (subview.ts) stays folded or open as you last left it.
+  document.addEventListener("toggle", (e) => {
+    if (e.target.id === "subs-box") try { localStorage.setItem("ic_subs", e.target.open ? "1" : "0"); } catch {}
+  }, true);
   function bind(root = document) {
+    const sb = document.getElementById("subs-box");
+    if (sb) try { sb.open = localStorage.getItem("ic_subs") === "1"; } catch {}
     bindAsks();
     bindTz();
     bindScreen();

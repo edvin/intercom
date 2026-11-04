@@ -34,10 +34,14 @@ export function subsRegion(subs: Sub[], steps: Map<string, SubStep[]>, origin: s
   const run = runningSubs(subs);
   const done = subs.filter((s) => s.status !== "running").sort((a, b) => b.updated - a.updated);
   const item = (s: Sub) => subItem(s, steps.get(s.id) ?? [], origin, now);
-  const head = `${icon("users", 13)}<b>Subagents</b><span class="muted">${run.length ? `${run.length} running` : "none running"}${done.length ? ` · ${done.length} finished` : ""}</span>`;
-  return `<div id="subs" class="subs" data-region><div class="subhd">${head}</div><div class="sublist">${[...run, ...done.slice(0, SHOWN_DONE)].map(item).join("")}${
+  const now1 = run[0]?.desc || run[0]?.type || "";
+  const head = `${icon("users", 13)}<b>Subagents</b><span class="muted">${run.length ? `${run.length} running` : "none running"}${done.length ? ` · ${done.length} finished` : ""}</span>${
+    run.length ? `<span class="subspin" aria-hidden="true"></span><span class="subnow">${esc(now1)}</span>` : ""
+  }<span class="subcaret">${icon("chevron", 12)}</span>`;
+  // Folded to its one line unless you open it (the browser remembers that), so it doesn't push the chat down.
+  return `<div id="subs" class="subs" data-region><details class="subbox" id="subs-box"><summary class="subhd">${head}</summary><div class="sublist">${[...run, ...done.slice(0, SHOWN_DONE)].map(item).join("")}${
     done.length > SHOWN_DONE ? `<details class="submore" id="subs-more"><summary>${done.length - SHOWN_DONE} earlier</summary>${done.slice(SHOWN_DONE).map(item).join("")}</details>` : ""
-  }</div></div>`;
+  }</div></details></div>`;
 }
 
 /** The tree's mark on an agent with subagents running. */

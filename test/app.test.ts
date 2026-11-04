@@ -1008,7 +1008,7 @@ describe("activity mirroring", () => {
       8,
     );
     const mine = await (await w.request("/dashboard?view=agents&agent=bob/alder", { as: "bob", cookie: true })).text();
-    assert.match(mine, /<div id="subs" class="subs" data-region><div class="subhd">[\s\S]*1 running · 1 finished/);
+    assert.match(mine, /<div id="subs" class="subs" data-region><details class="subbox" id="subs-box"><summary class="subhd">[\s\S]*1 running · 1 finished/);
     assert.match(mine, /<details class="subag on" id="sub-a1">[\s\S]*<span class="subtype">Explore<\/span><span class="subdesc">Find the retry logic<\/span>[\s\S]*running 5m · 2 steps/);
     assert.match(mine, /Where do we retry failed charges\?[\s\S]*grep retry[\s\S]*Run the tests · npm test/);
     assert.match(mine, /id="sub-a2">[\s\S]*>bg<[\s\S]*done 4m ago · took 1m[\s\S]*Its answer[\s\S]*<b>3 entries<\/b>/);
