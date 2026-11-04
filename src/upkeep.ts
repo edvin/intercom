@@ -13,6 +13,7 @@ import { PLUGIN_VERSION } from "./version";
 
 /** A helper must run at least this to list the agents on its machine and type into their panes. */
 export const HELPER_SINCE = "0.12.34";
+export const FIT_SINCE = "0.12.35"; // "Fit to this screen" (code.mjs fitPane)
 const FROZEN_MS = 20 * 60_000;
 const FULL_PCT = 85;
 const TICK_MS = 20 * 60_000;
@@ -89,13 +90,17 @@ async function ask(env: Env, me: string, at: Located, t: Row, q: ScreenQuery, by
 
 /** Your connected Claude Code agents on an older intercom than the newest (`reachable`: only those whose terminal can be typed into, themselves or through another agent on their machine). */
 export function staleAgents(rows: Row[], live: (r: Row) => boolean, reachable = false): Row[] {
-  return rows.filter((r) => live(r) && r.client !== "codex" && r.version && newer(PLUGIN_VERSION, r.version) && (!reachable || (r.screen === "keys" && r.pane) || helperFor(rows, live, r)));
+  return rows.filter((r) => live(r) && (r.client !== "codex" || !!r.launch) && r.version && newer(PLUGIN_VERSION, r.version) && (!reachable || (r.screen === "keys" && r.pane) || helperFor(rows, live, r)));
 }
 
-/** Update one idle agent in place: /restart when Claude Code has an update waiting, else /reload-plugins. */
+/**
+ * Update one idle agent in place: /restart when Claude Code has an update waiting, else /reload-plugins. A Codex session
+ * loads the intercom files on its machine when it starts (they update themselves), so it's restarted in its pane: Ctrl+C
+ * twice leaves the TUI (Codex keeps the session), then it's resumed by its id with the flags it was started with.
+ */
 export async function updateAgent(env: Env, me: string, t: Row, rows: Row[], live: (r: Row) => boolean, by: string): Promise<string> {
-  if (t.client === "codex") return `${t.label}: a Codex session; update it in its terminal for now`;
   if (t.state === "working") return `${t.label}: busy, left alone`;
+  if (t.client === "codex") return restartCodex(env, me, t, rows, live, by);
   const at = await locate(env, me, t, rows, live);
   if (!at) return `${t.label}: can't reach its terminal (not in tmux, or no updated agent on ${t.host || "its machine"} to go through)`;
   const screen = plainScreen((await ask(env, me, at, t, { op: "capture" }, by)).text);
@@ -104,6 +109,25 @@ export async function updateAgent(env: Env, me: string, t: Row, rows: Row[], liv
   const cmd = cli ? "/restart" : "/reload-plugins";
   await ask(env, me, at, t, { op: "keys", text: cmd, enter: true }, by);
   return `${t.label}: ${cmd}${cli ? " (a Claude Code update was waiting)" : ` (intercom ${t.version || "?"} → ${PLUGIN_VERSION})`}`;
+}
+
+const SHELL_PROMPT = /(?<![\d\w])[$#%>❯] ?$|[\w~\/\])][$#] ?$/;
+const lastLine = (text: string) => plainScreen(text).trimEnd().split("\n").pop() ?? "";
+
+async function restartCodex(env: Env, me: string, t: Row, rows: Row[], live: (r: Row) => boolean, by: string): Promise<string> {
+  if (!t.launch) return `${t.label}: how it was started isn't known; restart it by hand (codex resume ${t.session_id})`;
+  const cmd = resumeCommand(t);
+  const at = await locate(env, me, t, rows, live);
+  if (!at) return `${t.label}: can't reach its terminal (not in tmux, or no updated agent on ${t.host || "its machine"} to go through)`;
+  let screen = await ask(env, me, at, t, { op: "keys", keys: ["ctrl-c", "ctrl-c"] }, by);
+  for (let i = 0; i < 4 && !SHELL_PROMPT.test(lastLine(screen.text)); i++) {
+    await new Promise((r) => setTimeout(r, 1500));
+    screen = await ask(env, me, at, t, { op: "capture" }, by);
+  }
+  const end = lastLine(screen.text);
+  if (!SHELL_PROMPT.test(end)) return `${t.label}: Codex didn't exit to a shell (its pane ends with “${end.slice(-60)}”); look at it`;
+  await ask(env, me, at, t, { op: "keys", text: cmd, enter: true }, by);
+  return `${t.label}: restarted in place, same session (${cmd})`;
 }
 
 /** Update every idle agent that's behind (or, `quietFor`, only those idle that long). */
@@ -140,7 +164,7 @@ export function exitedAgents(rows: Row[], live: (r: Row) => boolean): Row[] {
 export function resumeCommand(t: { launch: string; session_id: string; client: string }): string {
   if (!/^[\w-]+$/.test(t.session_id)) throw new UserError("That session id can't be resumed.");
   const words = t.launch.trim().split(/\s+/).filter(Boolean);
-  if (t.client === "codex") return `codex resume ${t.session_id}`;
+  if (t.client === "codex") return codexResume(words, t.session_id);
   if (words.some((w) => /[;&|`$<>(){}\\'"]/.test(w))) throw new UserError("Its command line has shell characters; restart it by hand.");
   const bin = words[0] && /(^|\/)claude$/.test(words[0]) ? words[0] : "claude";
   const flags: string[] = [];
@@ -158,6 +182,23 @@ export function resumeCommand(t: { launch: string; session_id: string; client: s
   return `${channel}${bin} ${[...flags, "--resume", t.session_id].join(" ")}`.replace(/\s+/g, " ").trim();
 }
 
+// Codex flags that take a value; any other word that isn't a flag (a prompt, `resume <id>`, `--last`) is dropped, so a
+// restart never sends its first prompt again.
+const CODEX_VALUE_FLAGS = /^(-m|--model|-c|--config|-p|--profile|-s|--sandbox|-a|--ask-for-approval|-C|--cd|-i|--image|--add-dir|--enable|--disable|--local-provider)$/;
+
+function codexResume(words: string[], id: string): string {
+  const w = words[0] && /(^|\/)node$/.test(words[0]) ? words.slice(1) : words;
+  const flags: string[] = [];
+  for (let i = 1; i < w.length; i++) {
+    const x = w[i]!;
+    if (/[;&|`$<>(){}\\'"]/.test(x)) throw new UserError("Its command line has shell characters; restart it by hand.");
+    if (!x.startsWith("-") || x === "--last") continue;
+    flags.push(x);
+    if (CODEX_VALUE_FLAGS.test(x) && w[i + 1] && !w[i + 1]!.startsWith("-")) flags.push(w[++i]!);
+  }
+  return ["codex", ...flags, "resume", id].join(" ");
+}
+
 /** Start an agent that stopped running again, in its pane, in the same session. */
 export async function restartAgent(env: Env, me: string, sessionId: string): Promise<string> {
   const { rows, live } = await myRows(env, me);
@@ -166,9 +207,8 @@ export async function restartAgent(env: Env, me: string, sessionId: string): Pro
   if (live(t)) throw new UserError(`${t.label} is running: nothing to restart.`);
   const at = await locate(env, me, t, rows, live);
   if (!at?.pane) throw new UserError(`${t.label}'s terminal can't be reached: no updated agent of yours on ${t.host || "its machine"} to go through.`);
-  const screen = plainScreen((await ask(env, me, at, t, { op: "capture" }, "from the dashboard")).text).trimEnd();
-  const lastLine = screen.split("\n").pop() ?? "";
-  if (!/(?<![\d\w])[$#%>❯] ?$|[\w~\/\])][$#] ?$/.test(lastLine)) throw new UserError(`${t.label}'s pane doesn't show a shell prompt (it ends with “${lastLine.slice(-60)}”): look at it before restarting.`);
+  const end = lastLine((await ask(env, me, at, t, { op: "capture" }, "from the dashboard")).text);
+  if (!SHELL_PROMPT.test(end)) throw new UserError(`${t.label}'s pane doesn't show a shell prompt (it ends with “${end.slice(-60)}”): look at it before restarting.`);
   const cmd = resumeCommand(t);
   await ask(env, me, at, t, { op: "keys", text: cmd, enter: true }, "from the dashboard");
   return `Restarting ${t.label} in its pane: ${cmd}`;

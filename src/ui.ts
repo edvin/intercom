@@ -28,6 +28,7 @@ const ICONS: Record<string, string> = {
   square: '<rect width="14" height="14" x="5" y="5" rx="2"/>',
   repeat: '<path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/>',
   lock: '<rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+  fit: '<path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="m21 3-7 7"/><path d="m3 21 7-7"/>',
   monitor: '<rect width="20" height="14" x="2" y="3" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/>',
   pencil: '<path d="M21.17 6.81a1 1 0 0 0-3.99-3.99L3.84 16.17a2 2 0 0 0-.5.83l-1.32 4.35a.5.5 0 0 0 .62.62l4.35-1.32a2 2 0 0 0 .83-.5z"/><path d="m15 5 4 4"/>',
   sidebar: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/>',
@@ -772,6 +773,24 @@ body:has(.ide) .top .in{max-width:none;padding:8px 14px}
 .meta-row .btn.scrbtn{flex:none;gap:4px}
 .scrdlg{width:min(96vw,max(720px,calc(var(--cols,110) * var(--cw,7.55px) + 50px)));max-width:none;height:fit-content;max-height:94vh;padding:0;display:none;flex-direction:column;overflow:hidden}.scrdlg[open]{display:flex}
 .scrdlg .hd{display:flex;align-items:center;gap:10px;padding:12px 14px 12px 18px;border-bottom:1px solid var(--line)}.scrdlg .hd h2{margin:0;font-size:15px}
+.subs{flex:none;margin:10px 14px 0;border:1px solid var(--line);border-radius:12px;background:var(--surface);max-height:42vh;overflow:auto}.subs[hidden]{display:none}
+.subhd{display:flex;align-items:center;gap:7px;padding:8px 12px;font-size:12.5px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--surface);z-index:1}.subhd .muted{margin-left:2px}
+.subag{border-bottom:1px solid var(--line)}.subag:last-child{border-bottom:0}
+.subag>summary,.submore>summary{display:flex;align-items:center;gap:8px;padding:7px 12px;cursor:pointer;list-style:none;font-size:13px;min-width:0}.subag>summary::-webkit-details-marker,.submore>summary::-webkit-details-marker{display:none}
+.subag>summary:hover,.submore>summary:hover{background:var(--surface-2)}
+.subspin{flex:none;width:11px;height:11px;border-radius:50%;border:2px solid var(--accent-soft);border-top-color:var(--accent);animation:spin .9s linear infinite}
+.subend{flex:none;display:grid;place-items:center;width:15px;height:15px;border-radius:50%;background:var(--green-soft,color-mix(in srgb,var(--green) 16%,transparent));color:var(--green);font-size:8px}.subend.stop{background:var(--surface-2);color:var(--mute)}
+.subtype{flex:none;font:600 11px "Geist Mono",ui-monospace,monospace;padding:1px 6px;border-radius:6px;background:var(--surface-2);color:var(--ink-2)}
+.subdesc{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:560;color:var(--ink)}
+.subbg{flex:none;font-size:10.5px;font-weight:600;padding:0 5px;border-radius:5px;border:1px solid var(--line-strong);color:var(--mute)}
+.submeta{margin-left:auto;flex:none;font-size:11.5px;color:var(--mute);white-space:nowrap}
+.subbody{padding:4px 12px 12px 35px;display:flex;flex-direction:column;gap:10px}
+.subsec{display:flex;flex-direction:column;gap:4px}.subprompt{white-space:pre-wrap;overflow-wrap:anywhere;font-size:12.5px;color:var(--ink-2);max-height:160px;overflow:auto;padding:8px 10px;border-radius:8px;background:var(--surface-2)}
+.substeps{display:flex;flex-direction:column;max-height:260px;overflow:auto}.subresult{font-size:13px}
+.submore>summary{color:var(--mute);font-size:12px}
+.tsub{display:inline-flex;align-items:center;gap:2px;font-size:10.5px;font-weight:650;color:var(--accent)}
+@media (max-width:640px){.subs{margin:8px 8px 0;max-height:36vh}.submeta{display:none}.subag[open] .submeta{display:inline}.subbody{padding-left:12px}}
+.scrfit{gap:5px}.scrfit[aria-pressed=true]{background:var(--accent-soft);color:var(--accent);border-color:color-mix(in srgb,var(--accent) 40%,transparent)}
 .scrlive{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--green)}.scrlive .dot{width:7px;height:7px;border-radius:50%;background:var(--green);animation:pulse 1.8s infinite}
 .scrbody{flex:0 1 auto;min-height:0;display:flex;flex-direction:column;background:#0b0d14}
 .scrwrap{flex:0 1 auto;height:calc(var(--rows,30) * 17.25px + 30px);min-height:120px;display:flex}
@@ -1386,7 +1405,19 @@ export const SCRIPT = `
     const pane = tkPane(); if (pane) tkShow(pane.dataset.tab);
   }
   // An agent's screen (screen.ts): its terminal, redrawn every 2 seconds while the window is open, and keys sent to it.
-  let scrTimer = null, scrAgent = "", scrBusy = false, scrCw = 0;
+  let scrTimer = null, scrAgent = "", scrBusy = false, scrCw = 0, scrFit = false;
+  try { scrFit = localStorage.getItem("ic_scrfit") === "1"; } catch {}
+  // "Fit to this screen": the columns and rows that fit this window (the whole screen on a phone), for the agent's tmux.
+  function scrFitSize() {
+    const d = document.getElementById("dlg-screen"), pre = d && d.querySelector("pre.term"), wrap = d && d.querySelector(".scrwrap");
+    if (!pre || !wrap || !scrCw) return "";
+    const cs = getComputedStyle(pre), lh = parseFloat(cs.lineHeight) || 17;
+    const phone = matchMedia("(max-width:640px)").matches;
+    const w = (phone ? d.clientWidth : innerWidth * 0.96 - 4) - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) - 4;
+    const h = (phone ? innerHeight : innerHeight * 0.94) - (d.offsetHeight - wrap.offsetHeight) - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+    return Math.max(40, Math.min(300, Math.floor(w / scrCw))) + "x" + Math.max(10, Math.min(120, Math.floor(h / lh)));
+  }
+  const scrUnfit = () => { if (scrAgent) fetch("/agent-screen?agent=" + encodeURIComponent(scrAgent) + "&fit=off", { credentials: "same-origin", cache: "no-store", keepalive: true }).catch(() => {}); };
   async function scrLoad(form) {
     const body = document.getElementById("scrbody");
     if (!body || (scrBusy && !form)) return;
@@ -1397,12 +1428,13 @@ export const SCRIPT = `
       const keep = pre ? pre.scrollTop : 0;
       const r = form
         ? await fetch("/agent-keys", { method: "POST", body: form, credentials: "same-origin" })
-        : await fetch("/agent-screen?agent=" + encodeURIComponent(scrAgent), { credentials: "same-origin", cache: "no-store" });
+        : await fetch("/agent-screen?agent=" + encodeURIComponent(scrAgent) + (scrFit && scrFitSize() ? "&fit=" + scrFitSize() : ""), { credentials: "same-origin", cache: "no-store" });
       body.innerHTML = await r.text();
       const np = body.querySelector("pre.term");
       // The window grows to fit the terminal (columns and rows), as far as the screen allows; CSS caps it.
       const dlg = document.getElementById("dlg-screen");
       if (np && dlg) {
+        if (!scrCw && scrFit) setTimeout(() => scrLoad(), 50); // fitted as soon as a character's width is known
         if (!scrCw) { const m = document.createElement("span"); m.textContent = "0".repeat(50); np.appendChild(m); scrCw = m.getBoundingClientRect().width / 50; m.remove(); if (scrCw) dlg.style.setProperty("--cw", scrCw + "px"); }
         dlg.style.setProperty("--cols", np.style.getPropertyValue("--cols") || "110");
         dlg.style.setProperty("--rows", np.style.getPropertyValue("--rows") || "30");
@@ -1419,6 +1451,7 @@ export const SCRIPT = `
       const keys = b.dataset.screenkeys === "1";
       d.querySelector("[data-scrkeys]").hidden = !keys;
       d.querySelector("[data-scrnokeys]").hidden = keys;
+      const fb = d.querySelector("[data-scrfit]"); if (fb) fb.hidden = !keys;
       // Codex takes a line into the running turn with Enter: one Send is enough there.
       d.querySelector("[data-scrnow]").hidden = b.dataset.screenclient === "codex";
       d.querySelector("#scrbody").innerHTML = '<div class="screrr"><p>Loading its screen…</p></div>';
@@ -1429,7 +1462,18 @@ export const SCRIPT = `
     });
     if (!d || d._bound) return;
     d._bound = true;
-    d.addEventListener("close", () => clearInterval(scrTimer));
+    d.addEventListener("close", () => { clearInterval(scrTimer); if (scrFit) scrUnfit(); });
+    const fitBtn = d.querySelector("[data-scrfit]");
+    if (fitBtn) {
+      fitBtn.setAttribute("aria-pressed", scrFit ? "true" : "false");
+      fitBtn.onclick = () => {
+        scrFit = !scrFit;
+        try { localStorage.setItem("ic_scrfit", scrFit ? "1" : "0"); } catch {}
+        fitBtn.setAttribute("aria-pressed", scrFit ? "true" : "false");
+        if (!scrFit) scrUnfit();
+        setTimeout(() => scrLoad(), scrFit ? 0 : 500);
+      };
+    }
     const post = (fields) => { const f = new FormData(); f.set("agent", scrAgent); for (const [k, v] of fields) f.append(k, v); return scrLoad(f); };
     $$(".scrk", d).forEach((k) => k.onclick = () => {
       if (k.dataset.key === "ctrl-c" && !confirm("Send Ctrl+C? It interrupts what the agent is doing (twice exits it).")) return;

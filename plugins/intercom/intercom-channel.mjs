@@ -20,7 +20,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const VERSION = "0.12.34"; // kept in step with .claude-plugin/plugin.json (a test checks)
+const VERSION = "0.12.35"; // kept in step with .claude-plugin/plugin.json (a test checks)
 const DIR = path.join(os.homedir(), ".claude", "intercom");
 const CONFIG = path.join(DIR, "config");
 function readConf() {
@@ -402,7 +402,7 @@ const pendingCron = new Map(); // CronCreate tool_use id → job, until its resu
 const endedJobs = new Set(); // job ids already reported ended (the queue record and the message both say so)
 const bashCalls = new Map(); // Bash tool_use id → what it does, until its result says whether it went to the background
 const xmlTag = (text, name) => text.match(new RegExp(`<${name}>([\\s\\S]*?)</${name}>`))?.[1]?.trim() ?? "";
-function summarizeLine(line) {
+function summarizeLine(line, side = false) {
   let d;
   try {
     d = JSON.parse(line);
@@ -424,7 +424,7 @@ function summarizeLine(line) {
     return out;
   }
   // Claude Code: {type: "assistant"|"user", message: {content: [...]}}
-  if ((d.type === "assistant" || d.type === "user") && d.message && !d.isSidechain && !d.isMeta) {
+  if ((d.type === "assistant" || d.type === "user") && d.message && (!d.isSidechain || side) && !d.isMeta) {
     const c = d.message.content;
     const blocks = typeof c === "string" ? [{ type: "text", text: c }] : Array.isArray(c) ? c : [];
     for (const b of blocks) {
@@ -538,6 +538,103 @@ function dirOf(line) {
   return typeof o?.cwd === "string" && path.isAbsolute(o.cwd) ? o.cwd : null;
 }
 
+// ---- subagents: Claude Code keeps a log per subagent beside the session's (<session>/subagents/agent-<id>.jsonl, and
+// a .meta.json with its type and description). Each is followed like the session's own: its start (with what it was
+// asked), its steps, and its end (with its answer), sent as activity items of kind "sub" (the hub's subagents.ts).
+const subs = { dir: null, first: true, files: new Map() };
+const SUB_STEPS = new Set(["text", "cmd", "edit", "read", "tool"]);
+const subItem = (at, ev) => ({ at, kind: "sub", text: JSON.stringify(ev) });
+const textOf = (c) => (typeof c === "string" ? c : Array.isArray(c) ? c.filter((b) => b.type === "text").map((b) => b.text ?? "").join("\n") : "");
+
+function subTick(mainFile) {
+  if (!mainFile.endsWith(".jsonl")) return;
+  const dir = path.join(mainFile.slice(0, -6), "subagents");
+  if (dir !== subs.dir) Object.assign(subs, { dir, first: true, files: new Map() });
+  let names;
+  try {
+    names = fs.readdirSync(dir).filter((n) => /^agent-[\w-]+\.jsonl$/.test(n));
+  } catch {
+    return;
+  }
+  const now = Date.now();
+  for (const n of names) {
+    const file = path.join(dir, n);
+    let st;
+    try {
+      st = fs.statSync(file);
+    } catch {
+      continue;
+    }
+    let s = subs.files.get(n);
+    if (!s) {
+      const id = n.slice(6, -6);
+      // When the server starts, ones that ended a while ago are history.
+      if (subs.first && now - st.mtimeMs > 10 * 60_000) {
+        subs.files.set(n, { id, offset: st.size, rest: Buffer.alloc(0), old: true });
+        continue;
+      }
+      let meta = {};
+      try {
+        meta = JSON.parse(fs.readFileSync(file.slice(0, -6) + ".meta.json", "utf8"));
+      } catch {}
+      s = { id, offset: 0, rest: Buffer.alloc(0), meta, started: false, done: false };
+      subs.files.set(n, s);
+    }
+    if (s.old) continue;
+    if (st.size > s.offset) {
+      const len = Math.min(st.size - s.offset, 1 << 20);
+      const buf = Buffer.alloc(len);
+      const fd = fs.openSync(file, "r");
+      try {
+        fs.readSync(fd, buf, 0, len, s.offset);
+      } finally {
+        fs.closeSync(fd);
+      }
+      s.offset += len;
+      const all = Buffer.concat([s.rest, buf]);
+      const end = all.lastIndexOf(10);
+      if (end >= 0) {
+        s.rest = all.subarray(end + 1);
+        for (const l of all.subarray(0, end).toString("utf8").split("\n")) if (l.trim()) subLine(s, l);
+      } else s.rest = all;
+    }
+    // Quiet for an hour without ending (stopped, or its session gone): it's over.
+    if (!s.done && s.started && now - st.mtimeMs > 3600_000) {
+      s.done = true;
+      mirror.outbox.push(subItem(now, { op: "end", id: s.id, status: "stopped" }));
+    }
+  }
+  subs.first = false;
+}
+
+function subLine(s, l) {
+  let d;
+  try {
+    d = JSON.parse(l);
+  } catch {
+    return;
+  }
+  const at = Date.parse(d.timestamp ?? "") || Date.now();
+  if (!s.started) {
+    s.started = true;
+    const prompt = d.type === "user" ? textOf(d.message?.content) : "";
+    const m = s.meta;
+    mirror.outbox.push(subItem(at, { op: "start", id: s.id, type: String(m.agentType ?? ""), desc: String(m.description ?? ""), bg: m.requestShape === "background", depth: Number(m.spawnDepth) || 1, prompt: clip(prompt, 1500) }));
+    if (prompt) return;
+  }
+  const msg = d.type === "assistant" && !d.isMeta ? d.message : null;
+  const final = msg && msg.stop_reason === "end_turn" && Array.isArray(msg.content) && !msg.content.some((b) => b.type === "tool_use");
+  if (msg) s.done = false; // a subagent that's been sent another message goes on
+  for (const it of summarizeLine(l, true)) {
+    if (!SUB_STEPS.has(it.kind) || (final && it.kind === "text")) continue;
+    mirror.outbox.push(subItem(it.at, { op: "step", id: s.id, kind: it.kind, text: it.text }));
+  }
+  if (final) {
+    s.done = true;
+    mirror.outbox.push(subItem(at, { op: "end", id: s.id, status: "done", result: clip(textOf(msg.content), 4000) }));
+  }
+}
+
 function mirrorTick() {
   if (!mirrorOn() || !BASE || !TOKEN) return;
   const file = transcriptFor(SESSION);
@@ -581,9 +678,14 @@ function mirrorTick() {
         }
     } else mirror.rest = all;
   }
-  if (mirror.outbox.length > 500) mirror.outbox.splice(0, mirror.outbox.length - 500);
+  try {
+    subTick(file);
+  } catch (e) {
+    log("subagents:", e.message);
+  }
+  if (mirror.outbox.length > 2000) mirror.outbox.splice(0, mirror.outbox.length - 2000);
   if (!mirror.outbox.length || mirror.sending) return;
-  const items = mirror.outbox.splice(0, 100);
+  const items = mirror.outbox.splice(0, 200);
   mirror.sending = true;
   fetch(`${BASE}/api/activity?session=${encodeURIComponent(SESSION)}`, { method: "POST", headers, body: JSON.stringify({ items }), signal: AbortSignal.timeout(10_000) })
     .then((r) => {

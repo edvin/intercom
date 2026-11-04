@@ -354,6 +354,10 @@ export async function screenRequest(q, { pane, keysOn = true } = {}) {
   }
   if (q.op === "panes") return { text: "", cols: 0, rows: 0, cursor: null, keys: keysOn, panes: await agentPanes() };
   if (!pane) throw new Error("This session isn't running in tmux, so its screen can't be seen from here.");
+  if (q.fit !== undefined) {
+    if (!keysOn) throw new Error("Resizing its terminal is turned off on that machine with sending keys (INTERCOM_KEYS=0).");
+    await fitPane(pane, String(q.fit));
+  }
   if (q.op === "keys") {
     if (!keysOn) throw new Error("Sending keys is turned off on that machine (INTERCOM_KEYS=0 in its intercom config).");
     const keys = Array.isArray(q.keys) ? q.keys.slice(0, 20) : [];
@@ -384,6 +388,33 @@ export async function screenRequest(q, { pane, keysOn = true } = {}) {
   const info = await tmux(["display-message", "-p", "-t", pane, "#{pane_width} #{pane_height} #{cursor_x} #{cursor_y}"]);
   const [cols, rows, cx, cy] = (info.out ?? "").trim().split(" ").map(Number);
   return { text: cap.out.replace(/\n+$/, "\n"), cols: cols || 0, rows: rows || 0, cursor: Number.isFinite(cx) ? [cx, cy + history] : null, keys: keysOn };
+}
+
+// "Fit to this screen": the agent's tmux window takes the size of the screen it's watched on (a phone), so it redraws
+// to fit there instead of being read sideways. Only its own window; it goes back to following its terminal when the
+// watcher says "off" (the window closed) or a minute after the last look.
+const fitted = new Map(); // pane → timer
+const unfit = async (pane) => {
+  await tmux(["resize-window", "-A", "-t", pane]);
+  await tmux(["set-option", "-w", "-t", pane, "-u", "window-size"]);
+};
+async function fitPane(pane, fit) {
+  clearTimeout(fitted.get(pane));
+  if (fit === "off") {
+    fitted.delete(pane);
+    if ((await tmux(["show-options", "-w", "-v", "-t", pane, "window-size"])).out?.trim() === "manual") await unfit(pane);
+    return;
+  }
+  const m = /^(\d{2,3})x(\d{1,3})$/.exec(fit);
+  if (!m) throw new Error("fit is COLSxROWS or off.");
+  const cols = Math.max(40, Math.min(300, Number(m[1]))), rows = Math.max(10, Math.min(120, Number(m[2])));
+  const now = (await tmux(["display-message", "-p", "-t", pane, "#{window_width}x#{window_height}"])).out?.trim();
+  if (now !== `${cols}x${rows}`) {
+    const r = await tmux(["resize-window", "-t", pane, "-x", String(cols), "-y", String(rows)]);
+    if (r.err) throw new Error(`tmux: ${r.err}`);
+    await new Promise((r) => setTimeout(r, 400)); // let it redraw at the new size
+  }
+  fitted.set(pane, setTimeout(() => { fitted.delete(pane); unfit(pane); }, 60_000));
 }
 
 // ---- the agents on this machine: which tmux pane each runs in and how it was started ----

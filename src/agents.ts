@@ -10,6 +10,8 @@ import { pendingTickets } from "./tickets";
 import { AUTO_UPDATE_SINCE, PLUGIN_VERSION, outdated } from "./version";
 import { activeLoops, describe, parseLoops } from "./loops";
 import { activeJobs, duration, jobName, parseJobs } from "./jobs";
+import { parseSubs, subSteps } from "./subagents";
+import { subMark, subsRegion } from "./subview";
 import { BTW_TIMEOUT, NO_MOD, btwFor, compactable, modAnswers } from "./btw";
 import { type Activity, type Env, type Message, DELEGATE_PER_HOUR, LIVE, address, ago, deliveryMarks, short, hostNames, myProjects } from "./lib";
 import { agentAvatar, agentHue, agentLink, agentName, avatar, deliveryMark, esc, hidden, icon, md, plainSpaces, time } from "./ui";
@@ -22,6 +24,7 @@ interface Agent {
   project_pin?: string;
   loops?: string;
   jobs?: string;
+  subagents?: string | null;
   origin?: string;
   repo?: string;
   branch: string;
@@ -101,7 +104,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   const ph = (n: number) => Array.from({ length: n }, () => "?").join(",") || "NULL";
   const everyone = people.includes(me) ? people : [...people, me];
   const { results: agents } = await env.DB.prepare(
-    `SELECT member, session_id, label, project, project_pin, repo, loops, jobs, origin, branch, note, client, host, version, last_seen, state, state_detail, state_at, active_at, cwd, ui_at, ui_version, ctx_pct, ctx_tokens, ctx_window, ctx_at, compact_req, compact_prep, screen FROM sessions
+    `SELECT member, session_id, label, project, project_pin, repo, loops, jobs, subagents, origin, branch, note, client, host, version, last_seen, state, state_detail, state_at, active_at, cwd, ui_at, ui_version, ctx_pct, ctx_tokens, ctx_window, ctx_at, compact_req, compact_prep, screen FROM sessions
      WHERE member IN (${ph(everyone.length)}) AND (member = ? OR project IN (${ph(mine.length)})) AND last_seen > ?
      ORDER BY member = ? DESC, last_seen DESC`,
   )
@@ -147,7 +150,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
     const [pm = "", pl = ""] = picked.split("/");
     agent =
       (await env.DB.prepare(
-        `SELECT member, session_id, label, project, project_pin, repo, loops, jobs, origin, branch, note, client, host, version, last_seen, state, state_detail, state_at, active_at, cwd, ui_at, ui_version, ctx_pct, ctx_tokens, ctx_window, ctx_at, compact_req, compact_prep, screen FROM sessions
+        `SELECT member, session_id, label, project, project_pin, repo, loops, jobs, subagents, origin, branch, note, client, host, version, last_seen, state, state_detail, state_at, active_at, cwd, ui_at, ui_version, ctx_pct, ctx_tokens, ctx_window, ctx_at, compact_req, compact_prep, screen FROM sessions
          WHERE member = ? AND label = ? AND (member = ? OR project IN (${ph(mine.length)})) ORDER BY last_seen DESC LIMIT 1`,
       )
         .bind(pm, pl, me, ...mine)
@@ -180,7 +183,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
     ctxLevel(a) === null ? "" : `<span class="badge ctxb ${ctxLevel(a)}" title="Context: ${kTok(a.ctx_tokens)} of ${kTok(a.ctx_window)} tokens · ${ago(a.ctx_at ?? 0)}">${a.ctx_pct}% context</span>`;
   const tRow = (a: Agent) => `<a class="ta${sel(a) ? " on" : ""}${isOn(a) ? "" : " gone"}" data-k="${esc(key(a))}"${isOn(a) && a.state === "waiting" ? " data-w" : ""} href="/dashboard?view=agents&agent=${encodeURIComponent(key(a))}" title="${esc(tip(a))}">
       <span class="tdot ${dot(a)}"></span>${agentAvatar(a.member, a.label, "s")}<span class="tn">${agentName(a.member, a.label, a.member === me ? a.label : `${a.member}/${a.label}`)}</span>
-      <span class="tb">${(isOn(a) && a.state === "waiting") || reviewsOf(a) ? `<span class="tw" title="${reviewsOf(a) ? "a review is waiting for you" : "needs you"}">!</span>` : ""}${loopsOf(a).length ? `<span class="tloop" title="running a loop">${icon("repeat", 12)}</span>` : ""}${jobsOf(a).length ? '<span title="background jobs">⧗</span>' : ""}${a.member === me && isOn(a) && outdated(a.version) ? '<span title="update available">⬆</span>' : ""}${isOn(a) && ctxLevel(a) ? `<span class="tctx ${ctxLevel(a)}" title="Context ${a.ctx_pct}% full">${a.ctx_pct}%</span>` : ""}${a.client === "codex" ? '<span class="tcx" title="Codex">cx</span>' : ""}${since(a)}</span></a>`;
+      <span class="tb">${(isOn(a) && a.state === "waiting") || reviewsOf(a) ? `<span class="tw" title="${reviewsOf(a) ? "a review is waiting for you" : "needs you"}">!</span>` : ""}${loopsOf(a).length ? `<span class="tloop" title="running a loop">${icon("repeat", 12)}</span>` : ""}${jobsOf(a).length ? '<span title="background jobs">⧗</span>' : ""}${a.member === me && isOn(a) ? subMark(parseSubs(a.subagents)) : ""}${a.member === me && isOn(a) && outdated(a.version) ? '<span title="update available">⬆</span>' : ""}${isOn(a) && ctxLevel(a) ? `<span class="tctx ${ctxLevel(a)}" title="Context ${a.ctx_pct}% full">${a.ctx_pct}%</span>` : ""}${a.client === "codex" ? '<span class="tcx" title="Codex">cx</span>' : ""}${since(a)}</span></a>`;
   const branch = (id: string, title: string, href: string | null, list: Agent[], badges: string, on: boolean) => {
     // Needs you, then working, then the rest by when they last did something. Live redraws keep the order the
     // page loaded with (see the script), so rows don't move under the pointer.
@@ -421,6 +424,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
         </div>
       </div>
       ${on && agent.state === "waiting" && !pending.some((p) => p.session_id === agent.session_id) ? `<div class="toast err" style="box-shadow:none;margin:10px 14px 0">${icon("x")}<span><b>${esc(agent.label)} is waiting${agent.state_at ? ` (asked ${ago(agent.state_at)})` : ""}:</b> ${esc(agent.state_detail || "for approval or input")}. That can only be answered in its terminal (or with Claude's Remote Control). Already answered? Claude Code doesn't tell when, so this stays until the step you allowed has run. For unattended runs, start agents in a mode that doesn't stop to ask.</span></div>` : ""}
+      ${codeOn || !ownAgent ? "" : subsRegion(parseSubs(agent.subagents), parseSubs(agent.subagents).length ? await subSteps(env, me, agent.session_id) : new Map(), agent.origin ?? null)}
       ${codeOn ? codePane : `<div class="thread term${/(?:^|;\s*)ic_activity=off/.test(cookie) ? " noact" : ""}${/(?:^|;\s*)ic_relay=off/.test(cookie) ? " norelay" : ""}" id="thread" data-region>${thread || `<div class="empty" style="margin:auto">${icon("message", 28)}<div>No messages with ${esc(agent.label)} yet.</div><div class="small">${ownAgent ? "Ask a question or give it a new direction; it treats what you write here like a prompt you typed." : "Your message reaches this session; its owner's agent treats it as information from you."}</div></div>`}</div>
       <form method="post" action="/action/post" class="chatbox" id="chatform" data-region data-quiet data-images data-agent="${esc(key(agent))}" data-label="${esc(agent.label)}">${hidden({ back, to: key(agent), channel: agent.project || "", session: agent.session_id, mode: "", thread: "", edit: "" })}
         <div class="imgtray" hidden></div>

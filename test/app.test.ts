@@ -986,6 +986,46 @@ describe("renaming from the web", () => {
 });
 
 describe("activity mirroring", () => {
+  test("subagents: each one's start, steps and answer, in a strip above the chat and a mark in the tree, only for you", async () => {
+    const w = await standardWorld();
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=sub1&client=claude", { as: "bob" });
+    await w.ok("bob", "set_name", { name: "alder" }, { id: "sub1", project: "billing-api" });
+    const send = (as: string, items: object[]) =>
+      w.request("/api/activity?session=sub1", { method: "POST", as, body: JSON.stringify({ items }) }).then((r) => r.json() as Promise<{ stored: number }>);
+    const ev = (e: object, at = Date.now()) => ({ at, kind: "sub", text: JSON.stringify(e) });
+    const t0 = Date.now() - 5 * 60_000;
+    assert.equal(
+      (await send("bob", [
+        ev({ op: "start", id: "a1", type: "Explore", desc: "Find the retry logic", bg: false, depth: 1, prompt: "Where do we retry failed charges?" }, t0),
+        ev({ op: "step", id: "a1", kind: "read", text: "grep retry" }, t0 + 1000),
+        ev({ op: "step", id: "a1", kind: "cmd", text: "Run the tests\nnpm test" }, t0 + 2000),
+        ev({ op: "start", id: "a2", type: "general-purpose", desc: "Draft the changelog", bg: true, prompt: "Write it" }, t0),
+        ev({ op: "end", id: "a2", status: "done", result: "Done: **3 entries**" }, t0 + 60_000),
+        ev({ op: "bogus", id: "a1" }),
+        ev({ op: "step", id: "x;y", kind: "cmd", text: "nope" }),
+        { kind: "cmd", text: "git status" },
+      ])).stored,
+      8,
+    );
+    const mine = await (await w.request("/dashboard?view=agents&agent=bob/alder", { as: "bob", cookie: true })).text();
+    assert.match(mine, /<div id="subs" class="subs" data-region><div class="subhd">[\s\S]*1 running · 1 finished/);
+    assert.match(mine, /<details class="subag on" id="sub-a1">[\s\S]*<span class="subtype">Explore<\/span><span class="subdesc">Find the retry logic<\/span>[\s\S]*running 5m · 2 steps/);
+    assert.match(mine, /Where do we retry failed charges\?[\s\S]*grep retry[\s\S]*Run the tests · npm test/);
+    assert.match(mine, /id="sub-a2">[\s\S]*>bg<[\s\S]*done 4m ago · took 1m[\s\S]*Its answer[\s\S]*<b>3 entries<\/b>/);
+    assert.doesNotMatch(mine, /sub-x/);
+    assert.match(mine, /git status/); // the agent's own steps still go to the chat
+    assert.match(mine, /class="tsub" title="1 subagent running: Find the retry logic"/);
+    // It ends: no longer running, no mark in the tree.
+    await send("bob", [ev({ op: "end", id: "a1", status: "done", result: "In src/charge.ts" })]);
+    const later = await (await w.request("/dashboard?view=agents&agent=bob/alder", { as: "bob", cookie: true })).text();
+    assert.match(later, /none running · 2 finished/);
+    assert.doesNotMatch(later, /class="tsub"/);
+    // Nobody else writes into it or sees it.
+    assert.equal((await send("alice", [ev({ op: "start", id: "a9", desc: "sneaky" })])).stored, 0);
+    const theirs = await (await w.request("/dashboard?view=agents&agent=bob/alder", { as: "alice", cookie: true })).text();
+    assert.doesNotMatch(theirs, /Find the retry logic|id="subs"/);
+  });
+
   test("stored for your own sessions, shown only to you, capped", async () => {
     const w = await standardWorld();
     await w.request("/api/hook?event=SessionStart&project=billing-api&session=mir1&client=claude", { as: "bob" });
@@ -3091,6 +3131,13 @@ describe("an agent's screen", () => {
     assert.doesNotMatch(await (await w.request("/dashboard?view=agents&agent=bob/docs", { as: "bob", cookie: true })).text(), /data-screen=/);
     const { result: r, ask } = await answering(w, () => w.request("/agent-screen?agent=bob/core", { as: "bob", cookie: true }).then((x) => x.text()));
     assert.deepEqual(ask!.q, { op: "capture", history: 200 });
+    // Fit to this screen: the size it's watched at goes to its machine (and "off" when the window closes); nothing else does.
+    const { ask: fa } = await answering(w, () => w.request("/agent-screen?agent=bob/core&fit=48x40", { as: "bob", cookie: true }));
+    assert.deepEqual(fa!.q, { op: "capture", history: 200, fit: "48x40" });
+    const { ask: fo } = await answering(w, () => w.request("/agent-screen?agent=bob/core&fit=off", { as: "bob", cookie: true }));
+    assert.deepEqual(fo!.q, { op: "capture", history: 200, fit: "off" });
+    const { ask: fx } = await answering(w, () => w.request("/agent-screen?agent=bob/core&fit=48x40;ls", { as: "bob", cookie: true }));
+    assert.deepEqual(fx!.q, { op: "capture", history: 200 });
     assert.match(r, /<pre class="term" style="--cols:80;--rows:24"><span class="f2 sb">✻ Welcome<\/span>\n<span style="color:rgb\(255,135,0\)">Do you want to proceed\?<\/span>\n❯ 1\. Yes/);
     const { result: k, ask: ka } = await answering(w, () => w.form("/agent-keys", "bob", { agent: "bob/core", key: "2" }).then((x) => x.text()));
     assert.deepEqual(ka!.q, { op: "keys", keys: ["2"], text: "", enter: false, history: 200 });
@@ -3227,6 +3274,13 @@ describe("keeping agents running and current", () => {
     assert.equal(ok(await w.form("/upkeep", "bob", { op: "update", back: "/dashboard" })), "core: busy, left alone");
     assert.equal(ok(await w.form("/upkeep", "bob", { op: "auto-on", back: "/dashboard" })), "Your idle agents update by themselves now");
     assert.match(await page(w), /Stop updating them by themselves/);
+    // A Codex session is quit (Ctrl+C twice; Codex keeps the session) and resumed by its id, with its flags.
+    await w.db.prepare("UPDATE sessions SET state = 'idle', client = 'codex', launch = '/usr/lib/codex/bin/codex --dangerously-bypass-approvals-and-sandbox resume' WHERE session_id = 'up1'").run();
+    const codex = (q: Record<string, unknown>) =>
+      q.op === "panes" ? answer(q) : q.op === "keys" && (q.keys as string[] | undefined)?.[0] === "ctrl-c" ? { text: "To reconnect, run:\n  codex resume up1\nedvin@vms01:~/projects/billing$ " } : { text: "" };
+    const { result: r3, seen: s3 } = await machine(w, () => w.form("/upkeep", "bob", { op: "update", back: "/dashboard" }), codex);
+    assert.equal(ok(r3), "core: restarted in place, same session (codex --dangerously-bypass-approvals-and-sandbox resume up1)");
+    assert.deepEqual(s3.slice(1), [{ op: "keys", keys: ["ctrl-c", "ctrl-c"], pane: "%5" }, { op: "keys", text: "codex --dangerously-bypass-approvals-and-sandbox resume up1", enter: true, pane: "%5" }]);
   });
 
   test("one that stopped without ending is restarted in its pane, resumed by its session id; one frozen or nearly full gets a card", async () => {
@@ -3270,6 +3324,10 @@ describe("keeping agents running and current", () => {
     assert.equal(resumeCommand({ launch: "/home/x/.local/bin/claude -c --model opus", session_id: "s1", client: "claude" }), "/home/x/.local/bin/claude --model opus --resume s1");
     assert.equal(resumeCommand({ launch: "claude --dangerously-load-development-channels plugin:intercom@intercom", session_id: "s1", client: "claude" }), "INTERCOM_CHANNEL=1 claude --dangerously-load-development-channels plugin:intercom@intercom --resume s1");
     assert.equal(resumeCommand({ launch: "node /usr/lib/codex", session_id: "019e-abc", client: "codex" }), "codex resume 019e-abc");
+    // Codex: its flags kept, its old resume target and any first prompt dropped.
+    assert.equal(resumeCommand({ launch: "/usr/lib/node_modules/@openai/codex/vendor/bin/codex --dangerously-bypass-approvals-and-sandbox resume", session_id: "019e-abc", client: "codex" }), "codex --dangerously-bypass-approvals-and-sandbox resume 019e-abc");
+    assert.equal(resumeCommand({ launch: "codex -m gpt-x --search fix the build", session_id: "019e-abc", client: "codex" }), "codex -m gpt-x --search resume 019e-abc");
+    assert.equal(resumeCommand({ launch: "codex resume --last", session_id: "019e-abc", client: "codex" }), "codex resume 019e-abc");
     assert.throws(() => resumeCommand({ launch: "claude; rm -rf ~", session_id: "s1", client: "claude" }), /shell characters/);
   });
 });

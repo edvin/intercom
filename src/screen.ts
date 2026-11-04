@@ -15,7 +15,7 @@ export interface ScreenData {
   via?: string;
 }
 
-export type ScreenQuery = { op: "capture"; history?: number; pane?: string } | { op: "keys"; keys?: string[]; text?: string; enter?: boolean; after?: string[]; history?: number; pane?: string };
+export type ScreenQuery = { op: "capture"; history?: number; pane?: string; fit?: string } | { op: "keys"; keys?: string[]; text?: string; enter?: boolean; after?: string[]; history?: number; pane?: string };
 
 /** An agent on a machine, as another agent there sees it (code.mjs agentPanes). */
 export interface AgentPane {
@@ -262,7 +262,7 @@ export const screenAttrs = (key: string, label: string, screen: string, client: 
 /** The screen window, once per dashboard page: any [data-screen] button opens it for its agent. */
 export function screenDialog(): string {
   const k = (key: string, label: string, title = "") => `<button type="button" class="btn sm scrk" data-key="${key}"${title ? ` title="${title}"` : ""}>${label}</button>`;
-  return `<dialog id="dlg-screen" class="scrdlg"><div class="hd">${icon("monitor", 18)}<h2 data-scrname></h2><span class="scrlive" title="Redrawn every 2 seconds while open"><span class="dot"></span>live</span><span class="grow"></span><button type="button" class="btn ghost sm icon" data-close title="Close">${icon("x", 15)}</button></div>
+  return `<dialog id="dlg-screen" class="scrdlg"><div class="hd">${icon("monitor", 18)}<h2 data-scrname></h2><span class="scrlive" title="Redrawn every 2 seconds while open"><span class="dot"></span>live</span><span class="grow"></span><button type="button" class="btn ghost sm scrfit" data-scrfit aria-pressed="false" title="Resize its terminal to this screen while you watch, so it redraws to fit here (it goes back to its own size when you close this)">${icon("fit", 13)}<span>Fit to screen</span></button><button type="button" class="btn ghost sm icon" data-close title="Close">${icon("x", 15)}</button></div>
     <div class="scrbody" id="scrbody"><div class="screrr"><p>Loading its screen…</p></div></div>
     <div class="scrkeys" data-scrkeys>
       <div class="scrrow"><button type="button" class="btn sm danger scrstop" data-scrstop title="Interrupt what it's doing (Esc); the session stays">${icon("square", 12)}Stop</button><span class="scrsep"></span>${k("enter", "Enter")}${k("esc", "Esc")}${k("ctrl-c", "Ctrl+C", "Interrupts; twice exits")}${k("up", "↑", "Up")}${k("down", "↓", "Down")}${k("tab", "Tab")}${k("shift-tab", "⇧Tab", "Shift+Tab: switches mode in Claude Code")}${k("1", "1")}${k("2", "2")}${k("3", "3")}${k("y", "y")}${k("n", "n")}</div>

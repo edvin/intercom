@@ -1,7 +1,7 @@
 import { recordsBrief } from "./records";
 import { saveWorkSettings, workCsv } from "./work";
 import { dismissStuck, moveStuck, releaseSenders, wakeStuck } from "./stuck";
-import { compactAgent, compactOnStop, dismiss, myRows, restartAgent, setAuto, updateAgent, updateIdle } from "./upkeep";
+import { FIT_SINCE, compactAgent, compactOnStop, dismiss, myRows, newer, restartAgent, setAuto, updateAgent, updateIdle } from "./upkeep";
 import { KEY_NAMES, type ScreenQuery, askScreen, drawScreen, screenReply, sendNow, stopAgent } from "./screen";
 import { answerBtw, pendingBtw } from "./btw";
 import { getAttachment, isImage, readImage, readable } from "./attachments";
@@ -930,9 +930,11 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
       } else {
         const q: ScreenQuery = form
           ? { op: "keys", keys: form.getAll("key").map(String).filter((x) => x in KEY_NAMES), text: String(form.get("text") ?? "").replace(/[\r\n]+/g, " ").slice(0, 1000), enter: form.get("enter") === "1", history: 200 }
-          : { op: "capture", history: 200 };
+          : { op: "capture", history: 200, ...(/^(\d{2,3}x\d{1,3}|off)$/.test(url.searchParams.get("fit") ?? "") ? { fit: url.searchParams.get("fit")! } : {}) };
         if (q.op === "keys" && !q.keys?.length && !q.text) throw new UserError("Pick a key or type something.");
-        body = drawScreen(await askScreen(env, me, label, q));
+        // Fit to this screen needs the machine's intercom to know it; an older one shows its own size, and says why.
+        const old = q.op === "capture" && q.fit && q.fit !== "off" && newer(FIT_SINCE, (await env.DB.prepare("SELECT version FROM sessions WHERE member = ? AND label = ? ORDER BY last_seen DESC LIMIT 1").bind(me, label).first<{ version: string | null }>())?.version ?? "0");
+        body = drawScreen(await askScreen(env, me, label, q), old ? `fitting it to this screen needs intercom ${FIT_SINCE} on its machine` : undefined);
       }
     } catch (e) {
       if (!(e instanceof UserError)) throw e;

@@ -1,3 +1,4 @@
+import { type SubEvent, storeSubEvents } from "./subagents";
 import type { Db } from "./db";
 import { webBase } from "./refs";
 import { type LoopEvent, activeLoops, applyLoopEvents, parseLoops } from "./loops";
@@ -799,7 +800,8 @@ export async function addActivity(env: Env, me: string, sessionId: string, items
   };
   // Loop events (the agent scheduling or stopping prompts) update the session's loop list; their readable
   // form goes into the activity like any other step.
-  const loopEvents = items.slice(-100).flatMap((it) => {
+  const main = items.filter((it) => (it as { kind?: unknown })?.kind !== "sub"); // subagents' items are counted apart
+  const loopEvents = main.slice(-100).flatMap((it) => {
     const i = it as { at?: unknown; kind?: unknown; text?: unknown };
     if (i.kind !== "loop") return [];
     try {
@@ -816,7 +818,7 @@ export async function addActivity(env: Env, me: string, sessionId: string, items
     loopLines.push(...lines.map((l) => ({ kind: "loop", text: l.text, at: l.at })));
   }
   // Background jobs the same way: the running list on the session, a line when one ends.
-  const jobEvents = items.slice(-100).flatMap((it) => {
+  const jobEvents = main.slice(-100).flatMap((it) => {
     const i = it as { at?: unknown; kind?: unknown; text?: unknown };
     if (i.kind !== "job") return [];
     try {
@@ -831,8 +833,19 @@ export async function addActivity(env: Env, me: string, sessionId: string, items
     await env.DB.prepare("UPDATE sessions SET jobs = ? WHERE member = ? AND session_id = ?").bind(JSON.stringify(jobs), me, sessionId).run();
     loopLines.push(...lines.map((l) => ({ kind: "job", text: l.text, at: l.at })));
   }
+  // Subagents: their list on the session, their steps in a table of their own (subagents.ts).
+  const subEvents = items.slice(-300).flatMap((it) => {
+    const i = it as { at?: unknown; kind?: unknown; text?: unknown };
+    if (i.kind !== "sub") return [];
+    try {
+      return [{ at: when(i.at), ev: JSON.parse(String(i.text)) as SubEvent }];
+    } catch {
+      return [];
+    }
+  });
+  await storeSubEvents(env, me, sessionId, subEvents);
   const rows = [
-    ...items.slice(-100).flatMap((it) => {
+    ...main.slice(-100).flatMap((it) => {
       const i = it as { at?: unknown; kind?: unknown; text?: unknown };
       const kind = String(i.kind ?? "");
       const text = String(i.text ?? "").replace(/\s+$/g, "").slice(0, 6000); // the agent's text in full, up to a long answer
@@ -843,8 +856,8 @@ export async function addActivity(env: Env, me: string, sessionId: string, items
     ...loopLines,
   ];
   if (!rows.length) {
-    if (loopEvents.length || jobEvents.length) env.refreshWeb?.(me);
-    return loopEvents.length + jobEvents.length;
+    if (loopEvents.length || jobEvents.length || subEvents.length) env.refreshWeb?.(me);
+    return loopEvents.length + jobEvents.length + subEvents.length;
   }
   await env.DB.batch([
     ...rows.map((r) => env.DB.prepare("INSERT INTO activity (member, session_id, at, kind, text) VALUES (?, ?, ?, ?, ?)").bind(me, sessionId, r.at, r.kind, r.text)),
@@ -863,7 +876,7 @@ export async function addActivity(env: Env, me: string, sessionId: string, items
     ),
   ]);
   env.refreshWeb?.(me);
-  return rows.length;
+  return rows.length + subEvents.length;
 }
 
 /** The plugin version a session runs, as its client reports it. */
