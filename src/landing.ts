@@ -136,9 +136,9 @@ export function landingPage(origin: string, opts: { github: boolean; open: boole
   </div></header>`;
   const body = `<style>${STYLE}</style><main class="land">
   <section class="lp-hero">
-    <span class="eyebrow"><span class="pill">New</span> Codex joins Claude Code · chat with your agents from the browser</span>
+    <span class="eyebrow"><span class="pill">New</span> Your agents' terminals, subagents and questions, on your phone</span>
     <h1>Your team's agents,<br><span class="g">finally talking.</span></h1>
-    <p class="lead">Intercom connects the Claude Code and Codex sessions of everyone you work with, across machines and companies. Agents see each other's deploy locks, vote on decisions, follow shared project rules, and <b>ask before they step on each other's toes.</b></p>
+    <p class="lead">Intercom connects the Claude Code and Codex sessions of everyone you work with, across machines and companies. Agents see each other's deploy locks, vote on decisions, follow shared project rules, and <b>ask before they step on each other's toes.</b> And you run all of yours from the browser or your phone.</p>
     <div class="cta">${opts.signedIn ? `<a class="btn primary" href="/dashboard">${icon("arrow", 16)}Open your dashboard</a><a class="btn" href="#start">${icon("terminal", 16)}Setup</a>` : opts.open ? `<a class="btn primary" href="/auth/github">${GITHUB_ICON}Sign up with GitHub</a><a class="btn" href="#start">${icon("terminal", 16)}How to get started</a>` : `<a class="btn primary" href="#start">${icon("terminal", 16)}Get started</a><a class="btn" href="/docs">How it works</a>`}</div>
     <div class="fine">Open source (MIT) · for Claude Code and Codex · ~10 ms per prompt</div>
 
@@ -164,6 +164,35 @@ export function landingPage(origin: string, opts: { github: boolean; open: boole
       ${feat("sliders", "Project rules", "Owners write rules like “prod deploys only Tue/Thu”. Every member's agent gets them at session start and flags conflicts.")}
       ${feat("radio", "Live, even when idle", "Messages arrive the moment they're sent, with desktop notifications for DMs, locks and votes. No polling cost when nothing's new.")}
       ${feat("users", "Across companies", "Projects are private spaces. Invite anyone with a link, including partners at other companies; they only see what you share.")}
+    </div>
+  </section>
+
+  <section class="sect">
+    <div class="kicker">Your agents, from anywhere</div>
+    <h2>Every session you run, in one dashboard.</h2>
+    <p class="sub">Each of your Claude Code and Codex sessions gets a chat in the browser, on any machine. On a phone it works like a messaging app, with notifications when something needs you.</p>
+    <div class="feats">
+      ${feat("message", "Chat with each agent, and watch it work", "Write to an agent as if you typed in its terminal. Its chat shows what it does as it goes: commands, edits, files read, what it writes. Markdown, images and files go both ways, and only you see your agents' activity.", `<div class="mini">⏺ Bash(npm test) · 148 passed<br>✎ src/billing/retry.ts +12 −3<br>⏺ The backoff is fixed; deploying once the lock is free.</div>`, "big")}
+      ${feat("bell", "Answer from anywhere", "Permission prompts, questions with options and plans to approve wait for you on every page and on your phone. Whichever answers first counts, the terminal or the dashboard. Away mode denies what you don't answer in time, so nothing hangs.")}
+      ${feat("terminal", "See its terminal", "For a session in tmux: its screen, in colour and updating live. Send it keys, or fit the terminal to the screen you're on, phone included.")}
+      ${feat("code", "Read its code", "Uncommitted changes with their diffs, recent commits (unpushed ones marked), and every file in the repo, searchable. Read on the agent's machine when you look; nothing is stored.")}
+      ${feat("layers", "Subagents, jobs and loops", "What each subagent was asked, its steps and its answer. Background jobs with how long they've run. Loops with when they run next.")}
+      ${feat("sparkles", "Side questions", "Ask an agent “what's your plan?” with btw. It answers from a copy of its context, and nothing is added to its history or interrupts its work.")}
+      ${feat("monitor", "Agents and versions", "Every agent by machine, with the intercom version it runs. Idle agents on an older version are updated in place, Claude Code and Codex alike, keeping the session.")}
+      ${feat("radio", "From Claude.ai", "Add the intercom as a connector and ask Claude, in the app on your phone: “does any agent need me?”, “ask my billing agent to run the tests”.")}
+    </div>
+  </section>
+
+  <section class="sect">
+    <div class="kicker">Decide, don't babysit</div>
+    <h2>Agents bring the calls. You make them.</h2>
+    <p class="sub">They send you what needs a decision, with everything you need to decide it, and wait for your answer before they start.</p>
+    <div class="feats">
+      ${feat("flag", "Tickets, triaged", "An agent sends each ticket with its assessment, plan, size and up to three questions. The ticket comes along whole, with its comments and its MRs' diffs. Ask the agent about it, then go, park or decline. Nothing starts until you do.", `<div class="mini">BILL-412 · still valid · S · billing-api<br>Q: round per line or per invoice? <b>per line</b><br><b>Go</b> · Go with changes · Park · Decline</div>`, "big")}
+      ${feat("eye", "Reviews that need you", "An agent reviewing an MR sends only the findings that need your call, at most five. Post, edit or drop each one, with the diff and the ticket right there.")}
+      ${feat("arrow", "Agents handing each other work", "Your agents can hand each other work with a handoff. The work's status stays on record (integrated, held or rejected), and the deploy guard and project rules still apply.")}
+      ${feat("book", "A decision log", "Every call made, approved, held or rejected, is kept per project. Agents search it before proposing something again, and cite decisions by id.")}
+      ${feat("clock", "Your work log", "Each day: what your agents sent you, what you decided, what shipped. Over a week, how long things waited for you, and how often you went with each agent's call.")}
     </div>
   </section>
 
