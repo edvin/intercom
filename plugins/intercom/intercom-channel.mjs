@@ -20,7 +20,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const VERSION = "0.12.35"; // kept in step with .claude-plugin/plugin.json (a test checks)
+const VERSION = "0.12.36"; // kept in step with .claude-plugin/plugin.json (a test checks)
 const DIR = path.join(os.homedir(), ".claude", "intercom");
 const CONFIG = path.join(DIR, "config");
 function readConf() {
@@ -758,6 +758,32 @@ async function autoUpdate() {
   }
 }
 // Soon after starting (spread out, so sessions started together don't all ask at once), then every half hour.
+// Codex on this machine runs the script install's copies (~/.claude/intercom/: this server, code.mjs, hook.sh), which
+// update themselves only as a Codex session starts, at most every 6 hours. A newer plugin brings them along, so a Codex
+// agent restarted from the Agents page loads the same version as the Claude Code ones here.
+function refreshCodexCopies() {
+  if (!PLUGIN_INSTALL) return;
+  const here = path.dirname(decodeURIComponent(new URL(import.meta.url).pathname));
+  let theirs;
+  try {
+    theirs = fs.readFileSync(path.join(DIR, "intercom-channel.mjs"), "utf8").match(/const VERSION = "([\d.]+)"/)?.[1];
+  } catch {
+    return; // no script install here
+  }
+  if (!theirs || !newerThan(VERSION, theirs)) return;
+  for (const f of ["code.mjs", "hook.sh", "intercom-channel.mjs"]) {
+    const tmp = path.join(DIR, `.${f}.new`);
+    fs.copyFileSync(path.join(here, f), tmp);
+    if (f === "hook.sh") fs.chmodSync(tmp, 0o755);
+    fs.renameSync(tmp, path.join(DIR, f));
+  }
+  log(`codex copies ${theirs} -> ${VERSION}`);
+}
+try {
+  refreshCodexCopies();
+} catch (e) {
+  log("codex copies:", e.message);
+}
 setTimeout(() => autoUpdate().catch((e) => log("update:", e.message)), 20_000 + Math.random() * 40_000).unref();
 setInterval(() => autoUpdate().catch((e) => log("update:", e.message)), 30 * 60_000).unref();
 
