@@ -19,7 +19,7 @@ You are running the `/intercom` command. Use the `intercom` MCP tools for any ac
 - `vote`: walk me through open votes I haven't answered (ask for each choice; never vote without my answer)
 - `mute <person|#project>` / `unmute …`
 - `dashboard`: open the web dashboard, signed in: run `sh "$HOME/.claude/intercom/brief.sh" open`
-- `update`: update intercom on this machine: run `sh "$HOME/.claude/intercom/brief.sh" update`, show the result, and remind me to restart sessions
+- `update`: update intercom on this machine: run `sh "$HOME/.claude/intercom/brief.sh" update`, show the result in a few lines, and say that /reload-plugins loads it in a session (no restart)
 - `doctor`: check what works on this machine: run `sh "$HOME/.claude/intercom/brief.sh" doctor` and explain the result
 - `decide <subject> <verdict> [reason]`: log a decision (approved / rejected / held / noted); `decisions [query]`: search the log
 - `handoff <ref> <summary> [to]`: hand work over with evidence and gates; `handoffs`: open ones; settle one with `update_handoff`

@@ -308,16 +308,18 @@ async function handleHook(url: URL, env: Env, me: string, input: { last_assistan
     if (project) sections.push(...(await recordsBrief(env, me, project.name)));
     if (open.length) sections.push(`Open proposals:\n${(await Promise.all(open.map((p) => tally(env, p, me)))).join("\n")}`);
     const others = locks.filter((l) => !isMyLock(l, me, session?.label) && lockIn(l, project?.name));
+    // How a session loads a newer intercom: Claude Code in place; Codex by starting it again on the same session.
+    const loadIt = cleanClient(url.searchParams.get("client")) === "codex" ? "restart this session to use it (codex resume <its id>), or let the Agents page do it" : "type /reload-plugins to use it (same session)";
     startLine = [
       `📻 ${session ? address(me, session.label) : me}${project ? ` in #${project.name}` : raw ? " (repo not linked)" : ""}`,
       others.length ? `🔒 ${others.map((l) => `${l.resource} (${l.holder})`).join(", ")}` : "",
       open.length ? `🗳 ${open.length} open vote${open.length > 1 ? "s" : ""}` : "",
       url.searchParams.get("version") && outdated(url.searchParams.get("version"))
         ? url.searchParams.get("updated") === PLUGIN_VERSION
-          ? `⬆ intercom ${PLUGIN_VERSION} is installed; restart this session to use it (claude --continue)`
+          ? `⬆ intercom ${PLUGIN_VERSION} is installed; ${loadIt}`
           : url.searchParams.get("autoupdate") !== "0"
-            ? `⬆ updating intercom to ${PLUGIN_VERSION} in the background; restart sessions afterwards to use it`
-            : `⬆ intercom ${PLUGIN_VERSION} is available (this session runs ${url.searchParams.get("version")}): /intercom:update, then restart`
+            ? `⬆ updating intercom to ${PLUGIN_VERSION} in the background; then ${loadIt}`
+            : `⬆ intercom ${PLUGIN_VERSION} is available (this session runs ${url.searchParams.get("version")}): /intercom:update, then ${loadIt}`
         : "",
     ]
       .filter(Boolean)

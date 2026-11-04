@@ -20,7 +20,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const VERSION = "0.12.36"; // kept in step with .claude-plugin/plugin.json (a test checks)
+const VERSION = "0.12.37"; // kept in step with .claude-plugin/plugin.json (a test checks)
 const DIR = path.join(os.homedir(), ".claude", "intercom");
 const CONFIG = path.join(DIR, "config");
 function readConf() {
@@ -750,7 +750,7 @@ async function autoUpdate() {
     const r = await run("claude", ["plugin", "update", "intercom@intercom"]);
     if ((await run("claude", ["plugin", "list"])).out.includes("intercom-ui@intercom")) await run("claude", ["plugin", "update", "intercom-ui@intercom"]);
     fs.writeFileSync(done, r.ok ? `ok ${new Date().toISOString()}\n` : `failed ${new Date().toISOString()}: ${r.out.slice(0, 500)}\n`);
-    const line = r.ok ? `intercom ${latest} downloaded; restart sessions to load it` : `couldn't update: ${r.out.split("\n")[0] || r.err?.message}`;
+    const line = r.ok ? `intercom ${latest} downloaded; /reload-plugins loads it in a session` : `couldn't update: ${r.out.split("\n")[0] || r.err?.message}`;
     log(line);
     fs.appendFileSync(path.join(DIR, "update.log"), `== ${new Date().toString()} plugin ${VERSION} -> ${latest}: ${line}\n${r.out ? `${r.out}\n` : ""}`);
   } finally {

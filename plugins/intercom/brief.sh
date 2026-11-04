@@ -19,8 +19,9 @@ fi
 # "brief.sh update": re-run the setup (keeps the sign-in; updates the plugin, intercom-ui and the Codex pieces).
 if [ "$1" = "update" ]; then
   # From the public repository on GitHub, not the hub: the hub can't hand this machine code to run.
-  curl -fsSL "https://raw.githubusercontent.com/edvin/intercom/main/client/setup.sh" | INTERCOM_URL="$INTERCOM_URL" INTERCOM_FROM_GITHUB=1 sh
-  echo "Restart your Claude Code (and Codex) sessions to load the new version: claude --continue"
+  curl -fsSL "https://raw.githubusercontent.com/edvin/intercom/main/client/setup.sh" | INTERCOM_URL="$INTERCOM_URL" INTERCOM_FROM_GITHUB=1 INTERCOM_UPDATE=1 sh
+  echo
+  echo "Done. Each Claude Code session loads it with /reload-plugins (same session); the dashboard's Agents page can do that for agents running in tmux."
   exit 0
 fi
 
@@ -35,7 +36,7 @@ if [ "$1" = "doctor" ]; then
   latest=$(curl -sf --max-time 5 "$INTERCOM_URL/api/version" | sed -n 's/.*"plugin":"\([^"]*\)".*/\1/p')
   mine=$(sed -n 's/^VERSION=\([0-9.]*\).*/\1/p' "$(dirname "$0")/hook.sh" 2>/dev/null | head -n 1)
   [ -n "$mine" ] || mine=$(sed -n 's/^VERSION=\([0-9.]*\).*/\1/p' "$D/hook.sh" 2>/dev/null | head -n 1)
-  if [ -n "$latest" ] && [ "$mine" = "$latest" ]; then check ok "intercom $mine (latest)"; elif [ -n "$latest" ]; then check no "intercom ${mine:-?} installed here, $latest available: run brief.sh update (or /intercom update), then restart sessions"; fi
+  if [ -n "$latest" ] && [ "$mine" = "$latest" ]; then check ok "intercom $mine (latest)"; elif [ -n "$latest" ]; then check no "intercom ${mine:-?} installed here, $latest available: run brief.sh update (or /intercom update), then /reload-plugins in each session"; fi
   for client in claude codex; do
     if [ -f "$D/.hook-$client" ]; then
       set -- $(cat "$D/.hook-$client")

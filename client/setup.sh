@@ -172,6 +172,9 @@ fi
 # 4. Codex (OpenAI), if installed: the same MCP server, hooks (context, deploy guard) and an $intercom skill.
 if [ "$INTERCOM_CODEX" != "0" ] && command -v codex >/dev/null 2>&1; then
   CX="${CODEX_HOME:-$HOME/.codex}"
+  # Codex asks to trust hooks only when they're new to it: not on an update that finds them in place.
+  HOOKS_NEW=1
+  grep -q "/.claude/intercom/hook.sh" "$CX/hooks.json" 2>/dev/null && HOOKS_NEW=""
   for f in intercom-channel.mjs code.mjs hook.sh brief.sh; do curl -fsSL "$(src "$f")" -o "$DIR/$f" || fail "couldn't download $f"; done
   chmod +x "$DIR/hook.sh" "$DIR/brief.sh"
   mkdir -p "$CX"
@@ -194,7 +197,7 @@ fs.renameSync(path + ".intercom.tmp", path);
 JS
     mkdir -p "$HOME/.agents/skills/intercom" && curl -fsSL "$(src codex-skill.md)" -o "$HOME/.agents/skills/intercom/SKILL.md"
     ok "Codex: MCP server, hooks and \$intercom skill"
-    [ -n "$HOOKS_OK" ] && warn "Codex asks you to trust new hooks once: open Codex, type /hooks and trust the intercom ones."
+    [ -n "$HOOKS_OK" ] && [ -n "$HOOKS_NEW" ] && warn "Codex asks you to trust new hooks once: open Codex, type /hooks and trust the intercom ones."
   else
     warn "couldn't add the intercom MCP server to Codex (codex mcp add failed)."
   fi
@@ -214,7 +217,10 @@ INTERCOM_CHANNEL=1 exec claude --dangerously-load-development-channels plugin:in
 SH
 chmod +x "$DIR/claude-ic"
 
-echo
-echo "Done. Restart Claude Code (and Codex), then type /intercom (Codex: \$intercom) to see your team."
-echo "  Dashboard:  /intercom dashboard   (or $URL/dashboard)"
-echo "  Live push:  $DIR/claude-ic   (optional; see $URL/docs)"
+# An update (brief.sh update) says what to do next itself.
+if [ -z "$INTERCOM_UPDATE" ]; then
+  echo
+  echo "Done. Restart Claude Code (and Codex), then type /intercom (Codex: \$intercom) to see your team."
+  echo "  Dashboard:  /intercom dashboard   (or $URL/dashboard)"
+  echo "  Live push:  $DIR/claude-ic   (optional; see $URL/docs)"
+fi
