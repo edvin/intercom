@@ -37,6 +37,7 @@ export interface Row {
   ctx_pct: number | null;
   compact_req: string | null;
   compact_prep: string | null;
+  compact_err: string | null;
   ui_at: number | null;
   ui_version: string;
 }
@@ -51,7 +52,7 @@ const atLeast = (v: string, want: string) => v === want || newer(v, want);
 
 export async function myRows(env: Env, me: string): Promise<{ rows: Row[]; live: (r: Row) => boolean }> {
   const { results } = await env.DB.prepare(
-    `SELECT session_id, label, project, client, version, state, state_detail, state_at, active_at, last_seen, host, screen, pane, launch, ctx_pct, compact_req, compact_prep, ui_at, ui_version
+    `SELECT session_id, label, project, client, version, state, state_detail, state_at, active_at, last_seen, host, screen, pane, launch, ctx_pct, compact_req, compact_prep, compact_err, ui_at, ui_version
      FROM sessions WHERE member = ? AND last_seen > ? ORDER BY last_seen DESC`,
   )
     .bind(me, Date.now() - 86_400_000)
@@ -258,7 +259,7 @@ export async function compactAgent(env: Env, me: string, sessionId: string, opts
 async function finishCompact(env: Env, me: string, t: Row, instructions: string, rows?: Row[], live?: (r: Row) => boolean): Promise<string> {
   await env.DB.prepare("UPDATE sessions SET compact_prep = NULL WHERE member = ? AND session_id = ?").bind(me, t.session_id).run();
   if (!compactable(t, true)) {
-    await env.DB.prepare("UPDATE sessions SET compact_req = ? WHERE member = ? AND session_id = ?").bind(JSON.stringify({ id: crypto.randomUUID(), instructions }), me, t.session_id).run();
+    await env.DB.prepare("UPDATE sessions SET compact_req = ?, compact_err = NULL WHERE member = ? AND session_id = ?").bind(JSON.stringify({ id: crypto.randomUUID(), instructions }), me, t.session_id).run();
     env.refreshWeb?.(me);
     return `${t.label} compacts ${t.state === "working" ? "when its turn ends" : "now"}${instructions ? `, keeping: ${instructions}` : ""}`;
   }
@@ -266,9 +267,26 @@ async function finishCompact(env: Env, me: string, t: Row, instructions: string,
   const at = await locate(env, me, t, rows, live);
   if (!at) throw new UserError(`${t.label} can't be compacted from here: type /compact in its terminal.`);
   await ask(env, me, at, t, { op: "keys", text: `/compact${instructions ? ` ${instructions}` : ""}`, enter: true }, "from the dashboard");
+  await markCompacted(env, me, t.session_id);
   env.refreshWeb?.(me);
   return `Typed /compact into ${t.label}'s terminal${instructions ? `, keeping: ${instructions}` : ""}`;
 }
+
+/**
+ * A compaction ran: the context figure the mod reads stays at the old value until the agent's next reply, so it's
+ * cleared, and reports at or above the old value are ignored until a lower one comes (handleUi), for up to 2 hours.
+ * Without this the "context full" card comes back moments after compacting.
+ */
+export async function markCompacted(env: Env, me: string, sessionId: string): Promise<void> {
+  await env.DB.prepare(
+    "UPDATE sessions SET ctx_stale = COALESCE(ctx_pct, ctx_stale), ctx_pct = NULL, ctx_tokens = NULL, ctx_at = ?, compact_err = NULL WHERE member = ? AND session_id = ?",
+  )
+    .bind(Date.now(), me, sessionId)
+    .run();
+}
+
+/** How long a pre-compaction context figure is ignored at most (in case the compaction didn't shrink it). */
+export const CTX_STALE_MS = 2 * 3_600_000;
 
 async function queueCompactCheck(env: Env, me: string, sessionId: string, mode: "finish" | "timeout", due: number): Promise<void> {
   const ref = `z${mode[0]}${sessionId}`;

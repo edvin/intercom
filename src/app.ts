@@ -1,7 +1,7 @@
 import { recordsBrief } from "./records";
 import { saveWorkSettings, workCsv } from "./work";
 import { dismissStuck, moveStuck, releaseSenders, setNudge, wakeStuck } from "./stuck";
-import { FIT_SINCE, compactAgent, compactOnStop, dismiss, myRows, newer, restartAgent, setAuto, updateAgent, updateIdle } from "./upkeep";
+import { CTX_STALE_MS, FIT_SINCE, compactAgent, compactOnStop, markCompacted, dismiss, myRows, newer, restartAgent, setAuto, updateAgent, updateIdle } from "./upkeep";
 import { KEY_NAMES, type ScreenQuery, askScreen, drawScreen, screenReply, sendNow, stopAgent } from "./screen";
 import { answerBtw, pendingBtw } from "./btw";
 import { getAttachment, isImage, readImage, readable } from "./attachments";
@@ -447,8 +447,12 @@ async function handleUi(url: URL, env: Env, me: string): Promise<Response> {
   const pct = Number(url.searchParams.get("ctx"));
   if (mySession && url.searchParams.has("ctx") && Number.isFinite(pct)) {
     const int = (k: string) => (Number.isFinite(Number(url.searchParams.get(k))) ? Math.round(Number(url.searchParams.get(k))) : null);
-    await env.DB.prepare("UPDATE sessions SET ctx_pct = ?, ctx_tokens = ?, ctx_window = ?, ctx_at = ? WHERE member = ? AND session_id = ?")
-      .bind(Math.max(0, Math.min(100, Math.round(pct))), int("tok"), int("win"), Date.now(), me, mySession.session_id)
+    // Right after a compaction the figure is still the old one (until the agent's next reply): skip it (upkeep.ts).
+    const p = Math.max(0, Math.min(100, Math.round(pct)));
+    await env.DB.prepare(
+      "UPDATE sessions SET ctx_pct = ?, ctx_tokens = ?, ctx_window = ?, ctx_at = ?, ctx_stale = NULL WHERE member = ? AND session_id = ? AND (ctx_stale IS NULL OR ? < ctx_stale OR ctx_at < ?)",
+    )
+      .bind(p, int("tok"), int("win"), Date.now(), me, mySession.session_id, p, Date.now() - CTX_STALE_MS)
       .run();
   }
   // A session counts what it receives (its project's posts and its DMs); without one, the person's view.
@@ -1016,7 +1020,13 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
     // The mod ran (or couldn't run) the compaction: the request is done either way, and the dashboard redraws.
     const id = decodeURIComponent(url.pathname.slice(13));
     const body = (await req.json().catch(() => ({}))) as { session?: unknown; error?: unknown };
-    await env.DB.prepare("UPDATE sessions SET compact_req = NULL WHERE member = ? AND session_id = ? AND json_extract(compact_req, '$.id') = ?").bind(me, String(body.session ?? ""), id).run();
+    const sid = String(body.session ?? "");
+    const done = await env.DB.prepare("UPDATE sessions SET compact_req = NULL WHERE member = ? AND session_id = ? AND json_extract(compact_req, '$.id') = ? RETURNING session_id")
+      .bind(me, sid, id)
+      .first();
+    const error = typeof body.error === "string" ? body.error.slice(0, 300) : "";
+    if (done && error) await env.DB.prepare("UPDATE sessions SET compact_err = ? WHERE member = ? AND session_id = ?").bind(error, me, sid).run();
+    else if (done) await markCompacted(env, me, sid);
     env.refreshWeb?.(me);
     return json({ ok: true });
   }

@@ -2672,6 +2672,37 @@ describe("context and compaction", () => {
   });
 });
 
+describe("context full after compacting", () => {
+  test("the old figure the mod still reads right after compacting doesn't bring the card back; a failed one says why", async () => {
+    const w = await standardWorld();
+    await w.request(`/api/hook?event=SessionStart&project=billing-api&session=cc1&name=core&version=${PLUGIN_VERSION}`, { as: "bob" });
+    const poll = async (q = "") => (await (await w.request(`/api/ui?project=billing-api&session=cc1&mod=0.2.10${q}`, { as: "bob" })).json()) as { compact: { id: string } | null };
+    const dock = async () => (await w.request("/dashboard", { as: "bob", cookie: true })).text();
+    await poll("&ctx=90&tok=900000&win=1000000");
+    assert.match(await dock(), /core's context is 90% full/);
+    const compact = () => w.request("/agent/compact", { as: "bob", cookie: true, method: "POST", headers: { origin: ORIGIN, "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ session: "cc1", back: "/dashboard" }) });
+    const done = async (body: object) => {
+      const id = (await poll()).compact!.id;
+      await w.request(`/api/compact/${id}`, { as: "bob", method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ session: "cc1", ...body }) });
+    };
+    await compact();
+    await done({});
+    // Until its next reply, the mod still reads 90%: ignored.
+    await poll("&ctx=90&tok=900000&win=1000000");
+    assert.doesNotMatch(await dock(), /context is \d+% full/);
+    // Its next reply: the real, lower figure is taken, and later growth counts again.
+    await poll("&ctx=9&tok=90000&win=1000000");
+    assert.match(await (await w.request("/dashboard?view=agents&agent=bob/core", { as: "bob", cookie: true })).text(), /9% context/);
+    await poll("&ctx=91&tok=910000&win=1000000");
+    assert.match(await dock(), /core's context is 91% full/);
+    // The mod couldn't compact: the card stays, and says why.
+    await compact();
+    await done({ error: "skipped: nothing to compact" });
+    await poll("&ctx=91&tok=910000&win=1000000");
+    assert.match(await dock(), /The last compaction from here didn't run: skipped: nothing to compact/);
+  });
+});
+
 describe("Claude.ai connector", () => {
   const b64url = (b: ArrayBuffer) => Buffer.from(b).toString("base64url");
   /** Register a client, sign in as `as` in the browser, approve, and trade the code: the full OAuth dance. */

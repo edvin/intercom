@@ -55,6 +55,7 @@ import m0046 from "../migrations/0046_upkeep.sql";
 import m0047 from "../migrations/0047_compact_prep.sql";
 import m0048 from "../migrations/0048_subagents.sql";
 import m0049 from "../migrations/0049_nudge.sql";
+import m0050 from "../migrations/0050_ctx_stale.sql";
 import { upkeepTick } from "./upkeep";
 
 /** A short fingerprint of the MCP tools (names, descriptions, schemas) this code offers. */
@@ -114,6 +115,7 @@ const MIGRATIONS: [string, string][] = [
   ["0047_compact_prep", m0047],
   ["0048_subagents", m0048],
   ["0049_nudge", m0049],
+  ["0050_ctx_stale", m0050],
 ];
 
 const DAY = 86400_000;
