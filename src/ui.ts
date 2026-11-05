@@ -986,6 +986,8 @@ tr.dnote td{padding:0;background:var(--surface-2)}
 .asktype{width:100%;height:34px;margin-top:8px;font-size:13px;border-radius:10px;background:var(--surface)}
 .askact{display:flex;gap:8px;justify-content:flex-end;margin-top:10px}
 .askcode{margin:0 0 2px;padding:10px 12px;border-radius:10px;background:var(--surface);border:1px solid var(--line);font-family:"Geist Mono",ui-monospace,monospace;font-size:12.5px;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere;max-height:150px;overflow:auto;color:var(--ink)}
+.stknudged{display:flex;gap:6px;align-items:baseline;color:var(--ink-2)}.stknudged svg{flex:none;transform:translateY(1px)}
+.stknudge{display:flex;align-items:center;gap:8px;margin-top:10px;padding-top:8px;border-top:1px solid var(--line);font-size:12px;color:var(--mute)}.stknudge span{flex:1;min-width:0}.stknudge .btn{flex:none}
 .askctx{margin:0 0 10px;display:flex;flex-direction:column;gap:4px}
 .askwhy{max-height:200px;overflow:auto;padding:8px 12px;border-radius:10px;background:var(--surface-2);font-size:13px;line-height:1.5;color:var(--ink-2);overflow-wrap:anywhere}.askwhy>:first-child{margin-top:0}.askwhy>:last-child{margin-bottom:0}
 .asklead>summary{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--mute);cursor:pointer;list-style:none;user-select:none;padding:2px 0}.asklead>summary::-webkit-details-marker{display:none}.asklead>summary:hover{color:var(--ink)}.asklead>summary svg{transition:transform .15s}.asklead[open]>summary svg{transform:rotate(90deg)}

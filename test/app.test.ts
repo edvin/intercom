@@ -3127,6 +3127,51 @@ describe("agents that don't take their messages", () => {
     await w.ok("bob", "inbox", {}, alder);
     assert.equal((await (await import("../src/stuck.ts")).stuckSessions(w.env(), "bob")).length, 0);
   });
+
+  test("one whose terminal takes keys is woken by itself first; the card shows only if that didn't work", async () => {
+    const w = await setup();
+    await w.env().DB.prepare("UPDATE sessions SET screen = 'keys' WHERE session_id = 'st2'").run();
+    await w.ok("bob", "post", { to: "bob/alder", message: "Can you rebuild the image?" }, core);
+    const queued = await w.db.prepare("SELECT due_at FROM push_queue WHERE member = 'bob' AND ref = 'ualder'").first<{ due_at: number }>();
+    assert.ok(queued, "a look at it is queued even without notifications");
+    await age(w, 10);
+    // The alarm will wake it: no card meanwhile.
+    assert.doesNotMatch(await page(w), /class="ask k-stuck"/);
+    const { nudgeStuck, NUDGE_TEXT } = await import("../src/stuck.ts");
+    const n = w.screenAsked.length;
+    const p = nudgeStuck(w.env(), "bob", "alder");
+    const t0 = Date.now();
+    while (w.screenAsked.length === n && Date.now() - t0 < 500) await new Promise((r) => setTimeout(r, 5));
+    const ask = w.screenAsked[n]!;
+    assert.deepEqual(ask.q, { op: "keys", text: NUDGE_TEXT, enter: true });
+    await w.request("/api/screen-reply", { as: "bob", method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ req: ask.req, data: { text: "", keys: true } }) });
+    assert.equal(await p, true);
+    const act = await w.db.prepare("SELECT text FROM activity WHERE session_id = 'st2' AND kind = 'keys'").first<{ text: string }>();
+    assert.match(act!.text, /the intercom, by itself \(it wasn't reading its messages\)/);
+    // Given a few minutes; once only.
+    assert.doesNotMatch(await page(w), /class="ask k-stuck"/);
+    assert.equal(await nudgeStuck(w.env(), "bob", "alder"), false);
+    await w.db.prepare("UPDATE stuck_marks SET nudged_at = ? WHERE agent = 'alder'").bind(Date.now() - 6 * 60_000).run();
+    const dash = await page(w);
+    assert.match(dash, /class="ask k-stuck"[\s\S]*The intercom woke it 6m ago[\s\S]*but it still hasn(?:'|&#39;)t read them/);
+    assert.match(dash, /<form method="post" action="\/upkeep" class="stknudge">[\s\S]*value="nudge-off"[\s\S]*Turn off/);
+    // Turned off: you're asked straight away, and nothing types into it.
+    await w.form("/upkeep", "bob", { op: "nudge-off", back: "/dashboard" });
+    await w.db.prepare("DELETE FROM stuck_marks").run();
+    assert.match(await page(w), /class="ask k-stuck"[\s\S]*Wake them by itself/);
+    assert.equal(await nudgeStuck(w.env(), "bob", "alder"), false);
+  });
+
+  test("not woken by itself while it works, waits on a prompt or a limit", async () => {
+    const w = await setup();
+    const { nudgeStuck } = await import("../src/stuck.ts");
+    await w.ok("bob", "post", { to: "bob/alder", message: "Hello?" }, core);
+    for (const [state, detail] of [["working", ""], ["waiting", "permission to run npm test"], ["waiting", "usage limit"]]) {
+      await w.env().DB.prepare("UPDATE sessions SET client = 'claude', screen = 'keys', state = ?, state_detail = ? WHERE session_id = 'st2'").bind(state, detail).run();
+      await age(w, 45);
+      assert.equal(await nudgeStuck(w.env(), "bob", "alder"), false, state + " " + detail);
+    }
+  });
 });
 
 describe("an agent's screen", () => {
@@ -3236,6 +3281,9 @@ describe("an agent's screen", () => {
     await w.db.prepare("UPDATE sessions SET screen = 'keys', client = 'codex', state = 'idle' WHERE session_id = 'sc1'").run();
     await w.ok("bob", "post", { to: "bob/core", message: "Rebuild please" }, { id: "sc3", project: "billing-api" });
     await w.db.prepare("UPDATE messages SET created_at = ? WHERE recipient_agent = 'core'").bind(Date.now() - 10 * 60_000).run();
+    // The intercom would wake it by itself first (see "agents that don't take their messages"); with that off, you do.
+    assert.doesNotMatch(await (await w.request("/dashboard?view=agents", { as: "bob", cookie: true })).text(), /class="ask k-stuck"/);
+    await w.form("/upkeep", "bob", { op: "nudge-off", back: "/dashboard" });
     assert.match(await (await w.request("/dashboard?view=agents", { as: "bob", cookie: true })).text(), /class="ask k-stuck"[\s\S]*value="wake"[\s\S]*Wake it now/);
     const { result, ask } = await answering(w, () => w.form("/stuck", "bob", { agent: "core", op: "wake", back: "/dashboard" }));
     assert.deepEqual(ask!.q, { op: "keys", text: "You have intercom messages waiting: read them and carry on.", enter: true });

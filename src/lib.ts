@@ -377,9 +377,8 @@ export async function delegatedTo(env: Env, sender: string, senderAgent: string 
   return (n?.n ?? 0) < DELEGATE_PER_HOUR;
 }
 
-/** Queue a look at whether a DM to `member`'s agent was taken (push ref "u<agent>"), for people who get notifications. */
+/** Queue a look at whether a DM to `member`'s agent was taken (push ref "u<agent>"): to wake it if it isn't reading, and to notify. */
 async function watchDelivery(env: Env, member: string, agent: string): Promise<void> {
-  if (!(await env.DB.prepare("SELECT 1 FROM push_subs WHERE member = ?").bind(member).first())) return;
   const ref = `u${agent}`;
   if (await env.DB.prepare("SELECT 1 FROM push_queue WHERE member = ? AND ref = ?").bind(member, ref).first()) return;
   const due = Date.now() + 6 * 60_000;

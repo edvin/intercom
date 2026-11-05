@@ -1,6 +1,6 @@
 import { recordsBrief } from "./records";
 import { saveWorkSettings, workCsv } from "./work";
-import { dismissStuck, moveStuck, releaseSenders, wakeStuck } from "./stuck";
+import { dismissStuck, moveStuck, releaseSenders, setNudge, wakeStuck } from "./stuck";
 import { FIT_SINCE, compactAgent, compactOnStop, dismiss, myRows, newer, restartAgent, setAuto, updateAgent, updateIdle } from "./upkeep";
 import { KEY_NAMES, type ScreenQuery, askScreen, drawScreen, screenReply, sendNow, stopAgent } from "./screen";
 import { answerBtw, pendingBtw } from "./btw";
@@ -754,6 +754,7 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
         if (!t) throw new UserError("No such agent of yours.");
         ok = await updateAgent(env, me, t, rows, live, "from the dashboard");
       } else if (op === "auto-on" || op === "auto-off") ok = await setAuto(env, me, op === "auto-on");
+      else if (op === "nudge-on" || op === "nudge-off") ok = await setNudge(env, me, op === "nudge-on");
       else if (op === "restart") ok = await restartAgent(env, me, f("session"));
       else if (op === "compact" || op === "compact-now") ok = await compactAgent(env, me, f("session"), { rightAway: op === "compact-now" });
       else ok = await dismiss(env, me, f("key"), Number(f("value")) || 1);

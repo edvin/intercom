@@ -37,7 +37,13 @@ export interface Stuck {
   explain: string;
   /** Its terminal can be typed into from here (screen.ts): "wake it now" works. */
   wake: boolean;
+  /** When the intercom woke it by itself for these messages (0: it didn't). */
+  nudgedAt: number;
 }
+
+/** After waking an agent by itself, how long the intercom gives it before the card shows. */
+export const NUDGE_WAIT_MS = 5 * 60_000;
+export const NUDGE_TEXT = "You have intercom messages waiting: read them and carry on.";
 
 interface SessionRow {
   session_id: string;
@@ -53,7 +59,7 @@ interface SessionRow {
 }
 
 /** Why a session can't take messages now, if it can't: "" when it can (as far as the hub knows). */
-export async function cantTake(env: Env, member: string, agent: string): Promise<{ reason: string; client: string; activeAt: number | null; host: string; wake: boolean }> {
+export async function cantTake(env: Env, member: string, agent: string): Promise<{ reason: string; client: string; activeAt: number | null; host: string; wake: boolean; nudgeable?: boolean }> {
   const { results } = await env.DB.prepare(
     "SELECT session_id, label, project, client, state, state_detail, last_seen, active_at, host, screen FROM sessions WHERE member = ?1 AND (label = ?2 OR project = ?2) ORDER BY last_seen DESC LIMIT 20",
   )
@@ -68,10 +74,12 @@ export async function cantTake(env: Env, member: string, agent: string): Promise
   // A project address is fine while any of its sessions can take it.
   const able = up.filter((r) => !(r.client === "codex" && r.state === "idle") && !(r.state === "waiting" && /limit|login|account/i.test(r.state_detail)));
   const wake = up.some((r) => r.screen === "keys");
-  if (able.length) return { reason: "", client: s.client, activeAt, host: s.host, wake };
+  // Waking it by itself: only the agent of that name, idle (not working, not on a prompt or a limit), its terminal reachable.
+  const nudgeable = up.some((r) => r.label === agent && r.state === "idle" && r.screen === "keys");
+  if (able.length) return { reason: "", client: s.client, activeAt, host: s.host, wake, nudgeable };
   const u = up[0]!;
   if (u.state === "waiting") return { reason: `stopped: ${u.state_detail}`, client: u.client, activeAt, host: u.host, wake };
-  return { reason: "idle between turns (a Codex session takes messages only when a turn starts, so only typing in its terminal wakes it)", client: u.client, activeAt, host: u.host, wake };
+  return { reason: "idle between turns (a Codex session takes messages only when a turn starts, so only typing in its terminal wakes it)", client: u.client, activeAt, host: u.host, wake, nudgeable };
 }
 
 /** Your sessions with direct messages waiting too long, oldest first; dismissed ones only come back with a newer message. */
@@ -90,8 +98,12 @@ export async function stuckSessions(env: Env, me: string, now = Date.now()): Pro
   if (!results.length) return [];
   const groups = new Map<string, (Waiting & { recipient_agent: string })[]>();
   for (const m of results) groups.set(m.recipient_agent, [...(groups.get(m.recipient_agent) ?? []), m]);
-  const { results: marks } = await env.DB.prepare("SELECT agent, dismissed_upto FROM stuck_marks WHERE member = ?").bind(me).all<{ agent: string; dismissed_upto: number }>();
+  const { results: marks } = await env.DB.prepare("SELECT agent, dismissed_upto, nudged_oldest, nudged_at FROM stuck_marks WHERE member = ?")
+    .bind(me)
+    .all<{ agent: string; dismissed_upto: number; nudged_oldest: number; nudged_at: number }>();
   const dismissed = new Map(marks.map((k) => [k.agent, k.dismissed_upto]));
+  const nudged = new Map(marks.map((k) => [k.agent, k]));
+  const nudgeOn = await nudgeIsOn(env, me);
   const out: Stuck[] = [];
   for (const [agent, msgs] of groups) {
     const maxId = msgs[msgs.length - 1]!.id;
@@ -100,6 +112,11 @@ export async function stuckSessions(env: Env, me: string, now = Date.now()): Pro
     const why = await cantTake(env, me, agent);
     const late = now - oldest >= STUCK_MS;
     if (!late && !(why.reason && now - oldest >= CANT_TAKE_MS)) continue;
+    // The intercom wakes it by itself first (nudgeStuck, from the alarm); you're asked only if that didn't work.
+    const nm = nudged.get(agent);
+    const nudgedAt = nm && nm.nudged_oldest >= msgs[0]!.id ? nm.nudged_at : 0;
+    if (nudgedAt && now - nudgedAt < NUDGE_WAIT_MS) continue;
+    if (!nudgedAt && nudgeOn && why.nudgeable && (await env.DB.prepare("SELECT 1 FROM push_queue WHERE member = ? AND ref = ?").bind(me, `u${agent}`).first())) continue;
     const { results: handoffs } = await env.DB.prepare("SELECT id, summary, created_at FROM handoffs WHERE to_member = ? AND to_agent = ? AND status = 'pending' ORDER BY id")
       .bind(me, agent)
       .all<{ id: number; summary: string; created_at: number }>();
@@ -111,7 +128,7 @@ export async function stuckSessions(env: Env, me: string, now = Date.now()): Pro
         : why.reason.startsWith("not connected")
           ? `Its session isn't running (${why.reason.slice(14, -1)}). The next session with that name gets them.`
           : `It hasn't read anything since ${ago(oldest)}, though it's connected. It may be stuck in a long task or waiting on its terminal${on}.`;
-    out.push({ agent, reason: why.reason || `hasn't picked them up since ${ago(oldest)}`, since: oldest, messages: msgs, handoffs, maxId, client: why.client, explain, wake: why.wake });
+    out.push({ agent, reason: why.reason || `hasn't picked them up since ${ago(oldest)}`, since: oldest, messages: msgs, handoffs, maxId, client: why.client, explain, wake: why.wake, nudgedAt });
   }
   return out.sort((a, b) => a.since - b.since);
 }
@@ -143,7 +160,7 @@ export async function teamNote(env: Env, member: string, label: string): Promise
   return parts.length ? ` · ${parts.join(" · ")}` : "";
 }
 
-async function mark(env: Env, me: string, agent: string, col: "dismissed_upto" | "notified_oldest", value: number): Promise<void> {
+async function mark(env: Env, me: string, agent: string, col: "dismissed_upto" | "notified_oldest" | "nudged_oldest" | "nudged_at", value: number): Promise<void> {
   await env.DB.prepare(`INSERT INTO stuck_marks (member, agent, ${col}) VALUES (?, ?, ?) ON CONFLICT(member, agent) DO UPDATE SET ${col} = excluded.${col}`).bind(me, agent, value).run();
 }
 
@@ -233,12 +250,63 @@ export async function stuckNote(env: Env, me: string, agent: string): Promise<{ 
   return { title: `${agent} isn't taking messages`, body: `${n} message${n > 1 ? "s" : ""} waiting since ${ago(s.since)}: ${s.reason}.`, again: null };
 }
 
+export async function nudgeIsOn(env: Env, me: string): Promise<boolean> {
+  const r = await env.DB.prepare("SELECT nudge FROM upkeep WHERE member = ?").bind(me).first<{ nudge: number }>();
+  return r ? !!r.nudge : true;
+}
+
+export async function setNudge(env: Env, me: string, on: boolean): Promise<string> {
+  await env.DB.prepare("INSERT INTO upkeep (member, nudge) VALUES (?, ?) ON CONFLICT(member) DO UPDATE SET nudge = excluded.nudge").bind(me, on ? 1 : 0).run();
+  env.refreshWeb?.(me);
+  return on ? "The intercom wakes agents that aren't reading by itself" : "Agents that aren't reading wait for you to wake them";
+}
+
+/**
+ * From the alarm (push ref "u<agent>"): an agent of yours with messages it isn't reading, idle and with a terminal that
+ * takes keys, is woken by itself, once per oldest waiting message. True when it was (look again in NUDGE_WAIT_MS).
+ */
+export async function nudgeStuck(env: Env, me: string, agent: string, now = Date.now()): Promise<boolean> {
+  if (!(await nudgeIsOn(env, me))) return false;
+  const { results } = await env.DB.prepare(
+    `SELECT MIN(m.id) AS first, MIN(m.created_at) AS at FROM messages m WHERE m.recipient = ? AND m.recipient_agent = ? AND m.kind != 'event' AND m.cancelled_at IS NULL AND m.held_at IS NULL
+       AND m.created_at > ? AND NOT (m.sender = ? AND m.sender_agent = m.recipient_agent) AND NOT EXISTS (SELECT 1 FROM deliveries d WHERE d.message_id = m.id)`,
+  )
+    .bind(me, agent, now - WINDOW_MS, me)
+    .all<{ first: number | null; at: number | null }>();
+  const w = results[0];
+  if (!w?.first || !w.at) return false;
+  const why = await cantTake(env, me, agent);
+  if (!why.nudgeable) return false;
+  // As patient as the card: a session that can't take them is woken after CANT_TAKE_MS, one that should have after STUCK_MS.
+  if (now - w.at < (why.reason ? CANT_TAKE_MS : STUCK_MS)) return false;
+  const m = await env.DB.prepare("SELECT nudged_oldest FROM stuck_marks WHERE member = ? AND agent = ?").bind(me, agent).first<{ nudged_oldest: number }>();
+  if ((m?.nudged_oldest ?? 0) >= w.first) return false;
+  await mark(env, me, agent, "nudged_oldest", w.first);
+  try {
+    // Not askScreen: that's for you, from the dashboard; this is the hub's alarm, for an agent of yours it checked above.
+    const { askSession } = await import("./screen");
+    const t = await env.DB.prepare("SELECT session_id, label, screen, client, version FROM sessions WHERE member = ? AND label = ? AND screen = 'keys' ORDER BY last_seen DESC LIMIT 1")
+      .bind(me, agent)
+      .first<{ session_id: string; label: string; screen: string; client: string; version: string }>();
+    if (!t) throw new Error("no terminal to type into");
+    await askSession(env, me, t, { op: "keys", text: NUDGE_TEXT, enter: true }, { label: agent, by: "the intercom, by itself (it wasn't reading its messages)" });
+    await mark(env, me, agent, "nudged_at", now);
+    console.log("nudge", me, agent);
+    return true;
+  } catch (e) {
+    // Couldn't reach it: the card shows now.
+    await mark(env, me, agent, "nudged_at", now - NUDGE_WAIT_MS);
+    console.log("nudge", me, agent, String(e));
+    return false;
+  }
+}
+
 /** Wake it from here: type a line into its terminal (screen.ts), which starts a turn that reads what's waiting. */
 export async function wakeStuck(env: Env, me: string, agent: string): Promise<string> {
   const s = await one(env, me, agent);
   if (!s.wake) throw new UserError(`${agent}'s terminal can't be reached from here (not in tmux, or keys are off on its machine).`);
   const { askScreen } = await import("./screen");
-  await askScreen(env, me, agent, { op: "keys", text: "You have intercom messages waiting: read them and carry on.", enter: true });
+  await askScreen(env, me, agent, { op: "keys", text: NUDGE_TEXT, enter: true });
   env.refreshWeb?.(me);
   return `Woke ${agent}: it's reading its messages now`;
 }

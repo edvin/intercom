@@ -8,7 +8,7 @@
 // answered, decided or withdrawn meanwhile is skipped.
 
 import { daySummary, scheduleSummary } from "./work";
-import { stuckNote, stuckSessions } from "./stuck";
+import { NUDGE_WAIT_MS, nudgeStuck, stuckNote, stuckSessions } from "./stuck";
 import { compactDue } from "./upkeep";
 import { type Env } from "./lib";
 
@@ -257,6 +257,11 @@ export async function sendDuePushes(env: Env, now = Date.now()): Promise<number 
     if (q.ref[0] === "u") {
       // A DM to one of their agents may not have been taken (stuck.ts): notify once, or look again later.
       try {
+        // Wake it by itself first; the card and the notification only if that didn't work.
+        if (await nudgeStuck(env, q.member, q.ref.slice(1))) {
+          await env.DB.prepare("INSERT INTO push_queue (member, ref, due_at, extra) VALUES (?, ?, ?, '')").bind(q.member, q.ref, Date.now() + NUDGE_WAIT_MS + 30_000).run();
+          continue;
+        }
         const st = await stuckNote(env, q.member, q.ref.slice(1));
         if (st?.title) await sendNote(env, q.member, { title: st.title, body: clip(st.body, 240), tag: q.ref, url: "/dashboard?view=agents", count: await waitingCount(env, q.member), ttl: 86400 });
         else if (st?.again) {

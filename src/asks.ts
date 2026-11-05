@@ -6,7 +6,7 @@ import { type Approval, type Question, pendingApprovals } from "./approvals";
 import { type Activity, type Env, ago } from "./lib";
 import { type Btw, BTW_TIMEOUT, modAnswers } from "./btw";
 import { type Review, OUTCOMES, agentOnline, findingsOf, onlineAgents, pendingReviews, threadOf } from "./reviews";
-import { type Stuck, stuckSessions } from "./stuck";
+import { type Stuck, nudgeIsOn, stuckSessions } from "./stuck";
 import { screenAttrs } from "./screen";
 import { type Row as UpRow, exitedAgents, frozenAgents, fullAgents, myRows, since, staleAgents, upkeepOf } from "./upkeep";
 import { PLUGIN_VERSION } from "./version";
@@ -231,7 +231,7 @@ function fullCard(r: UpRow, me: string, back: string): string {
 }
 
 /** An agent that isn't reading its messages (stuck.ts): what waits on it, why, and three plain choices. */
-function stuckCard(st: Stuck, me: string, back: string, online: { label: string; project: string | null }[]): string {
+function stuckCard(st: Stuck, me: string, back: string, online: { label: string; project: string | null }[], nudgeOn = true): string {
   const agent = `/dashboard?view=agents&agent=${encodeURIComponent(`${me}/${st.agent}`)}`;
   const home = online.find((o) => o.label === st.agent)?.project ?? null;
   const others = online.filter((o) => o.label !== st.agent).sort((a, b) => Number(b.project === home) - Number(a.project === home) || a.label.localeCompare(b.label));
@@ -247,6 +247,7 @@ function stuckCard(st: Stuck, me: string, back: string, online: { label: string;
     <header class="askwho">${agentAvatar(me, st.agent, "s")}<a href="${esc(agent)}" class="askname">${esc(st.agent)}</a><span class="askk">Not reading</span><span class="grow"></span>${time(st.since)}</header>
     <p class="stkhead">${esc(what)} for ${esc(st.agent)} ${n + st.handoffs.length > 1 ? "have" : "has"} gone unread for ${esc(ago(st.since).replace(/ ago$/, ""))}.</p>
     <p class="stkwhy">${esc(st.explain)}</p>
+    ${st.nudgedAt ? `<p class="stkwhy stknudged">${icon("refresh", 12)}The intercom woke it ${esc(ago(st.nudgedAt))} (typed “read them and carry on” into its terminal), but it still hasn't read them.</p>` : ""}
     <ul class="stklist">${n > 4 ? `<li class="muted">and ${n - 4} earlier</li>` : ""}${list}${st.handoffs.map((h) => `<li><b>Handoff H${h.id}</b> <span class="muted">${time(h.created_at)}</span><span class="stkb">${esc(h.summary.slice(0, 160))}</span></li>`).join("")}</ul>
     <form method="post" action="/stuck">${hidden({ back, agent: st.agent })}
       <p class="askqt">What should happen?</p>
@@ -261,6 +262,7 @@ function stuckCard(st: Stuck, me: string, back: string, online: { label: string;
         ${opt("dismiss", "Leave them, I'll wake it", `Nothing changes; ${st.client === "codex" ? "type anything in its terminal and it reads them" : "it reads them when it's back"}. This goes away until a new message waits.`)}
       </div>
     </form>
+    ${st.wake ? `<form method="post" action="/upkeep" class="stknudge">${hidden({ back, op: nudgeOn ? "nudge-off" : "nudge-on" })}<span>${nudgeOn ? "The intercom wakes agents that aren't reading first, once, before asking you." : "Agents that aren't reading wait for you to wake them."}</span><button class="btn ghost xs">${nudgeOn ? "Turn off" : "Wake them by itself"}</button></form>` : ""}
   </article>`;
 }
 
@@ -271,6 +273,7 @@ export async function asksDock(env: Env, me: string, back: string): Promise<stri
   const reviews = await pendingReviews(env, me);
   const tickets = await pendingTickets(env, me);
   const stuck = await stuckSessions(env, me);
+  const nudgeOn = stuck.length ? await nudgeIsOn(env, me) : true;
   // Your agents whose terminal can be seen from here (screen.ts): for a look at what they're asking, and for the ones
   // waiting there with no card of their own.
   const { results: seen } = await env.DB.prepare(
@@ -300,7 +303,7 @@ export async function asksDock(env: Env, me: string, back: string): Promise<stri
       <div class="askhd"><span class="askdot"></span><b>Waiting for you</b><span class="badge amber">${n}</span><span class="grow"></span><span class="small muted askor">or answer in the terminal</span><button type="button" class="btn ghost xs askpush" data-pushon hidden title="Get a notification on this device when something is waiting for you">${icon("bell", 13)}Notify me</button><button type="button" class="btn ghost xs icon" data-askstoggle title="Minimize">${icon("chevron", 14)}</button></div>
       <div class="asklist">${pending.map((p) => card(p, me, back, now, screens, leads.get(p.id))).join("")}${waits.map((w) => waitCard(w, me)).join("")}${reviews
         .map((r) => reviewCard(r, me, back, agentOnline(env, r, agents), names.filter((l) => l !== r.label)))
-        .join("")}${tickets.map((t) => ticketCard(t, me, back)).join("")}${stuck.map((st) => stuckCard(st, me, back, agents)).join("")}${upkeepCards.join("")}</div>
+        .join("")}${tickets.map((t) => ticketCard(t, me, back)).join("")}${stuck.map((st) => stuckCard(st, me, back, agents, nudgeOn)).join("")}${upkeepCards.join("")}</div>
     </div>
   </section>`;
 }
