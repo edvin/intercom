@@ -1023,7 +1023,7 @@ form>.rvturn,form>.rvask{margin-left:2px}
 .asks.min .askpanel{display:none}.asks.min .askpill{display:inline-flex}
 body:has(#asks:not([hidden]):not(.min)) .toasts{right:auto;left:20px}
 .btn[hidden],.row[hidden]{display:none}@media (max-width:640px){.top .live,.top .topabout{display:none}.top .in{gap:4px}}.acctpane{max-width:760px}.acct .bd>div>h3{font-size:13px;font-weight:620;margin:0 0 6px}.acct .bd>div>h3+p{margin-top:0}.acctrow{flex-wrap:wrap;align-items:flex-end}.acct .headline{font-size:28px;line-height:1.1}.acctlist{display:flex;flex-direction:column;gap:2px}.pushdevs{margin:0;padding-left:18px;color:var(--ink-2)}.pushdevs li{margin:2px 0}.pusherr{color:var(--red)}.askpush{color:var(--accent);gap:4px}
-@media (max-width:640px){.asks,.ide.chatmode~.asks{right:8px;left:8px;bottom:calc(8px + env(safe-area-inset-bottom));width:auto}.ide.chatmode~.asks .askpanel{max-height:80dvh}.askpanel{max-height:80dvh;border-radius:16px}.askor{display:none}.askopt{padding:11px 12px}body:has(.ide.treeopen) .asks{display:none}body:has(#asks:not([hidden]):not(.min)) .toasts{left:12px;right:12px;bottom:auto;top:12px}}
+@media (max-width:640px){.asks,.ide.chatmode~.asks{right:8px;left:8px;bottom:calc(8px + env(safe-area-inset-bottom));width:auto}.ide.chatmode~.asks.min{bottom:calc(var(--cbb,0px) + 8px)}body:has(#asks.min:not([hidden])) .chatmode .thread{padding-bottom:60px}.ide.chatmode~.asks .askpanel{max-height:80dvh}.askpanel{max-height:80dvh;border-radius:16px}.askor{display:none}.askopt{padding:11px 12px}body:has(.ide.treeopen) .asks{display:none}body:has(#asks:not([hidden]):not(.min)) .toasts{left:12px;right:12px;bottom:auto;top:12px}}
 .chatbox .chips{flex:none;align-items:center}.chatbox .chip{flex:none;height:auto}
 @media (max-width:640px){.chatpane{padding:8px;gap:8px}.chat>.hd{padding:10px 12px;gap:10px}.chat>.hd .cname,.chatbox .lbl,.updatebar .uphint{display:none}.chat>.hd .client{padding:0 6px}.chat>.hd .cwd{display:none}.thread.term{padding:12px 14px}.chatbox{padding:10px}.chatbox .chips{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}.chatbox .chips::-webkit-scrollbar{display:none}.chatbox .chip{flex:none;white-space:nowrap}.chatbox textarea{min-width:0}}
 @media (max-width:900px){
@@ -1221,6 +1221,18 @@ export const SCRIPT = `
     const st = document.documentElement.style, top = $(".top"), vv = window.visualViewport;
     if (vv) { st.setProperty("--vvh", vv.height + "px"); st.setProperty("--vvt", vv.offsetTop + "px"); }
     if (top) st.setProperty("--toph", top.offsetHeight + "px");
+    composerTop();
+  };
+  // On a phone the Waiting-for-you pill sits just above the chat's composer, never over its send button: --cbb is how
+  // far the composer's top is from the bottom of the screen (it grows with the text, and moves with the keyboard).
+  const composerTop = () => {
+    const cb = document.getElementById("chatform");
+    document.documentElement.style.setProperty("--cbb", cb ? Math.max(0, innerHeight - cb.getBoundingClientRect().top) + "px" : "0px");
+  };
+  const watchComposer = () => {
+    const cb = document.getElementById("chatform");
+    if (cb && !cb.dataset.watched && window.ResizeObserver) { cb.dataset.watched = "1"; new ResizeObserver(composerTop).observe(cb); }
+    composerTop();
   };
   window.visualViewport?.addEventListener("resize", fit); window.visualViewport?.addEventListener("scroll", fit); addEventListener("resize", fit); addEventListener("DOMContentLoaded", fit); fit();
   // Read an agent's reply aloud with the device's own voice (prose only: code blocks, times and buttons are skipped).
@@ -1515,6 +1527,7 @@ export const SCRIPT = `
     if (e.target.id === "subs-box") try { localStorage.setItem("ic_subs", e.target.open ? "1" : "0"); } catch {}
   }, true);
   function bind(root = document) {
+    watchComposer();
     const sb = document.getElementById("subs-box");
     if (sb) try { sb.open = localStorage.getItem("ic_subs") === "1"; } catch {}
     bindAsks();
