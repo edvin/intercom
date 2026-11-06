@@ -988,6 +988,7 @@ export function docsPage(origin: string): Response {
           <li>A session counts as connected while its local intercom server is connected to the hub; <code>team</code> and the dashboard show ● connected or when it was last seen.</li>
           <li>When it ends (or is killed, or the machine sleeps), its name frees up within minutes, and the next session in that project's crew takes it.</li>
           <li>DMs sent to a name while no session has it are kept: the next session with that name gets them. Whoever sent them is told the agent isn't connected right now.</li>
+          <li>Renamed an agent? For two weeks its old name still reaches it, as long as no running session has that name: DMs and handoffs to the old name go to the new one, and the sender is told the new name to use. Unread mail to the old name moves with the rename.</li>
           <li>Old sessions disappear from lists after a day, and from the hub after two weeks.</li>
         </ul>
       </section>

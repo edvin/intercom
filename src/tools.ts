@@ -41,6 +41,9 @@ import {
   tally,
   unread,
   workingOn,
+  agentUp,
+  renameNote,
+  renamedTo,
 } from "./lib";
 
 export type Args = Record<string, unknown>;
@@ -113,17 +116,19 @@ async function send(env: Env, me: string, a: Args, body: string): Promise<{ id: 
   if (to) {
     const [person, agent] = to.split("/", 2);
     const recipient = await requireCoMember(env, me, person);
-    const recipient_agent = agent ? normChannel(agent) : null;
+    const asked = agent ? normChannel(agent) : null;
+    // An old name of an agent that was renamed: it goes to the new name, and the sender learns it.
+    const moved = asked ? await renamedTo(env, recipient, asked) : null;
+    const recipient_agent = moved?.label ?? asked;
     const channel = env.session?.project || "dm";
     const id = await postMessage(env, { channel, sender: me, recipient, recipient_agent, body });
-    const sent = `Sent DM [${id}] to ${address(recipient, recipient_agent)}.`;
+    const sent = `Sent DM [${id}] to ${address(recipient, recipient_agent)}.${moved ? renameNote(recipient, asked!, moved) : ""}`;
     if (!recipient_agent) return { id, text: sent };
     // Is a session with that name (or in that project) running? If not, say so; the next one picks it up.
     const { results: matches } = await env.DB.prepare("SELECT session_id, last_seen FROM sessions WHERE member = ? AND (label = ?2 OR project = ?2) ORDER BY last_seen DESC")
       .bind(recipient, recipient_agent)
       .all<{ session_id: string; last_seen: number }>();
-    const live = new Set(liveIds(env, recipient));
-    const up = matches.some((m) => live.has(m.session_id) || Date.now() - m.last_seen < GONE_MS);
+    const up = await agentUp(env, recipient, recipient_agent);
     if (up) return { id, text: sent + (await sendWarning(env, recipient, recipient_agent)) };
     return { id, text: `${sent} Note: no ${address(recipient, recipient_agent)} session is connected right now${matches[0] ? ` (last seen ${ago(matches[0].last_seen)})` : ""}. It's kept for them: the next session with that name gets it.` };
   }
@@ -719,8 +724,11 @@ export const tools: Tool[] = [
         to_member = await requireCoMember(env, me, person!);
         to_agent = agent ? normChannel(agent) : null;
       }
+      const moved = to_member && to_agent ? await renamedTo(env, to_member, to_agent) : null;
+      const asked = to_agent;
+      if (moved) to_agent = moved.label;
       const h = await createHandoff(env, me, { project, ref: str(a, "ref", true), summary: str(a, "summary", true), evidence: str(a, "evidence"), gates: str(a, "gates"), to_member, to_agent });
-      return `Recorded handoff H${h.id}${to_member ? ` and sent it to ${address(to_member, to_agent)}` : ` in #${project}`}. You'll hear when its status changes.${to_member && to_agent ? await sendWarning(env, to_member, to_agent) : ""}`;
+      return `Recorded handoff H${h.id}${to_member ? ` and sent it to ${address(to_member, to_agent)}` : ` in #${project}`}.${moved ? renameNote(to_member!, asked!, moved) : ""} You'll hear when its status changes.${to_member && to_agent ? await sendWarning(env, to_member, to_agent) : ""}`;
     },
   },
   {

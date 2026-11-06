@@ -720,6 +720,57 @@ export async function inheritMailbox(env: Env, me: string, sessionId: string, la
   if (Number.isFinite(from)) await env.DB.prepare("UPDATE sessions SET cursor = MIN(cursor, ?) WHERE member = ? AND session_id = ?").bind(from, me, sessionId).run();
 }
 
+/** How long an old name keeps pointing at the agent that dropped it. */
+export const RENAME_KEEP_MS = 14 * 86_400_000;
+
+/**
+ * A session was renamed: remember the old name, and move mail to the old name that nobody has read yet (it was
+ * meant for this agent, which no longer answers to it), unless another running session has that name.
+ */
+async function recordRename(env: Env, me: string, sessionId: string, from: string, to: string): Promise<void> {
+  await env.DB.prepare("INSERT INTO agent_renames (member, old_label, new_label, session_id, at) VALUES (?, ?, ?, ?, ?)").bind(me, from, to, sessionId, Date.now()).run();
+  if (await agentUp(env, me, from)) return;
+  await env.DB.prepare(
+    `UPDATE messages SET recipient_agent = ? WHERE recipient = ? AND recipient_agent = ? AND cancelled_at IS NULL AND created_at > ?
+     AND NOT EXISTS (SELECT 1 FROM deliveries d WHERE d.message_id = messages.id)`,
+  )
+    .bind(to, me, from, Date.now() - RENAME_KEEP_MS)
+    .run();
+}
+
+/** Whether a session of `member` named `agent` (or in that project) is running. */
+export async function agentUp(env: Env, member: string, agent: string): Promise<boolean> {
+  const { results } = await env.DB.prepare("SELECT session_id, last_seen FROM sessions WHERE member = ? AND (label = ?2 OR project = ?2)").bind(member, agent).all<{ session_id: string; last_seen: number }>();
+  const live = new Set(liveIds(env, member));
+  return results.some((m) => live.has(m.session_id) || Date.now() - m.last_seen < GONE_MS);
+}
+
+/**
+ * The name an agent goes by now, when `agent` is an old name of it that no running session holds (renamed within
+ * the last two weeks, following later renames too); else null.
+ */
+export async function renamedTo(env: Env, member: string, agent: string): Promise<{ label: string; at: number } | null> {
+  if (await agentUp(env, member, agent)) return null;
+  let name = agent;
+  let found: { label: string; at: number } | null = null;
+  const seen = new Set([agent]);
+  for (let hop = 0; hop < 5; hop++) {
+    const r = await env.DB.prepare("SELECT new_label, at FROM agent_renames WHERE member = ? AND old_label = ? AND at > ? ORDER BY at DESC LIMIT 1")
+      .bind(member, name, Date.now() - RENAME_KEEP_MS)
+      .first<{ new_label: string; at: number }>();
+    if (!r || seen.has(r.new_label)) break;
+    seen.add(r.new_label);
+    found = { label: r.new_label, at: r.at };
+    name = r.new_label;
+    if (await agentUp(env, member, name)) break;
+  }
+  return found;
+}
+
+/** What a sender is told when its message went to an agent's new name. */
+export const renameNote = (member: string, from: string, to: { label: string; at: number }) =>
+  ` ${address(member, from)} is now called ${address(member, to.label)} (renamed ${ago(to.at)}), so it went there. Use ${address(member, to.label)} from now on.`;
+
 /** The machine a session runs on, as its client reports it (a short hostname or a nickname). */
 export async function setHost(env: Env, me: string, sessionId: string, raw: string | null | undefined): Promise<void> {
   if (raw === null || raw === undefined) return;
@@ -750,6 +801,7 @@ export async function renameSession(
       .bind(label, me, s.label)
       .run();
   await inheritMailbox(env, me, sessionId, label);
+  if (s.label && s.label !== label) await recordRename(env, me, sessionId, s.label, label);
   const role = (opts.role ?? "").trim().slice(0, 120);
   const remember = opts.remember !== false && !!s.project;
   if (remember) {

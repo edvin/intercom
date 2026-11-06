@@ -577,6 +577,28 @@ describe("named sessions", () => {
   });
 });
 
+describe("renamed agents", () => {
+  test("a DM or handoff to an old name goes to the agent's new name, the sender is told, and unread mail moves with the rename", async () => {
+    const w = await standardWorld();
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=r1&name=alder", { as: "bob" });
+    const at = { id: "a1", project: "billing-api" };
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=a1&name=core", { as: "alice" });
+    await w.ok("alice", "post", { to: "bob/alder", message: "sent before the rename" }, at);
+    await w.ok("bob", "set_name", { name: "birch" }, { id: "r1", project: "billing-api" });
+    await w.ok("bob", "set_name", { name: "cedar" }, { id: "r1", project: "billing-api" });
+    const out = await w.ok("alice", "post", { to: "bob/alder", message: "sent after two renames" }, at);
+    assert.match(out, /Sent DM \[\d+\] to bob\/cedar\. bob\/alder is now called bob\/cedar \(renamed [^)]*\), so it went there\. Use bob\/cedar from now on\./);
+    assert.match(await w.ok("alice", "handoff", { ref: "abc123", summary: "the fix", to: "bob/birch" }, at), /sent it to bob\/cedar\. bob\/birch is now called bob\/cedar/);
+    const inbox = await (await w.request("/api/hook?event=UserPromptSubmit&project=billing-api&session=r1", { as: "bob" })).text();
+    assert.match(inbox, /sent before the rename/);
+    assert.match(inbox, /sent after two renames/);
+    // A running session that has the old name now gets it: nothing is rerouted.
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=r2&name=alder", { as: "bob" });
+    const plain = await w.ok("alice", "post", { to: "bob/alder", message: "for the new alder" }, at);
+    assert.doesNotMatch(plain, /now called/);
+  });
+});
+
 describe("agent crews", () => {
   const start = async (w: World, sid: string, client: string, project = "billing-api") =>
     ((await (await w.request(`/api/hook?event=SessionStart&project=${project}&session=${sid}&client=${client}`, { as: "bob" })).json()) as {
