@@ -3158,6 +3158,23 @@ describe("agents that don't take their messages", () => {
     assert.doesNotMatch(await page(w), /class="ask k-stuck"/);
   });
 
+  test("giving them to another agent can also send what comes for it later there, while it isn't running", async () => {
+    const w = await setup();
+    await w.ok("bob", "post", { to: "bob/alder", message: "Can you rebuild the image?" }, core);
+    await age(w, 10);
+    // alder is running: offered, not ticked.
+    assert.match(await page(w), /<label class="stkfwd"><input type="checkbox" name="forward" value="1">Send what comes for alder later to it too, while alder isn(?:'|&#39;)t running<\/label>/);
+    const res = await w.form("/stuck", "bob", { agent: "alder", op: "move", to: "triage", forward: "1", back: "/dashboard" });
+    assert.equal(new URL(res.headers.get("location")!, ORIGIN).searchParams.get("ok"), "triage has them now, and what comes for alder goes to it too while alder isn't running; the sender was told");
+    assert.match(await w.ok("bob", "inbox", {}, core), /Expect the answer from triage\. Send what's for alder to bob\/triage from now on\./);
+    // While alder still runs, a message to it is its own.
+    assert.doesNotMatch(await w.ok("bob", "post", { to: "bob/alder", message: "still yours" }, core), /went there/);
+    // Once it's gone, what comes for it goes to triage, and the sender is told.
+    await w.env().DB.prepare("UPDATE sessions SET last_seen = ? WHERE session_id = 'st2'").bind(Date.now() - 3_600_000).run();
+    assert.match(await w.ok("bob", "post", { to: "bob/alder", message: "new work" }, core), /Sent DM \[\d+\] to bob\/triage\. bob\/alder isn't running; bob has its messages go to bob\/triage \(since [^)]*\), so it went there\./);
+    assert.match(await w.ok("bob", "inbox", {}, triage), /new work/);
+  });
+
   test("a session that just doesn't read: after half an hour; tell the senders not to wait, or dismiss until the next message", async () => {
     const w = await setup();
     await w.env().DB.prepare("UPDATE sessions SET client = 'claude', state = '' WHERE session_id = 'st2'").run();

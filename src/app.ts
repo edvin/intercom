@@ -779,7 +779,7 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
       const op = String(form.get("op") ?? "");
       u.searchParams.set(
         "ok",
-        op === "move" ? await moveStuck(env, me, agent, String(form.get("to") ?? "")) : op === "wake" ? await wakeStuck(env, me, agent) : op === "release" ? await releaseSenders(env, me, agent) : await dismissStuck(env, me, agent),
+        op === "move" ? await moveStuck(env, me, agent, String(form.get("to") ?? ""), form.get("forward") === "1") : op === "wake" ? await wakeStuck(env, me, agent) : op === "release" ? await releaseSenders(env, me, agent) : await dismissStuck(env, me, agent),
       );
     } catch (e) {
       if (!(e instanceof UserError)) throw e;

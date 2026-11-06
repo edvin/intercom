@@ -255,7 +255,7 @@ function stuckCard(st: Stuck, me: string, back: string, online: { label: string;
       <div class="askopts">
         ${
           others.length
-            ? `<div class="askopt stkmv"><span class="askoptx"><b>Give them to another agent</b><span>It answers instead, and whoever sent them is told.</span></span><select name="to" aria-label="Which agent">${others.map((o) => `<option value="${esc(o.label)}">${esc(o.label)}</option>`).join("")}</select><button name="op" value="move" class="btn sm primary">Give</button></div>`
+            ? `<div class="askopt stkmv"><span class="askoptx"><b>Give them to another agent</b><span>It answers instead, and whoever sent them is told.</span></span><select name="to" aria-label="Which agent">${others.map((o) => `<option value="${esc(o.label)}">${esc(o.label)}</option>`).join("")}</select><button name="op" value="move" class="btn sm primary">Give</button><label class="stkfwd"><input type="checkbox" name="forward" value="1"${online.some((o) => o.label === st.agent) ? "" : " checked"}>Send what comes for ${esc(st.agent)} later to it too, while ${esc(st.agent)} isn't running</label></div>`
             : ""
         }
         ${st.wake ? opt("wake", "Wake it now", `Types “read your intercom messages and carry on” into its terminal, as you would. It starts reading them.`) : ""}

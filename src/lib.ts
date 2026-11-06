@@ -749,18 +749,18 @@ export async function agentUp(env: Env, member: string, agent: string): Promise<
  * The name an agent goes by now, when `agent` is an old name of it that no running session holds (renamed within
  * the last two weeks, following later renames too); else null.
  */
-export async function renamedTo(env: Env, member: string, agent: string): Promise<{ label: string; at: number } | null> {
+export async function renamedTo(env: Env, member: string, agent: string): Promise<{ label: string; at: number; kind: string } | null> {
   if (await agentUp(env, member, agent)) return null;
   let name = agent;
-  let found: { label: string; at: number } | null = null;
+  let found: { label: string; at: number; kind: string } | null = null;
   const seen = new Set([agent]);
   for (let hop = 0; hop < 5; hop++) {
-    const r = await env.DB.prepare("SELECT new_label, at FROM agent_renames WHERE member = ? AND old_label = ? AND at > ? ORDER BY at DESC LIMIT 1")
+    const r = await env.DB.prepare("SELECT new_label, at, kind FROM agent_renames WHERE member = ? AND old_label = ? AND at > ? ORDER BY at DESC LIMIT 1")
       .bind(member, name, Date.now() - RENAME_KEEP_MS)
-      .first<{ new_label: string; at: number }>();
+      .first<{ new_label: string; at: number; kind: string }>();
     if (!r || seen.has(r.new_label)) break;
     seen.add(r.new_label);
-    found = { label: r.new_label, at: r.at };
+    found = { label: r.new_label, at: r.at, kind: r.kind };
     name = r.new_label;
     if (await agentUp(env, member, name)) break;
   }
@@ -768,8 +768,15 @@ export async function renamedTo(env: Env, member: string, agent: string): Promis
 }
 
 /** What a sender is told when its message went to an agent's new name. */
-export const renameNote = (member: string, from: string, to: { label: string; at: number }) =>
-  ` ${address(member, from)} is now called ${address(member, to.label)} (renamed ${ago(to.at)}), so it went there. Use ${address(member, to.label)} from now on.`;
+export const renameNote = (member: string, from: string, to: { label: string; at: number; kind: string }) =>
+  to.kind === "forward"
+    ? ` ${address(member, from)} isn't running; ${member} has its messages go to ${address(member, to.label)} (since ${ago(to.at)}), so it went there. Use ${address(member, to.label)} from now on.`
+    : ` ${address(member, from)} is now called ${address(member, to.label)} (renamed ${ago(to.at)}), so it went there. Use ${address(member, to.label)} from now on.`;
+
+/** From now on, what comes for `from` (while no session has that name) goes to `to`: set from the dashboard. */
+export async function forwardAgent(env: Env, me: string, from: string, to: string, sessionId: string): Promise<void> {
+  await env.DB.prepare("INSERT INTO agent_renames (member, old_label, new_label, session_id, at, kind) VALUES (?, ?, ?, ?, ?, 'forward')").bind(me, from, to, sessionId, Date.now()).run();
+}
 
 /** The machine a session runs on, as its client reports it (a short hostname or a nickname). */
 export async function setHost(env: Env, me: string, sessionId: string, raw: string | null | undefined): Promise<void> {

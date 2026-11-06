@@ -4,7 +4,7 @@
 // notification), and from there moves the waiting messages to another agent, tells the senders not to wait, or
 // dismisses it.
 
-import { type Env, GONE_MS, UserError, address, ago, liveIds, postMessage } from "./lib";
+import { type Env, GONE_MS, UserError, address, ago, forwardAgent, liveIds, postMessage } from "./lib";
 import { onlineAgents } from "./reviews";
 
 /** Unread this long, a message counts as stuck; sooner when the session can't take it at all (an idle Codex session, a failed turn). */
@@ -126,7 +126,7 @@ export async function stuckSessions(env: Env, me: string, now = Date.now()): Pro
       : why.reason.startsWith("stopped")
         ? `Its last turn stopped (${why.reason.slice(9)}), so it isn't reading. It picks them up when it runs again: type in its terminal${on}.`
         : why.reason.startsWith("not connected")
-          ? `Its session isn't running (${why.reason.slice(14, -1)}). The next session with that name gets them.`
+          ? `Its session isn't running (${why.reason.slice(15, -1)}). The next session with that name gets them.`
           : `It hasn't read anything since ${ago(oldest)}, though it's connected. It may be stuck in a long task or waiting on its terminal${on}.`;
     out.push({ agent, reason: why.reason || `hasn't picked them up since ${ago(oldest)}`, since: oldest, messages: msgs, handoffs, maxId, client: why.client, explain, wake: why.wake, nudgedAt });
   }
@@ -184,7 +184,7 @@ async function tellSenders(env: Env, me: string, s: Stuck, body: (m: Waiting) =>
 }
 
 /** Hand what's waiting on a stuck agent to another of your agents that's around; the senders hear where it went. */
-export async function moveStuck(env: Env, me: string, agent: string, to: string): Promise<string> {
+export async function moveStuck(env: Env, me: string, agent: string, to: string, forward = false): Promise<string> {
   const s = await one(env, me, agent);
   const target = (await onlineAgents(env, me)).find((a) => a.label === to);
   if (!target) throw new UserError(`${to} isn't connected right now.`);
@@ -207,10 +207,12 @@ export async function moveStuck(env: Env, me: string, agent: string, to: string)
     await env.DB.prepare("UPDATE messages SET cancelled_at = ? WHERE id = ?").bind(Date.now(), m.id).run();
   }
   await env.DB.prepare("UPDATE handoffs SET to_agent = ? WHERE to_member = ? AND to_agent = ? AND status = 'pending'").bind(to, me, agent).run();
-  const told = await tellSenders(env, me, s, () => `Your message to ${address(me, agent)} went to ${address(me, to)} instead: ${agent} wasn't answering (${s.reason}). Expect the answer from ${to}.`);
+  if (forward) await forwardAgent(env, me, agent, to, target.session_id);
+  const later = forward ? ` Send what's for ${agent} to ${address(me, to)} from now on.` : "";
+  const told = await tellSenders(env, me, s, () => `Your message to ${address(me, agent)} went to ${address(me, to)} instead: ${agent} wasn't answering (${s.reason}). Expect the answer from ${to}.${later}`);
   await mark(env, me, agent, "dismissed_upto", s.maxId);
   env.refreshWeb?.(me);
-  return `${to} has them now${told ? `; the sender${told > 1 ? "s were" : " was"} told` : ""}`;
+  return `${to} has them now${forward ? `, and what comes for ${agent} goes to it too while ${agent} isn't running` : ""}${told ? `; the sender${told > 1 ? "s were" : " was"} told` : ""}`;
 }
 
 /** Tell the senders not to wait; the messages stay, for when the agent is back. */
