@@ -804,11 +804,13 @@ pre.term .b8{background:#555a6e}pre.term .b9{background:#d4505a}pre.term .b10{ba
 .scrmeta{flex:none;padding:5px 16px;font-size:11.5px;color:#8a8c9d;background:#0b0d14;border-top:1px solid rgba(255,255,255,.06)}
 .screrr{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:30px;color:#a7a9b8;text-align:center}.screrr p{margin:0;max-width:56ch;font-size:13.5px;line-height:1.5}
 .scrkeys{flex:none;display:flex;flex-direction:column;gap:8px;padding:10px 14px 12px;border-top:1px solid var(--line);background:var(--surface)}
-.scrrow{display:flex;flex-wrap:wrap;gap:5px;align-items:center}.scrsep{width:1px;height:20px;background:var(--line-strong);margin:0 3px}.scrstop{gap:5px}.scrnote{color:#c6c8d6}.scrk{min-width:40px;font-family:"Geist Mono",ui-monospace,monospace;font-size:12.5px}
+.scrrow{display:flex;flex-wrap:wrap;gap:5px;align-items:center}.scrsep{width:1px;height:20px;background:var(--line-strong);margin:0 3px}.scrstop{gap:5px}.scrnote{color:#c6c8d6}.scrk{min-width:40px;font-family:"Geist Mono",ui-monospace,monospace;font-size:12.5px}.scrk[data-key=backspace]{font:17px/1 system-ui,sans-serif}
 .scrtype{display:flex;gap:8px;align-items:center}.scrtype input[name=text]{flex:1;min-width:0;height:34px;font:13px "Geist Mono",ui-monospace,monospace}
 .screnter{display:inline-flex;align-items:center;gap:5px;font-size:12.5px;color:var(--ink-2);white-space:nowrap}.screnter input{margin:0}
 .scrnokeys{margin:0;padding:10px 16px;font-size:12.5px;color:var(--mute);border-top:1px solid var(--line)}
-@media (max-width:640px){.scrdlg{width:100vw;height:100dvh;max-height:none;border-radius:0}.scrbody{flex:1 1 0}.scrwrap{flex:1 1 0;height:auto;min-height:0}pre.term{font-size:11px;padding:10px}.scrk{min-width:36px;padding:0 10px}}
+.scrdlg .hd h2{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.scrdlg .hd>.btn,.scrdlg .hd>.scrlive{flex:none}
+/* On a phone it fills what's visible (above the keyboard), with its header clear of the status bar and notch (the page is viewport-fit=cover) and a big close button. */
+@media (max-width:640px){.scrdlg{position:fixed;inset:var(--vvt,0px) 0 auto 0;margin:0;width:100vw;max-width:none;height:var(--vvh,100dvh);max-height:none;border-radius:0;border:0}.scrdlg .hd{gap:8px;padding:max(8px,env(safe-area-inset-top)) max(6px,env(safe-area-inset-right)) 8px max(14px,env(safe-area-inset-left))}.scrfit>span{display:none}.scrfit{width:36px;height:36px;padding:0;justify-content:center}.scrdlg .hd [data-close]{width:44px;height:44px}.scrdlg .hd [data-close] svg{width:22px;height:22px}.scrkeys{padding-bottom:max(12px,env(safe-area-inset-bottom))}.scrbody{flex:1 1 0}.scrwrap{flex:1 1 0;height:auto;min-height:0}pre.term{font-size:11px;padding:10px}.scrk{min-width:36px;padding:0 10px}}
 .k-stuck .askk,.k-wait .askk{background:var(--amber-soft);color:var(--amber)}.asklook{flex:none}.upic{display:grid;place-items:center;width:22px;height:22px;border-radius:7px;background:var(--accent-soft);color:var(--accent)}.k-upkeep .askk{background:var(--accent-soft);color:var(--accent)}.uprimary{border-color:color-mix(in srgb,var(--accent) 45%,transparent)}.k-wait .asklook{height:30px;padding:0 12px;font-size:12.5px;border-color:var(--line-strong)}
 .stklist{list-style:none;margin:8px 0 10px;padding:0;display:flex;flex-direction:column;gap:6px;font-size:12.5px}.stklist li{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 8px;padding:6px 10px;border-radius:0 9px 9px 0;border-left:2px solid var(--line-strong);background:var(--surface)}.stklist time{font-size:11.5px}.stkb{flex-basis:100%;color:var(--ink-2);line-height:1.45;overflow-wrap:anywhere}
 .stkhead{margin:2px 0 4px;font-size:14px;font-weight:600;line-height:1.45;color:var(--ink)}.stkwhy{margin:0 0 8px;font-size:13px;line-height:1.5;color:var(--ink-2)}
@@ -1476,13 +1478,19 @@ export const SCRIPT = `
       d.querySelector("[data-scrnow]").hidden = b.dataset.screenclient === "codex";
       d.querySelector("#scrbody").innerHTML = '<div class="screrr"><p>Loading its screen…</p></div>';
       d.showModal();
+      // Back (the phone's back gesture or button) closes the window instead of leaving the page.
+      if (!(history.state && history.state.scr)) history.pushState({ scr: 1 }, "", location.href);
       scrLoad();
       clearInterval(scrTimer);
       scrTimer = setInterval(() => { if (!d.open) return clearInterval(scrTimer); if (!document.hidden) scrLoad(); }, 2000);
     });
     if (!d || d._bound) return;
     d._bound = true;
-    d.addEventListener("close", () => { clearInterval(scrTimer); if (scrFit) scrUnfit(); });
+    d.addEventListener("close", () => {
+      clearInterval(scrTimer); if (scrFit) scrUnfit();
+      if (history.state && history.state.scr) { d._popping = true; history.back(); }
+    });
+    window.addEventListener("popstate", () => { if (d._popping) { setTimeout(() => (d._popping = false), 0); return; } if (d.open) { d._popping = true; d.close(); setTimeout(() => (d._popping = false), 0); } });
     const fitBtn = d.querySelector("[data-scrfit]");
     if (fitBtn) {
       fitBtn.setAttribute("aria-pressed", scrFit ? "true" : "false");
@@ -1898,7 +1906,7 @@ export const SCRIPT = `
     f.q.placeholder = b.dataset.in === "text" ? "Search text in the files" : "Find a file by name";
     f.q.focus(); codeSearch(f, true);
   });
-  window.addEventListener("popstate", () => { if (document.getElementById("codepane") && new URL(location.href).searchParams.has("code")) codeLoad(); else if (codeNav) location.reload(); });
+  window.addEventListener("popstate", () => { const sd = document.getElementById("dlg-screen"); if (sd && (sd.open || sd._popping)) return; if (document.getElementById("codepane") && new URL(location.href).searchParams.has("code")) codeLoad(); else if (codeNav) location.reload(); });
   codeLoad();
   if (!/Mac|iPhone|iPad/.test(navigator.platform)) $$(".kbd-k").forEach((k) => (k.textContent = "Ctrl K"));
   document.addEventListener("keydown", (e) => { if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "k") { e.preventDefault(); kOpen(); } });
