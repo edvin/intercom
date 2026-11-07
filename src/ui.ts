@@ -403,6 +403,13 @@ form.dropping{outline:2px dashed var(--accent);outline-offset:4px;border-radius:
 .att{display:inline-block;margin:6px 8px 2px 0;vertical-align:top}.att img{display:block;max-width:min(360px,100%);max-height:240px;border-radius:8px;border:1px solid var(--line);background:var(--surface-2)}
 .att:hover img{border-color:var(--accent)}
 .attl{display:inline-flex;align-items:center;gap:4px;vertical-align:-2px}.attl svg{flex:none}
+/* The image viewer: the image over a dark backdrop, a bar with its name, download and close (clear of a phone's status bar and notch). */
+.imgview{position:fixed;inset:0;width:100vw;height:100dvh;max-width:none;max-height:none;margin:0;padding:0;border:0;border-radius:0;background:rgba(6,8,14,.94);color:#e8e9ef;display:none;flex-direction:column}.imgview[open]{display:flex}.imgview:focus{outline:none}.imgview::backdrop{background:transparent}
+.ivbar{flex:none;display:flex;align-items:center;gap:6px;padding:max(8px,env(safe-area-inset-top)) max(8px,env(safe-area-inset-right)) 8px max(16px,env(safe-area-inset-left))}
+.ivname{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13.5px;font-weight:560;color:#c6c8d6}
+.ivbar .btn{color:#e8e9ef;width:44px;height:44px;justify-content:center}.ivbar .btn:hover{background:rgba(255,255,255,.1);color:#fff}
+.ivbody{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;padding:8px 8px max(16px,env(safe-area-inset-bottom));overflow:auto;touch-action:pinch-zoom pan-x pan-y}
+.ivbody img{max-width:100%;max-height:100%;object-fit:contain;border-radius:6px;box-shadow:0 10px 40px rgba(0,0,0,.5)}
 .act-loop .aic,.act-loop .atx{color:var(--accent)}
 .looprow{color:var(--accent);margin-top:2px}.looprow svg{vertical-align:-2px;margin-right:5px}.tloop{display:inline-grid;place-items:center;color:var(--accent)}
 .jobrow{color:var(--ink-2);margin-top:2px}.act-job .aic{color:var(--amber)}.act-job .atx{color:var(--ink-2)}
@@ -771,7 +778,7 @@ body:has(.ide) .top .in{max-width:none;padding:8px 14px}
 .tkpane section,.tkpane .tkpanel,.tkpane #tkdecision,.tkpane #rvdecision,.rvfind{scroll-margin-top:60px}
 .tklz.warn{background:var(--amber-soft);color:var(--amber)}
 .meta-row .btn.scrbtn{flex:none;gap:4px}
-.scrdlg{width:min(96vw,max(720px,calc(var(--cols,110) * var(--cw,7.55px) + 50px)));max-width:none;height:fit-content;max-height:94vh;padding:0;display:none;flex-direction:column;overflow:hidden}.scrdlg[open]{display:flex}
+.scrdlg{width:min(96vw,max(720px,calc(var(--cols,110) * var(--cw,7.55px) + 50px)));max-width:none;height:fit-content;max-height:94vh;padding:0;display:none;flex-direction:column;overflow:hidden}.scrdlg[open]{display:flex}.scrdlg:focus{outline:none}
 .scrdlg .hd{display:flex;align-items:center;gap:10px;padding:12px 14px 12px 18px;border-bottom:1px solid var(--line)}.scrdlg .hd h2{margin:0;font-size:15px}
 .subs{flex:none;margin:10px 14px 0;border:1px solid var(--line);border-radius:12px;background:var(--surface);max-height:42vh;overflow:auto}.subs[hidden]{display:none}
 .subhd{display:flex;align-items:center;gap:7px;padding:8px 12px;font-size:12.5px;position:sticky;top:0;background:var(--surface);z-index:1;cursor:pointer;list-style:none;min-width:0;border-radius:12px}.subhd::-webkit-details-marker{display:none}.subhd:hover{background:var(--surface-2)}.subhd .muted{margin-left:2px;flex:none}.subbox[open]>.subhd{border-bottom:1px solid var(--line);border-radius:12px 12px 0 0}
@@ -1477,7 +1484,7 @@ export const SCRIPT = `
       // Codex takes a line into the running turn with Enter: one Send is enough there.
       d.querySelector("[data-scrnow]").hidden = b.dataset.screenclient === "codex";
       d.querySelector("#scrbody").innerHTML = '<div class="screrr"><p>Loading its screen…</p></div>';
-      d.showModal();
+      d.showModal(); d.tabIndex = -1; d.focus();
       // Back (the phone's back gesture or button) closes the window instead of leaving the page.
       if (!(history.state && history.state.scr)) history.pushState({ scr: 1 }, "", location.href);
       scrLoad();
@@ -1520,6 +1527,30 @@ export const SCRIPT = `
     d.querySelector("[data-scrnow]").onclick = () => send(true);
     input.onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); send(e.metaKey || e.ctrlKey); } };
   }
+  // An image in a message opens in a viewer over the page, not as its own page: the dashboard installed as an app on a
+  // phone has no back button to come back from one. Close with ×, a tap beside it, Esc, or back (gesture or button).
+  document.addEventListener("click", (e) => {
+    const a = e.target.closest && e.target.closest("a.att, a.attl");
+    if (!a || e.metaKey || e.ctrlKey || e.shiftKey || e.button) return;
+    e.preventDefault();
+    let v = document.getElementById("imgview");
+    if (!v) {
+      v = document.createElement("dialog");
+      v.id = "imgview"; v.className = "imgview"; v.setAttribute("autofocus", ""); v.tabIndex = -1;
+      v.innerHTML = '<div class="ivbar"><span class="ivname"></span><a class="btn ghost sm icon ivdl" title="Download" download>${icon("download", 18)}</a><button type="button" class="btn ghost sm icon ivx" title="Close">${icon("x", 22)}</button></div><div class="ivbody"><img alt=""></div>';
+      document.body.appendChild(v);
+      v.querySelector(".ivx").onclick = () => v.close();
+      v.querySelector(".ivbody").onclick = (ev) => { if (ev.target.tagName !== "IMG") v.close(); };
+      v.addEventListener("close", () => { if (history.state && history.state.iv) { v._popping = true; history.back(); } });
+      window.addEventListener("popstate", () => { if (v._popping) { setTimeout(() => (v._popping = false), 0); return; } if (v.open) { v._popping = true; v.close(); setTimeout(() => (v._popping = false), 0); } });
+    }
+    const href = a.getAttribute("href"), name = a.getAttribute("title") || a.textContent.trim() || "image";
+    v.querySelector("img").src = href; v.querySelector("img").alt = name;
+    v.querySelector(".ivname").textContent = name;
+    v.querySelector(".ivdl").href = href; v.querySelector(".ivdl").setAttribute("download", name);
+    v.showModal(); v.focus();
+    if (!(history.state && history.state.iv)) history.pushState({ iv: 1 }, "", location.href);
+  });
   // Your time zone, for the work log's days and its evening summary: a cookie the server reads, and the summary's form.
   function bindTz() {
     let z = ""; try { z = Intl.DateTimeFormat().resolvedOptions().timeZone || ""; } catch {}
@@ -1906,7 +1937,7 @@ export const SCRIPT = `
     f.q.placeholder = b.dataset.in === "text" ? "Search text in the files" : "Find a file by name";
     f.q.focus(); codeSearch(f, true);
   });
-  window.addEventListener("popstate", () => { const sd = document.getElementById("dlg-screen"); if (sd && (sd.open || sd._popping)) return; if (document.getElementById("codepane") && new URL(location.href).searchParams.has("code")) codeLoad(); else if (codeNav) location.reload(); });
+  window.addEventListener("popstate", () => { const sd = document.getElementById("dlg-screen"); if (sd && (sd.open || sd._popping)) return; const iv = document.getElementById("imgview"); if (iv && (iv.open || iv._popping)) return; if (document.getElementById("codepane") && new URL(location.href).searchParams.has("code")) codeLoad(); else if (codeNav) location.reload(); });
   codeLoad();
   if (!/Mac|iPhone|iPad/.test(navigator.platform)) $$(".kbd-k").forEach((k) => (k.textContent = "Ctrl K"));
   document.addEventListener("keydown", (e) => { if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "k") { e.preventDefault(); kOpen(); } });
