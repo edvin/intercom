@@ -61,6 +61,17 @@ function detectEnv(command: string): string | null {
   return null;
 }
 
+/**
+ * A script or task name that says it deploys: the risky word starts or ends the name (deploy.sh, release-prod,
+ * prod-deploy, db:migrate, run-migrations), not one somewhere in the middle (screen-release-sequencer.py analyses a
+ * mechanical release; it ships nothing).
+ */
+function riskyName(word: string): boolean {
+  if (!RISKY_WORD.test(word)) return false;
+  const parts = word.replace(/^.*\//, "").replace(/\.(sh|py|rb|js|ts|mjs|cjs|bash)$/i, "").split(/[:._-]+/).filter(Boolean);
+  return parts.length > 0 && ([parts[0], parts[parts.length - 1]].some((p) => RISKY_WORD.test(p)) || /^db:(migrate|rollback|push)$/i.test(parts.slice(0, 2).join(":")));
+}
+
 /** Does this shell command look like it deploys, migrates or changes infrastructure? Conservative on purpose. */
 export function riskyCommand(command: string): RiskyCommand | null {
   const segments = command.split(/&&|\|\||[;|\n]|\$\(|`/);
@@ -74,11 +85,11 @@ export function riskyCommand(command: string): RiskyCommand | null {
     const tool = TOOLS[bin];
     if (tool && args.some((a) => tool.sub.test(a))) return { action: tool.action, env: detectEnv(seg) };
     // ./deploy.sh, scripts/release-prod, bin/migrate
-    if (RISKY_WORD.test(bin) && (words[0].includes("/") || /\.(sh|py|rb|js|ts|mjs)$/.test(bin) || bin.startsWith("deploy"))) {
+    if (riskyName(bin) && (words[0].includes("/") || /\.(sh|py|rb|js|ts|mjs)$/.test(bin) || bin.startsWith("deploy"))) {
       return { action: actionOf(bin), env: detectEnv(seg) };
     }
     if (RUNNERS.test(bin)) {
-      const target = args.slice(0, 3).find((a) => RISKY_WORD.test(a) || /^(migrate|deploy|release|publish)$/i.test(a));
+      const target = args.slice(0, 3).find((a) => riskyName(a) || /^(migrate|deploy|release|publish)$/i.test(a));
       if (target) return { action: actionOf(target), env: detectEnv(seg) };
     }
   }

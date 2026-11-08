@@ -92,10 +92,14 @@ describe("deploy guard", () => {
       "python manage.py migrate",
       "cd infra && FOO=1 terraform destroy",
       "flux reconcile kustomization billing",
+      "./scripts/release-prod",
+      "bin/prod-deploy.sh",
+      "npm run release:prod",
+      "python3 tools/run_migrations.py",
     ]) {
       assert.ok(riskyCommand(c), c);
     }
-    for (const c of ["ls -la", "cat deploy.yaml", "grep -r deploy src", "git log --grep deploy", "npm install", "kubectl get pods", "helm list", "npm test", "vim scripts/deploy.sh"]) {
+    for (const c of ["ls -la", "cat deploy.yaml", "grep -r deploy src", "git log --grep deploy", "npm install", "kubectl get pods", "helm list", "npm test", "vim scripts/deploy.sh", "python3 scripts/screen-release-sequencer-a09.py --no-plot", "./scripts/check-deploy-config-lint.sh"]) {
       assert.equal(riskyCommand(c), null, c);
     }
     assert.equal(riskyCommand("helm upgrade billing ./chart --set env=production")?.env, "prod");
