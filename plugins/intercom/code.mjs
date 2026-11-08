@@ -480,6 +480,60 @@ export async function agentPanes() {
   return out;
 }
 
+/** A process's working folder (Linux /proc, else lsof), or "". */
+async function cwdOf(pid) {
+  try {
+    return fs.readlinkSync(`/proc/${pid}/cwd`);
+  } catch {
+    const out = await sh("lsof", ["-a", "-p", String(pid), "-d", "cwd", "-Fn"]);
+    return out.match(/^n(.*)$/m)?.[1] ?? "";
+  }
+}
+const real = (p) => {
+  try {
+    return fs.realpathSync(p);
+  } catch {
+    return p;
+  }
+};
+
+/**
+ * Codex: the tmux pane of the Codex terminal this server belongs to, and its command line. Codex 0.16x starts MCP
+ * servers (and hooks) from one app-server daemon per machine, so neither our ancestors nor our TMUX_PANE (the
+ * daemon's, from whichever pane first started it) say where our session's terminal is. It's the pane running a Codex
+ * terminal in our folder: the one resumed with our session id if there's a choice, else the only one there. Two
+ * fresh Codex terminals in one folder can't be told apart: then none (no screen beats typing into the wrong one).
+ */
+export async function codexPane(cwd, session, { procs: given, panes: givenPanes } = {}) {
+  const procs =
+    given ??
+    (await sh("ps", ["-eo", "pid=,ppid=,args="]))
+      .split("\n")
+      .map((l) => l.trim().match(/^(\d+)\s+(\d+)\s+(.*)$/))
+      .filter(Boolean)
+      .map((m) => ({ pid: Number(m[1]), ppid: Number(m[2]), args: m[3] }));
+  let panes = givenPanes;
+  if (!panes) {
+    const r = await tmux(["list-panes", "-a", "-F", "#{pane_id} #{pane_pid}"]);
+    if (r.err) return null;
+    panes = new Map(r.out.trim().split("\n").map((l) => l.split(" ")).filter(([id, pid]) => /^%\d+$/.test(id) && pid).map(([id, pid]) => [Number(pid), id]));
+  }
+  const byPid = new Map(procs.map((p) => [p.pid, p]));
+  const want = real(cwd);
+  const found = new Map(); // pane → { launch, ours }
+  for (const p of procs) {
+    const [bin, ...rest] = p.args.split(/\s+/);
+    if (!/(^|\/)codex$/.test(bin) || /^(app-server|mcp|mcp-server|exec|queue)$/.test(rest.find((a) => !a.startsWith("-")) ?? "")) continue;
+    let pane = null;
+    for (let pid = p.pid, i = 0; !pane && pid > 1 && i < 25; i++, pid = byPid.get(pid)?.ppid ?? 0) pane = panes.get(pid) ?? null;
+    if (!pane || real(await cwdOf(p.pid)) !== want) continue;
+    const ours = !!session && rest.includes(session);
+    if (!found.has(pane) || ours) found.set(pane, { pane, launch: p.args.slice(0, 500), ours });
+  }
+  const all = [...found.values()];
+  return all.find((x) => x.ours) ?? (all.length === 1 ? all[0] : null);
+}
+
 /** What the agent this server belongs to was started with: its command line. */
 export async function launchOf(pid = process.ppid) {
   return (await sh("ps", ["-o", "args=", "-p", String(pid)])).trim().slice(0, 500);

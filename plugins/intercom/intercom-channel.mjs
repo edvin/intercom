@@ -20,7 +20,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const VERSION = "0.12.39"; // kept in step with .claude-plugin/plugin.json (a test checks)
+const VERSION = "0.12.40"; // kept in step with .claude-plugin/plugin.json (a test checks)
 const DIR = path.join(os.homedir(), ".claude", "intercom");
 const CONFIG = path.join(DIR, "config");
 function readConf() {
@@ -155,9 +155,12 @@ function refreshSession() {
   SESSION = found;
   headers["x-intercom-session"] = found;
   log(`codex session ${found}`);
-  try {
-    ws?.close(); // reconnects under the session id
-  } catch {}
+  // Our terminal, now that we know our session (see codexPane); then reconnect under the session id.
+  locate().finally(() => {
+    try {
+      ws?.close();
+    } catch {}
+  });
 }
 
 const touch = (file, content = "") => {
@@ -1072,6 +1075,33 @@ setInterval(() => {
   }
 }, 5000).unref();
 
+/**
+ * Which tmux pane we run in (if any), so the hub knows the screen can be seen and typed into, and how this agent was
+ * started, so its owner can restart it the same way (resumed by its session). Codex: see codexPane (until we know our
+ * session, only when our folder has a single Codex terminal).
+ */
+async function locate() {
+  try {
+    const m = await import("./code.mjs");
+    let launch = "";
+    if (headers["x-intercom-client"] === "codex") {
+      const found = await m.codexPane?.(WORKDIR, SESSION.startsWith("pid-") ? null : SESSION);
+      PANE = found?.pane ?? null;
+      launch = found?.launch ?? "";
+    } else {
+      PANE = (await m.findPane?.()) ?? null;
+      launch = await m.launchOf?.();
+    }
+    delete headers["x-intercom-screen"];
+    delete headers["x-intercom-pane"];
+    if (PANE && screenOn()) {
+      headers["x-intercom-screen"] = keysOn() ? "keys" : "view";
+      headers["x-intercom-pane"] = PANE;
+    }
+    if (launch) headers["x-intercom-launch"] = encodeURIComponent(launch);
+  } catch {}
+}
+
 // The live connection starts once the client has introduced itself (so the hub knows Claude Code from Codex),
 // or after a few seconds if it never does.
 let started = false;
@@ -1080,19 +1110,7 @@ function startChannel() {
   started = true;
   refreshSession();
   // Which tmux pane we run in (if any), so the hub knows the screen can be seen and typed into.
-  import("./code.mjs")
-    .then(async (m) => {
-      PANE = (await m.findPane?.()) ?? null;
-      if (PANE && screenOn()) {
-        headers["x-intercom-screen"] = keysOn() ? "keys" : "view";
-        headers["x-intercom-pane"] = PANE;
-      }
-      // How this agent was started, so its owner can restart it the same way (resumed by its session).
-      const launch = await m.launchOf?.();
-      if (launch) headers["x-intercom-launch"] = encodeURIComponent(launch);
-    })
-    .catch(() => {})
-    .finally(connect);
+  locate().finally(connect);
   // Codex: the SessionStart hook runs as the session's first turn starts, maybe long after we did; look for its note
   // until it's there (every 2 seconds for the first minutes, then every 15).
   if (headers["x-intercom-client"] === "codex") {

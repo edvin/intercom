@@ -156,7 +156,7 @@ export async function teamNote(env: Env, member: string, label: string): Promise
   )
     .bind(member, label, Date.now() - WINDOW_MS)
     .first<{ n: number }>();
-  const parts = [why.reason && !why.reason.startsWith("not connected") ? (why.reason.startsWith("idle") ? `idle${why.activeAt ? ` (last active ${ago(why.activeAt)})` : ""}, can't be woken` : why.reason) : "", n?.n ? `${n.n} unread` : ""].filter(Boolean);
+  const parts = [why.reason && !why.reason.startsWith("not connected") ? (why.reason.startsWith("idle") ? `idle${why.activeAt ? ` (last active ${ago(why.activeAt)})` : ""}, ${why.nudgeable ? "woken through its terminal" : "can't be woken"}` : why.reason) : "", n?.n ? `${n.n} unread` : ""].filter(Boolean);
   return parts.length ? ` · ${parts.join(" · ")}` : "";
 }
 

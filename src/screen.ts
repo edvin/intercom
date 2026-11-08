@@ -64,9 +64,16 @@ interface Target {
 export async function screenTarget(env: Env, me: string, label: string): Promise<Target> {
   // Only you yourself: from your browser (signed in with GitHub) or Claude.ai; never an agent's token.
   if (env.authKind !== "web" && env.authKind !== "connector") throw new UserError("An agent's screen can only be opened by its person, from the dashboard or Claude.ai.");
-  const s = await env.DB.prepare("SELECT session_id, label, screen, client, version, last_seen FROM sessions WHERE member = ? AND label = ? ORDER BY last_seen DESC LIMIT 1").bind(me, label).first<Target & { last_seen: number }>();
+  // The connected session with that name, if one is (a name can have an older row too, e.g. a resumed Codex session).
+  const { results } = await env.DB.prepare("SELECT session_id, label, screen, client, version, last_seen FROM sessions WHERE member = ? AND label = ? ORDER BY last_seen DESC LIMIT 10")
+    .bind(me, label)
+    .all<Target & { last_seen: number }>();
+  const live = new Set(liveIds(env, me));
+  const s = results.find((r) => live.has(r.session_id)) ?? results[0];
   if (!s) throw new UserError(`You have no agent named ${label}.`);
   if (!liveIds(env, me).includes(s.session_id) && env.live) throw new UserError(`${label} isn't connected right now.`);
+  if (!s.screen && s.client === "codex")
+    throw new UserError(`${label}'s screen can't be seen from here: it isn't running in tmux, its machine turned it off (INTERCOM_SCREEN=0), its folder has more than one fresh Codex terminal (resume it by its session id to tell them apart), or its intercom is older than 0.12.40.`);
   if (!s.screen) throw new UserError(`${label}'s screen can't be seen from here: it isn't running in tmux, its machine turned it off (INTERCOM_SCREEN=0), or its intercom is older than 0.12.32 (run /intercom:update there and restart it).`);
   return s;
 }
