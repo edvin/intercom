@@ -649,6 +649,14 @@ export async function prune(env: Env, retentionDays = RETENTION_DAYS, now = Date
     proposals: await run("DELETE FROM proposals WHERE status != 'open' AND created_at < ?", now - retentionDays * day),
     handoffs: await run("DELETE FROM handoffs WHERE status != 'pending' AND updated_at < ?", now - retentionDays * day),
     decisions: await run("DELETE FROM decisions WHERE created_at < ?", now - retentionDays * day),
+    // Settled tickets (each carries the whole ticket) go like settled handoffs; open ones stay until decided.
+    tickets: await run("DELETE FROM tickets WHERE status != 'open' AND COALESCE(decided_at, created_at) < ?", now - retentionDays * day),
+    // A subagent's steps belong to its session: gone with it (a session that ends mid-subagent never clears them).
+    subagentSteps: await run("DELETE FROM subagent_steps WHERE NOT EXISTS (SELECT 1 FROM sessions s WHERE s.member = subagent_steps.member AND s.session_id = subagent_steps.session_id)"),
+    // Where an ended session's mailbox stopped, and old names: of no use once the messages they point at are gone.
+    // (Every unnamed session-xxxx leaves one.) Forwards set from the dashboard stay until they're turned off.
+    ended: await run("DELETE FROM ended_sessions WHERE ended_at < ?", now - retentionDays * day),
+    renames: await run("DELETE FROM agent_renames WHERE kind = 'rename' AND at < ?", now - retentionDays * day),
   };
 }
 

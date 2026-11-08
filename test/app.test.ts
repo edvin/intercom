@@ -273,6 +273,21 @@ describe("retention", () => {
     const count = async (t: string) => (await w.db.prepare(`SELECT COUNT(*) AS n FROM ${t}`).first<{ n: number }>())!.n;
     assert.deepEqual([await count("proposals"), await count("handoffs"), await count("decisions")], [1, 1, 0]);
   });
+
+  test("settled tickets, orphaned subagent steps, old ended sessions and renames roll off; open tickets and forwards stay", async () => {
+    const w = await standardWorld();
+    const now = Date.now();
+    const ticket = "INSERT INTO tickets (member, session_id, label, key, url, title, verdict, recommend, data, status, created_at, decided_at) VALUES ('bob', 's', 'core', ?, 'u', 't', 'v', 'go', '{}', ?, ?, ?)";
+    await w.db.prepare(ticket).bind("A-1", "decided", now, now).run();
+    await w.db.prepare(ticket).bind("A-2", "open", now, null).run();
+    await w.db.prepare("INSERT INTO subagent_steps (member, session_id, agent_id, at, kind, text) VALUES ('bob', 'gone-session', 'a1', ?, 'cmd', 'ls')").bind(now).run();
+    await w.db.prepare("INSERT INTO ended_sessions (member, label, cursor, ended_at) VALUES ('bob', 'session-abcd', 5, ?)").bind(now).run();
+    await w.db.prepare("INSERT INTO agent_renames (member, old_label, new_label, session_id, at, kind) VALUES ('bob', 'a', 'b', 's', ?, 'rename'), ('bob', 'c', 'd', 's', ?, 'forward')").bind(now, now).run();
+    const removed = await prune(w.env(), 90, now + 91 * 86400_000);
+    assert.deepEqual([removed.tickets, removed.subagentSteps, removed.ended, removed.renames], [1, 1, 1, 1]);
+    const left = await w.db.prepare("SELECT (SELECT key FROM tickets) AS t, (SELECT kind FROM agent_renames) AS r").first<{ t: string; r: string }>();
+    assert.deepEqual([left!.t, left!.r], ["A-2", "forward"]);
+  });
 });
 
 describe("visibility", () => {
