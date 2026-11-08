@@ -20,7 +20,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const VERSION = "0.12.38"; // kept in step with .claude-plugin/plugin.json (a test checks)
+const VERSION = "0.12.39"; // kept in step with .claude-plugin/plugin.json (a test checks)
 const DIR = path.join(os.homedir(), ".claude", "intercom");
 const CONFIG = path.join(DIR, "config");
 function readConf() {
@@ -39,7 +39,8 @@ const fromEnv = !!(process.env.INTERCOM_URL && process.env.INTERCOM_TOKEN);
 const BASE = fromEnv ? process.env.INTERCOM_URL : conf.INTERCOM_URL;
 const TOKEN = fromEnv ? process.env.INTERCOM_TOKEN : conf.INTERCOM_TOKEN;
 // Claude Code tells us its session; Codex doesn't, but its SessionStart hook leaves a note (see codexSession).
-let SESSION = process.env.CLAUDE_CODE_SESSION_ID || `pid-${process.ppid}`;
+// (Our own pid too: under Codex's app-server daemon every server has the same parent.)
+let SESSION = process.env.CLAUDE_CODE_SESSION_ID || `pid-${process.ppid}-${process.pid}`;
 const STARTED = Math.floor(Date.now() / 1000);
 const CHANNEL = process.env.INTERCOM_CHANNEL === "1";
 const MODE = CHANNEL ? "push" : "peek";
@@ -99,7 +100,7 @@ const headers = {
 // Codex starts this server without telling it its session; the SessionStart hook leaves a note per session
 // (codex-sessions/<session id>: a pid, the folder, when). The pid used to tell sessions apart, but Codex 0.16x runs all
 // of a machine's sessions in one app-server daemon, which starts every hook and every server: all notes carry its pid.
-// So: the note for our folder written closest to when we started, that no other running server has claimed
+// So: the note for our folder written closest to when we started (or since), that no other running server has claimed
 // (codex-claims/<session id> holds the claiming server's pid). Before 0.12.38 every Codex server on such a machine took
 // the first note it read, so they all shared one session's identity, its messages and its screen.
 
@@ -132,7 +133,9 @@ function codexSession() {
     for (const name of fs.readdirSync(dir)) {
       const [, cwd, atRaw] = fs.readFileSync(path.join(dir, name), "utf8").split("\n");
       const at = Number(atRaw) || 0;
-      if (cwd !== WORKDIR || Math.abs(at - STARTED) > 120 || claimedByOther(name)) continue;
+      // Written since we started (Codex writes it as the session's first turn starts, which can be much later: a
+      // resumed session sits at its prompt until it's given one), or just before.
+      if (cwd !== WORKDIR || at < STARTED - 120 || claimedByOther(name)) continue;
       if (!best || Math.abs(at - STARTED) < Math.abs(best.at - STARTED)) best = { name, at };
     }
   } catch {}
@@ -1090,12 +1093,14 @@ function startChannel() {
     })
     .catch(() => {})
     .finally(connect);
-  // Codex: the SessionStart hook may run after we start; look for its note for a little while.
+  // Codex: the SessionStart hook runs as the session's first turn starts, maybe long after we did; look for its note
+  // until it's there (every 2 seconds for the first minutes, then every 15).
   if (headers["x-intercom-client"] === "codex") {
     let tries = 0;
     const t = setInterval(() => {
+      if (++tries > 60 && tries % 8) return;
       refreshSession();
-      if (!SESSION.startsWith("pid-") || ++tries > 30) clearInterval(t);
+      if (!SESSION.startsWith("pid-")) clearInterval(t);
     }, 2000);
     t.unref();
   }
