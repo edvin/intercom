@@ -20,7 +20,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const VERSION = "0.12.37"; // kept in step with .claude-plugin/plugin.json (a test checks)
+const VERSION = "0.12.38"; // kept in step with .claude-plugin/plugin.json (a test checks)
 const DIR = path.join(os.homedir(), ".claude", "intercom");
 const CONFIG = path.join(DIR, "config");
 function readConf() {
@@ -95,25 +95,59 @@ const headers = {
   ...(SHARE_BRANCH ? { "x-intercom-branch": branch } : {}),
 };
 
-/** The Codex session this server belongs to: the note its SessionStart hook left for our parent, or one for our directory. */
+// ---- which Codex session this server belongs to ----
+// Codex starts this server without telling it its session; the SessionStart hook leaves a note per session
+// (codex-sessions/<session id>: a pid, the folder, when). The pid used to tell sessions apart, but Codex 0.16x runs all
+// of a machine's sessions in one app-server daemon, which starts every hook and every server: all notes carry its pid.
+// So: the note for our folder written closest to when we started, that no other running server has claimed
+// (codex-claims/<session id> holds the claiming server's pid). Before 0.12.38 every Codex server on such a machine took
+// the first note it read, so they all shared one session's identity, its messages and its screen.
+
+const alive = (pid) => {
+  try {
+    process.kill(Number(pid), 0);
+    return true;
+  } catch (e) {
+    return e.code === "EPERM";
+  }
+};
+const claimFile = (name) => path.join(DIR, "codex-claims", name);
+const claimedByOther = (name) => {
+  try {
+    const pid = fs.readFileSync(claimFile(name), "utf8").trim();
+    return pid !== String(process.pid) && alive(pid);
+  } catch {
+    return false;
+  }
+};
+
+/** The Codex session this server belongs to, or null while its note isn't there yet. */
 function codexSession() {
+  // Codex may tell us outright.
+  const env = process.env.CODEX_THREAD_ID || process.env.CODEX_SESSION_ID;
+  if (env && /^[\w-]{8,}$/.test(env)) return env;
   const dir = path.join(DIR, "codex-sessions");
   let best = null;
   try {
     for (const name of fs.readdirSync(dir)) {
-      const [ppid, cwd, at] = fs.readFileSync(path.join(dir, name), "utf8").split("\n");
-      if (ppid === String(process.ppid)) return name;
-      if (cwd === WORKDIR && Number(at) >= STARTED - 120 && (!best || Number(at) > best.at)) best = { name, at: Number(at) };
+      const [, cwd, atRaw] = fs.readFileSync(path.join(dir, name), "utf8").split("\n");
+      const at = Number(atRaw) || 0;
+      if (cwd !== WORKDIR || Math.abs(at - STARTED) > 120 || claimedByOther(name)) continue;
+      if (!best || Math.abs(at - STARTED) < Math.abs(best.at - STARTED)) best = { name, at };
     }
   } catch {}
   return best?.name ?? null;
 }
 
-/** Codex only: pick up our session once its hook has written it, and re-register under it. */
+/** Codex: pick up our session once its hook has written it, claim it, and re-register under it. */
 function refreshSession() {
   if (headers["x-intercom-client"] !== "codex" || !SESSION.startsWith("pid-")) return;
   const found = codexSession();
   if (!found) return;
+  try {
+    fs.mkdirSync(path.dirname(claimFile(found)), { recursive: true });
+    fs.writeFileSync(claimFile(found), String(process.pid));
+  } catch {}
   for (const f of allMarkers()) fs.rmSync(f, { force: true });
   SESSION = found;
   headers["x-intercom-session"] = found;
