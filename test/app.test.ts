@@ -1636,6 +1636,40 @@ describe("share_file", () => {
     assert.match((await w.request("/attachment/3", { as: "alice", cookie: true })).headers.get("content-disposition")!, /inline; filename="shot\.png"/);
   });
 
+  test("files from agents: a grid of what agents shared where you can see it, images by default, filtered by agent, project and kind", async () => {
+    const w = await standardWorld();
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=gf1&name=core", { as: "bob" });
+    const s = { id: "gf1", project: "billing-api" };
+    const b64 = (t: string) => Buffer.from(t).toString("base64");
+    await w.ok("bob", "share_file", { path: "/w/build.log", _file: { name: "build.log", mime: "text/plain", data: b64("x") } }, s); // #1 to bob
+    await w.ok("bob", "share_file", { path: "/w/r.zip", _file: { name: "r.zip", mime: "application/zip", data: b64("zip") }, to: "alice" }, s); // #2 to alice
+    await w.ok("bob", "share_file", { path: "/w/shot.png", _file: { name: "shot.png", mime: "image/png", data: b64("png") }, channel: "billing" }, s); // #3 in billing
+    const view = async (as: string, q = "") => (await w.request(`/dashboard?view=files${q}`, { as, cookie: true })).text();
+
+    const bob = await view("bob");
+    assert.match(bob, /<h1>Files from agents<\/h1>/);
+    assert.match(bob, /<div class="gal" data-gallery><a class="att gtile" href="\/attachment\/3" title="shot\.png · core · #billing · [^"]*" data-name="shot\.png"><img src="\/attachment\/3"/);
+    assert.doesNotMatch(bob, /class="gtile gfile"/); // images only by default; no message text around the tiles
+    const files = await view("bob", "&kind=files");
+    assert.match(files, /href="\/attachment\/1\/view" target="_blank"[^>]*>.*<span class="gext">LOG<\/span>/);
+    assert.match(files, /href="\/attachment\/2" download="r\.zip"[^>]*>.*<span class="gext">ZIP<\/span>/);
+    // Alice sees what came to her and to her project, not bob's own DM; carol, outside billing, sees nothing.
+    const alice = await view("alice", "&kind=all");
+    assert.match(alice, /\/attachment\/2"/);
+    assert.match(alice, /\/attachment\/3"/);
+    assert.doesNotMatch(alice, /\/attachment\/1[/"]/);
+    assert.match(alice, /<option value="bob\/core">bob\/core<\/option>/);
+    assert.match(await view("carol", "&kind=all"), /No files from agents in the last 30 days/);
+    // Filters: by agent (own agents by their name), by project.
+    assert.match(bob, /<option value="bob\/core">core<\/option>/);
+    assert.match(await view("bob", "&kind=all&agent=bob%2Fother"), /Nothing here with these filters/);
+    assert.match(await view("bob", "&kind=all&project=billing"), /\/attachment\/3"[\s\S]*(?!\/attachment\/1)/);
+    assert.doesNotMatch(await view("bob", "&kind=all&project=shop"), /class="gal"/);
+    // The tree links to it, and an agent's chat links to its own files.
+    assert.match(bob, /href="\/dashboard\?view=files" title="Images and files your agents shared/);
+    assert.match(await (await w.request("/dashboard?view=agents&agent=bob%2Fcore", { as: "bob", cookie: true })).text(), /href="\/dashboard\?view=files&amp;agent=bob%2Fcore"/);
+  });
+
   test("a Markdown review reads rendered in the dashboard, or as source; binary files go to the download", async () => {
     const w = await standardWorld();
     await w.request("/api/hook?event=SessionStart&project=billing-api&session=sf3&name=core", { as: "bob" });

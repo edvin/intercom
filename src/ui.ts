@@ -70,6 +70,7 @@ const ICONS: Record<string, string> = {
   terminal: '<path d="m4 17 6-6-6-6"/><path d="M12 19h8"/>',
   at: '<circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8"/>',
   sparkles: '<path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z"/>',
+  dots: '<circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>',
   file: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/>',
   code: '<path d="m16 18 6-6-6-6"/><path d="m8 6-6 6 6 6"/>',
   refresh: '<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/>',
@@ -824,6 +825,24 @@ pre.term .b8{background:#555a6e}pre.term .b9{background:#d4505a}pre.term .b10{ba
 .stkmv{cursor:default;flex-wrap:wrap}.stkfwd{flex-basis:100%;display:flex;align-items:flex-start;gap:8px;font-size:12.5px;line-height:1.4;color:var(--mute);cursor:pointer}.stkfwd input{margin:2px 0 0;flex:none;accent-color:var(--accent)}.stkmv select{flex:1 1 140px;min-width:0;height:32px;font-size:13px}.stkmv .askoptx{flex-basis:100%}.k-stuck .askqt{margin:6px 0 8px}
 .wkpane{max-width:1160px;gap:18px;padding-bottom:96px}
 .flpane{max-width:1160px;gap:18px;padding-bottom:96px}
+/* The chat's header on a phone: the name, chat/code and ⋯; everything else (text size, files, toggles, state, compact,
+   screen, machine, project) drops down under it from ⋯. On wider screens the tools sit inline as before. */
+.hdtools{display:contents}.hdmore{display:none}
+@media (max-width:640px){.hdmore{display:inline-flex}.hdmore[aria-expanded=true]{background:var(--surface-2);color:var(--ink)}
+  .chat>.hd .hdtools,.chat>.hd .meta-row{display:none}.chat>.hd h2{flex-wrap:wrap}
+  .chat>.hd.menu .hdtools{display:flex;flex-basis:100%;order:9;align-items:center;gap:6px;margin-top:10px;padding-top:10px;border-top:1px solid var(--line)}
+  .chat>.hd.menu{align-items:flex-start}.chat>.hd.menu .meta-row{display:flex;margin-top:8px}}
+/* Files from agents (gallery.ts): thumbnails only, square, filling the width. */
+.galpane{max-width:1400px;gap:16px;padding-bottom:96px}
+.galbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.galbar select{width:auto;min-width:150px;max-width:260px;height:32px;font-size:13px}
+.gal{display:grid;grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:8px}
+.gtile{position:relative;display:block;aspect-ratio:1;margin:0;border-radius:10px;overflow:hidden;border:1px solid var(--line);background:var(--surface-2)}
+.gal .att.gtile img{width:100%;height:100%;max-width:none;max-height:none;object-fit:cover;border:0;border-radius:0;transition:transform .25s ease}
+.gtile:hover{border-color:var(--line-strong)}.gtile:hover img{transform:scale(1.035)}.gtile:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.gfile{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:var(--mute);text-decoration:none}.gfile:hover{color:var(--accent)}
+.gext{font:600 11px/1 "JetBrains Mono","Geist Mono",ui-monospace,monospace;letter-spacing:.06em;color:var(--ink-2)}
+.galempty{padding:64px 16px;text-align:center}.galmore{display:flex;gap:8px;justify-content:center}
+@media (max-width:640px){.galpane{padding:12px 12px 88px}.gal{grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:4px}.gtile{border-radius:6px}.galbar select{min-width:0;flex:1}}
 .flhead{display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap}.flhead>div:first-child{flex:1;min-width:240px}.flhead h1{margin:0 0 4px;font-size:27px;font-weight:650;letter-spacing:-.022em}.flhead p{margin:0;font-size:14px}
 .flctl{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.flauto{display:inline-flex;align-items:center;padding:6px 12px;border-radius:9px;border:1px solid var(--line);background:var(--surface);font-size:13px}
 .flhow{margin:-6px 0 0;font-size:13px;line-height:1.55;color:var(--ink-2);max-width:90ch}
@@ -1527,6 +1546,14 @@ export const SCRIPT = `
     d.querySelector("[data-scrnow]").onclick = () => send(true);
     input.onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); send(e.metaKey || e.ctrlKey); } };
   }
+  // ⋯ in a chat's header on a phone: shows or hides the rest of the header; stays open across live updates.
+  let hdOpen = false;
+  document.addEventListener("click", (e) => {
+    const b = e.target.closest && e.target.closest("[data-hdmore]");
+    if (!b) return;
+    hdOpen = !hdOpen; hdMenu();
+  });
+  function hdMenu() { $$("[data-hdmore]").forEach((b) => { b.setAttribute("aria-expanded", String(hdOpen)); const h = b.closest(".hd"); if (h) h.classList.toggle("menu", hdOpen); }); }
   // An image in a message opens in a viewer over the page, not as its own page: the dashboard installed as an app on a
   // phone has no back button to come back from one. Close with ×, a tap beside it, Esc, or back (gesture or button).
   document.addEventListener("click", (e) => {
@@ -1544,10 +1571,24 @@ export const SCRIPT = `
       v.addEventListener("close", () => { if (history.state && history.state.iv) { v._popping = true; history.back(); } });
       window.addEventListener("popstate", () => { if (v._popping) { setTimeout(() => (v._popping = false), 0); return; } if (v.open) { v._popping = true; v.close(); setTimeout(() => (v._popping = false), 0); } });
     }
-    const href = a.getAttribute("href"), name = a.getAttribute("title") || a.textContent.trim() || "image";
-    v.querySelector("img").src = href; v.querySelector("img").alt = name;
-    v.querySelector(".ivname").textContent = name;
-    v.querySelector(".ivdl").href = href; v.querySelector(".ivdl").setAttribute("download", name);
+    // From the files grid (gallery.ts), ← and → step through its images.
+    const grid = a.closest("[data-gallery]");
+    v._list = grid ? [...grid.querySelectorAll("a.att")] : [a];
+    v._at = v._list.indexOf(a);
+    const show = (el) => {
+      const href = el.getAttribute("href"), name = el.dataset.name || el.getAttribute("title") || el.textContent.trim() || "image";
+      v.querySelector("img").src = href; v.querySelector("img").alt = name;
+      v.querySelector(".ivname").textContent = name + (v._list.length > 1 ? "  ·  " + (v._at + 1) + " / " + v._list.length : "");
+      v.querySelector(".ivdl").href = href; v.querySelector(".ivdl").setAttribute("download", name);
+    };
+    v.onkeydown = (ev) => {
+      const step = ev.key === "ArrowRight" ? 1 : ev.key === "ArrowLeft" ? -1 : 0;
+      if (!step || v._list.length < 2) return;
+      ev.preventDefault();
+      v._at = (v._at + step + v._list.length) % v._list.length;
+      show(v._list[v._at]);
+    };
+    show(a);
     v.showModal(); v.focus();
     if (!(history.state && history.state.iv)) history.pushState({ iv: 1 }, "", location.href);
   });
@@ -1573,6 +1614,7 @@ export const SCRIPT = `
     bindTz();
     bindScreen();
     bindTabs();
+    hdMenu();
     if (picked) { const b = document.querySelector('.bubble[data-mid="' + picked + '"]'); if (b && b.querySelector('[data-unsend="edit"]')) b.classList.add("picked"); else picked = null; }
     trailBack();
     $$("#compose", root).forEach((t) => { if (!t.value) t.value = drafts.get(t); t.addEventListener("input", () => drafts.set(t)); });
