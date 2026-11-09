@@ -878,12 +878,23 @@ details.trksec>summary{list-style:none;cursor:pointer;user-select:none}details.t
 .trkmeta{display:flex;flex-wrap:wrap;gap:4px 16px}.trkmeta b{font-weight:600;color:var(--mute);margin-right:3px}
 .trkhist{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:4px;border-left:2px solid var(--line);padding-left:12px}
 .trkhist li{display:flex;gap:10px}.trkhist .muted{flex:none;width:56px;font-variant-numeric:tabular-nums}
+.trkbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px}.trkbar .seg a .badge{margin-left:4px;font-size:10.5px;padding:0 6px}.trkbar .seg a .muted{margin-left:4px}
+.trkq{display:flex;align-items:center;gap:4px;flex:1;min-width:180px;max-width:320px;margin-left:auto}.trkq input{height:30px;font-size:13px;width:100%}
+.trkdecide{color:var(--amber);font-weight:650}
+.trkask{display:flex;flex-direction:column;gap:8px}.trkask .trkrow.s-you .trkon{display:none}.trkask+.trkask{margin-top:6px}
+.trkask h3{display:flex;align-items:baseline;gap:8px;margin:4px 0 0;font-size:12px;font-weight:650;letter-spacing:.02em;text-transform:uppercase;color:var(--mute)}.trkask h3::first-letter{text-transform:uppercase}
+.trkact{flex:none;height:28px;gap:6px}.trkact .muted{color:inherit;opacity:.7;font-weight:500;font-size:11.5px}
+.trkdecided{flex:none;display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:600;color:var(--green);text-decoration:none}.trkdecided:hover{text-decoration:underline}
+.trknocard{flex:none;font-size:12px;color:var(--mute);font-style:italic}
+.trkrel{flex:none;display:inline-flex;align-items:center;gap:3px;font-size:11.5px;font-weight:600;color:var(--mute);white-space:nowrap}
+.trkgroup.fam{border-left:3px solid var(--accent-soft)}.trkgroup.fam>.trkrow:first-child>summary{background:color-mix(in srgb,var(--surface-2) 45%,transparent)}
+details.trksec.s-parked>summary{list-style:none;cursor:pointer}
 .trkempty{padding:64px 16px;text-align:center}.trkempty .small{max-width:56ch;margin:0 auto}
 @media (max-width:760px){.trkrow>summary{flex-wrap:wrap;gap:6px 10px;padding:10px 12px}.trkrow.nested>summary{padding-left:30px;background-position:19px 0}
   .trkmain{flex-basis:calc(100% - 90px)}.trktitle{white-space:normal}.trkline{flex-wrap:wrap;row-gap:2px}
   .trkchips{order:5;max-width:none;justify-content:flex-start;flex-basis:100%;padding-left:26px}.trkowner{order:6;padding-left:26px}.trkage{width:auto}
   .trkmore{padding:2px 12px 12px 38px}.trkrow.nested .trkmore{padding-left:56px}}
-@media (max-width:640px){.trkpane{padding:12px 12px 88px}}
+@media (max-width:640px){.trkpane{padding:12px 12px 88px}.trkbar .seg{overflow-x:auto;max-width:100%}.trkbar .seg span{display:inline}.trkshow{flex-basis:100%}.trkshow a{padding:3px 7px;white-space:nowrap}.trkq{max-width:none;margin-left:0}.trkact,.trkdecided,.trknocard{order:5;margin-left:26px}}
 .flhead{display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap}.flhead>div:first-child{flex:1;min-width:240px}.flhead h1{margin:0 0 4px;font-size:27px;font-weight:650;letter-spacing:-.022em}.flhead p{margin:0;font-size:14px}
 .flctl{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.flauto{display:inline-flex;align-items:center;padding:6px 12px;border-radius:9px;border:1px solid var(--line);background:var(--surface);font-size:13px}
 .flhow{margin:-6px 0 0;font-size:13px;line-height:1.55;color:var(--ink-2);max-width:90ch}
@@ -1813,6 +1824,11 @@ export const SCRIPT = `
   }
   async function swap(text) {
     const doc = new DOMParser().parseFromString(text, "text/html");
+    // What you're reading stays where it is on screen: the first message or row in view, found again after the redraw.
+    const atEnd = innerHeight + scrollY >= document.documentElement.scrollHeight - 80; // at the bottom: follow what's new
+    const inView = atEnd ? null : $$("[data-mid], [data-key]").find((m) => { const r = m.getBoundingClientRect(); return r.bottom > 0 && r.top < innerHeight && r.height; });
+    const anchorSel = inView ? (inView.dataset.mid ? '[data-mid="' + CSS.escape(inView.dataset.mid) + '"]' : '[data-key="' + CSS.escape(inView.dataset.key) + '"]') : "";
+    const anchorTop = inView ? inView.getBoundingClientRect().top : 0;
     $$("[data-region]").forEach((el) => {
       // A region inside another one that was just redrawn came with it. A thread has a region of its own, apart from
       // its question box, so an answer shows while you're typing the next question.
@@ -1848,11 +1864,32 @@ export const SCRIPT = `
       bind(next); days(next);
       if (th && !stick) { next.scrollTop = keep; if (known.size && $$("[data-mid]", next).some((m) => !known.has(m.dataset.mid))) jumpNew = true; }
     });
+    if (anchorSel) { const again = document.querySelector(anchorSel); if (again) { const d = again.getBoundingClientRect().top - anchorTop; if (Math.abs(d) > 1) scrollBy(0, d); } }
     jumpShow();
     tick();
   }
   let refreshTimer, live = $("#live");
-  async function refresh() { clearTimeout(refreshTimer); refreshTimer = setTimeout(async () => { try { const r = await fetch(location.href, { credentials: "same-origin" }); if (r.ok && r.url === location.href) swap(await r.text()); } catch {} }, 250); }
+  // Nothing is redrawn while you scroll or touch the page (on a phone a redraw mid-swipe stops it and moves what you
+  // were reading): the update waits until you've let go and it has settled.
+  let touching = false, movedAt = 0;
+  const moved = () => (movedAt = Date.now());
+  ["scroll", "wheel", "touchmove"].forEach((ev) => addEventListener(ev, moved, { passive: true, capture: true }));
+  addEventListener("touchstart", () => { touching = true; moved(); }, { passive: true, capture: true });
+  ["touchend", "touchcancel"].forEach((ev) => addEventListener(ev, () => { touching = false; moved(); }, { passive: true, capture: true }));
+  const settled = () => !touching && Date.now() - movedAt > 900;
+  async function refresh() {
+    clearTimeout(refreshTimer);
+    refreshTimer = setTimeout(async function go() {
+      if (!settled()) { refreshTimer = setTimeout(go, 400); return; }
+      try {
+        const r = await fetch(location.href, { credentials: "same-origin" });
+        if (!r.ok || r.url !== location.href) return;
+        const text = await r.text();
+        if (!settled()) { refreshTimer = setTimeout(go, 400); return; } // you started scrolling meanwhile: fetch again after
+        swap(text);
+      } catch {}
+    }, 250);
+  }
   function connect(delay = 1000) {
     if (!live) return;
     const ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws?web=1");

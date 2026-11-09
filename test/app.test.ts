@@ -1741,7 +1741,29 @@ describe("share_file", () => {
     // The key reads as people write it, linked; an MR's repo is quiet before its !number, and the MR sits under its ticket.
     assert.match(page, /<a class="trkkey" href="https:\/\/jira\.example\.com\/browse\/PAY-1234" target="_blank" rel="noopener"[^>]*>PAY-1234<\/a>/);
     assert.match(page, /<a class="trkkey" href="https:\/\/git\.example\.com\/shop\/-\/merge_requests\/456"[^>]*><span class="trkrepo">shop<\/span>!456<\/a>/);
-    assert.match(page, /<section class="trksec s-you">[\s\S]*PAY-1234[\s\S]*trkrow s-you nested" data-key="shop!456"[\s\S]*<\/section><section class="trksec s-working">[\s\S]*PAY-777/);
+    // By default only what needs you, grouped by what it asks; the rest is a tab away.
+    assert.match(page, /<section class="trksec s-you">[\s\S]*<h3>your answer<span class="muted">1<\/span><\/h3>[\s\S]*PAY-1234[\s\S]*trkrel[^>]*>[\s\S]*?1 MR<\/span>[\s\S]*trkrow s-you nested" data-key="shop!456"/);
+    assert.doesNotMatch(page, /trksec s-working/);
+    assert.match(page, /<a href="\/dashboard\?view=tracked&amp;show=working">Working<span class="muted">1<\/span><\/a>/);
+    const everything = await view("bob", "&show=all");
+    assert.match(everything, /<section class="trksec s-you">[\s\S]*<\/section><section class="trksec s-working">[\s\S]*PAY-777/);
+    // Filters: tickets or MRs only (an MR then names its ticket), and words.
+    const mrs = await view("bob", "&show=all&kind=mr");
+    assert.match(mrs, /shop!456[\s\S]*<span class="trkrel" title="The ticket it implements">for PAY-1234<\/span>/);
+    assert.doesNotMatch(mrs, /data-key="PAY-/);
+    assert.match(await view("bob", "&show=all&q=api+cleanup"), /data-key="PAY-777"/);
+    assert.doesNotMatch(await view("bob", "&show=all&q=api+cleanup"), /data-key="PAY-1234"/);
+    assert.match(await view("bob", "&q=nothing-like-this"), /Nothing matches/);
+    // A ticket that needs a decision says whether there's a card for it: none yet, then Decide, then what you said.
+    await w.ok("bob", "track", { items: [{ key: "PAY-777", stage: "you", waiting_on: "your decision" }] }, s);
+    assert.match(await view(), /data-key="PAY-777"[\s\S]*?<span class="trknocard"[^>]*>No card yet<\/span>/);
+    await w.ok("bob", "ticket", { key: "PAY-777", url: "https://jira.example.com/browse/PAY-777", title: "Old API cleanup", verdict: "Valid.", plan: "Remove v1.", recommend: "go" }, s);
+    const dec = await view();
+    assert.match(dec, /1 card to decide/);
+    assert.match(dec, /<h3>your decision<span class="muted">1<\/span><\/h3>[\s\S]*?<a class="btn sm primary trkact" href="\/dashboard\?view=ticket&amp;id=1[^"]*">Decide<span class="muted">T1<\/span><\/a>/);
+    await w.db.prepare("UPDATE tickets SET status = 'decided', decision = '{\"outcome\":\"park\"}', decided_at = ?").bind(Date.now()).run();
+    assert.match(await view(), /<a class="trkdecided"[^>]*>[\s\S]*?You said Park just now<\/a>/);
+    await w.ok("bob", "track", { items: [{ key: "PAY-777", stage: "working", waiting_on: "" }] }, s);
     assert.match(page, /href="\/dashboard\?view=ticket&amp;id=12&amp;back=[^"]*" title="The ticket card">T12<\/a>/);
     assert.match(page, /trkpipe green[\s\S]*passed/);
     assert.match(page, /2 open threads/);
@@ -1753,13 +1775,13 @@ describe("share_file", () => {
     // A partial update keeps what wasn't sent and records the change; a complete one marks what's gone as done.
     assert.match(await w.ok("bob", "track", { complete: "mrs", items: [{ key: "shop!456", state: "merged", stage: "done", pipeline: "passed" }] }, s), /1 new|0 new/);
     assert.match(await w.ok("bob", "track", { complete: "tickets", items: [{ key: "PAY-1234", state: "Ready for Testing", stage: "waiting", waiting_on: "QA" }] }, s), /1 no longer there marked done/);
-    page = await view();
+    page = await view("bob", "&show=all");
     assert.match(page, /data-key="shop!456"[\s\S]*?<ol class="trkhist"><li><span class="muted">just now<\/span>done<\/li><li><span class="muted">just now<\/span>opened → merged<\/li><li><span class="muted">just now<\/span>opened · needs you<\/li><\/ol>/);
     assert.match(page, /<details class="trksec s-done"><summary class="trkh">[\s\S]*Done in the last 7 days[\s\S]*PAY-777[\s\S]*left the board/);
     assert.match(page, /Refunds for split payments[\s\S]*on QA/);
     assert.match(await w.ok("bob", "track", { action: "list" }, s), /^Open on "billing":\nPAY-1234 \[waiting\] Ready for Testing · on QA/);
     assert.match(await w.ok("bob", "track", { action: "remove", keys: ["PAY-777"] }, s), /Removed 1/);
-    assert.doesNotMatch(await view(), /PAY-777/);
+    assert.doesNotMatch(await view("bob", "&show=all"), /PAY-777/);
   });
 
   test("a Markdown review reads rendered in the dashboard, or as source; binary files go to the download", async () => {

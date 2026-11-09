@@ -7,10 +7,12 @@
 import type { Stmt } from "./db";
 import { type Env, UserError, ago } from "./lib";
 import { reviewHref } from "./reviewview";
+import { OUTCOMES } from "./reviews";
+import { TICKET_OUTCOMES } from "./tickets";
 import { ticketHref } from "./ticketview";
 import { agentAvatar, esc, icon } from "./ui";
 
-export const STAGES = { you: "Needs you", working: "Agent working", waiting: "Waiting on others", done: "Done" } as const;
+export const STAGES = { you: "Needs you", working: "Agent working", waiting: "Waiting on others", parked: "Parked", done: "Done" } as const;
 export type Stage = keyof typeof STAGES;
 export const KINDS = ["ticket", "mr", "item"] as const;
 type Kind = (typeof KINDS)[number];
@@ -135,7 +137,7 @@ const factsOf = (t: Pick<Tracked, "facts">): Facts => {
 /** The board a session publishes to when it doesn't name one: its project. */
 export const defaultBoard = (env: Env) => (env.session?.project || env.session?.label || "work").slice(0, 60);
 
-const STAGE_SAY: Record<Stage, string> = { you: "now needs you", working: "an agent is on it", waiting: "waiting on others", done: "done" };
+const STAGE_SAY: Record<Stage, string> = { you: "now needs you", working: "an agent is on it", waiting: "waiting on others", parked: "parked", done: "done" };
 
 /** What changed between what was there and what came, as history lines (none for a field that wasn't sent). */
 function changes(old: Tracked, n: Input): string[] {
@@ -271,7 +273,18 @@ export async function trackedNeedsYou(env: Env, me: string): Promise<number> {
 
 // ---------- the view ----------
 
-const RANK: Record<Stage, number> = { you: 0, working: 1, waiting: 2, done: 3 };
+const RANK: Record<Stage, number> = { you: 0, working: 1, waiting: 2, parked: 3, done: 4 };
+const SHOWS = ["you", "working", "waiting", "parked", "all"] as const;
+type Show = (typeof SHOWS)[number];
+
+/** The card about an item: a ticket card by its key, a review card by the MR's link (the latest one). */
+interface Card {
+  kind: "T" | "R";
+  id: number;
+  open: boolean;
+  outcome: string;
+  at: number;
+}
 
 /** A key as it reads: an MR's repo quiet before its !number. */
 function keyHtml(t: Tracked): string {
@@ -286,10 +299,11 @@ function pipeHtml(p: string): string {
   return `<span class="trkpipe ${tone}" title="Pipeline ${esc(p)}"><span class="dot"></span>${esc(p)}</span>`;
 }
 
-function refsHtml(refs: string, back: string): string {
+function refsHtml(refs: string, back: string, card: Card | undefined): string {
   return refs
     .split(" ")
     .filter(Boolean)
+    .filter((r) => !card || r !== `${card.kind}${card.id}`) // the card's own button says it
     .map((r) => {
       const id = Number(r.slice(1));
       if (r[0] === "T") return `<a class="badge accent" href="${esc(ticketHref(id, back))}" title="The ticket card">${esc(r)}</a>`;
@@ -305,7 +319,18 @@ function ownerHtml(me: string, owner: string): string {
   return `<span class="trkowner" title="${esc(`${m}/${l}`)} is on it">${agentAvatar(m, l, "s")}<span>${esc(m === me ? l : `${m}/${l}`)}</span></span>`;
 }
 
-function row(t: Tracked, me: string, back: string, events: Map<number, { at: number; what: string }[]>, nested: boolean): string {
+/** What you can do about it here: the card to decide, what you decided on it, or that there's no card to decide on. */
+function cardHtml(t: Tracked, card: Card | undefined, back: string): string {
+  const href = card ? (card.kind === "T" ? ticketHref(card.id, back) : reviewHref(card.id, back)) : "";
+  if (card?.open) return `<a class="btn sm primary trkact" href="${esc(href)}">${card.kind === "T" ? "Decide" : "Review"}<span class="muted">${card.kind}${card.id}</span></a>`;
+  if (card && t.stage === "you")
+    return `<a class="trkdecided" href="${esc(href)}" title="Your decision on ${card.kind}${card.id}">${icon("check", 12)}You said ${esc(card.outcome || "something")} ${ago(card.at)}</a>`;
+  if (card) return `<a class="badge" href="${esc(href)}" title="${card.kind === "T" ? "The ticket card" : "The review card"}: ${esc(card.outcome)}">${card.kind}${card.id}</a>`;
+  if (t.stage === "you" && t.kind === "ticket") return `<span class="trknocard" title="The agent says this needs your decision, but it hasn't sent you a card to decide on">No card yet</span>`;
+  return "";
+}
+
+function row(t: Tracked, me: string, back: string, events: Map<number, { at: number; what: string }[]>, opts: { nested: boolean; card?: Card; mrs?: number; parentShown?: boolean }): string {
   const f = factsOf(t);
   const chips = [
     t.state ? `<span class="badge${t.stage === "done" ? " green" : ""}">${esc(t.state)}</span>` : "",
@@ -315,8 +340,10 @@ function row(t: Tracked, me: string, back: string, events: Map<number, { at: num
     f.conflicts ? '<span class="badge red">Conflicts</span>' : "",
     f.threads ? `<span class="badge amber" title="Unresolved threads">${f.threads} open thread${f.threads === 1 ? "" : "s"}</span>` : "",
     f.priority ? `<span class="trkfact">${esc(f.priority)}</span>` : "",
-    refsHtml(t.refs, back),
+    refsHtml(t.refs, back, opts.card),
   ].join("");
+  // How it hangs together: a ticket says how many MRs it has; an MR whose ticket isn't on the board names it.
+  const rel = opts.mrs ? `<span class="trkrel" title="Its MRs are listed under it">${icon("branch", 12)}${opts.mrs} MR${opts.mrs === 1 ? "" : "s"}</span>` : t.kind === "mr" && t.parent && !opts.parentShown ? `<span class="trkrel" title="The ticket it implements">for ${esc(t.parent)}</span>` : "";
   const sub = [
     t.stage !== "done" && t.next ? `<span class="trknext">${esc(t.next)}</span>` : "",
     t.stage === "waiting" && t.waiting_on ? `<span class="trkon">on ${esc(t.waiting_on)}</span>` : t.stage === "you" && t.waiting_on ? `<span class="trkon">${esc(t.waiting_on)}</span>` : "",
@@ -328,10 +355,11 @@ function row(t: Tracked, me: string, back: string, events: Map<number, { at: num
     `<span><b>Tracked by</b> ${esc(t.agent || "an agent")} on ${esc(t.board)} · since ${ago(t.created_at)}</span>`,
   ].join("");
   const kindIco = t.kind === "mr" ? icon("branch", 14) : t.kind === "ticket" ? icon("flag", 14) : icon("square", 14);
-  return `<details class="trkrow s-${t.stage}${nested ? " nested" : ""}" data-key="${esc(t.key)}"><summary>
+  return `<details class="trkrow s-${t.stage}${opts.nested ? " nested" : ""}" data-key="${esc(t.key)}"><summary>
       <span class="trkk">${kindIco}</span>
-      <span class="trkmain"><span class="trkline">${keyHtml(t)}<span class="trktitle">${esc(t.title || t.key)}</span></span>${sub ? `<span class="trksub">${sub}</span>` : ""}</span>
+      <span class="trkmain"><span class="trkline">${keyHtml(t)}<span class="trktitle">${esc(t.title || t.key)}</span>${rel}</span>${sub ? `<span class="trksub">${sub}</span>` : ""}</span>
       <span class="trkchips">${chips}</span>
+      ${cardHtml(t, opts.card, back)}
       ${ownerHtml(me, t.owner)}
       <span class="trkage" title="Last change ${new Date(t.changed_at).toISOString().slice(0, 16).replace("T", " ")} UTC">${ago(t.changed_at)}</span>
     </summary>
@@ -340,8 +368,20 @@ function row(t: Tracked, me: string, back: string, events: Map<number, { at: num
     }</div></details>`;
 }
 
+const outcomeWord = (kind: "T" | "R", decision: string | null): string => {
+  try {
+    const o = (JSON.parse(decision ?? "{}") as { outcome?: string }).outcome ?? "";
+    return kind === "T" ? (TICKET_OUTCOMES as Record<string, string>)[o] ?? o : (OUTCOMES as Record<string, string>)[o] ?? o;
+  } catch {
+    return "";
+  }
+};
+
 export async function trackedView(env: Env, me: string, url: URL): Promise<string> {
-  const pickBoard = url.searchParams.get("board") ?? "";
+  const p = url.searchParams;
+  const pickBoard = p.get("board") ?? "";
+  const kind = p.get("kind") === "ticket" ? "ticket" : p.get("kind") === "mr" ? "mr" : "";
+  const q = (p.get("q") ?? "").trim().slice(0, 80);
   const back = url.pathname + url.search;
   const since = Date.now() - 7 * 86400_000;
   const [{ results: all }, { results: boards }] = await Promise.all([
@@ -352,6 +392,58 @@ export async function trackedView(env: Env, me: string, url: URL): Promise<strin
       .bind(me)
       .all<{ board: string; agent: string; updated_at: number; open: number }>(),
   ]);
+
+  // The cards about these items, so each says whether there's something to decide and what you decided.
+  const cards = new Map<string, Card>();
+  if (all.length) {
+    const keys = JSON.stringify(all.filter((t) => t.kind !== "mr").map((t) => t.key));
+    const urls = JSON.stringify(all.filter((t) => t.kind === "mr" && t.url).map((t) => t.url));
+    const [{ results: tks }, { results: rvs }] = await Promise.all([
+      env.DB.prepare("SELECT id, key, status, decision, created_at, decided_at FROM tickets WHERE member = ? AND status IN ('open', 'decided') AND key IN (SELECT value FROM json_each(?)) ORDER BY id")
+        .bind(me, keys)
+        .all<{ id: number; key: string; status: string; decision: string | null; created_at: number; decided_at: number | null }>(),
+      env.DB.prepare("SELECT id, url, status, decision, created_at, decided_at FROM reviews WHERE member = ? AND status IN ('open', 'decided') AND url IN (SELECT value FROM json_each(?)) ORDER BY id")
+        .bind(me, urls)
+        .all<{ id: number; url: string; status: string; decision: string | null; created_at: number; decided_at: number | null }>(),
+    ]);
+    for (const c of tks) cards.set(`t:${c.key}`, { kind: "T", id: c.id, open: c.status === "open", outcome: outcomeWord("T", c.decision), at: c.decided_at ?? c.created_at });
+    for (const c of rvs) cards.set(`r:${c.url}`, { kind: "R", id: c.id, open: c.status === "open", outcome: outcomeWord("R", c.decision), at: c.decided_at ?? c.created_at });
+  }
+  const cardOf = (t: Tracked) => (t.kind === "mr" ? cards.get(`r:${t.url}`) : cards.get(`t:${t.key}`));
+
+  // An MR goes under its ticket; the group sits with whichever of them is most urgent.
+  const tickets = new Map(all.filter((t) => t.kind !== "mr").map((t) => [`${t.board}\n${t.key}`, t]));
+  const kids = new Map<string, Tracked[]>();
+  const loose: Tracked[] = [];
+  for (const t of all) {
+    if (t.kind !== "mr") continue;
+    const k = `${t.board}\n${t.parent}`;
+    if (t.parent && tickets.has(k) && kind !== "mr") kids.set(k, [...(kids.get(k) ?? []), t]);
+    else loose.push(t);
+  }
+  type Group = { head: Tracked; mrs: Tracked[]; stage: Stage; at: number };
+  let groups: Group[] = [];
+  for (const [k, t] of tickets) {
+    const mrs = (kids.get(k) ?? []).sort((a, b) => RANK[a.stage] - RANK[b.stage] || a.key.localeCompare(b.key));
+    const live = [t, ...mrs].filter((x) => x.stage !== "done");
+    const stage = live.length ? live.reduce((s, x) => (RANK[x.stage] < RANK[s] ? x.stage : s), "parked" as Stage) : "done";
+    groups.push({ head: t, mrs, stage, at: Math.max(t.changed_at, ...mrs.map((m) => m.changed_at)) });
+  }
+  for (const m of loose) groups.push({ head: m, mrs: [], stage: m.stage, at: m.changed_at });
+  groups.sort((a, b) => b.at - a.at);
+
+  // Filters: tickets or MRs, and words in the key, title, next step or who it waits on.
+  if (kind) groups = groups.filter((g) => g.head.kind === kind);
+  if (q) {
+    const words = q.toLowerCase().split(/\s+/);
+    const text = (t: Tracked) => `${t.key} ${t.title} ${t.next} ${t.waiting_on} ${t.state} ${t.owner} ${t.parent}`.toLowerCase();
+    groups = groups.filter((g) => words.every((w) => [g.head, ...g.mrs].some((t) => text(t).includes(w))));
+  }
+  const count = (s: Stage) => groups.filter((g) => g.stage === s).length;
+  const asked = p.get("show") as Show | null;
+  // What needs you comes first: that's the page, unless you ask for more (or nothing needs you).
+  const show: Show = asked && (SHOWS as readonly string[]).includes(asked) ? asked : count("you") ? "you" : "all";
+
   const ids = all.map((t) => t.id);
   const events = new Map<number, { at: number; what: string }[]>();
   if (ids.length) {
@@ -363,37 +455,38 @@ export async function trackedView(env: Env, me: string, url: URL): Promise<strin
     }
   }
 
-  // An MR goes under its ticket; the group sits with whichever of them is most urgent.
-  const tickets = new Map(all.filter((t) => t.kind !== "mr").map((t) => [`${t.board}\n${t.key}`, t]));
-  const kids = new Map<string, Tracked[]>();
-  const loose: Tracked[] = [];
-  for (const t of all) {
-    if (t.kind !== "mr") continue;
-    const k = `${t.board}\n${t.parent}`;
-    if (t.parent && tickets.has(k)) kids.set(k, [...(kids.get(k) ?? []), t]);
-    else loose.push(t);
-  }
-  type Group = { head: Tracked; mrs: Tracked[]; stage: Stage; at: number };
-  const groups: Group[] = [];
-  for (const [k, t] of tickets) {
-    const mrs = (kids.get(k) ?? []).sort((a, b) => RANK[a.stage] - RANK[b.stage] || a.key.localeCompare(b.key));
-    const live = [t, ...mrs].filter((x) => x.stage !== "done");
-    const stage = live.length ? live.reduce((s, x) => (RANK[x.stage] < RANK[s] ? x.stage : s), "waiting" as Stage) : "done";
-    groups.push({ head: t, mrs, stage, at: Math.max(t.changed_at, ...mrs.map((m) => m.changed_at)) });
-  }
-  for (const m of loose) groups.push({ head: m, mrs: [], stage: m.stage, at: m.changed_at });
-  groups.sort((a, b) => b.at - a.at);
-
-  const groupHtml = (g: Group) => `<div class="trkgroup">${row(g.head, me, back, events, false)}${g.mrs.map((m) => row(m, me, back, events, true)).join("")}</div>`;
+  const groupHtml = (g: Group) =>
+    `<div class="trkgroup${g.mrs.length ? " fam" : ""}">${row(g.head, me, back, events, { nested: false, card: cardOf(g.head), mrs: g.mrs.length })}${g.mrs.map((m) => row(m, me, back, events, { nested: true, card: cardOf(m), parentShown: true })).join("")}</div>`;
+  const ICO: Record<Stage, string> = { you: "bell", working: "sparkles", waiting: "clock", parked: "square", done: "check" };
+  const head = (s: Stage, n: number, label: string = STAGES[s]) => `${icon(ICO[s], 15)}<span>${label}</span><span class="badge${s === "you" ? " amber" : ""}">${n}</span>`;
   const section = (s: Stage) => {
     const gs = groups.filter((g) => g.stage === s);
     if (!gs.length) return "";
-    const ico = s === "you" ? "bell" : s === "working" ? "sparkles" : s === "waiting" ? "clock" : "check";
+    if (s === "you") {
+      // What each one asks of you: decide a ticket, merge, review... with the cards you can act on here first.
+      const ask = (g: Group) => ([g.head, ...g.mrs].find((t) => t.stage === "you")?.waiting_on || "other").trim();
+      const cardFirst = (g: Group) => ([g.head, ...g.mrs].some((t) => cardOf(t)?.open) ? 0 : 1);
+      const asks = new Map<string, Group[]>();
+      for (const g of gs) asks.set(ask(g).toLowerCase(), [...(asks.get(ask(g).toLowerCase()) ?? []), g]);
+      const subs = [...asks.entries()].sort((a, b) => b[1].length - a[1].length);
+      const body = subs
+        .map(([, list]) => {
+          list.sort((a, b) => cardFirst(a) - cardFirst(b) || b.at - a.at);
+          return `<div class="trkask"><h3>${esc(ask(list[0]!))}<span class="muted">${list.length}</span></h3>${list.map(groupHtml).join("")}</div>`;
+        })
+        .join("");
+      return `<section class="trksec s-you"><h2 class="trkh">${head(s, gs.length)}</h2>${body}</section>`;
+    }
     const body = gs.map(groupHtml).join("");
-    if (s === "done") return `<details class="trksec s-done"><summary class="trkh">${icon(ico, 15)}<span>Done in the last 7 days</span><span class="badge">${gs.length}</span></summary>${body}</details>`;
-    return `<section class="trksec s-${s}"><h2 class="trkh">${icon(ico, 15)}<span>${STAGES[s]}</span><span class="badge${s === "you" ? " amber" : ""}">${gs.length}</span></h2>${body}</section>`;
+    if (s === "done" || (s === "parked" && show === "all")) return `<details class="trksec s-${s}"><summary class="trkh">${head(s, gs.length, s === "done" ? "Done in the last 7 days" : STAGES[s])}</summary>${body}</details>`;
+    return `<section class="trksec s-${s}"><h2 class="trkh">${head(s, gs.length)}</h2>${body}</section>`;
   };
 
+  const link = (over: Record<string, string>) => {
+    const u = new URLSearchParams({ view: "tracked" });
+    for (const [k, v] of Object.entries({ board: pickBoard, kind, q, show: asked ?? "", ...over })) if (v) u.set(k, v);
+    return `/dashboard?${u}`;
+  };
   const now = Date.now();
   const shownBoards = pickBoard ? boards.filter((b) => b.board === pickBoard) : boards;
   const freshness = shownBoards
@@ -402,17 +495,30 @@ export async function trackedView(env: Env, me: string, url: URL): Promise<strin
       return `<span class="trkfresh${stale ? " stale" : ""}" title="${esc(`Board ${b.board}, published by ${b.agent || "an agent"}`)}">${stale ? icon("clock", 13) : ""}${esc(b.agent || b.board)}${b.agent && b.agent !== b.board ? ` <span class="muted">· ${esc(b.board)}</span>` : ""}<span>: ${stale ? `not updated since ${ago(b.updated_at)}` : `updated ${ago(b.updated_at)}`}</span></span>`;
     })
     .join("");
-  const seg = boards.length > 1
-    ? `<nav class="seg" aria-label="Board"><a href="/dashboard?view=tracked"${pickBoard ? "" : ' class="on"'}>All</a>${boards.map((b) => `<a href="/dashboard?view=tracked&amp;board=${encodeURIComponent(b.board)}"${b.board === pickBoard ? ' class="on"' : ""}>${esc(b.board)}<span class="muted">${b.open}</span></a>`).join("")}</nav>`
+  const boardSeg = boards.length > 1
+    ? `<nav class="seg" aria-label="Board"><a href="${esc(link({ board: "" }))}"${pickBoard ? "" : ' class="on"'}>All boards</a>${boards.map((b) => `<a href="${esc(link({ board: b.board }))}"${b.board === pickBoard ? ' class="on"' : ""}>${esc(b.board)}<span class="muted">${b.open}</span></a>`).join("")}</nav>`
     : "";
+  const tab = (s: Show, label: string, n: number | null) =>
+    `<a href="${esc(link({ show: s }))}"${show === s ? ' class="on"' : ""}>${label}${n !== null ? `<span class="${s === "you" && n ? "badge amber" : "muted"}">${n}</span>` : ""}</a>`;
+  const openGroups = groups.filter((g) => g.stage !== "done").length;
+  const kindSeg = (k: string, label: string) => `<a href="${esc(link({ kind: k }))}"${kind === k ? ' class="on"' : ""}>${label}</a>`;
+  const filters = `<div class="trkbar">
+    <nav class="seg trkshow" aria-label="Show">${tab("you", "Needs you", count("you"))}${tab("working", "Working", count("working"))}${tab("waiting", "Waiting", count("waiting"))}${count("parked") ? tab("parked", "Parked", count("parked")) : ""}${tab("all", "All", openGroups)}</nav>
+    <nav class="seg" aria-label="Kind">${kindSeg("", "Both")}${kindSeg("ticket", "Tickets")}${kindSeg("mr", "MRs")}</nav>
+    <form class="trkq" method="get" action="/dashboard" data-native><input type="hidden" name="view" value="tracked">${pickBoard ? `<input type="hidden" name="board" value="${esc(pickBoard)}">` : ""}${kind ? `<input type="hidden" name="kind" value="${kind}">` : ""}${asked ? `<input type="hidden" name="show" value="${esc(asked)}">` : ""}<input type="search" name="q" value="${esc(q)}" placeholder="Filter: key, title, who…" aria-label="Filter">${q ? `<a class="btn ghost xs icon" href="${esc(link({ q: "" }))}" title="Clear the filter">${icon("x", 13)}</a>` : ""}</form>
+  </div>`;
+
   const openN = all.filter((t) => t.stage !== "done");
   const plural = (n: number, w: string) => `${n} open ${w}${n === 1 ? "" : "s"}`;
   const counts = `${plural(openN.filter((t) => t.kind === "ticket").length, "ticket")} and ${plural(openN.filter((t) => t.kind === "mr").length, "MR")}`;
-
+  const decide = [...cards.values()].filter((c) => c.open).length;
+  const stages: Stage[] = show === "all" ? ["you", "working", "waiting", "parked", "done"] : [show];
+  const shown = stages.map(section).join("");
+  const nothing = `<div class="empty trkempty">${icon(q || kind ? "search" : "check", 26)}<div>${q || kind ? "Nothing matches." : show === "you" ? "Nothing needs you." : "Nothing here."}</div></div>`;
   const empty = `<div class="empty trkempty">${icon("branch", 30)}<div>No tickets or MRs yet.</div><div class="small muted">An agent that looks after your tickets publishes them here with the <code>track</code> tool after each check: each with its key and link, its state, who it's waiting on and the next step. Ask it to.</div></div>`;
   return `<div class="pane-in trkpane">
-    <header class="flhead"><div><h1>Tickets &amp; MRs</h1><p class="muted">${all.length ? counts : "What your agents track for you."}</p></div>${seg}</header>
+    <header class="flhead"><div><h1>Tickets &amp; MRs</h1><p class="muted">${all.length ? `${counts}${decide ? ` · <b class="trkdecide">${decide} card${decide === 1 ? "" : "s"} to decide</b>` : ""}` : "What your agents track for you."}</p></div>${boardSeg}</header>
     ${freshness ? `<div class="trkfreshes">${freshness}</div>` : ""}
-    ${all.length ? (["you", "working", "waiting", "done"] as Stage[]).map(section).join("") : empty}
+    ${all.length ? `${filters}${shown || nothing}` : empty}
   </div>`;
 }
