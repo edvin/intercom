@@ -2291,7 +2291,7 @@ describe("working directory", () => {
     const w = await standardWorld();
     await w.request("/api/hook?event=SessionStart&project=billing-api&session=wd1&name=core&cwd=~/work/billing-api", { as: "bob" });
     const view = (as: string) => w.request("/dashboard?view=agents&agent=bob/core", { as, cookie: true }).then((r) => r.text());
-    assert.match(await view("bob"), /<span class="cwd" title="Working directory">.*~\/work\/billing-api<\/span>/);
+    assert.match(await view("bob"), /<span class="mi cwd" title="Working directory">.*~\/work\/billing-api<\/span>/);
     assert.doesNotMatch(await view("alice"), /work\/billing-api/);
   });
 });

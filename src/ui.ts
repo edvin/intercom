@@ -827,11 +827,25 @@ pre.term .b8{background:#555a6e}pre.term .b9{background:#d4505a}pre.term .b10{ba
 .flpane{max-width:1160px;gap:18px;padding-bottom:96px}
 /* The chat's header on a phone: the name, chat/code and ⋯; everything else (text size, files, toggles, state, compact,
    screen, machine, project) drops down under it from ⋯. On wider screens the tools sit inline as before. */
-.hdtools{display:contents}.hdmore{display:none}
+.hdtools{display:contents}.hdmore{display:none}.ml{display:none}.mdet .sep{font-style:normal}
 @media (max-width:640px){.hdmore{display:inline-flex}.hdmore[aria-expanded=true]{background:var(--surface-2);color:var(--ink)}
   .chat>.hd .hdtools,.chat>.hd .meta-row{display:none}.chat>.hd h2{flex-wrap:wrap}
-  .chat>.hd.menu .hdtools{display:flex;flex-basis:100%;order:9;align-items:center;gap:6px;margin-top:10px;padding-top:10px;border-top:1px solid var(--line)}
-  .chat>.hd.menu{align-items:flex-start}.chat>.hd.menu .meta-row{display:flex;margin-top:8px}}
+  /* Open: the tools as labelled buttons in a grid, then its state, then one line each for machine, project, branch, folder. */
+  .chat>.hd.menu{align-items:flex-start}
+  .chat>.hd.menu .hdtools{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;flex-basis:100%;order:9;margin-top:10px;padding-top:12px;border-top:1px solid var(--line)}
+  .chat>.hd.menu .hdtools>.btn{width:auto;height:36px;justify-content:center;gap:6px;padding:0 6px;border:1px solid var(--line);border-radius:10px;font:500 12px/1.1 "Geist",system-ui,sans-serif;color:var(--ink-2);opacity:1}
+  .chat>.hd.menu .hdtools>.ttog.on{border-color:color-mix(in srgb,var(--accent) 35%,transparent);color:var(--accent)}
+  .chat>.hd.menu .hdtools>.ttog:not(.on){color:var(--mute)}
+  .chat>.hd.menu .ml{display:inline;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .chat>.hd.menu .fsz{grid-column:1/-1;display:flex;align-items:center;gap:4px;height:36px;margin:0;padding:0 4px 0 12px;border:1px solid var(--line);border-radius:10px}
+  .chat>.hd.menu .fsz .ml{flex:1;font-size:12px;font-weight:500;color:var(--ink-2)}
+  .chat>.hd.menu .fsz .btn{width:34px;height:28px}
+  .chat>.hd.menu .meta-row{display:flex;flex-wrap:wrap;white-space:normal;overflow:visible;gap:6px;margin-top:12px}
+  .chat>.hd.menu .meta-row>.badge,.chat>.hd.menu .meta-row .compactbtn{display:inline-flex}
+  .chat>.hd.menu .renamebtn{display:inline-flex}
+  .chat>.hd.menu .meta-row>.mdet{flex-basis:100%;display:flex;flex-direction:column;gap:5px;margin-top:4px;overflow:visible;white-space:normal;font-size:12.5px;color:var(--ink-2)}
+  .chat>.hd.menu .mdet .mi{display:flex;align-items:center;gap:6px;min-width:0;overflow-wrap:anywhere}.chat>.hd.menu .mdet .i{flex:none;color:var(--mute)}
+  .chat>.hd.menu .sep{display:none}.chat>.hd.menu .mdet .cwd{display:flex}}
 /* Files from agents (gallery.ts): thumbnails only, square, filling the width. */
 .galpane{max-width:1400px;gap:16px;padding-bottom:96px}
 .galbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.galbar select{width:auto;min-width:150px;max-width:260px;height:32px;font-size:13px}
