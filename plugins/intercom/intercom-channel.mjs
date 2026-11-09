@@ -20,7 +20,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const VERSION = "0.12.40"; // kept in step with .claude-plugin/plugin.json (a test checks)
+const VERSION = "0.12.41"; // kept in step with .claude-plugin/plugin.json (a test checks)
 const DIR = path.join(os.homedir(), ".claude", "intercom");
 const CONFIG = path.join(DIR, "config");
 function readConf() {
@@ -155,13 +155,16 @@ function refreshSession() {
   SESSION = found;
   headers["x-intercom-session"] = found;
   log(`codex session ${found}`);
-  // Our terminal, now that we know our session (see codexPane); then reconnect under the session id.
+  // Our terminal, now that we know our session (see codexPane); then connect under the session id (a Codex server
+  // doesn't connect before: under its placeholder id it would take the agent's name and its mail).
   locate().finally(() => {
+    if (!ws) return connect();
     try {
-      ws?.close();
+      ws.close();
     } catch {}
   });
 }
+const unbound = () => headers["x-intercom-client"] === "codex" && SESSION.startsWith("pid-");
 
 const touch = (file, content = "") => {
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -897,6 +900,8 @@ async function onRequest(msg) {
       return { ...list, tools: [...(list.tools ?? []), SETTINGS_TOOL] };
     }
     case "tools/call":
+      // A Codex tool call means a turn has started, so its note may be there by now: speak as the session.
+      refreshSession();
       if (msg.params?.name === SETTINGS_TOOL.name) return localSettings(msg.params?.arguments ?? {});
       if (msg.params?.name === "post" || msg.params?.name === "handoff") noteMentions(JSON.stringify(msg.params?.arguments ?? {}));
       try {
@@ -1110,7 +1115,7 @@ function startChannel() {
   started = true;
   refreshSession();
   // Which tmux pane we run in (if any), so the hub knows the screen can be seen and typed into.
-  locate().finally(connect);
+  locate().finally(() => unbound() || connect());
   // Codex: the SessionStart hook runs as the session's first turn starts, maybe long after we did; look for its note
   // until it's there (every 2 seconds for the first minutes, then every 15).
   if (headers["x-intercom-client"] === "codex") {
