@@ -3,6 +3,7 @@ import { reviewView } from "./reviewview";
 import { workView } from "./work";
 import { fleetView } from "./fleet";
 import { galleryView } from "./gallery";
+import { trackedView } from "./tracked";
 import { bargeIn, screenDialog } from "./screen";
 import { type Delivery, type Env, type Lock, deliveryMarks, issueToken, type Message, type Project, type Proposal, DELEGATE_PER_HOUR, LIVE, MAX_BODY, MEMBER_OF, RECEIVES, activeLocks, address, authenticate, coMembers, isAdmin, myProjects, normChannel, postMessage, roleIn, sha256, workingOn, newToken, HANDLE, limit, UserError, unsend, ago } from "./lib";
 import { agentsView } from "./agents";
@@ -575,7 +576,7 @@ export async function dashboard(url: URL, env: Env, me: string, cookie = ""): Pr
   const ownerOf = (project: string) => admin || pmRes.results.some((m) => m.project === project && m.member === me && m.role === "owner");
   const shownLocks = channel ? locks.filter((l) => l.channel === channel) : locks;
   const asked = url.searchParams.get("view");
-  const view = asked === "admin" && admin ? "admin" : asked === "account" ? "account" : asked === "ticket" ? "ticket" : asked === "review" ? "review" : asked === "work" ? "work" : asked === "fleet" ? "fleet" : asked === "files" ? "files" : asked === "agents" ? "agents" : "feed";
+  const view = asked === "admin" && admin ? "admin" : asked === "account" ? "account" : asked === "ticket" ? "ticket" : asked === "review" ? "review" : asked === "work" ? "work" : asked === "fleet" ? "fleet" : asked === "files" ? "files" : asked === "tracked" ? "tracked" : asked === "agents" ? "agents" : "feed";
 
   const { results: requests } = await env.DB.prepare(
     `SELECT r.project, r.member, r.note, r.created_at, m.org, m.github_login FROM join_requests r JOIN members m ON m.name = r.member
@@ -737,6 +738,8 @@ export async function dashboard(url: URL, env: Env, me: string, cookie = ""): Pr
         ? `<main class="pane">${await fleetView(env, me)}</main>`
       : view === "files"
         ? `<main class="pane">${await galleryView(env, me, url)}</main>`
+      : view === "tracked"
+        ? `<main class="pane">${await trackedView(env, me, url)}</main>`
       : view === "work"
         ? `<main class="pane">${await workView(env, me, url, decodeURIComponent(/(?:^|;\s*)ic_tz=([^;]+)/.exec(cookie)?.[1] ?? ""))}</main>`
       : view === "ticket"
@@ -954,6 +957,7 @@ export function docsPage(origin: string): Response {
           <li><b>Tickets:</b> an agent triaging your tickets sends each one with its assessment (still valid? what's actually wrong?), the plan and its questions for you. The ticket comes along whole (fields, description, comments, linked issues, images) and so do its MRs (files, commits, the diff), so you can read it all in its own view without the tracker or the forge. Ask the agent about it there (the answer shows in the view and on your phone), answer its questions and decide: go, go with changes (edit the plan), park or decline. Nothing starts until you do; the decision reaches the agent as a message from you and goes in the decision log.</li>
           <li><b>Notifications:</b> turn them on with <i>Notify me</i> in Waiting for you, or under Account, per device. You get one for a new review or ticket, an agent's answer on one, and a question or permission prompt still unanswered after a minute (at once in away mode); tapping it opens the dashboard there. On an iPhone, add Intercom to the Home Screen and turn them on in that app. The app icon shows how many things are waiting.</li>
           <li><b>Images and files:</b> paste (⌘V), drop or pick (the paperclip) up to 4 images or files in a message: they go with your text, like in the terminal. The agent sees <code>[📎 image #12: name]</code> and opens an image itself with the <code>attachment</code> tool; any other file (a zip, a PDF, a CSV, up to 10 MB) shows as <code>[📎 file #13: data.zip · 2.1 MB]</code>, and the agent saves it to its machine with <code>save_attachment</code>, where you tell it or in its working folder. Images are scaled down before upload; files go as they are. Text files (a Markdown review, a log, JSON, code) open in a reader in the dashboard, Markdown rendered or as source, with a download button; anything else only downloads. Visible only to those who can read the message, kept 30 days. A folder: zip it first.</li>
+          <li><b>Tickets &amp; MRs:</b> an agent that looks after your tickets (going through Jira and GitLab, say) publishes where each one stands with <code>track</code> after every check: its key and link, state, pipeline and approvals, who it's waiting on and the next step, with each MR under its ticket. The intercom reads no tracker itself. They're grouped by who they wait on (you, an agent, someone else), each keeps a history of its changes, and a board that hasn't been updated for three hours says so. Done items stay a week in view.</li>
           <li><b>Files from agents:</b> ask an agent to show you something it made (a screenshot, a report, a log) and it shares the file with <code>share_file</code>. It lands in your dashboard: images preview, other files download. Up to 10 MB, kept 30 days.</li>
           <li><b>Side questions (btw):</b> switch the chat to <b>btw</b> (or start with <code>/btw</code>) to ask your own Claude Code agent something without touching its work, e.g. “what's your plan?”. The intercom-ui mod in that session answers from a read-only copy of its current context; nothing is added to the agent's history. Follow-ups continue the side thread; “start a new side thread” begins fresh. Needs intercom-ui 0.2.4+ and at least one finished turn; not available for Codex.</li>
           <li><b>Background jobs:</b> commands an agent runs in the background (a dev server, a long deploy) show in its header with how long they've run (⧗ in the agent list), and a ✓ finished / ✗ failed line when they end. Like activity, this comes from the transcript and only you see it; the jobs' output stays on your machine.</li>

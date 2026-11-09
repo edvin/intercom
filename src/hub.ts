@@ -3,6 +3,7 @@ import { handle, json } from "./app";
 import { tools } from "./tools";
 import { pruneAttachments } from "./attachments";
 import { pruneBtw } from "./btw";
+import { pruneTracked } from "./tracked";
 import { sendDuePushes } from "./push";
 import { SqlDb, splitStatements } from "./db";
 import { type Env, type Message, address, authenticate, cleanBranch, cleanClient, fmtMessage, prune, setHost, setVersion, projectFor, setPresence, setRepo, touchSession, unread } from "./lib";
@@ -59,6 +60,7 @@ import m0050 from "../migrations/0050_ctx_stale.sql";
 import m0051 from "../migrations/0051_agent_renames.sql";
 import m0052 from "../migrations/0052_agent_forwards.sql";
 import m0053 from "../migrations/0053_resets.sql";
+import m0054 from "../migrations/0054_tracked.sql";
 import { upkeepTick } from "./upkeep";
 
 /** A short fingerprint of the MCP tools (names, descriptions, schemas) this code offers. */
@@ -122,6 +124,7 @@ const MIGRATIONS: [string, string][] = [
   ["0051_agent_renames", m0051],
   ["0052_agent_forwards", m0052],
   ["0053_resets", m0053],
+  ["0054_tracked", m0054],
 ];
 
 const DAY = 86400_000;
@@ -178,7 +181,7 @@ export class TeamHub extends DurableObject<WorkerEnv> {
     let pruneAt = (await this.ctx.storage.get<number>("prune_at")) ?? 0;
     if (now >= pruneAt) {
       const days = Number(this.env.RETENTION_DAYS) || undefined;
-      const removed = { ...(await prune(this.appEnv(), days)), attachments: await pruneAttachments(this.appEnv()), btw: await pruneBtw(this.appEnv()) };
+      const removed = { ...(await prune(this.appEnv(), days)), attachments: await pruneAttachments(this.appEnv()), btw: await pruneBtw(this.appEnv()), tracked: await pruneTracked(this.appEnv()) };
       console.log("prune", JSON.stringify(removed));
       pruneAt = now + DAY;
       await this.ctx.storage.put("prune_at", pruneAt);

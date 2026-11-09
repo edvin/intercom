@@ -1691,6 +1691,58 @@ describe("share_file", () => {
     assert.match(await (await w.request("/dashboard?view=agents&agent=bob%2Fcore", { as: "bob", cookie: true })).text(), /href="\/dashboard\?view=files&amp;agent=bob%2Fcore"/);
   });
 
+  test("tickets & MRs: an agent publishes where its tickets and MRs stand with track, and the dashboard groups them by who they wait on", async () => {
+    const w = await standardWorld();
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=tk1&name=merginator", { as: "bob" });
+    const s = { id: "tk1", project: "billing-api" };
+    const view = async (as = "bob", q = "") => (await w.request(`/dashboard?view=tracked${q}`, { as, cookie: true })).text();
+    assert.match(await view(), /No tickets or MRs yet/);
+
+    const first = await w.ok("bob", "track", {
+      complete: "all",
+      items: [
+        { key: "PAY-1234", url: "https://jira.example.com/browse/PAY-1234", title: "Refunds for split payments", state: "In Review", stage: "waiting", waiting_on: "Dana's review", refs: ["T12"] },
+        { key: "shop!456", url: "https://git.example.com/shop/-/merge_requests/456", title: "Split refunds", parent: "PAY-1234", state: "opened", stage: "waiting", waiting_on: "Dana", pipeline: "passed", approvals: "0/1", threads: 2 },
+        { key: "PAY-777", url: "https://jira.example.com/browse/PAY-777", title: "Should we drop the old API?", state: "To Do", stage: "you", next: "Decide on T13" },
+        { key: "admin!9", url: "javascript:alert(1)", title: "x" },
+      ],
+    }, s).catch((e: Error) => e.message);
+    assert.match(first, /url must be an http\(s\) link/); // nothing stored from a bad batch
+    assert.match(await w.ok("bob", "track", {
+      complete: "all",
+      items: [
+        { key: "PAY-1234", url: "https://jira.example.com/browse/PAY-1234", title: "Refunds for split payments", state: "In Review", stage: "waiting", waiting_on: "Dana's review", refs: ["T12"] },
+        { key: "shop!456", url: "https://git.example.com/shop/-/merge_requests/456", title: "Split refunds", parent: "PAY-1234", state: "opened", stage: "you", waiting_on: "your answer", pipeline: "passed", approvals: "0/1", threads: 2 },
+        { key: "PAY-777", url: "https://jira.example.com/browse/PAY-777", title: "Old API cleanup", state: "In Progress", stage: "working", owner: "shop-core", next: "Removing the v1 routes" },
+      ],
+    }, s), /Board "billing" updated: 3 sent \(3 open\), 3 new, 0 changed, 0 no longer there marked done/);
+
+    let page = await view();
+    assert.match(page, /<h1>Tickets &amp; MRs<\/h1><p class="muted">2 open tickets and 1 open MR<\/p>/);
+    // The key reads as people write it, linked; an MR's repo is quiet before its !number, and the MR sits under its ticket.
+    assert.match(page, /<a class="trkkey" href="https:\/\/jira\.example\.com\/browse\/PAY-1234" target="_blank" rel="noopener"[^>]*>PAY-1234<\/a>/);
+    assert.match(page, /<a class="trkkey" href="https:\/\/git\.example\.com\/shop\/-\/merge_requests\/456"[^>]*><span class="trkrepo">shop<\/span>!456<\/a>/);
+    assert.match(page, /<section class="trksec s-you">[\s\S]*PAY-1234[\s\S]*trkrow s-you nested" data-key="shop!456"[\s\S]*<\/section><section class="trksec s-working">[\s\S]*PAY-777/);
+    assert.match(page, /href="\/dashboard\?view=ticket&amp;id=12&amp;back=[^"]*" title="The ticket card">T12<\/a>/);
+    assert.match(page, /trkpipe green[\s\S]*passed/);
+    assert.match(page, /2 open threads/);
+    assert.match(page, /merginator <span class="muted">· billing<\/span><span>: updated just now/);
+    assert.match(page, /title="The tickets and MRs your agents track for you">[\s\S]*?<span class="badge amber" title="Need you">1<\/span>/);
+    // Others don't see bob's board.
+    assert.match(await view("alice"), /No tickets or MRs yet/);
+
+    // A partial update keeps what wasn't sent and records the change; a complete one marks what's gone as done.
+    assert.match(await w.ok("bob", "track", { complete: "mrs", items: [{ key: "shop!456", state: "merged", stage: "done", pipeline: "passed" }] }, s), /1 new|0 new/);
+    assert.match(await w.ok("bob", "track", { complete: "tickets", items: [{ key: "PAY-1234", state: "Ready for Testing", stage: "waiting", waiting_on: "QA" }] }, s), /1 no longer there marked done/);
+    page = await view();
+    assert.match(page, /data-key="shop!456"[\s\S]*?<ol class="trkhist"><li><span class="muted">just now<\/span>done<\/li><li><span class="muted">just now<\/span>opened → merged<\/li><li><span class="muted">just now<\/span>opened · needs you<\/li><\/ol>/);
+    assert.match(page, /<details class="trksec s-done"><summary class="trkh">[\s\S]*Done in the last 7 days[\s\S]*PAY-777[\s\S]*left the board/);
+    assert.match(page, /Refunds for split payments[\s\S]*on QA/);
+    assert.match(await w.ok("bob", "track", { action: "list" }, s), /^Open on "billing":\nPAY-1234 \[waiting\] Ready for Testing · on QA/);
+    assert.match(await w.ok("bob", "track", { action: "remove", keys: ["PAY-777"] }, s), /Removed 1/);
+    assert.doesNotMatch(await view(), /PAY-777/);
+  });
+
   test("a Markdown review reads rendered in the dashboard, or as source; binary files go to the download", async () => {
     const w = await standardWorld();
     await w.request("/api/hook?event=SessionStart&project=billing-api&session=sf3&name=core", { as: "bob" });

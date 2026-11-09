@@ -12,6 +12,7 @@ import { activeLoops, describe, parseLoops } from "./loops";
 import { activeJobs, duration, jobName, parseJobs } from "./jobs";
 import { parseSubs, subSteps } from "./subagents";
 import { subMark, subsRegion } from "./subview";
+import { trackedNeedsYou } from "./tracked";
 import { BTW_TIMEOUT, NO_MOD, btwFor, compactable, modAnswers } from "./btw";
 import { type Activity, type Env, type Message, DELEGATE_PER_HOUR, LIVE, address, ago, deliveryMarks, short, hostNames, myProjects } from "./lib";
 import { agentAvatar, agentHue, agentLink, agentName, avatar, deliveryMark, esc, hidden, icon, md, plainSpaces, time } from "./ui";
@@ -211,12 +212,14 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   const pending = [...(await pendingApprovals(env, me)), ...reviews, ...tickets];
   const waitingN = pending.length + (await stuckSessions(env, me)).length;
   const stale = agents.filter((a) => a.member === me && isOn(a) && outdated(a.version));
+  const trackedN = await trackedNeedsYou(env, me);
   const tree = `<aside class="tree" id="tree" data-region>
     <nav class="ttop">
       <button type="button" class="tl" data-kopen>${icon("search", 14)}<span>Search</span><span class="kbd kbd-k" style="margin-left:auto">⌘K</span></button>
       <a class="tl${nav.view === "feed" && !nav.channel ? " on" : ""}" href="/dashboard">${icon("layers", 14)}<span>Everything</span>${nav.votesTotal ? `<span class="badge accent">${nav.votesTotal}</span>` : ""}</a>
       <a class="tl${nav.view === "work" ? " on" : ""}" href="/dashboard?view=work">${icon("check", 14)}<span>Work</span></a>
       <a class="tl${nav.view === "fleet" ? " on" : ""}" href="/dashboard?view=fleet" title="Your agents by machine, the intercom each runs, and updating them">${icon("monitor", 14)}<span>Agents · versions</span>${stale.length ? `<span class="badge amber" title="On an older intercom">${stale.length}</span>` : ""}</a>
+      <a class="tl${nav.view === "tracked" ? " on" : ""}" href="/dashboard?view=tracked" title="The tickets and MRs your agents track for you">${icon("branch", 14)}<span>Tickets &amp; MRs</span>${trackedN ? `<span class="badge amber" title="Need you">${trackedN}</span>` : ""}</a>
       <a class="tl${nav.view === "files" ? " on" : ""}" href="/dashboard?view=files" title="Images and files your agents shared, as thumbnails">${icon("image", 14)}<span>Files from agents</span></a>
       ${waitingN ? `<button type="button" class="tl warn" data-asksopen>${icon("bell", 14)}<span>Waiting for you</span><span class="badge amber">${waitingN}</span></button>` : ""}
     </nav>
