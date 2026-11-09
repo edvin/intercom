@@ -20,7 +20,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const VERSION = "0.12.41"; // kept in step with .claude-plugin/plugin.json (a test checks)
+const VERSION = "0.12.42"; // kept in step with .claude-plugin/plugin.json (a test checks)
 const DIR = path.join(os.homedir(), ".claude", "intercom");
 const CONFIG = path.join(DIR, "config");
 function readConf() {
@@ -878,6 +878,8 @@ async function onRequest(msg) {
       // A standing name for this agent's sessions, e.g. INTERCOM_CODEX_NAME=alder → edvin/alder.
       const name = process.env.INTERCOM_NAME || (headers["x-intercom-client"] === "codex" ? conf.INTERCOM_CODEX_NAME : conf.INTERCOM_CLAUDE_NAME) || conf.INTERCOM_NAME;
       if (name) headers["x-intercom-name"] = name;
+      // Codex: no session to speak for until its note is there (the placeholder would be registered as an agent).
+      if (unbound()) delete headers["x-intercom-session"];
       startChannel();
       let instructions = "";
       try {

@@ -629,6 +629,8 @@ export async function prune(env: Env, retentionDays = RETENTION_DAYS, now = Date
     locks: await run("DELETE FROM locks WHERE expires_at < ?", now),
     invites: await run("DELETE FROM invites WHERE expires_at < ? OR uses_left <= 0", now - 7 * day),
     sessions: await run("DELETE FROM sessions WHERE last_seen < ?", now - 14 * day),
+    // Placeholders of Codex servers from before they knew their session (older plugins registered them as agents).
+    placeholders: await run("DELETE FROM sessions WHERE client = 'codex' AND session_id LIKE 'pid-%' AND last_seen < ?", now - GONE_MS),
     states: await run("DELETE FROM oauth_states WHERE expires_at < ?", now),
     // A connector (Claude.ai) nobody has used for 30 days is signed out; connecting again takes one click.
     connectors: await run("DELETE FROM tokens WHERE kind = 'connector' AND COALESCE(used_at, created_at) < ?", now - 30 * day),

@@ -19,7 +19,11 @@ test("Codex servers sharing one parent each find their own session", { timeout: 
   fs.mkdirSync(path.join(D, "codex-sessions"), { recursive: true });
   for (const d of ["fab", "lox"]) fs.mkdirSync(path.join(root, d));
   // A hub that turns everything away: the servers only need somewhere to try connecting to.
-  const hub = http.createServer((_q, r) => r.end("{}"));
+  const askedAs: string[] = [];
+  const hub = http.createServer((q, r) => {
+    if (q.headers["x-intercom-session"]) askedAs.push(String(q.headers["x-intercom-session"]));
+    r.end("{}");
+  });
   const connectedAs: string[] = [];
   hub.on("upgrade", (q, sock) => {
     connectedAs.push(String(q.headers["x-intercom-session"]));
@@ -61,6 +65,7 @@ test("Codex servers sharing one parent each find their own session", { timeout: 
     assert.equal(fs.readFileSync(path.join(D, "codex-claims", "fab-one"), "utf8"), String(fab1));
     // Never connected under a placeholder (it would take the agent's name and mail), only as its session.
     assert.ok(connectedAs.length > 0 && connectedAs.every((id) => !id.startsWith("pid-")), connectedAs.join(","));
+    assert.ok(askedAs.every((id) => !id.startsWith("pid-")), askedAs.join(","));
   } finally {
     for (const c of kids) c.kill();
     hub.close();
