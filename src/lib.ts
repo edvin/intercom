@@ -513,6 +513,9 @@ export async function touchSession(
   return { session_id: sessionId, project, ...row! };
 }
 
+/** How far back a session looks for DMs to its name that no session took (as long as a stuck card would show them). */
+const MISSED_DAYS = 7;
+
 /**
  * Unread messages for `me`, excluding their own. Without a session this is the person-level view (all DMs);
  * with one, DMs addressed to another of their sessions are skipped and the session's own cursor is used.
@@ -537,8 +540,14 @@ export async function unread(
   const notMine = session
     ? "(sender != ?2 OR sender_agent IS NULL OR (sender_agent != ?4 AND NOT (recipient IS NOT NULL AND recipient = ?2 AND recipient_agent IS NULL)))"
     : "sender != ?2";
-  const { results } = await env.DB.prepare(`SELECT * FROM messages WHERE id > ?1 AND ${notMine} AND ${RECEIVES} AND ${agentOk} ORDER BY id LIMIT ?3`)
-    .bind(cursor, me, limit + 1, session?.label ?? null, session?.project ?? null)
+  // A DM to this session's name that no session ever took, though it's below the cursor: it came while another session
+  // had the name (one that wasn't reading, or moved past it before it was named so), or before this one took the name.
+  // A cursor only says how far a session has read, not what it was given, so these are fetched by what's missing.
+  const missed = session
+    ? "OR (id <= ?1 AND recipient = ?2 AND recipient_agent IN (?4, ?5) AND created_at > ?6 AND kind != 'event' AND NOT EXISTS (SELECT 1 FROM deliveries d WHERE d.message_id = messages.id))"
+    : "";
+  const { results } = await env.DB.prepare(`SELECT * FROM messages WHERE (id > ?1 ${missed}) AND ${notMine} AND ${RECEIVES} AND ${agentOk} ORDER BY id LIMIT ?3`)
+    .bind(cursor, me, limit + 1, session?.label ?? null, session?.project ?? null, ...(session ? [Date.now() - MISSED_DAYS * 86_400_000] : []))
     .all<Message>();
   const more = results.length > limit;
   const messages = results.slice(0, limit);

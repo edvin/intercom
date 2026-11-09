@@ -608,6 +608,25 @@ describe("named sessions", () => {
     assert.doesNotMatch(await inbox("bbbb2222"), /for alder only/);
   });
 
+  test("a DM to a name that no session took is still delivered to the session that takes the name later, though its cursor is past it", async () => {
+    const w = await standardWorld();
+    const inbox = async (sid: string) => (await (await w.request(`/api/hook?event=UserPromptSubmit&project=billing-api&session=${sid}`, { as: "bob" })).text());
+    // The old workholding wasn't reading (an idle Codex session, say) and is gone now.
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=old1&client=codex&name=holder", { as: "bob" });
+    await w.ok("alice", "post", { to: "bob/holder", message: "your evidence archive is in" });
+    // A new session starts under a placeholder name, reads (its cursor passes that DM), then takes the name.
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=new1&client=codex", { as: "bob" });
+    await w.ok("alice", "post", { channel: "billing", message: "a project post" });
+    assert.match(await inbox("new1"), /a project post/);
+    await w.db.prepare("UPDATE sessions SET cursor = (SELECT MAX(id) FROM messages) WHERE member = 'bob'").run();
+    await w.db.prepare("UPDATE sessions SET last_seen = ? WHERE session_id = 'old1'").bind(Date.now() - 86_400_000).run();
+    await w.ok("bob", "set_name", { name: "holder" }, { id: "new1", project: "billing-api" });
+    assert.match(await inbox("new1"), /your evidence archive is in/);
+    // Delivered once: it doesn't come again, and it no longer counts as unread for the agent.
+    assert.doesNotMatch(await inbox("new1"), /your evidence archive is in/);
+    assert.doesNotMatch(await w.ok("alice", "team"), /holder[^\n]*unread/);
+  });
+
   test("set_name renames the calling session", async () => {
     const w = await standardWorld();
     const out = await w.ok("bob", "set_name", { name: "birch" }, { id: "cccc3333", project: "billing-api" });
