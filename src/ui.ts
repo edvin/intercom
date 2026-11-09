@@ -831,7 +831,12 @@ pre.term .b8{background:#555a6e}pre.term .b9{background:#d4505a}pre.term .b10{ba
 @media (max-width:640px){.hdmore{display:inline-flex}.hdmore[aria-expanded=true]{background:var(--surface-2);color:var(--ink)}
   .chat>.hd .hdtools,.chat>.hd .meta-row{display:none}.chat>.hd h2{flex-wrap:wrap}
   /* Open: the tools as labelled buttons in a grid, then its state, then one line each for machine, project, branch, folder. */
-  .chat>.hd.menu{align-items:flex-start}
+  .chat>.hd.menu,.chatmode .chat>.hd.menu{flex-wrap:wrap;row-gap:0;align-items:center}
+  /* Open, the header's inner boxes step aside so the menu spans the full width, not just the column under the name. */
+  .chat>.hd.menu>.grow,.chat>.hd.menu h2{display:contents!important}
+  .chat>.hd.menu h2>.grow{flex:1;min-width:0;font:600 15px/1.2 Geist,system-ui,sans-serif;letter-spacing:-.02em}
+  .chat>.hd.menu .meta-row{flex-basis:100%;order:10}
+  .chatmode .chat>.hd.menu .hdtools,.chatmode .chat>.hd.menu .meta-row{flex-basis:calc(100% - 6px);margin-left:6px}
   .chat>.hd.menu .hdtools{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;flex-basis:100%;order:9;margin-top:10px;padding-top:12px;border-top:1px solid var(--line)}
   .chat>.hd.menu .hdtools>.btn{width:auto;height:36px;justify-content:center;gap:6px;padding:0 6px;border:1px solid var(--line);border-radius:10px;font:500 12px/1.1 "Geist",system-ui,sans-serif;color:var(--ink-2);opacity:1}
   .chat>.hd.menu .hdtools>.ttog.on{border-color:color-mix(in srgb,var(--accent) 35%,transparent);color:var(--accent)}
