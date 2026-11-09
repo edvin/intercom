@@ -3739,3 +3739,10 @@ describe("Codex usage limits and resets", () => {
     assert.ok(busy("• Working (1m 05s • esc to interrupt)\n"));
   });
 });
+
+test("every migration file runs in production: the hub lists each one (the tests read them from the folder)", async () => {
+  const { readdirSync, readFileSync } = await import("node:fs");
+  const hub = readFileSync(new URL("../src/hub.ts", import.meta.url), "utf8");
+  const missing = readdirSync(new URL("../migrations/", import.meta.url)).filter((f) => f.endsWith(".sql") && !hub.includes(`["${f.replace(/\.sql$/, "")}", `));
+  assert.deepEqual(missing, []);
+});

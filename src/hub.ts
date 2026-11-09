@@ -58,6 +58,7 @@ import m0049 from "../migrations/0049_nudge.sql";
 import m0050 from "../migrations/0050_ctx_stale.sql";
 import m0051 from "../migrations/0051_agent_renames.sql";
 import m0052 from "../migrations/0052_agent_forwards.sql";
+import m0053 from "../migrations/0053_resets.sql";
 import { upkeepTick } from "./upkeep";
 
 /** A short fingerprint of the MCP tools (names, descriptions, schemas) this code offers. */
@@ -120,6 +121,7 @@ const MIGRATIONS: [string, string][] = [
   ["0050_ctx_stale", m0050],
   ["0051_agent_renames", m0051],
   ["0052_agent_forwards", m0052],
+  ["0053_resets", m0053],
 ];
 
 const DAY = 86400_000;
