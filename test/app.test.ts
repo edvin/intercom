@@ -1691,7 +1691,7 @@ describe("share_file", () => {
     assert.match(bob, /<div class="gal" data-gallery><a class="att gtile" href="\/attachment\/3" title="shot\.png · core · #billing · [^"]*" data-name="shot\.png"><img src="\/attachment\/3"/);
     assert.doesNotMatch(bob, /class="gtile gfile"/); // images only by default; no message text around the tiles
     const files = await view("bob", "&kind=files");
-    assert.match(files, /href="\/attachment\/1\/view" target="_blank"[^>]*>.*<span class="gext">LOG<\/span>/);
+    assert.match(files, /href="\/attachment\/1\/view" target="_blank"[^>]*>.*<span class="gext">LOG<\/span><span class="gname">build<\/span><span class="gsize">1 B<\/span>/);
     assert.match(files, /href="\/attachment\/2" download="r\.zip"[^>]*>.*<span class="gext">ZIP<\/span>/);
     // Alice sees what came to her and to her project, not bob's own DM; carol, outside billing, sees nothing.
     const alice = await view("alice", "&kind=all");

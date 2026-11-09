@@ -1,5 +1,5 @@
 // Files from agents (view=files): every image and file an agent shared where you can see it, as a grid of
-// thumbnails without the messages around them. Filter by agent, project and kind; an image opens in the viewer
+// thumbnails without the messages around them (a file that isn't an image shows its type, name and size). Filter by agent, project and kind; an image opens in the viewer
 // (← → step through the grid), a file opens in the reader or downloads. Kept as long as the files are (30 days).
 
 import { RETENTION_DAYS, isImage, readableName, size } from "./attachments";
@@ -106,9 +106,10 @@ export async function galleryView(env: Env, me: string, url: URL): Promise<strin
     const tip = esc(`${f.name} · ${from}`);
     if (isImage(f.mime))
       return `<a class="att gtile" href="/attachment/${f.id}" title="${tip}" data-name="${esc(f.name)}"><img src="/attachment/${f.id}" alt="${esc(f.name)}" loading="lazy" decoding="async"></a>`;
-    const ext = (/\.([a-z0-9]{1,5})$/i.exec(f.name)?.[1] ?? "file").toUpperCase();
+    const ext = (/\.([a-z0-9]{1,8})$/i.exec(f.name)?.[1] ?? "file").toUpperCase();
+    const stem = f.name.replace(/\.[a-z0-9]{1,8}$/i, "");
     const href = readableName(f.name) ? `/attachment/${f.id}/view` : `/attachment/${f.id}`;
-    return `<a class="gtile gfile" href="${href}"${readableName(f.name) ? ' target="_blank" rel="noopener"' : ` download="${esc(f.name)}"`} title="${esc(`${f.name} · ${size(f.bytes)} · ${from}`)}">${icon("file", 30)}<span class="gext">${esc(ext)}</span></a>`;
+    return `<a class="gtile gfile" href="${href}"${readableName(f.name) ? ' target="_blank" rel="noopener"' : ` download="${esc(f.name)}"`} title="${esc(`${f.name} · ${size(f.bytes)} · ${from}`)}">${icon("file", 26)}<span class="gext">${esc(ext)}</span><span class="gname">${esc(stem)}</span><span class="gsize">${esc(size(f.bytes))}</span></a>`;
   };
 
   const empty = `<div class="empty galempty">${icon(kind === "files" ? "file" : "image", 30)}<div>${

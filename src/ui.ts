@@ -840,7 +840,8 @@ pre.term .b8{background:#555a6e}pre.term .b9{background:#d4505a}pre.term .b10{ba
 .gal .att.gtile img{width:100%;height:100%;max-width:none;max-height:none;object-fit:cover;border:0;border-radius:0;transition:transform .25s ease}
 .gtile:hover{border-color:var(--line-strong)}.gtile:hover img{transform:scale(1.035)}.gtile:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .gfile{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:var(--mute);text-decoration:none}.gfile:hover{color:var(--accent)}
-.gext{font:600 11px/1 "JetBrains Mono","Geist Mono",ui-monospace,monospace;letter-spacing:.06em;color:var(--ink-2)}
+.gext{font:600 11px/1 "JetBrains Mono","Geist Mono",ui-monospace,monospace;letter-spacing:.06em;color:var(--ink-2)}.gfile{gap:6px;padding:12px}.gname{max-width:100%;font-size:12px;line-height:1.35;color:var(--ink);text-align:center;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}.gsize{font-size:11px;color:var(--mute)}.gfile:hover .gname{color:var(--accent)}
+@media (max-width:640px){.gfile{padding:6px;gap:3px}.gfile .i{width:18px;height:18px}.gname{font-size:10.5px;-webkit-line-clamp:3}.gsize{font-size:10px}}
 .galempty{padding:64px 16px;text-align:center}.galmore{display:flex;gap:8px;justify-content:center}
 @media (max-width:640px){.galpane{padding:12px 12px 88px}.gal{grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:4px}.gtile{border-radius:6px}.galbar select{min-width:0;flex:1}}
 /* Tickets & MRs (tracked.ts): grouped by who they wait on, an MR under its ticket, each row opening to its history. */
