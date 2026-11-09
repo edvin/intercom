@@ -763,7 +763,13 @@ export async function renamedTo(env: Env, member: string, agent: string): Promis
   let found: { label: string; at: number; kind: string } | null = null;
   const seen = new Set([agent]);
   for (let hop = 0; hop < 5; hop++) {
-    const r = await env.DB.prepare("SELECT new_label, at, kind FROM agent_renames WHERE member = ? AND old_label = ? AND at > ? ORDER BY at DESC LIMIT 1")
+    // A rename stops counting once another session has gone by the old name since: the name is that agent's again
+    // (a forward set from the dashboard is for while it isn't running, so it stays).
+    const r = await env.DB.prepare(
+      `SELECT new_label, at, kind FROM agent_renames r WHERE member = ?1 AND old_label = ?2 AND at > ?3
+         AND (kind = 'forward' OR NOT EXISTS (SELECT 1 FROM sessions s WHERE s.member = ?1 AND s.label = ?2 AND s.session_id != r.session_id AND s.last_seen > r.at))
+       ORDER BY at DESC LIMIT 1`,
+    )
       .bind(member, name, Date.now() - RENAME_KEEP_MS)
       .first<{ new_label: string; at: number; kind: string }>();
     if (!r || seen.has(r.new_label)) break;

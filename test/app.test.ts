@@ -615,6 +615,10 @@ describe("renamed agents", () => {
     await w.request("/api/hook?event=SessionStart&project=billing-api&session=r2&name=alder", { as: "bob" });
     const plain = await w.ok("alice", "post", { to: "bob/alder", message: "for the new alder" }, at);
     assert.doesNotMatch(plain, /now called/);
+    // Once it has had the name, the old rename no longer counts, even while that session is away.
+    await w.db.prepare("UPDATE agent_renames SET at = ? WHERE member = 'bob'").bind(Date.now() - 3600_000).run();
+    await w.db.prepare("UPDATE sessions SET last_seen = ? WHERE member = 'bob' AND session_id = 'r2'").bind(Date.now() - 20 * 60_000).run();
+    assert.doesNotMatch(await w.ok("alice", "post", { to: "bob/alder", message: "while the new alder is away" }, at), /now called/);
   });
 });
 
