@@ -3,6 +3,7 @@
 // the pane on its machine when asked (plugins/intercom/code.mjs); nothing of the screen is stored here. Every key sent
 // is noted in the agent's activity, so there's a trail.
 
+import { typeLine } from "./codexterm";
 import { type Env, UserError, liveIds, recordDelivery } from "./lib";
 import { esc, icon } from "./ui";
 
@@ -251,7 +252,7 @@ export async function sendNow(env: Env, me: string, label: string, text: string)
   const line = text.replace(/[\r\n]+/g, " ").trim().slice(0, 1000);
   if (!line) throw new UserError("Type what to send.");
   const s = await screenTarget(env, me, label);
-  if (s.client === "codex") return { data: await askScreen(env, me, label, { op: "keys", text: line, enter: true }), how: "typed into its terminal and sent (Codex takes it into the running turn)" };
+  if (s.client === "codex") return { data: await typeLine((q) => askScreen(env, me, label, q), line), how: "typed into its terminal and sent (Codex takes it into the running turn)" };
   if (!atLeast(s.version || "0", "0.12.33"))
     return { data: await askScreen(env, me, label, { op: "keys", text: line, enter: true }), how: `typed and queued for the end of its turn (sending it right away needs intercom 0.12.33 on ${label}; /reload-plugins there gets it)` };
   return { data: await askScreen(env, me, label, { op: "keys", text: line, after: ["ctrl-x", "ctrl-s"] }), how: "sent now (Ctrl+X Ctrl+S): it reads it at its next step" };

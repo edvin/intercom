@@ -1,7 +1,8 @@
+import { queueReset, resetHost, setResets } from "./resets";
 import { recordsBrief } from "./records";
 import { saveWorkSettings, workCsv } from "./work";
 import { dismissStuck, moveStuck, releaseSenders, setNudge, wakeStuck } from "./stuck";
-import { CTX_STALE_MS, FIT_SINCE, compactAgent, compactOnStop, markCompacted, dismiss, myRows, newer, restartAgent, setAuto, updateAgent, updateIdle } from "./upkeep";
+import { CTX_STALE_MS, FIT_SINCE, compactAgent, compactOnStop, markCompacted, dismiss, myRows, newer, outOfUsage, restartAgent, setAuto, updateAgent, updateIdle } from "./upkeep";
 import { KEY_NAMES, type ScreenQuery, askScreen, drawScreen, screenReply, sendNow, stopAgent } from "./screen";
 import { answerBtw, pendingBtw } from "./btw";
 import { getAttachment, isImage, readImage, readable } from "./attachments";
@@ -142,7 +143,10 @@ async function replyFromTurn(env: Env, me: string, session: Session & { cursor: 
 /** The dashboard state for a failed turn (StopFailure hook input): waiting with the reason, or idle. */
 export function stopFailure(input: { error?: unknown; error_details?: unknown; last_assistant_message?: unknown }): [string, string] {
   const text = [input.error_details, input.last_assistant_message].filter((t) => typeof t === "string").join(" ");
-  const resets = text.match(/\bresets?\s+(?:at\s+)?([^.·\n()]{1,40}?)(?=\s*(?:[.·\n()]|$))/i)?.[1]?.trim();
+  // Claude Code: "… resets 3pm"; Codex: "… or try again at Nov 15th, 2026 10:19 AM."
+  const resets = (
+    text.match(/\bresets?\s+(?:at\s+)?([^.·\n()]{1,40}?)(?=\s*(?:[.·\n()]|$))/i) ?? text.match(/\btry again (?:at|in)\s+([^·\n()]{1,40}?)\.?\s*$/im)
+  )?.[1]?.trim();
   switch (input.error) {
     case "rate_limit":
       return ["waiting", resets ? `usage limit · resets ${resets}` : /limit/i.test(text) ? "usage limit reached" : "rate limited"];
@@ -162,6 +166,18 @@ async function handleHook(url: URL, env: Env, me: string, input: { last_assistan
   const event = url.searchParams.get("event") ?? "UserPromptSubmit";
   const raw = url.searchParams.get("project");
   const sessionId = url.searchParams.get("session");
+  // A Codex turn as its local server reads it from Codex's log (intercom-channel.mjs): one starting (a goal's own
+  // turns too, which no hook reports), or one that failed on a usage limit. Only the state; nothing else changes.
+  if ((event === "TurnStart" || event === "StopFailure") && !url.searchParams.has("project") && sessionId) {
+    const [state, detail] = event === "TurnStart" ? ["working", ""] : stopFailure(input);
+    const now = Date.now();
+    await env.DB.prepare("UPDATE sessions SET state = ?, state_detail = ?, state_at = ?, active_at = ?, last_seen = ? WHERE member = ? AND session_id = ?")
+      .bind(state, detail.slice(0, 200), now, now, now, me, sessionId)
+      .run();
+    if (/^usage limit/.test(detail)) await queueReset(env, me, sessionId);
+    env.refreshWeb?.(me);
+    return new Response("", { status: 200 });
+  }
   if (event === "SessionEnd") {
     if (sessionId) {
       // Remember where a named session stopped, so the next session with its name picks up the mail sent meanwhile.
@@ -212,7 +228,9 @@ async function handleHook(url: URL, env: Env, me: string, input: { last_assistan
     // A turn the API refused: when it needs you (a usage limit, a lapsed login, billing), the agent shows as waiting
     // with the reason, and when a usage limit resets if the error says; anything else (overloaded, a server error) is
     // just the end of the turn.
-    await setState(...stopFailure(input));
+    const [state, detail] = stopFailure(input);
+    await setState(state, detail);
+    if (session && /^usage limit/.test(detail)) await queueReset(env, me, session.session_id);
     return new Response("", { status: 200 });
   }
   if (event === "Stop") {
@@ -256,7 +274,9 @@ async function handleHook(url: URL, env: Env, me: string, input: { last_assistan
         });
       }
     }
-    await setState("idle");
+    // A Codex turn that failed on a usage limit ends with this hook too, around when its local server reports the limit.
+    const cur = session ? await env.DB.prepare("SELECT state, state_detail, state_at FROM sessions WHERE member = ? AND session_id = ?").bind(me, session.session_id).first<{ state: string; state_detail: string; state_at: number | null }>() : null;
+    if (!(cur && outOfUsage(cur) && Date.now() - (cur.state_at ?? 0) < 60_000)) await setState("idle");
     return new Response("", { status: 200 });
   }
   if (event === "UserPromptSubmit" || event === "SessionStart") await setState(event === "SessionStart" ? "idle" : "working");
@@ -759,6 +779,8 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
         ok = await updateAgent(env, me, t, rows, live, "from the dashboard");
       } else if (op === "auto-on" || op === "auto-off") ok = await setAuto(env, me, op === "auto-on");
       else if (op === "nudge-on" || op === "nudge-off") ok = await setNudge(env, me, op === "nudge-on");
+      else if (op === "resets-on" || op === "resets-off") ok = await setResets(env, me, op === "resets-on");
+      else if (op === "reset-now") ok = await resetHost(env, me, f("host"), { force: true });
       else if (op === "restart") ok = await restartAgent(env, me, f("session"));
       else if (op === "compact" || op === "compact-now") ok = await compactAgent(env, me, f("session"), { rightAway: op === "compact-now" });
       else ok = await dismiss(env, me, f("key"), Number(f("value")) || 1);

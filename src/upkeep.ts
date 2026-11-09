@@ -8,6 +8,7 @@
 
 import { compactable } from "./btw";
 import { type Env, GONE_MS, UserError, ago, liveIds, postMessage } from "./lib";
+import { type Term, busy, carryOn, goal, pause } from "./codexterm";
 import { type AgentPane, type ScreenData, type ScreenQuery, askSession, plainScreen } from "./screen";
 import { PLUGIN_VERSION } from "./version";
 
@@ -87,6 +88,15 @@ async function ask(env: Env, me: string, at: Located, t: Row, q: ScreenQuery, by
   return askSession(env, me, at.via, { ...q, ...(at.pane ? { pane: at.pane } : {}) } as ScreenQuery, { label: t.label, by, target: t.session_id });
 }
 
+/** An agent's terminal to drive (codexterm.ts), itself or through another agent on its machine; null when unreachable. */
+export async function termFor(env: Env, me: string, t: Row, rows: Row[], live: (r: Row) => boolean, by: string): Promise<Term | null> {
+  const at = await locate(env, me, t, rows, live);
+  return at ? (q) => ask(env, me, at, t, q, by) : null;
+}
+
+/** Out of usage: its last turn failed on a usage limit (app.ts stopFailure), until a turn runs again. */
+export const outOfUsage = (r: Pick<Row, "state" | "state_detail">) => r.state === "waiting" && /^usage limit/.test(r.state_detail ?? "");
+
 // ---- updates ----
 
 /** Your connected Claude Code agents on an older intercom than the newest (`reachable`: only those whose terminal can be typed into, themselves or through another agent on their machine). */
@@ -101,6 +111,7 @@ export function staleAgents(rows: Row[], live: (r: Row) => boolean, reachable = 
  */
 export async function updateAgent(env: Env, me: string, t: Row, rows: Row[], live: (r: Row) => boolean, by: string): Promise<string> {
   if (t.state === "working") return `${t.label}: busy, left alone`;
+  if (outOfUsage(t)) return `${t.label}: out of usage (${t.state_detail}), left alone`;
   if (t.client === "codex") return restartCodex(env, me, t, rows, live, by);
   const at = await locate(env, me, t, rows, live);
   if (!at) return `${t.label}: can't reach its terminal (not in tmux, or no updated agent on ${t.host || "its machine"} to go through)`;
@@ -120,15 +131,31 @@ async function restartCodex(env: Env, me: string, t: Row, rows: Row[], live: (r:
   const cmd = resumeCommand(t);
   const at = await locate(env, me, t, rows, live);
   if (!at) return `${t.label}: can't reach its terminal (not in tmux, or no updated agent on ${t.host || "its machine"} to go through)`;
-  let screen = await ask(env, me, at, t, { op: "keys", keys: ["ctrl-c", "ctrl-c"] }, by);
+  const term: Term = (q) => ask(env, me, at, t, q, by);
+  // Look first: a turn running (a goal's own turns don't always show as working) isn't cut off, and a goal it was
+  // pursuing is resumed after the restart (Ctrl+C pauses it).
+  const before = await term({ op: "capture" });
+  if (busy(before.text)) return `${t.label}: busy (a turn is running in its terminal), left alone`;
+  const hadGoal = goal(before.text) === "pursuing";
+  let screen = await term({ op: "keys", keys: ["ctrl-c", "ctrl-c"] });
   for (let i = 0; i < 4 && !SHELL_PROMPT.test(lastLine(screen.text)); i++) {
-    await new Promise((r) => setTimeout(r, 1500));
-    screen = await ask(env, me, at, t, { op: "capture" }, by);
+    await pause();
+    screen = await term({ op: "capture" });
   }
   const end = lastLine(screen.text);
   if (!SHELL_PROMPT.test(end)) return `${t.label}: Codex didn't exit to a shell (its pane ends with “${end.slice(-60)}”); look at it`;
-  await ask(env, me, at, t, { op: "keys", text: cmd, enter: true }, by);
-  return `${t.label}: restarted in place, same session (${cmd})`;
+  await term({ op: "keys", text: cmd, enter: true });
+  if (!hadGoal) return `${t.label}: restarted in place, same session (${cmd})`;
+  // Back in its TUI (its footer shows the goal again), the goal carries on.
+  for (let i = 0; i < 8; i++) {
+    await pause();
+    const s = await term({ op: "capture" });
+    if (goal(s.text) || /Resume goal/i.test(plainScreen(s.text))) {
+      const how = await carryOn(term, { tell: false });
+      return `${t.label}: restarted in place, same session (${cmd}); ${how === "nothing to resume" ? "its goal carries on" : how}`;
+    }
+  }
+  return `${t.label}: restarted in place, same session (${cmd}); its goal may be paused (/goal resume in its terminal)`;
 }
 
 /** Update every idle agent that's behind (or, `quietFor`, only those idle that long). */

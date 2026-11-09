@@ -538,3 +538,20 @@ export async function codexPane(cwd, session, { procs: given, panes: givenPanes 
 export async function launchOf(pid = process.ppid) {
   return (await sh("ps", ["-o", "args=", "-p", String(pid)])).trim().slice(0, 500);
 }
+
+/** One line of a Codex session log → a turn starting, or a turn that failed on a usage limit (intercom-channel.mjs reports it). */
+export function codexTurn(line) {
+  if (!line.includes('"event_msg"') || !/"task_(started|complete)"/.test(line)) return null;
+  let d;
+  try {
+    d = JSON.parse(line);
+  } catch {
+    return null;
+  }
+  const p = d.payload ?? {};
+  const at = Date.parse(d.timestamp ?? "") || 0;
+  if (p.type === "task_started") return { at, event: "TurnStart" };
+  const info = String(p.error?.codex_error_info ?? "");
+  if (p.type === "task_complete" && /usage_limit/.test(info)) return { at, event: "StopFailure", body: { error: "rate_limit", error_details: String(p.error?.message ?? "usage limit") } };
+  return null;
+}

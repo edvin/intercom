@@ -4,6 +4,7 @@
 // notification), and from there moves the waiting messages to another agent, tells the senders not to wait, or
 // dismisses it.
 
+import { typeLine } from "./codexterm";
 import { type Env, GONE_MS, UserError, address, ago, forwardAgent, liveIds, postMessage } from "./lib";
 import { onlineAgents } from "./reviews";
 
@@ -291,7 +292,10 @@ export async function nudgeStuck(env: Env, me: string, agent: string, now = Date
       .bind(me, agent)
       .first<{ session_id: string; label: string; screen: string; client: string; version: string }>();
     if (!t) throw new Error("no terminal to type into");
-    await askSession(env, me, t, { op: "keys", text: NUDGE_TEXT, enter: true }, { label: agent, by: "the intercom, by itself (it wasn't reading its messages)" });
+    const note = { label: agent, by: "the intercom, by itself (it wasn't reading its messages)" };
+    // Codex: typed, then Enter on its own (codexterm.ts), or the line stays unsent in its input box.
+    if (t.client === "codex") await typeLine((q) => askSession(env, me, t, q, note), NUDGE_TEXT);
+    else await askSession(env, me, t, { op: "keys", text: NUDGE_TEXT, enter: true }, note);
     await mark(env, me, agent, "nudged_at", now);
     console.log("nudge", me, agent);
     return true;
@@ -307,8 +311,9 @@ export async function nudgeStuck(env: Env, me: string, agent: string, now = Date
 export async function wakeStuck(env: Env, me: string, agent: string): Promise<string> {
   const s = await one(env, me, agent);
   if (!s.wake) throw new UserError(`${agent}'s terminal can't be reached from here (not in tmux, or keys are off on its machine).`);
-  const { askScreen } = await import("./screen");
-  await askScreen(env, me, agent, { op: "keys", text: NUDGE_TEXT, enter: true });
+  const { askScreen, screenTarget } = await import("./screen");
+  if ((await screenTarget(env, me, agent)).client === "codex") await typeLine((q) => askScreen(env, me, agent, q), NUDGE_TEXT);
+  else await askScreen(env, me, agent, { op: "keys", text: NUDGE_TEXT, enter: true });
   env.refreshWeb?.(me);
   return `Woke ${agent}: it's reading its messages now`;
 }

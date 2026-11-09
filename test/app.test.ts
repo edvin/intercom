@@ -11,6 +11,27 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { timing } from "../src/codexterm.ts";
+
+// Codex terminal steps wait for its TUI between looks; not in tests.
+timing.step = 2;
+
+/** Answer every screen request until `go` is done (a Codex line is typed, then Enter on its own: two requests). */
+const answeringAll = async <T>(w: World, go: () => Promise<T>, data: object = { text: "", cols: 80, rows: 24, cursor: null, keys: true }) => {
+  const asks: Record<string, unknown>[] = [];
+  let done = false;
+  const p = go().finally(() => (done = true));
+  let n = w.screenAsked.length;
+  while (!done) {
+    while (w.screenAsked.length > n) {
+      const ask = w.screenAsked[n++]!;
+      asks.push(ask.q);
+      await w.request("/api/screen-reply", { as: ask.member, method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ req: ask.req, data }) });
+    }
+    await new Promise((r) => setTimeout(r, 5));
+  }
+  return { result: await p, asks };
+};
 
 describe("privacy between projects", () => {
   test("non-members can't read a project's messages, locks or votes", async () => {
@@ -3265,14 +3286,10 @@ describe("agents that don't take their messages", () => {
     // The alarm will wake it: no card meanwhile.
     assert.doesNotMatch(await page(w), /class="ask k-stuck"/);
     const { nudgeStuck, NUDGE_TEXT } = await import("../src/stuck.ts");
-    const n = w.screenAsked.length;
-    const p = nudgeStuck(w.env(), "bob", "alder");
-    const t0 = Date.now();
-    while (w.screenAsked.length === n && Date.now() - t0 < 500) await new Promise((r) => setTimeout(r, 5));
-    const ask = w.screenAsked[n]!;
-    assert.deepEqual(ask.q, { op: "keys", text: NUDGE_TEXT, enter: true });
-    await w.request("/api/screen-reply", { as: "bob", method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ req: ask.req, data: { text: "", keys: true } }) });
-    assert.equal(await p, true);
+    const client = (await w.db.prepare("SELECT client FROM sessions WHERE session_id = 'st2'").first<{ client: string }>())!.client;
+    const { result: woke, asks } = await answeringAll(w, () => nudgeStuck(w.env(), "bob", "alder"));
+    assert.deepEqual(asks, client === "codex" ? [{ op: "keys", text: NUDGE_TEXT }, { op: "keys", keys: ["enter"] }] : [{ op: "keys", text: NUDGE_TEXT, enter: true }]);
+    assert.equal(woke, true);
     const act = await w.db.prepare("SELECT text FROM activity WHERE session_id = 'st2' AND kind = 'keys'").first<{ text: string }>();
     assert.match(act!.text, /the intercom, by itself \(it wasn't reading its messages\)/);
     // Given a few minutes; once only.
@@ -3363,12 +3380,13 @@ describe("an agent's screen", () => {
     assert.deepEqual(na!.q, { op: "keys", text: "stop and run the tests", after: ["ctrl-x", "ctrl-s"] });
     assert.match(now, /sent now \(Ctrl\+X Ctrl\+S\)/);
     await w.db.prepare("UPDATE sessions SET client = 'codex' WHERE session_id = 'sc1'").run();
-    const { ask: ca } = await answering(w, () => w.form("/agent-keys", "bob", { agent: "bob/core", text: "use the staging db", now: "1" }));
-    assert.deepEqual(ca!.q, { op: "keys", text: "use the staging db", enter: true });
+    // Codex: the line, then Enter on its own (in one burst Codex takes it as a paste, and the Enter doesn't send it).
+    const { asks: ca } = await answeringAll(w, () => w.form("/agent-keys", "bob", { agent: "bob/core", text: "use the staging db", now: "1" }));
+    assert.deepEqual(ca, [{ op: "keys", text: "use the staging db" }, { op: "keys", keys: ["enter"] }]);
     const { ask: sa } = await answering(w, () => w.form("/agent-keys", "bob", { agent: "bob/core", stop: "1" }));
     assert.deepEqual(sa!.q, { op: "keys", keys: ["esc"] });
     const act = await w.db.prepare("SELECT text FROM activity WHERE session_id = 'sc1' AND kind = 'keys' ORDER BY id DESC LIMIT 2").all<{ text: string }>();
-    assert.deepEqual(act.results.map((x) => x.text), ["you sent keys from the dashboard: Esc", "you sent keys from the dashboard: typed “use the staging db”, Enter"]);
+    assert.deepEqual(act.results.map((x) => x.text), ["you sent keys from the dashboard: Esc", "you sent keys from the dashboard: Enter"]);
     // Waiting on its terminal (Codex's own prompt, say), with no card: a card that opens its screen.
     await w.db.prepare("UPDATE sessions SET state = 'waiting', state_detail = 'needs approval', state_at = ? WHERE session_id = 'sc1'").bind(Date.now() - 60_000).run();
     const dash = await (await w.request("/dashboard?view=agents", { as: "bob", cookie: true })).text();
@@ -3412,8 +3430,8 @@ describe("an agent's screen", () => {
     assert.doesNotMatch(await (await w.request("/dashboard?view=agents", { as: "bob", cookie: true })).text(), /class="ask k-stuck"/);
     await w.form("/upkeep", "bob", { op: "nudge-off", back: "/dashboard" });
     assert.match(await (await w.request("/dashboard?view=agents", { as: "bob", cookie: true })).text(), /class="ask k-stuck"[\s\S]*value="wake"[\s\S]*Wake it now/);
-    const { result, ask } = await answering(w, () => w.form("/stuck", "bob", { agent: "core", op: "wake", back: "/dashboard" }));
-    assert.deepEqual(ask!.q, { op: "keys", text: "You have intercom messages waiting: read them and carry on.", enter: true });
+    const { result, asks } = await answeringAll(w, () => w.form("/stuck", "bob", { agent: "core", op: "wake", back: "/dashboard" }));
+    assert.deepEqual(asks, [{ op: "keys", text: "You have intercom messages waiting: read them and carry on." }, { op: "keys", keys: ["enter"] }]);
     assert.match(new URL(result.headers.get("location")!, ORIGIN).searchParams.get("ok")!, /Woke core: it's reading its messages now/);
   });
 
@@ -3481,7 +3499,26 @@ describe("keeping agents running and current", () => {
       q.op === "panes" ? answer(q) : q.op === "keys" && (q.keys as string[] | undefined)?.[0] === "ctrl-c" ? { text: "To reconnect, run:\n  codex resume up1\nedvin@vms01:~/projects/billing$ " } : { text: "" };
     const { result: r3, seen: s3 } = await machine(w, () => w.form("/upkeep", "bob", { op: "update", back: "/dashboard" }), codex);
     assert.equal(ok(r3), "core: restarted in place, same session (codex --dangerously-bypass-approvals-and-sandbox resume up1)");
-    assert.deepEqual(s3.slice(1), [{ op: "keys", keys: ["ctrl-c", "ctrl-c"], pane: "%5" }, { op: "keys", text: "codex --dangerously-bypass-approvals-and-sandbox resume up1", enter: true, pane: "%5" }]);
+    assert.deepEqual(s3.slice(1), [{ op: "capture", pane: "%5" }, { op: "keys", keys: ["ctrl-c", "ctrl-c"], pane: "%5" }, { op: "keys", text: "codex --dangerously-bypass-approvals-and-sandbox resume up1", enter: true, pane: "%5" }]);
+    // A turn running in its terminal (a goal's turns don't always show as working): left alone, not cut off.
+    const running = (q: Record<string, unknown>) => (q.op === "panes" ? answer(q) : { text: "• Working (1m 05s • esc to interrupt)\n› Ask Codex to do anything\n  gpt · ~/billing                Pursuing goal (2h 3m)\n" });
+    const { result: r4, seen: s4 } = await machine(w, () => w.form("/upkeep", "bob", { op: "update", back: "/dashboard" }), running);
+    assert.equal(ok(r4), "core: busy (a turn is running in its terminal), left alone");
+    assert.equal(s4.length, 2);
+    // Pursuing a goal between turns: after the restart (which pauses it) the goal is resumed, with Enter on its own.
+    let quit = false;
+    const goalTerm = (q: Record<string, unknown>) => {
+      if (q.op === "panes") return answer(q);
+      if (q.op === "keys" && (q.keys as string[] | undefined)?.[0] === "ctrl-c") return (quit = true), { text: "edvin@vms01:~/projects/billing$ " };
+      if (!quit) return { text: "› Ask Codex to do anything\n  gpt · ~/billing                Pursuing goal (2h 3m)\n" };
+      return { text: "› Ask Codex to do anything\n  gpt · ~/billing                Goal paused (/goal resume)\n" };
+    };
+    const { result: r5, seen: s5 } = await machine(w, () => w.form("/upkeep", "bob", { op: "update", back: "/dashboard" }), goalTerm);
+    assert.match(ok(r5)!, /core: restarted in place, same session \(codex .* resume up1\); goal resumed \(\/goal resume\)$/);
+    assert.deepEqual(s5.slice(-2), [{ op: "keys", text: "/goal resume", pane: "%5" }, { op: "keys", keys: ["enter"], pane: "%5" }]);
+    // Out of usage: an update doesn't restart it.
+    await w.db.prepare("UPDATE sessions SET state = 'waiting', state_detail = 'usage limit · resets Nov 15th, 2026 10:19 AM' WHERE session_id = 'up1'").run();
+    assert.equal(ok(await w.form("/upkeep", "bob", { op: "update", back: "/dashboard" })), "core: out of usage (usage limit · resets Nov 15th, 2026 10:19 AM), left alone");
   });
 
   test("one that stopped without ending is restarted in its pane, resumed by its session id; one frozen or nearly full gets a card", async () => {
@@ -3533,3 +3570,172 @@ describe("keeping agents running and current", () => {
   });
 });
 
+
+describe("Codex usage limits and resets", () => {
+  const LIMIT = "You’ve hit your usage limit. Visit https://chatgpt.com/settings/usage to purchase more credits or try again at Nov 15th, 2026 10:19 AM.";
+  const setup = async () => {
+    const w = await standardWorld();
+    for (const [id, name, pane] of [["cx1", "prod", "%5"], ["cx2", "workholding", "%7"]] as const) {
+      await w.request(`/api/hook?event=SessionStart&project=billing-api&session=${id}&name=${name}&client=codex&version=${PLUGIN_VERSION}`, { as: "bob" });
+      await w.db.prepare("UPDATE sessions SET host = 'ultra', screen = 'keys', pane = ?, client = 'codex' WHERE session_id = ?").bind(pane, id).run();
+    }
+    return w;
+  };
+  const limit = (w: World, id: string) =>
+    w.request(`/api/hook?event=StopFailure&session=${id}&client=codex&show=0`, { as: "bob", method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ error: "rate_limit", error_details: LIMIT }) });
+  const state = async (w: World, id: string) => w.db.prepare("SELECT state, state_detail, project FROM sessions WHERE session_id = ?").bind(id).first<{ state: string; state_detail: string; project: string }>();
+  const page = async (w: World) => (await w.request("/dashboard?view=agents", { as: "bob", cookie: true })).text();
+
+  /**
+   * Codex's TUI, as far as a reset goes: out of usage with its offer to switch models, /usage (which, typed in one
+   * go, needs a second Enter), Redeem reset → Full reset → Yes, and its goal paused until /goal resume.
+   */
+  class FakeCodex {
+    view = "switch";
+    input = "";
+    enters = 0;
+    goal = "paused";
+    log: string[] = [];
+    resets: number;
+    constructor(resets = 1) {
+      this.resets = resets;
+    }
+    footer() {
+      return `\n› ${this.input || "Ask Codex to do anything"}\n  GPT-6-Astra high · ~/projects/fabricate    ${this.goal === "paused" ? "Goal paused (/goal resume)" : "Pursuing goal (11h 27m)"}\n`;
+    }
+    screen(): string {
+      const opts = (xs: string[], at = 0) => xs.map((x, i) => `${i === at ? "›" : " "} ${i + 1}. ${x}`).join("\n");
+      switch (this.view) {
+        case "switch":
+          return `■ ${LIMIT}\n  Approaching rate limits\n  Switch to gpt-6-luna for lower credit usage?\n${opts(["Switch to gpt-6-luna   Fast and affordable", "Keep current model", "Keep current model (never show again)  Hide future reminders"])}\n  enter select · esc back\n`;
+        case "usage":
+          return `  Usage\n  Account usage and resets.\n${opts(["View analytics  Usage history", "Redeem reset    Check availability"])}\n  enter open · esc back\n`;
+        case "resets":
+          return this.resets
+            ? `  Usage limit resets\n  You have ${this.resets} reset available.\n${opts(["Full reset  Resets your usage limits now", "Cancel"])}\n`
+            : `  Usage limit resets\n  You don't have any usage limit resets available.\n${opts(["Close"])}\n  enter select · esc back\n`;
+        case "confirm":
+          return `  Use a full reset?\n${opts(["Yes, use reset", "No"])}\n`;
+        case "working":
+          return `• Working (3s • esc to interrupt)${this.footer()}`;
+        default:
+          return `■ ${LIMIT}${this.footer()}`;
+      }
+    }
+    keys(q: Record<string, unknown>) {
+      if (typeof q.text === "string") {
+        this.input += q.text;
+        this.log.push(`type ${q.text}`);
+      }
+      const keys = (q.keys as string[] | undefined) ?? [];
+      let at = 0;
+      for (const k of keys) {
+        this.log.push(k);
+        if (k === "down") at++;
+        else if (k === "esc") this.view = "idle";
+        else if (k === "enter") this.enter(at);
+      }
+    }
+    enter(at: number) {
+      const v = this.view;
+      if (v === "switch") this.view = at === 1 ? "idle" : "x";
+      else if (v === "usage") this.view = at === 1 ? "resets" : "x";
+      else if (v === "resets") this.view = this.resets ? (at === 0 ? "confirm" : "idle") : "idle";
+      else if (v === "confirm") {
+        if (at === 0) this.resets--, (this.view = "idle"), this.log.push("REDEEMED");
+      } else if (this.input === "/usage") {
+        // The first Enter only takes the command from its popup.
+        if (++this.enters >= 2) (this.view = "usage"), (this.input = ""), (this.enters = 0);
+      } else if (this.input === "/goal resume") (this.goal = "pursuing"), (this.view = "working"), (this.input = "");
+      else if (this.input) (this.view = "working"), (this.input = "");
+    }
+  }
+  /** Run `go`, answering each terminal request from the fake Codex in that session's pane. */
+  const codexes = async <T>(w: World, terms: Record<string, FakeCodex>, go: () => Promise<T>) => {
+    let done = false;
+    const p = go().finally(() => (done = true));
+    let n = w.screenAsked.length;
+    while (!done) {
+      while (w.screenAsked.length > n) {
+        const ask = w.screenAsked[n++]!;
+        const t = terms[ask.sessionId]!;
+        if (ask.q.op === "keys") t.keys(ask.q);
+        await w.request("/api/screen-reply", { as: ask.member, method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ req: ask.req, data: { text: t.screen(), cols: 160, rows: 40, cursor: null, keys: true } }) });
+      }
+      await new Promise((r) => setTimeout(r, 2));
+    }
+    return p;
+  };
+
+  test("its local server reports Codex's turns from its log: one starting, or one that failed on a usage limit", async () => {
+    const { codexTurn } = await import("../plugins/intercom/code.mjs");
+    const line = (payload: object) => JSON.stringify({ timestamp: "2026-11-09T08:25:26.000Z", type: "event_msg", payload });
+    assert.deepEqual(codexTurn(line({ type: "task_started", turn_attribution: { turn_trigger: "goal" } })), { at: Date.parse("2026-11-09T08:25:26.000Z"), event: "TurnStart" });
+    assert.deepEqual(codexTurn(line({ type: "task_complete", error: { message: LIMIT, codex_error_info: "usage_limit_exceeded" } }))!.body, { error: "rate_limit", error_details: LIMIT });
+    assert.equal(codexTurn(line({ type: "task_complete", last_agent_message: "done" })), null);
+    assert.equal(codexTurn(JSON.stringify({ type: "response_item", payload: { type: "message" } })), null);
+  });
+
+  test("out of usage: shown as waiting with when it resets, kept through the turn's own Stop hook, not cleared of its project; a card per machine", async () => {
+    const w = await setup();
+    await limit(w, "cx1");
+    assert.deepEqual({ ...(await state(w, "cx1")) }, { state: "waiting", state_detail: "usage limit · resets Nov 15th, 2026 10:19 AM", project: "billing" });
+    await w.request("/api/hook?event=Stop&session=cx1&client=codex&project=billing-api", { as: "bob", method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+    assert.equal((await state(w, "cx1"))!.state, "waiting");
+    // Off by default: nothing is redeemed by itself.
+    assert.equal(await w.db.prepare("SELECT 1 FROM push_queue WHERE ref LIKE 'x%'").first(), null);
+    const dash = await page(w);
+    assert.match(dash, /<article class="ask k-stuck" data-mid="lultra">[\s\S]*Out of usage[\s\S]*prod has hit its usage limit; it resets Nov 15th, 2026 10:19 AM\.[\s\S]*Redeem a reset now[\s\S]*Always redeem one when they run out[\s\S]*Wait for the limit to reset/);
+    // A turn starting (a goal's own turn too) shows it working again; the card goes.
+    await w.request("/api/hook?event=TurnStart&session=cx1&client=codex&show=0", { as: "bob", method: "POST", body: "{}" });
+    assert.equal((await state(w, "cx1"))!.state, "working");
+    assert.doesNotMatch(await page(w), /data-mid="lultra"/);
+  });
+
+  test("with resets on, one is redeemed for the machine and each agent that ran out carries on; not again within two hours", async () => {
+    const w = await setup();
+    assert.match(new URL((await w.form("/upkeep", "bob", { op: "resets-on", back: "/dashboard" })).headers.get("location")!, ORIGIN).searchParams.get("ok")!, /a reset is redeemed if one is available/);
+    assert.match(await (await w.request("/dashboard?view=fleet", { as: "bob", cookie: true })).text(), /value="resets-off"[\s\S]*checked[^>]*>[\s\S]*Redeem a usage reset when Codex runs out/);
+    await limit(w, "cx1");
+    await limit(w, "cx2");
+    const queued = await w.db.prepare("SELECT ref, extra FROM push_queue WHERE ref LIKE 'x%'").all<{ ref: string; extra: string }>();
+    assert.deepEqual(queued.results.map((x) => ({ ...x })), [{ ref: "xultra", extra: "ultra" }]);
+    const { resetDue, resetHost } = await import("../src/resets.ts");
+    const terms = { cx1: new FakeCodex(1), cx2: new FakeCodex(1) };
+    await codexes(w, terms, () => resetDue(w.env(), "bob", "ultra"));
+    // One of them (they share the login): the model offer kept, /usage (with its second Enter), Redeem reset, Full
+    // reset, Yes. Each then has its goal resumed.
+    const [by, other] = terms.cx1.log.includes("REDEEMED") ? [terms.cx1, terms.cx2] : [terms.cx2, terms.cx1];
+    assert.equal(by.log.filter((x) => x === "REDEEMED").length, 1);
+    assert.ok(!other.log.includes("REDEEMED"));
+    assert.deepEqual(by.log.slice(0, 7), ["down", "enter", "type /usage", "enter", "enter", "down", "enter"]);
+    assert.deepEqual(other.log, ["down", "enter", "type /goal resume", "enter"]);
+    assert.equal(terms.cx1.goal, "pursuing");
+    assert.equal(terms.cx2.goal, "pursuing");
+    assert.equal((await state(w, "cx2"))!.state, "idle");
+    const act = await w.db.prepare("SELECT text FROM activity WHERE session_id IN ('cx1', 'cx2') AND kind = 'keys' ORDER BY id LIMIT 1").first<{ text: string }>();
+    assert.match(act!.text, /^intercom sent keys by itself \(redeeming a usage reset\)/);
+    // They run out again soon after: not another reset by itself; the card says what happened.
+    await limit(w, "cx1");
+    assert.match(await resetHost(w.env(), "bob", "ultra"), /A reset was tried on ultra just now \(redeemed\); not again so soon/);
+    assert.match(await page(w), /A reset was redeemed here just now, and they've run out again/);
+    // From the card, by hand: none left on the account; it says so, and nothing more is pressed.
+    const none = { cx1: new FakeCodex(0), cx2: new FakeCodex(0) };
+    const r = await codexes(w, none, () => w.form("/upkeep", "bob", { op: "reset-now", host: "ultra", back: "/dashboard" }));
+    assert.match(new URL(r.headers.get("location")!, ORIGIN).searchParams.get("ok")!, /No usage resets left on that account; the agents on ultra wait for the limit to reset/);
+    assert.ok(!none.cx1.log.includes("REDEEMED"));
+    assert.match(await page(w), /No resets were left when one was tried just now/);
+  });
+
+  test("reading Codex's screen: its input box, a menu and the option to pick, the goal, a running turn", async () => {
+    const { composer, menu, choose, goal, busy } = await import("../src/codexterm.ts");
+    const s = "■ limit\n  Approaching rate limits\n› 1. Switch to gpt-6-luna   Fast\n  2. Keep current model\n  3. Keep current model (never show again)  Hide\n  enter select · esc back\n";
+    assert.deepEqual(menu(s).map((o) => o.on), [true, false, false]);
+    assert.deepEqual(choose(s, /^Keep current model(?!\s*\(never)/), ["down", "enter"]);
+    assert.equal(choose(s, /Redeem/), null);
+    assert.equal(composer("› /usage  view account usage\n› /usage\n  gpt · ~/x   Goal paused (/goal resume)\n"), "/usage");
+    assert.equal(composer(s), null);
+    assert.equal(goal("› x\n  gpt · ~/x   Goal paused (/goal resume)\n"), "paused");
+    assert.ok(busy("• Working (1m 05s • esc to interrupt)\n"));
+  });
+});

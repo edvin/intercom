@@ -20,7 +20,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const VERSION = "0.12.42"; // kept in step with .claude-plugin/plugin.json (a test checks)
+const VERSION = "0.12.43"; // kept in step with .claude-plugin/plugin.json (a test checks)
 const DIR = path.join(os.homedir(), ".claude", "intercom");
 const CONFIG = path.join(DIR, "config");
 function readConf() {
@@ -550,6 +550,18 @@ function summarizeLine(line, side = false) {
 
 const mirror = { file: null, offset: 0, rest: Buffer.alloc(0), skipFirst: false, outbox: [], sending: false };
 
+// Codex's turns, from its log: a turn starting (a goal's own turns too, which no hook reports) shows the agent as
+// working, and a turn that failed on a usage limit shows it as waiting, with when the limit resets (the hub may redeem
+// a reset for it). Only what happens while this server runs; a resumed session's old entries are history.
+const SERVER_START = Date.now();
+let codexTurn = null; // code.mjs, loaded once
+import("./code.mjs").then((m) => (codexTurn = m.codexTurn)).catch(() => {});
+function reportTurn(t) {
+  if (!t || t.at < SERVER_START - 5000 || !BASE || !TOKEN) return;
+  const q = new URLSearchParams({ event: t.event, session: SESSION, client: "codex", show: "0" });
+  fetch(`${BASE}/api/hook?${q}`, { method: "POST", headers: { ...headers, "content-type": "application/json" }, body: JSON.stringify(t.body ?? {}), signal: AbortSignal.timeout(10_000) }).catch(() => {});
+}
+
 function transcriptFor(session) {
   if (session.startsWith("pid-")) return null;
   try {
@@ -714,6 +726,7 @@ function mirrorTick() {
       }
       for (const l of lines)
         if (l.trim()) {
+          if (codexTurn && headers["x-intercom-client"] === "codex") reportTurn(codexTurn(l));
           const items = summarizeLine(l);
           mirror.outbox.push(...items);
           for (const it of items) noteMentions(it.text);

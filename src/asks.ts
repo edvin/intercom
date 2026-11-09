@@ -8,7 +8,8 @@ import { type Btw, BTW_TIMEOUT, modAnswers } from "./btw";
 import { type Review, OUTCOMES, agentOnline, findingsOf, onlineAgents, pendingReviews, threadOf } from "./reviews";
 import { type Stuck, nudgeIsOn, stuckSessions } from "./stuck";
 import { screenAttrs } from "./screen";
-import { type Row as UpRow, exitedAgents, frozenAgents, fullAgents, myRows, since, staleAgents, upkeepOf } from "./upkeep";
+import { type Row as UpRow, exitedAgents, frozenAgents, fullAgents, myRows, outOfUsage, since, staleAgents, upkeepOf } from "./upkeep";
+import { type ResetTry, RESET_GAP_MS, resetsOf } from "./resets";
 import { PLUGIN_VERSION } from "./version";
 import { pendingTickets } from "./tickets";
 import { reviewHref } from "./reviewview";
@@ -201,6 +202,34 @@ function updatesCard(stale: UpRow[], me: string, back: string, auto: boolean): s
   </article>`;
 }
 
+/** Agents on one machine that ran out of usage (resets.ts): when it resets, and redeeming a reset for them. */
+function limitCard(host: string, out: UpRow[], me: string, back: string, on: boolean, last: ResetTry | undefined): string {
+  const codex = out.filter((r) => r.client === "codex");
+  const when = out.map((r) => r.state_detail.match(/resets (.+)$/)?.[1]).find(Boolean);
+  const value = String(Math.max(...out.map((r) => r.state_at ?? 0)));
+  const recent = last && Date.now() - last.at < RESET_GAP_MS ? last : undefined;
+  const tried = recent
+    ? recent.outcome === "redeemed"
+      ? `A reset was redeemed here ${ago(recent.at)}, and they've run out again. Another one is only redeemed when you say so.`
+      : recent.outcome === "none"
+        ? `No resets were left when one was tried ${ago(recent.at)}.`
+        : recent.outcome === "busy"
+          ? ""
+          : `Redeeming a reset ${ago(recent.at)} didn't work: ${esc(recent.outcome.replace(/^failed: /, ""))}.`
+    : codex.length && on
+      ? "Redeeming a reset for them in a moment…"
+      : "";
+  const names = out.map((r) => `<li><b>${esc(r.label)}</b> <span class="muted">${r.client === "codex" ? "Codex" : "Claude Code"}${r.state_at ? ` · since ${esc(ago(r.state_at))}` : ""}</span></li>`).join("");
+  return `<article class="ask k-stuck" data-mid="l${esc(host)}">
+    <header class="askwho"><span class="upic">${icon("clock", 14)}</span><span class="askname">Out of usage</span><span class="askk">${esc(host)}</span><span class="grow"></span>${time(Number(value))}</header>
+    <p class="stkhead">${out.length === 1 ? `${esc(out[0]!.label)} has` : `${out.length} of your agents have`} hit ${out.length === 1 ? "its" : "their"} usage limit${when ? `; it resets ${esc(when)}` : ""}.</p>
+    <ul class="stklist">${names}</ul>
+    ${tried ? `<p class="stknudged">${tried}</p>` : ""}
+    <p class="stkwhy">${codex.length ? "Redeeming a reset runs /usage → Redeem reset → Full reset in one of their terminals (they share the login on this machine), then each carries on: its goal resumed, or told to." : "They carry on by themselves once it resets, or when you write to them."}</p>
+    ${upkeepForm(back, { host, key: `limit:${host}`, value }, `<div class="askopts">${codex.length ? uopt("reset-now", "Redeem a reset now", "If the account has one left; you see how it went.", true) + uopt(on ? "resets-off" : "resets-on", on ? "Stop redeeming resets by themselves" : "Always redeem one when they run out", on ? "A reset is redeemed when Codex agents run out, at most once in two hours per machine." : "When your Codex agents run out, a reset is redeemed if one is available.") : ""}${uopt("dismiss", "Wait for the limit to reset", "Put this away until they run out again.")}</div>`)}
+  </article>`;
+}
+
 function frozenCard(r: UpRow, me: string, back: string): string {
   const x = { label: r.label, screen: r.screen, client: r.client };
   return `<article class="ask k-wait" data-mid="f${esc(r.session_id)}">
@@ -292,7 +321,14 @@ export async function asksDock(env: Env, me: string, back: string): Promise<stri
   const frozen = frozenAgents(ups, upLive).filter((r) => (dismissed[`frozen:${r.session_id}`] ?? -1) < Math.max(r.active_at ?? 0, r.state_at ?? 0));
   const exited = exitedAgents(ups, upLive).filter((r) => (dismissed[`exited:${r.session_id}`] ?? -1) < r.last_seen);
   const full = fullAgents(ups, upLive).filter((r) => (dismissed[`full:${r.session_id}`] ?? -1) < Math.floor((r.ctx_pct ?? 0) / 5) * 5);
-  const upkeepCards = [...exited.map((r) => exitedCard(r, me, back)), ...frozen.map((r) => frozenCard(r, me, back)), ...full.map((r) => fullCard(r, me, back)), ...(stale.length ? [updatesCard(stale, me, back, auto)] : [])];
+  // Out of usage, by machine.
+  const { on: resetsOn, log: resetLog } = await resetsOf(env, me);
+  const outBy = new Map<string, UpRow[]>();
+  for (const r of ups.filter((r) => upLive(r) && outOfUsage(r))) outBy.set(r.host || "unknown machine", [...(outBy.get(r.host || "unknown machine") ?? []), r]);
+  const limits = [...outBy]
+    .filter(([host, rs]) => (dismissed[`limit:${host}`] ?? -1) < Math.max(...rs.map((r) => r.state_at ?? 0)))
+    .map(([host, rs]) => limitCard(host, rs, me, back, resetsOn, resetLog[host]));
+  const upkeepCards = [...limits, ...exited.map((r) => exitedCard(r, me, back)), ...frozen.map((r) => frozenCard(r, me, back)), ...full.map((r) => fullCard(r, me, back)), ...(stale.length ? [updatesCard(stale, me, back, auto)] : [])];
   if (!pending.length && !reviews.length && !tickets.length && !stuck.length && !waits.length && !upkeepCards.length) return `<div id="asks" data-region hidden></div>`;
   const n = pending.length + reviews.length + tickets.length + stuck.length + waits.length + upkeepCards.length;
   const agents = reviews.length || stuck.length ? await onlineAgents(env, me) : [];

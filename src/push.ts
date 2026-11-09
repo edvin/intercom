@@ -10,6 +10,7 @@
 import { daySummary, scheduleSummary } from "./work";
 import { NUDGE_WAIT_MS, nudgeStuck, stuckNote, stuckSessions } from "./stuck";
 import { compactDue } from "./upkeep";
+import { resetDue } from "./resets";
 import { type Env } from "./lib";
 
 /** How long an approval waits for you at your desk before it reaches your phone. */
@@ -252,6 +253,11 @@ export async function sendDuePushes(env: Env, now = Date.now()): Promise<number 
       } catch (e) {
         console.log("compact", q.ref, String(e));
       }
+      continue;
+    }
+    if (q.ref[0] === "x") {
+      // Codex agents ran out of usage (resets.ts): redeem a reset on their machine.
+      await resetDue(env, q.member, q.extra);
       continue;
     }
     if (q.ref[0] === "u") {

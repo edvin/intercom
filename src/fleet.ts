@@ -7,12 +7,14 @@ import { screenAttrs } from "./screen";
 import { type Row, HELPER_SINCE, myRows, newer, upkeepOf } from "./upkeep";
 import { agentAvatar, esc, hidden, icon } from "./ui";
 import { PLUGIN_VERSION } from "./version";
+import { resetsOf } from "./resets";
 
 const atLeast = (v: string, want: string) => v === want || newer(v, want);
 
 export async function fleetView(env: Env, me: string): Promise<string> {
   const { rows, live } = await myRows(env, me);
   const { auto } = await upkeepOf(env, me);
+  const { on: resets } = await resetsOf(env, me);
   const back = "/dashboard?view=fleet";
   const on = rows.filter(live);
   const gone = rows.filter((r) => !live(r) && !on.some((x) => x.label === r.label));
@@ -75,6 +77,7 @@ export async function fleetView(env: Env, me: string): Promise<string> {
       <div class="flctl">
         ${behind.length ? `<form method="post" action="/upkeep">${hidden({ back, op: "update" })}<button class="btn primary">${icon("refresh", 14)}Update the idle ones now</button></form>` : ""}
         <form method="post" action="/upkeep" class="flauto">${hidden({ back, op: auto ? "auto-off" : "auto-on" })}<label class="wkswitch"><input type="checkbox" ${auto ? "checked " : ""}onchange="this.form.requestSubmit()"><span>Update idle agents by themselves</span></label></form>
+        <form method="post" action="/upkeep" class="flauto">${hidden({ back, op: resets ? "resets-off" : "resets-on" })}<label class="wkswitch" title="When your Codex agents hit their usage limit, redeem a usage reset (if the account has one) and have them carry on. At most once in two hours per machine."><input type="checkbox" ${resets ? "checked " : ""}onchange="this.form.requestSubmit()"><span>Redeem a usage reset when Codex runs out</span></label></form>
       </div>
     </header>
     <p class="flhow">Updating an agent types <code>/reload-plugins</code> into its terminal when it's idle: it loads the new intercom in the same session. If Claude Code itself has an update waiting (“/restart to apply”), it types <code>/restart</code> instead, which also continues the same session. Busy agents are left alone.</p>
