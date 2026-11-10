@@ -1726,8 +1726,10 @@ export const SCRIPT = `
   let mmLib = null, mmN = 0;
   const mmDone = new Map();
   function mermaids() {
-    const els = $$("[data-mermaid]:not(.done)"); if (!els.length) return;
     const dark = (document.documentElement.dataset.theme || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")) === "dark";
+    // One drawn before is put back at once (no flash of its source, no jump), the rest drawn when the library is in.
+    $$("[data-mermaid]:not(.done)").forEach((el) => { const svg = mmDone.get((dark ? "d:" : "l:") + el.textContent); if (svg) { el.classList.add("done"); el.innerHTML = svg; } });
+    const els = $$("[data-mermaid]:not(.done)"); if (!els.length) return;
     mmLib = mmLib || new Promise((ok, no) => { const s = document.createElement("script"); s.src = "/vendor/mermaid-11.17.2.min.js"; s.onload = () => ok(window.mermaid); s.onerror = no; document.head.append(s); });
     mmLib.then(async (m) => {
       const pal = dark
@@ -2382,6 +2384,7 @@ export const SCRIPT = `
     if (e.target.id === "subs-box") try { localStorage.setItem("ic_subs", e.target.open ? "1" : "0"); } catch {}
   }, true);
   function bind(root = document) {
+    const thr = document.getElementById("thread"); if (thr) markRaw(thr);
     watchComposer();
     const sb = document.getElementById("subs-box");
     if (sb) try { sb.open = localStorage.getItem("ic_subs") === "1"; } catch {}
@@ -2556,6 +2559,26 @@ export const SCRIPT = `
     $$(".askhd, .askpill", el).forEach((h) => bind(h));
     fresh.forEach((c) => bind(c));
   }
+  // A chat item's server markup, without its relative times ("2m ago" ticks by on its own), as it came.
+  const rawSig = (n) => sig(n.outerHTML.replace(/(<time[^>]*>)[^<]*(<[/]time>)/g, "$1$2"));
+  function markRaw(root) { [...root.children].forEach((c) => { if (c._raw === undefined && !c.matches(".tday, .newmark")) c._raw = rawSig(c); }); }
+  function morphThread(el, next) {
+    el.querySelectorAll(":scope > .tday, :scope > .newmark").forEach((n) => n.remove());
+    const keyOf = (n) => n.dataset.mid || n.dataset.gid || "";
+    const old = new Map(); [...el.children].forEach((c) => { const k = keyOf(c); if (k) old.set(k, c); });
+    const want = [...next.children].map((n) => {
+      const k = keyOf(n), was = k && old.get(k), raw = rawSig(n);
+      if (was && was._raw === raw) {
+        // Kept as it is; only its times are brought up to date.
+        const ts = n.querySelectorAll("time"), tw = was.querySelectorAll("time");
+        if (ts.length === tw.length) ts.forEach((t, i) => { if (tw[i].textContent !== t.textContent) tw[i].textContent = t.textContent; });
+        return was;
+      }
+      n._raw = raw; return n;
+    });
+    want.forEach((n, i) => { if (el.children[i] !== n) el.insertBefore(n, el.children[i] || null); });
+    while (el.children.length > want.length) el.lastElementChild.remove();
+  }
   async function swap(text) {
     const doc = new DOMParser().parseFromString(text, "text/html");
     // What you're reading stays where it is on screen: the first message or row in view, found again after the redraw.
@@ -2589,6 +2612,16 @@ export const SCRIPT = `
           const anchor = rows[rows.length - 1].nextSibling;
           rows.sort((a, b) => pos(a) - pos(b)).forEach((r) => g.insertBefore(r, anchor)); }); }
       typed.forEach(([id, v]) => { const t = next.querySelector("#" + CSS.escape(id)); if (t && !t.value) t.value = v; });
+      // The chat is updated in place: a message or step that didn't change keeps its very node (a drawn diagram, a
+      // folded message, an image), only new and changed ones come in, so nothing on screen moves for nothing.
+      if (th) {
+        morphThread(el, next); el._src = src;
+        if (known.size) $$("[data-mid]", el).forEach((m) => !known.has(m.dataset.mid) && m.classList.add("fresh"));
+        if (!stick) el.dataset.stuck = "no";
+        bind(el); days(el);
+        if (!stick && known.size && $$("[data-mid]", el).some((m) => !known.has(m.dataset.mid))) jumpNew = true;
+        return;
+      }
       next._src = src; $$(".ask", next).forEach((c) => (c._src = sig(c.outerHTML)));
       el.replaceWith(next);
       if (tb) { const nb = next.querySelector(".tbody"); if (nb) nb.scrollTop = tbTop; }
@@ -2611,6 +2644,7 @@ export const SCRIPT = `
   addEventListener("touchstart", () => { touching = true; moved(); }, { passive: true, capture: true });
   ["touchend", "touchcancel"].forEach((ev) => addEventListener(ev, () => { touching = false; moved(); }, { passive: true, capture: true }));
   const settled = () => !touching && Date.now() - movedAt > 900;
+  window.icRefresh = () => refresh(); // a redraw now, as a live update would (also for tests)
   async function refresh() {
     clearTimeout(refreshTimer);
     refreshTimer = setTimeout(async function go() {
