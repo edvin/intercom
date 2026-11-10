@@ -321,6 +321,18 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
       const img = files && a.kind === "read" && /\.(png|jpe?g|webp|gif)$/i.test(st.where) ? `<a class="att stepimg" href="/agent-file?agent=${encodeURIComponent(files)}&amp;path=${encodeURIComponent(st.where)}" data-lp="${esc(`${files}|${st.where}`)}" data-name="${esc(st.where.split(/[\\/]/).pop() ?? "")}" title="Show it">${icon("image", 13)}<span>Show</span></a>` : "";
       return `<div class="act act-${a.kind} step s-${st.kind}" data-mid="a${a.id}" title="${esc(st.where)}"><span class="aic">${icon(STEP_IC[st.kind] ?? "file", 13)}</span><span class="atx">${st.title}${chip(st)}</span><span class="when">${img}${time(a.at)}</span></div>`;
     }
+    if (a.kind === "loop") {
+      // "started a self-paced loop: /loop Keep going on …": what kind of loop as the line, its prompt beneath (it opens).
+      const m = plainSpaces(a.text).match(/^(started|stopped)\s+(?:its\s+)?([^:]+?)(?::\s*([\s\S]*))?$/);
+      if (m) {
+        const what = m[2]!.replace(/^an?\s+/, "").replace(/^self-paced loop/, "self-paced loop");
+        const prompt = (m[3] ?? "").replace(/^\/loop\s+/, "").trim();
+        const head = `<span class="aic">${icon("repeat", 13)}</span><span class="atx"><b>${m[1] === "started" ? "Started" : "Stopped"} ${esc(what)}</b>${prompt ? `<span class="lpq">${esc(prompt)}</span>` : ""}</span><span class="when">${time(a.at)}</span>`;
+        return prompt
+          ? `<details class="act act-loop step s-loop${m[1] === "stopped" ? " off" : ""}" data-mid="a${a.id}"><summary>${head}</summary><div class="stepcmd"><pre>${esc(prompt)}</pre></div></details>`
+          : `<div class="act act-loop step s-loop${m[1] === "stopped" ? " off" : ""}" data-mid="a${a.id}">${head}</div>`;
+      }
+    }
     return `<div class="act act-${a.kind}" data-mid="a${a.id}"><span class="aic">${ACT_ICON[a.kind] ?? "·"}</span><span class="atx${a.kind === "text" ? " md" : ""}">${
       a.kind === "text" ? md(a.text, agent.origin, files) : a.kind === "prompt" ? `<span class="muted">typed in the terminal:</span> ${esc(plainSpaces(a.text))}` : esc(plainSpaces(a.text))
     }</span><span class="when">${time(a.at)}</span></div>`;

@@ -1551,14 +1551,14 @@ describe("loops", () => {
     assert.match(page, /<\/svg><span>self-paced loop, next in 20m: check the deploy/);
     assert.match(page, /data-k="bob\/[^"]+"[^>]*title="[^"]*running a loop/); // marked in the tree
     assert.match(page, /data-chip="Stop your loop\."/);
-    assert.equal((page.match(/started a self-paced loop: check the deploy/g) ?? []).length, 1); // re-arming isn't news
+    assert.equal((page.match(/Started self-paced loop<\/b><span class="lpq">check the deploy/g) ?? []).length, 1); // re-arming isn't news
     assert.doesNotMatch(await view("alice"), /babysit-prs/); // only the owner
 
     await post([ev({ op: "cron_delete", id: "job7" }), ev({ op: "wakeup_stop" })]);
     page = await view("bob");
     assert.doesNotMatch(page, /<\/svg>loop every 20m/);
-    assert.match(page, /stopped loop every 20m: \/babysit-prs/);
-    assert.match(page, /stopped its self-paced loop/);
+    assert.match(page, /Stopped loop every 20m<\/b><span class="lpq">\/babysit-prs/);
+    assert.match(page, /Stopped self-paced loop<\/b>/);
     assert.doesNotMatch(page, /data-chip="Stop your loop\."/);
   });
 
