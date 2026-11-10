@@ -15,7 +15,7 @@ import { subMark, subsRegion } from "./subview";
 import { trackedNeedsYou } from "./tracked";
 import { BTW_TIMEOUT, NO_MOD, btwFor, compactable, modAnswers } from "./btw";
 import { type Activity, type Env, type Message, DELEGATE_PER_HOUR, LIVE, address, ago, deliveryMarks, short, hostNames, myProjects } from "./lib";
-import { agentAvatar, agentHue, agentLink, agentName, avatar, deliveryMark, esc, hidden, icon, md, plainSpaces, time } from "./ui";
+import { LOGO, agentAvatar, agentHue, agentLink, agentName, avatar, deliveryMark, esc, hidden, icon, md, plainSpaces, time } from "./ui";
 
 interface Agent {
   member: string;
@@ -183,7 +183,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   const ctxBadge = (a: Agent) =>
     ctxLevel(a) === null ? "" : `<span class="badge ctxb ${ctxLevel(a)}" title="Context: ${kTok(a.ctx_tokens)} of ${kTok(a.ctx_window)} tokens · ${ago(a.ctx_at ?? 0)}">${a.ctx_pct}% context</span>`;
   const tRow = (a: Agent) => `<a class="ta${sel(a) ? " on" : ""}${isOn(a) ? "" : " gone"}" data-k="${esc(key(a))}"${isOn(a) && a.state === "waiting" ? " data-w" : ""} href="/dashboard?view=agents&agent=${encodeURIComponent(key(a))}" title="${esc(tip(a))}">
-      <span class="tdot ${dot(a)}"></span>${agentAvatar(a.member, a.label, "s")}<span class="tn">${agentName(a.member, a.label, a.member === me ? a.label : `${a.member}/${a.label}`)}</span>
+      <span class="tdot ${dot(a)}"></span><span class="tn">${agentName(a.member, a.label, a.member === me ? a.label : `${a.member}/${a.label}`)}</span>
       <span class="tb">${(isOn(a) && a.state === "waiting") || reviewsOf(a) ? `<span class="tw" title="${reviewsOf(a) ? "a review is waiting for you" : "needs you"}">!</span>` : ""}${loopsOf(a).length ? `<span class="tloop" title="running a loop">${icon("repeat", 12)}</span>` : ""}${jobsOf(a).length ? '<span title="background jobs">⧗</span>' : ""}${a.member === me && isOn(a) ? subMark(parseSubs(a.subagents)) : ""}${a.member === me && isOn(a) && outdated(a.version) ? '<span title="update available">⬆</span>' : ""}${isOn(a) && ctxLevel(a) ? `<span class="tctx ${ctxLevel(a)}" title="Context ${a.ctx_pct}% full">${a.ctx_pct}%</span>` : ""}${a.client === "codex" ? '<span class="tcx" title="Codex">cx</span>' : ""}${since(a)}</span></a>`;
   const branch = (id: string, title: string, href: string | null, list: Agent[], badges: string, on: boolean) => {
     // Needs you, then working, then the rest by when they last did something. Live redraws keep the order the
@@ -204,7 +204,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
       const votes = nav.votesBy.get(p) ?? 0;
       const locks = nav.locksBy.get(p) ?? 0;
       const badges = `${votes ? `<span class="badge accent" title="Votes waiting for you">${votes}</span>` : ""}${locks ? `<span class="badge amber" title="Active locks">${icon("lock", 9)}${locks}</span>` : ""}`;
-      return branch(p, `<span class="th">#</span>${esc(p)}`, `/dashboard?channel=${encodeURIComponent(p)}`, agents.filter((a) => a.project === p), badges, nav.view === "feed" && nav.channel === p);
+      return branch(p, esc(p), `/dashboard?channel=${encodeURIComponent(p)}`, agents.filter((a) => a.project === p), badges, nav.view === "feed" && nav.channel === p);
     })
     .join("");
   const loose = agents.filter((a) => a.member === me && (!a.project || !nav.mine.includes(a.project)));
@@ -213,23 +213,32 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   const waitingN = pending.length + (await stuckSessions(env, me)).length;
   const stale = agents.filter((a) => a.member === me && isOn(a) && outdated(a.version));
   const trackedN = await trackedNeedsYou(env, me);
-  const tree = `<aside class="tree" id="tree" data-region>
-    <nav class="ttop">
-      <button type="button" class="tl" data-kopen>${icon("search", 14)}<span>Search</span><span class="kbd kbd-k" style="margin-left:auto">⌘K</span></button>
-      <a class="tl${nav.view === "feed" && !nav.channel ? " on" : ""}" href="/dashboard">${icon("layers", 14)}<span>Everything</span>${nav.votesTotal ? `<span class="badge accent">${nav.votesTotal}</span>` : ""}</a>
-      <a class="tl${nav.view === "work" ? " on" : ""}" href="/dashboard?view=work">${icon("check", 14)}<span>Work</span></a>
-      <a class="tl${nav.view === "fleet" ? " on" : ""}" href="/dashboard?view=fleet" title="Your agents by machine, the intercom each runs, and updating them">${icon("monitor", 14)}<span>Agents · versions</span>${stale.length ? `<span class="badge amber" title="On an older intercom">${stale.length}</span>` : ""}</a>
-      <a class="tl${nav.view === "tracked" ? " on" : ""}" href="/dashboard?view=tracked" title="The tickets and MRs your agents track for you">${icon("branch", 14)}<span>Tickets &amp; MRs</span>${trackedN ? `<span class="badge amber" title="Need you">${trackedN}</span>` : ""}</a>
-      <a class="tl${nav.view === "files" ? " on" : ""}" href="/dashboard?view=files" title="Images and files your agents shared, as thumbnails">${icon("image", 14)}<span>Files from agents</span></a>
-      ${waitingN ? `<button type="button" class="tl warn" data-asksopen>${icon("bell", 14)}<span>Waiting for you</span><span class="badge amber">${waitingN}</span></button>` : ""}
-    </nav>
-    <div class="tsec"><span>Projects</span><button type="button" class="btn ghost xs icon" data-open="dlg-create" title="New project">${icon("plus", 13)}</button></div>
-    <div class="tbody">${projectNodes || '<p class="tempty">No projects yet.</p>'}${loose.length ? branch("~none", '<span class="th">∅</span>No project', null, loose, "", false) : ""}</div>
-    <div class="tfoot">
-      <a class="tl${nav.view === "account" ? " on" : ""}" href="/dashboard?view=account" title="Your account: notifications on this device, signed-in browsers and terminals">${icon("sliders", 14)}<span>Account · notifications</span></a>
-      <button type="button" class="tl away${away ? " on" : ""}" data-open="dlg-away" title="${away ? `Away: what your agents ask is denied after ${waitMin} min unless you answer` : "At your desk: what your agents ask waits for your answer, here or in their terminal"}">${away ? "🌙" : "🖥"}<span>${away ? `Away · deny after ${waitMin}m` : "At your desk"}</span></button>
-      <div class="row tlinks"><a href="/discover" title="Find projects to join">${icon("users", 14)}<span>Projects</span></a><a href="/docs" title="How the intercom works">${icon("book", 14)}<span>Docs</span></a>${nav.admin ? `<a href="/dashboard?view=admin" class="${nav.view === "admin" ? "on" : ""}" title="Members and sign-up">${icon("shield", 14)}<span>Admin</span></a>` : ""}<span class="grow"></span><button type="button" class="btn ghost sm icon" data-treetoggle title="Hide the tree (⌘B)" aria-label="Hide the tree">${icon("sidebar", 15)}</button></div>
-    </div>
+  // The rail: every page as an icon (what needs you as a count on it), then search, away, docs and your account.
+  // The tree beside it: projects with their agents, wide enough for their names.
+  const rl = (on: boolean, href: string, ic: string, title: string, pill = "", extra = "") =>
+    `<a class="rl${on ? " on" : ""}" href="${href}" title="${title}" aria-label="${title}"${extra}>${icon(ic, 18)}${pill}</a>`;
+  const pill = (n: number, tone = "") => (n ? `<span class="rpill${tone ? ` ${tone}` : ""}">${n > 99 ? "99+" : n}</span>` : "");
+  const rail = `<nav class="irail" id="irail" data-region aria-label="Pages">
+    <a class="rlogo" href="/" title="About the intercom">${LOGO.replace(/"lg"/, '"lgr"').replace("url(#lg)", "url(#lgr)")}</a>
+    ${rl(nav.view === "agents", "/dashboard?view=agents", "terminal", "Agents")}
+    <button type="button" class="rl" id="railasks" data-asksopen title="Waiting for you" aria-label="Waiting for you"${waitingN ? "" : " hidden"}>${icon("bell", 18)}<span class="rpill amber">${waitingN}</span></button>
+    ${rl(nav.view === "feed", "/dashboard", "layers", "Everything: your projects and messages", pill(nav.votesTotal))}
+    ${rl(nav.view === "work", "/dashboard?view=work", "check", "Work")}
+    ${rl(nav.view === "tracked", "/dashboard?view=tracked", "branch", "Tickets &amp; MRs", pill(trackedN, "amber"))}
+    ${rl(nav.view === "files", "/dashboard?view=files", "image", "Files from agents")}
+    ${rl(nav.view === "fleet", "/dashboard?view=fleet", "monitor", "Agents · versions", pill(stale.length, "amber"))}
+    <span class="rsp"></span>
+    <button type="button" class="rl" data-kopen title="Search (⌘K)" aria-label="Search">${icon("search", 18)}</button>
+    <button type="button" class="rl${away ? " away" : ""}" data-open="dlg-away" title="${away ? `Away: what your agents ask is denied after ${waitMin} min unless you answer` : "At your desk: what your agents ask waits for your answer"}" aria-label="Away mode">${icon(away ? "door" : "clock", 18)}</button>
+    ${rl(false, "/discover", "users", "Find projects to join")}
+    ${rl(false, "/docs", "book", "Docs")}
+    ${nav.admin ? rl(nav.view === "admin", "/dashboard?view=admin", "shield", "Admin: members and sign-up") : ""}
+    <a class="rl rme${nav.view === "account" ? " on" : ""}" href="/dashboard?view=account" title="${esc(me)}: account and notifications" aria-label="Account">${avatar(me, "s")}</a>
+  </nav>`;
+  const tree = `${rail}<aside class="tree" id="tree" data-region>
+    <div class="thead"><b>Agents</b><span class="live" id="live" title="Updates arrive live while this is green"><span class="dot"></span>Connecting</span><span class="grow"></span><button type="button" class="btn ghost xs icon" data-open="dlg-create" title="New project">${icon("plus", 14)}</button><button type="button" class="btn ghost xs icon" data-treetoggle title="Hide the list (⌘B)" aria-label="Hide the list">${icon("sidebar", 14)}</button></div>
+    <button type="button" class="tsearch" data-kopen>${icon("search", 13)}<span>Find agent or page</span><span class="kbd kbd-k">⌘K</span></button>
+    <div class="tbody">${projectNodes || '<p class="tempty">No projects yet.</p>'}${loose.length ? branch("~none", "No project", null, loose, "", false) : ""}</div>
   </aside>
   <dialog id="dlg-away"><div class="hd"><span style="font-size:18px">${away ? "🌙" : "🖥"}</span><h2>${away ? "Away mode is on" : "Going away?"}</h2></div>
     <form method="post" action="/away" data-native><div class="bd stack">
@@ -415,30 +424,63 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   const seg = ownAgent
     ? `<nav class="seg" aria-label="Chat or code"><a href="${back}"${codeOn ? "" : ' class="on"'}>${icon("message", 13)}<span>Chat</span></a><a href="${back}&code=changes"${codeOn ? ' class="on"' : ""} title="Its uncommitted changes, commits and files, read from its machine">${icon("code", 13)}<span>Code</span></a></nav>`
     : "";
-  const chat = `<section class="card chat${codeOn ? " codemode" : ""}">
-      <div class="hd">
+  // The header is one line: who it is, what it's doing, where; then Chat/Code, its subagents (a count), its screen
+  // and files, the inspector and ⋯ for the rest. The inspector (right) holds its subagents and its session details;
+  // it stays as you left it, and opens by itself when a subagent starts.
+  const subs = codeOn || !ownAgent ? [] : parseSubs(agent.subagents);
+  const runningN = subs.filter((x) => x.status === "running").length;
+  const inspOpen = /(?:^|;\s*)ic_insp=1/.test(cookie);
+  const stateText = !on
+    ? `<span class="cstate off">last seen ${ago(agent.last_seen)}</span>`
+    : agent.state === "waiting"
+      ? `<span class="cstate wait" title="${esc(agent.state_detail)}"><i></i>needs you</span>`
+      : agent.state === "working"
+        ? `<span class="cstate work"><i></i>working</span>`
+        : `<span class="cstate idle"><i></i>idle</span>`;
+  const where = [agent.project ? `#${esc(agent.project)}` : "no project", agent.branch ? esc(agent.branch) : ""].filter(Boolean).join(" · ");
+  const ctxRow =
+    agent.ctx_pct != null && agent.client !== "codex"
+      ? `<dt>Context</dt><dd><span class="ctxv ${ctxLevel(agent) ?? ""}" title="Context: ${kTok(agent.ctx_tokens)} of ${kTok(agent.ctx_window)} tokens · ${ago(agent.ctx_at ?? 0)}">${agent.ctx_pct}%</span>${agent.ctx_window ? `<span class="muted"> of ${kTok(agent.ctx_window)}</span>` : ""}${compactCtl}<div class="meter ${ctxLevel(agent) ?? ""}"><i style="width:${Math.min(100, agent.ctx_pct)}%"></i></div></dd>`
+      : canCompact ? `<dt>Context</dt><dd>${compactCtl}</dd>` : "";
+  const session = `<section class="ipart" id="isess" data-region><h3>Session</h3><dl class="kv">
+      <dt>State</dt><dd>${stateText}${on && agent.state === "waiting" && agent.state_detail ? `<div class="small muted">${esc(agent.state_detail)}</div>` : ""}</dd>
+      ${ctxRow}
+      ${agent.note ? `<dt>Role</dt><dd>${esc(plainSpaces(agent.note))}</dd>` : ""}
+      <dt>Project</dt><dd>${agent.project ? `<a href="/dashboard?channel=${encodeURIComponent(agent.project)}">#${esc(agent.project)}</a>` : "none"}${ownAgent && agent.project_pin ? ` <span class="badge" title="Set from the dashboard for this session; its repo would put it in ${esc(agent.repo ? `whatever ${agent.repo} maps to` : "no project")}">pinned</span>` : ""}${ownAgent ? `<button type="button" class="btn ghost xs icon" data-open="dlg-project" title="Choose its project">${icon("pencil", 11)}</button>` : ""}</dd>
+      ${agent.branch ? `<dt>Branch</dt><dd class="mono">${esc(agent.branch)}</dd>` : ""}
+      ${agent.host ? `<dt>Machine</dt><dd>${esc(hostOf(agent))}${ownAgent ? `<button type="button" class="btn ghost xs icon" data-open="dlg-host" title="Rename this machine">${icon("pencil", 11)}</button>` : ""}</dd>` : ""}
+      ${ownAgent && agent.cwd ? `<dt>Folder</dt><dd class="mono cwd">${esc(agent.cwd)}</dd>` : ""}
+      <dt>Client</dt><dd>${clientBadge(agent.client, true)}${agent.version ? ` <span class="muted">${esc(agent.version)}</span>` : ""}</dd>
+      ${ownAgent ? `<dt>Your agents</dt><dd>${takesCtl}</dd>` : ""}
+    </dl>
+    ${loopsOf(agent).length ? `<h3>Loops</h3>${loopsOf(agent).map((l) => `<div class="irow looprow">${icon("repeat", 13)}<span>${esc(describe(l))}</span></div>`).join("")}` : ""}
+    ${jobsOf(agent).length ? `<h3>Background jobs</h3>${jobsOf(agent).map((j) => `<div class="irow jobrow" title="${esc(j.command)}"><span>⧗</span><span class="grow">${esc(jobName(j))} <span class="muted">· running ${duration(Date.now() - j.at)}</span></span><form method="post" action="/agent/job-dismiss" data-native>${hidden({ session: agent.session_id, id: j.id, back: here })}<button class="btn ghost xs icon jobx" title="Not running any more? Remove it from this list">${icon("x", 11)}</button></form></div>`).join("")}` : ""}
+  </section>`;
+  const menu = `<div class="cmenu" role="menu">
+      <div class="mrow"><span>Text size</span><span class="fsz"><button type="button" class="btn ghost xs icon" data-fs="-1" title="Smaller text">A</button><button type="button" class="btn ghost xs icon" data-fs="1" title="Larger text">A</button></span></div>
+      <button type="button" class="mi ttog" data-relaytoggle>${icon("messages", 15)}<span>Messages between agents</span><span class="mchk">${icon("check", 13)}</span></button>
+      ${ownAgent ? `<button type="button" class="mi ttog" data-acttoggle>${icon("eye", 15)}<span>What it's doing</span><span class="mchk">${icon("check", 13)}</span></button>` : ""}
+      <a class="mi" href="/dashboard?view=files&amp;agent=${encodeURIComponent(key(agent))}">${icon("image", 15)}<span>Files from ${esc(agent.label)}</span></a>
+      ${ownAgent ? `<hr><button type="button" class="mi" data-open="dlg-rename">${icon("pencil", 15)}<span>Rename…</span></button><button type="button" class="mi" data-open="dlg-project">${icon("hash", 15)}<span>Change project…</span></button>${canCompact && !agent.compact_req && !agent.compact_prep ? `<button type="button" class="mi" data-open="dlg-compact">${icon("layers", 15)}<span>Compact…</span></button>` : ""}` : ""}
+    </div>`;
+  const chat = `<section class="chat${codeOn ? " codemode" : ""}${inspOpen ? " inspon" : ""}">
+      <header class="chd" id="chathd" data-region data-subs="${runningN}" data-agent="${esc(key(agent))}">
         <button type="button" class="btn ghost icon sm mtree" data-treetoggle title="Agents">${icon("sidebar", 17)}</button>
         <a class="btn ghost icon sm trailback" data-trailback hidden title="Back">${icon("back", 17)}</a>
-        <span class="presence ${on ? "on" : ""}">${agentAvatar(agent.member, agent.label, "m")}</span>
-        <div class="grow" style="min-width:0">
-          <h2 style="display:flex;gap:8px;align-items:center"><span class="grow" style="display:flex;gap:8px;align-items:center"><span class="aname">${esc(key(agent))}</span>${ownAgent ? `<button type="button" class="btn ghost xs icon renamebtn" data-open="dlg-rename" title="Rename this agent">${icon("pencil", 12)}</button>` : ""}${clientBadge(agent.client, true)}</span>${seg}
-            <button type="button" class="btn ghost xs icon hdmore" data-hdmore aria-expanded="false" title="More: text size, files, what to show, its state and machine">${icon("dots", 16)}</button><span class="hdtools">
-            <span class="fsz" title="Text size in the chat"><span class="ml">Text size</span><button type="button" class="btn ghost xs icon" data-fs="-1" title="Smaller text">A</button><button type="button" class="btn ghost xs icon" data-fs="1" title="Larger text">A</button></span>
-            <a class="btn ghost xs icon" href="/dashboard?view=files&amp;agent=${encodeURIComponent(key(agent))}" title="Images and files from ${esc(agent.label)}">${icon("image", 14)}<span class="ml">Files</span></a><button type="button" class="btn ghost xs icon ttog" data-relaytoggle title="Messages between agents: click to show or hide">${icon("messages", 14)}<span class="ml">Agent talk</span></button>${ownAgent ? `<button type="button" class="btn ghost xs icon ttog" data-acttoggle title="Follow what the agent is doing (commands, edits, its text; only you see this): click to turn on or off"><span class="when-on">${icon("eye", 14)}</span><span class="when-off">${icon("eyeOff", 14)}</span><span class="ml">Its steps</span></button>` : ""}</span></h2>
-          <div class="meta-row">${stateBadge(agent)}${reviewBadge(agent)}${ctxBadge(agent)}${compactCtl}${screenCtl}${takesCtl}<span class="mdet">${[
-            agent.host ? `<span class="mi">on <b style="color:var(--ink-2)">${esc(hostOf(agent))}</b>${ownAgent ? `<button type="button" class="btn ghost xs icon renamebtn" data-open="dlg-host" title="Rename this machine">${icon("pencil", 11)}</button>` : ""}</span>` : "",
-            `<span class="mi">${agent.project ? `#${esc(agent.project)}` : "no project"}${ownAgent && agent.project_pin ? ` <span class="badge" title="Set from the dashboard for this session; its repo would put it in ${esc(agent.repo ? `whatever ${agent.repo} maps to` : "no project")}">pinned</span>` : ""}${ownAgent ? `<button type="button" class="btn ghost xs icon renamebtn" data-open="dlg-project" title="Choose its project">${icon("pencil", 11)}</button>` : ""}</span>`,
-            agent.branch ? `<span class="mi">${icon("branch", 12)} ${esc(agent.branch)}</span>` : "",
-            ownAgent && agent.cwd ? `<span class="mi cwd" title="Working directory">${icon("folder", 12)} ${esc(agent.cwd)}</span>` : "",
-            on ? "" : `<span class="mi">last seen ${ago(agent.last_seen)}</span>`,
-            agent.note ? `<span class="mi">“${esc(plainSpaces(agent.note))}”</span>` : "",
-          ]
-            .filter(Boolean)
-            .join('<i class="sep"> · </i>')}</span></div>${loopsOf(agent).map((l) => `<div class="meta-row looprow"><span>${icon("repeat", 13)}${esc(describe(l))}</span></div>`).join("")}${jobsOf(agent).map((j) => `<div class="meta-row jobrow" title="${esc(j.command)}"><span>⧗ ${esc(jobName(j))} <span class="muted">· running ${duration(Date.now() - j.at)}</span></span><form method="post" action="/agent/job-dismiss" data-native>${hidden({ session: agent.session_id, id: j.id, back: `/dashboard?view=agents&agent=${encodeURIComponent(key(agent))}` })}<button class="btn ghost xs icon jobx" title="Not running any more? Remove it from this list">${icon("x", 11)}</button></form></div>`).join("")}
+        <span class="presence ${on ? "on" : ""}">${agentAvatar(agent.member, agent.label, "s")}</span>
+        <div class="ctitle"><h2 class="aname">${esc(ownAgent ? agent.label : key(agent))}</h2>${stateText}<span class="csub">${where}</span></div>
+        ${reviewBadge(agent)}
+        <div class="ctools">
+          ${seg}
+          ${subs.length ? `<button type="button" class="btn ghost sm cbtn subsbtn${runningN ? " live" : ""}" data-insp title="Subagents: ${runningN} running">${icon("users", 15)}${runningN ? `<span class="cnt">${runningN}</span>` : ""}</button>` : ""}
+          ${canScreen ? `<button type="button" class="btn ghost sm icon cbtn scrbtn" ${screenAttrs(key(agent), agent.label, agent.screen ?? "", agent.client ?? "")} title="See its terminal and send it keys">${icon("terminal", 15)}</button>` : ""}
+          <button type="button" class="btn ghost sm icon cbtn inspbtn" data-insp title="Details: subagents, context, machine, folder">${icon("sidebar", 15)}</button>
+          <button type="button" class="btn ghost sm icon cbtn" data-hdmore aria-expanded="false" title="More: text size, what to show, rename, project">${icon("dots", 16)}</button>
+          ${menu}
         </div>
-      </div>
-      ${on && agent.state === "waiting" && !pending.some((p) => p.session_id === agent.session_id) ? `<div class="toast err" style="box-shadow:none;margin:10px 14px 0">${icon("x")}<span><b>${esc(agent.label)} is waiting${agent.state_at ? ` (asked ${ago(agent.state_at)})` : ""}:</b> ${esc(agent.state_detail || "for approval or input")}. That can only be answered in its terminal (or with Claude's Remote Control). Already answered? Claude Code doesn't tell when, so this stays until the step you allowed has run. For unattended runs, start agents in a mode that doesn't stop to ask.</span></div>` : ""}
-      ${codeOn || !ownAgent ? "" : subsRegion(parseSubs(agent.subagents), parseSubs(agent.subagents).length ? await subSteps(env, me, agent.session_id) : new Map(), agent.origin ?? null)}
+      </header>
+      ${on && agent.state === "waiting" && !pending.some((p) => p.session_id === agent.session_id) ? `<div class="cbanner"><i></i><span><b>${esc(agent.label)} is waiting${agent.state_at ? ` (asked ${ago(agent.state_at)})` : ""}:</b> ${esc(agent.state_detail || "for approval or input")}. Only its terminal can answer this.${canScreen ? "" : " Already answered? Claude Code doesn't say when, so this stays until the step has run."}</span>${canScreen ? `<button type="button" class="btn sm" ${screenAttrs(key(agent), agent.label, agent.screen ?? "", agent.client ?? "")}>${icon("terminal", 14)}Open its screen</button>` : ""}</div>` : ""}
+      <div class="cbody"><div class="cmain">
       ${codeOn ? codePane : `<div class="thread term${/(?:^|;\s*)ic_activity=off/.test(cookie) ? " noact" : ""}${/(?:^|;\s*)ic_relay=off/.test(cookie) ? " norelay" : ""}" id="thread" data-region>${thread || `<div class="empty" style="margin:auto">${icon("message", 28)}<div>No messages with ${esc(agent.label)} yet.</div><div class="small">${ownAgent ? "Ask a question or give it a new direction; it treats what you write here like a prompt you typed." : "Your message reaches this session; its owner's agent treats it as information from you."}</div></div>`}</div>
       <form method="post" action="/action/post" class="chatbox" id="chatform" data-region data-quiet data-images data-agent="${esc(key(agent))}" data-label="${esc(agent.label)}">${hidden({ back, to: key(agent), channel: agent.project || "", session: agent.session_id, mode: "", thread: "", edit: "" })}
         <div class="imgtray" hidden></div>
@@ -452,6 +494,12 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
         <div class="btwbar tiny muted" hidden>Side question for ${esc(agent.label)}: answered from its current context, not added to it. Follow-ups continue the thread · <a href="#" data-btwnew>start a new side thread</a></div>
         <div class="chips">${[...QUICK, ...(loopsOf(agent).length ? LOOP_CHIPS : [])].map((q) => `<button type="button" class="chip" data-chip="${esc(q)}">${esc(q)}</button>`).join("")}${on ? "" : '<span class="tiny muted" style="align-self:center">· not connected: the next session with this name gets it</span>'}</div>
       </form>`}
+      </div>
+      <aside class="insp" id="insp" aria-label="Details">
+        <div class="ihead"><b>${esc(agent.label)}</b><button type="button" class="btn ghost xs icon" data-insp title="Close">${icon("x", 14)}</button></div>
+        ${codeOn || !ownAgent ? "" : subsRegion(subs, subs.length ? await subSteps(env, me, agent.session_id) : new Map(), agent.origin ?? null)}
+        ${session}
+      </aside></div>
     </section>`;
   const dialogs = ownAgent
     ? `${canCompact ? `<dialog id="dlg-compact"><div class="hd">${icon("layers", 18)}<h2>Compact ${esc(agent.label)}</h2></div>

@@ -648,7 +648,7 @@ export async function dashboard(url: URL, env: Env, me: string, cookie = ""): Pr
       </form></section>`
     : "";
   const feed = `<section class="card" id="feed" data-region>
-      <div class="hd"><h2>${channel ? `${icon("hash", 16)}${esc(channel)}` : `${icon("radio", 16)}Activity`}</h2><span class="small muted">${channel ? "project feed" : "your projects and direct messages"}</span></div>
+      <div class="hd"><h2>${channel ? `${icon("hash", 16)}${esc(channel)}` : `${icon("radio", 16)}Activity`}</h2><span class="small muted">${channel ? "project feed" : "your projects and direct messages"}</span><span class="act"><button type="button" class="btn ghost sm" data-drawertoggle title="Show or hide the panels: project, locks, handoffs, decisions, votes">${icon("sidebar", 14)}Panels</button></span></div>
       <div class="feed">${msgsRes.results.length ? msgsRes.results.map((m, i, all) => {
         // Newest first: a message continues the (older) one below it when sender, place and minute-ish match.
         const prev = all[i - 1];
@@ -731,7 +731,7 @@ export async function dashboard(url: URL, env: Env, me: string, cookie = ""): Pr
     view === "admin"
       ? `<main class="pane"><div class="pane-in">${await adminSection(env, me)}</div></main>`
       : view === "account"
-        ? `<main class="pane"><div class="pane-in acctpane">${await accountSection(env, me, url.origin)}</div></main>`
+        ? `<main class="pane"><div class="pane-in acctpane"><div class="pagehead"><h1>Account${admin ? ' <span class="badge accent">admin</span>' : ""}</h1><form method="post" action="/logout" data-native><button class="btn sm">${icon("logout", 14)}Sign out</button></form></div>${await accountSection(env, me, url.origin)}</div></main>`
       : view === "review"
         ? `<main class="pane">${await reviewView(env, me, Number(url.searchParams.get("id")), localPath(url.searchParams.get("back"), "/dashboard?view=agents"))}</main>`
       : view === "fleet"
@@ -750,17 +750,13 @@ export async function dashboard(url: URL, env: Env, me: string, cookie = ""): Pr
   const treeHidden = /(?:^|;\s*)ic_tree=hidden/.test(cookie);
   const drawerOff = /(?:^|;\s*)ic_drawer=off/.test(cookie);
 
-  const top = `<header class="top"><div class="in">
-    <button type="button" class="btn ghost icon sm treebtn" data-treetoggle title="Show or hide the tree (⌘B)">${icon("sidebar", 15)}</button>
+  // Desktop has no top bar (the rail holds the pages, search and your account); a phone gets a slim one to open them.
+  const top = `<header class="top mtop"><div class="in">
+    <button type="button" class="btn ghost icon sm treebtn" data-treetoggle title="Pages and agents" aria-label="Pages and agents">${icon("sidebar", 17)}</button>
     <a class="brand" href="/">${LOGO}<span>Intercom</span></a>
-    <span class="live" id="live" title="Updates arrive live while this is green"><span class="dot"></span>Connecting</span>
     <span class="grow"></span>
-    ${view === "feed" ? `<button type="button" class="btn ghost sm" data-drawertoggle title="Show or hide the panels: project, locks, handoffs, decisions, votes">${icon("layers", 15)}<span class="lbl">Panels</span></button>` : ""}
-    <button type="button" class="btn ghost sm" data-kopen title="Find an agent, project or page">${icon("search", 15)}<span class="lbl">Search</span><span class="kbd kbd-k">⌘K</span></button>
-    <a class="btn ghost sm topabout" href="/">${icon("sparkles", 15)}<span class="lbl">About</span></a>
-    <a class="btn ghost sm" href="/docs" title="Docs">${icon("book", 15)}<span class="lbl">Docs</span></a>
-    <a class="me" href="/dashboard?view=account" title="Your account and notifications">${avatar(me, "s")}<b>${esc(me)}</b>${meRow?.org ? `<span class="muted">· ${esc(meRow.org)}</span>` : ""}${admin ? '<span class="badge accent">admin</span>' : ""}</a>
-    <form method="post" action="/logout" data-native><button class="btn ghost icon sm" title="Sign out">${icon("logout", 15)}</button></form>
+    ${view === "feed" ? `<button type="button" class="btn ghost icon sm" data-drawertoggle title="Show or hide the panels: project, locks, handoffs, decisions, votes">${icon("layers", 16)}</button>` : ""}
+    <button type="button" class="btn ghost icon sm" data-kopen title="Find an agent, project or page">${icon("search", 16)}</button>
   </div></header>`;
 
   return html(page(view === "agents" ? "Agents · Intercom" : channel ? `#${channel} · Intercom` : "Intercom", `<div class="ide${treeHidden ? " notree" : ""}${drawerOff ? " nodrawer" : ""}${view === "agents" ? " chatmode" : view === "feed" ? " feedmode" : ""}" id="ide">${ws.tree}${main}</div>${dialogs}${await asksDock(env, me, url.pathname + url.search)}`, { top }), 200, {

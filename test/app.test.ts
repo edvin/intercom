@@ -436,7 +436,7 @@ describe("GitHub", () => {
       assert.equal(res.status, 303);
       assert.equal(res.headers.get("location"), "/dashboard?welcome=1");
       // The browser's cookie signs in the dashboard (machine endpoints such as /api/whoami take only a bearer token).
-      assert.match(await (await w.request("/dashboard", { headers: { cookie: sessionFrom(res) } })).text(), /<b>dominic-x<\/b>/);
+      assert.match(await (await w.request("/dashboard", { headers: { cookie: sessionFrom(res) } })).text(), /title="dominic-x: account and notifications"/);
       assert.equal((await w.request("/api/whoami", { headers: { cookie: sessionFrom(res) } })).status, 401);
       const again = await oauth(w, "");
       assert.equal(await (await w.request("/api/whoami", { headers: { authorization: `Bearer ${decodeURIComponent(sessionFrom(again).split("=")[1]!)}` } })).text(), "dominic-x");
@@ -1125,8 +1125,8 @@ describe("activity mirroring", () => {
       8,
     );
     const mine = await (await w.request("/dashboard?view=agents&agent=bob/alder", { as: "bob", cookie: true })).text();
-    assert.match(mine, /<div id="subs" class="subs" data-region><details class="subbox" id="subs-box"><summary class="subhd">[\s\S]*1 running · 1 finished/);
-    assert.match(mine, /<details class="subag on" id="sub-a1">[\s\S]*<span class="subtype">Explore<\/span><span class="subdesc">Find the retry logic<\/span>[\s\S]*running 5m · 2 steps/);
+    assert.match(mine, /<section id="subs" class="subs ipart" data-region><h3>Subagents<span class="muted">1 running · 1 finished/);
+    assert.match(mine, /<details class="subag on" id="sub-a1">[\s\S]*<span class="subdesc">Find the retry logic<\/span>[\s\S]*Explore · running 5m · 2 steps/);
     assert.match(mine, /Where do we retry failed charges\?[\s\S]*grep retry[\s\S]*Run the tests · npm test/);
     assert.match(mine, /id="sub-a2">[\s\S]*>bg<[\s\S]*done 4m ago · took 1m[\s\S]*Its answer[\s\S]*<b>3 entries<\/b>/);
     assert.doesNotMatch(mine, /sub-x/);
@@ -1381,7 +1381,7 @@ describe("choosing an agent's project from the dashboard", () => {
     assert.match(await hook("bob", "SessionStart", "p1", "scratch-tool"), /Current project: #billing/);
     assert.doesNotMatch(await hook("bob", "SessionStart", "p2", "scratch-tool"), /Current project/);
     assert.doesNotMatch(await hook("bob", "Stop", "p1", "scratch-tool"), /"decision":"block"/);
-    assert.match(await (await w.request("/dashboard?view=agents&agent=bob/session-p1", { as: "bob", cookie: true })).text(), /#billing <span class="badge"[^>]*>pinned/);
+    assert.match(await (await w.request("/dashboard?view=agents&agent=bob/session-p1", { as: "bob", cookie: true })).text(), /#billing<\/a> <span class="badge"[^>]*>pinned/);
 
     assert.match((await move("bob", { session: "p1", project: "" })).get("ok")!, /follows its repo again/);
     assert.doesNotMatch(await hook("bob", "SessionStart", "p1", "scratch-tool"), /Current project/);
@@ -1547,8 +1547,8 @@ describe("loops", () => {
     const view = (as: string) => w.request("/dashboard?view=agents&agent=bob/looper", { as, cookie: true }).then((r) => r.text());
 
     let page = await view("bob");
-    assert.match(page, /<\/svg>loop every 20m: \/babysit-prs/);
-    assert.match(page, /<\/svg>self-paced loop, next in 20m: check the deploy/);
+    assert.match(page, /<\/svg><span>loop every 20m: \/babysit-prs/);
+    assert.match(page, /<\/svg><span>self-paced loop, next in 20m: check the deploy/);
     assert.match(page, /<span class="tloop" title="running a loop"><svg/); // marked in the tree
     assert.match(page, /data-chip="Stop your loop\."/);
     assert.equal((page.match(/started a self-paced loop: check the deploy/g) ?? []).length, 1); // re-arming isn't news
@@ -1713,7 +1713,7 @@ describe("share_file", () => {
     assert.match(await view("bob", "&kind=all&project=billing"), /\/attachment\/3"[\s\S]*(?!\/attachment\/1)/);
     assert.doesNotMatch(await view("bob", "&kind=all&project=shop"), /class="gal"/);
     // The tree links to it, and an agent's chat links to its own files.
-    assert.match(bob, /href="\/dashboard\?view=files" title="Images and files your agents shared/);
+    assert.match(bob, /href="\/dashboard\?view=files" title="Files from agents"/);
     assert.match(await (await w.request("/dashboard?view=agents&agent=bob%2Fcore", { as: "bob", cookie: true })).text(), /href="\/dashboard\?view=files&amp;agent=bob%2Fcore"/);
   });
 
@@ -1775,7 +1775,7 @@ describe("share_file", () => {
     assert.match(page, /trkpipe green[\s\S]*passed/);
     assert.match(page, /2 open threads/);
     assert.match(page, /merginator <span class="muted">· billing<\/span><span>: updated just now/);
-    assert.match(page, /title="The tickets and MRs your agents track for you">[\s\S]*?<span class="badge amber" title="Need you">1<\/span>/);
+    assert.match(page, /title="Tickets &amp; MRs"[^>]*>[\s\S]*?<span class="rpill amber">1<\/span>/);
     // Others don't see bob's board.
     assert.match(await view("alice"), /No tickets or MRs yet/);
 
@@ -1908,7 +1908,7 @@ describe("reviews", () => {
     assert.doesNotMatch(bare, /data-tab="changes"/);
     assert.match(dash, /<input type="radio" name="f2" value="drop" checked>/);
     assert.match(dash, /<input type="radio" name="outcome" value="request_changes" checked>/);
-    assert.match(dash, /Waiting for you<\/span><span class="badge amber">1/);
+    assert.match(dash, /id="railasks" data-asksopen title="Waiting for you" aria-label="Waiting for you">[\s\S]*?<span class="rpill amber">1</);
     // The agent's row and chat header say a review is waiting, besides the dock.
     assert.match(dash, /data-k="bob\/core"[^>]*>[\s\S]*?<span class="tw" title="a review is waiting for you">!<\/span>/);
     assert.match(await (await w.request("/dashboard?view=agents&agent=bob/core", { as: "bob", cookie: true })).text(), /class="badge amber rvbadge" data-asksopen[^>]*>[\s\S]*?review waiting for you<\/button>/);
@@ -2025,7 +2025,7 @@ describe("tickets", () => {
     assert.match(await w.ok("bob", "ticket", ticket, triage), /Ticket T1 \(SHOP-12\) is waiting[\s\S]*Don't start it/);
     const dash = await page(w, "/dashboard?view=agents");
     assert.match(dash, /<article class="ask k-ticket" data-mid="t1">[\s\S]*SHOP-12[\s\S]*Invoices with a 0% VAT line[\s\S]*2 questions for you[\s\S]*Recommends <b>Go<\/b>[\s\S]*href="\/dashboard\?view=ticket&amp;id=1&amp;back=/);
-    assert.match(dash, /Waiting for you<\/span><span class="badge amber">1/);
+    assert.match(dash, /id="railasks" data-asksopen title="Waiting for you" aria-label="Waiting for you">[\s\S]*?<span class="rpill amber">1</);
     assert.match(dash, /ticket waiting for you<\/button>/);
     const v = await page(w, "/dashboard?view=ticket&id=1");
     assert.match(v, /<h1>Invoices with a 0% VAT line show the wrong total<\/h1>/);
@@ -2147,7 +2147,7 @@ describe("background jobs", () => {
     ]);
     const view = (as: string) => w.request("/dashboard?view=agents&agent=bob/runner", { as, cookie: true }).then((r) => r.text());
     let page = await view("bob");
-    assert.match(page, /⧗ Run the dev server <span class="muted">· running/);
+    assert.match(page, />Run the dev server <span class="muted">· running/);
     assert.match(page, /<span title="background jobs">⧗<\/span>/); // marked in the tree
     assert.doesNotMatch(await view("alice"), /Run the dev server/);
 
@@ -2156,7 +2156,7 @@ describe("background jobs", () => {
       ev({ op: "end", id: "b1", status: "failed", summary: 'Background command "Run the dev server" failed with exit code 1' }),
     ]);
     page = await view("bob");
-    assert.doesNotMatch(page, /⧗ Run the dev server <span class="muted">· running/);
+    assert.doesNotMatch(page, />Run the dev server <span class="muted">· running/);
     assert.match(page, /✓ finished: Deploy and wait until live after/);
     assert.match(page, /✗ failed: Run the dev server \(exit 1\) after/);
 
@@ -2298,7 +2298,7 @@ describe("working directory", () => {
     const w = await standardWorld();
     await w.request("/api/hook?event=SessionStart&project=billing-api&session=wd1&name=core&cwd=~/work/billing-api", { as: "bob" });
     const view = (as: string) => w.request("/dashboard?view=agents&agent=bob/core", { as, cookie: true }).then((r) => r.text());
-    assert.match(await view("bob"), /<span class="mi cwd" title="Working directory">.*~\/work\/billing-api<\/span>/);
+    assert.match(await view("bob"), /<dt>Folder<\/dt><dd class="mono cwd">~\/work\/billing-api<\/dd>/);
     assert.doesNotMatch(await view("alice"), /work\/billing-api/);
   });
 });
@@ -2509,7 +2509,7 @@ describe("the agent in the address", () => {
     await w.ok("bob", "post", { to: "bob", message: "a reply from busy" }, b);
     await w.db.prepare("UPDATE sessions SET last_seen = ? WHERE session_id = 'ad-a'").bind(Date.now() - 2 * 86400_000).run();
     const page = await (await w.request("/dashboard?view=agents&agent=bob/quiet", { as: "bob", cookie: true })).text();
-    assert.match(page, /<span class="aname">bob\/quiet<\/span>/);
+    assert.match(page, /<h2 class="aname">quiet<\/h2>/);
     assert.doesNotMatch(page, /a reply from busy/);
     const gone = await (await w.request("/dashboard?view=agents&agent=bob/nobody", { as: "bob", cookie: true })).text();
     assert.match(gone, /There's no agent bob\/nobody \(any more\)/);
@@ -2854,7 +2854,7 @@ describe("context and compaction", () => {
     assert.equal((await poll("&ctx=82&tok=164000&win=200000")).compact, null);
     const page = async () => (await w.request("/dashboard?view=agents&agent=bob/core", { as: "bob", cookie: true })).text();
     const html = await page();
-    assert.match(html, /<span class="badge ctxb amber" title="Context: 164k of 200k tokens[^"]*">82% context<\/span>/);
+    assert.match(html, /<span class="ctxv amber" title="Context: 164k of 200k tokens[^"]*">82%<\/span>/);
     assert.match(html, /<span class="tctx amber"[^>]*>82%<\/span>/);
     assert.match(html, /data-open="dlg-compact"/);
     const form = new URLSearchParams({ session: "cc1", instructions: "keep the deploy plan", back: "/dashboard?view=agents&agent=bob/core" });
@@ -2892,7 +2892,7 @@ describe("context full after compacting", () => {
     assert.doesNotMatch(await dock(), /context is \d+% full/);
     // Its next reply: the real, lower figure is taken, and later growth counts again.
     await poll("&ctx=9&tok=90000&win=1000000");
-    assert.match(await (await w.request("/dashboard?view=agents&agent=bob/core", { as: "bob", cookie: true })).text(), /9% context/);
+    assert.match(await (await w.request("/dashboard?view=agents&agent=bob/core", { as: "bob", cookie: true })).text(), />9%<\/span>/);
     await poll("&ctx=91&tok=910000&win=1000000");
     assert.match(await dock(), /core's context is 91% full/);
     // The mod couldn't compact: the card stays, and says why.
@@ -3057,10 +3057,10 @@ describe("stale background jobs", () => {
       body: JSON.stringify({ items: [{ at: Date.now(), kind: "job", text: JSON.stringify({ op: "start", id: "b1", description: "Poll the hub until live", command: "curl …" }) }] }),
     });
     const page = async () => (await w.request("/dashboard?view=agents&agent=bob/core", { as: "bob", cookie: true })).text();
-    assert.match(await page(), /⧗ Poll the hub until live/);
+    assert.match(await page(), /Poll the hub until live/);
     const form = new URLSearchParams({ session: "jd1", id: "b1", back: "/dashboard?view=agents&agent=bob/core" });
     await w.request("/agent/job-dismiss", { as: "bob", cookie: true, method: "POST", headers: { origin: ORIGIN, "content-type": "application/x-www-form-urlencoded" }, body: form });
-    assert.doesNotMatch(await page(), /⧗ Poll the hub until live/);
+    assert.doesNotMatch(await page(), /Poll the hub until live/);
   });
 });
 
@@ -3128,7 +3128,7 @@ describe("notifications (web push)", () => {
     const account = await (await w.request("/dashboard?view=account", { as: "bob", cookie: true })).text();
     assert.match(account, /<b>Safari on iPhone<\/b>/);
     // Account lives in the dashboard (tree, top bar); the old address leads there.
-    assert.match(account, /class="tl on" href="\/dashboard\?view=account"/);
+    assert.match(account, /class="rl rme on" href="\/dashboard\?view=account"/);
     assert.equal((await w.request("/account?ok=Saved", { as: "bob", cookie: true })).headers.get("location"), "/dashboard?view=account&ok=Saved");
     assert.match(account, /data-pushctl/);
     // The page's CSP lets it install the notification worker (only from this site) and read the app manifest.
@@ -3257,7 +3257,7 @@ describe("work log", () => {
     assert.match(v, /MRs reviewed<\/span><b class="wkv">1<\/b><span class="wks">1 sent back · 1 merged<\/span>/);
     assert.match(v, /triage sent SHOP-12[\s\S]*You decided Go on SHOP-12[\s\S]*SHOP-12 shipped: Both sums count zero-rated lines\.[\s\S]*You decided Request changes[\s\S]*Merged/);
     assert.match(v, /<td><span class="wkag">[\s\S]*triage<\/span><\/td><td>1<span class="muted">\/1<\/span><\/td><td title="">100%<\/td>[\s\S]*<td>50%<\/td><\/tr>/);
-    assert.match(v, /class="tl on" href="\/dashboard\?view=work"/);
+    assert.match(v, /class="rl on" href="\/dashboard\?view=work"/);
     // The week, with a bar per day.
     const wk = await (await w.request("/dashboard?view=work&range=week", { as: "bob", cookie: true })).text();
     assert.equal((wk.match(/class="wkbar"/g) ?? []).length, 7);
@@ -3323,7 +3323,7 @@ describe("agents that don't take their messages", () => {
     await age(w, 10);
     const dash = await page(w);
     assert.match(dash, /<article class="ask k-stuck" data-mid="ualder">[\s\S]*1 message for alder has gone unread for 10m[\s\S]*It(?:'|&#39;)s a Codex session that finished its last turn[\s\S]*<b>core<\/b>[\s\S]*Can you rebuild the image\?[\s\S]*<option value="core">core<\/option><option value="triage">triage<\/option>[\s\S]*Tell whoever sent them not to wait[\s\S]*Leave them, I(?:'|&#39;)ll wake it/);
-    assert.match(dash, /Waiting for you<\/span><span class="badge amber">1/);
+    assert.match(dash, /id="railasks" data-asksopen title="Waiting for you" aria-label="Waiting for you">[\s\S]*?<span class="rpill amber">1</);
     // One notification per spell.
     const { stuckNote } = await import("../src/stuck.ts");
     assert.deepEqual(await stuckNote(w.env(), "bob", "alder"), { title: "alder isn't taking messages", body: "1 message waiting since 10m ago: idle between turns (a Codex session takes messages only when a turn starts, so only typing in its terminal wakes it).", again: null });

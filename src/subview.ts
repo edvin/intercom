@@ -19,7 +19,7 @@ function subItem(s: Sub, steps: SubStep[], origin: string | null, now: number): 
     .map((x) => `<div class="act act-${esc(x.kind)}"><span class="aic">${STEP_ICON[x.kind] ?? "·"}</span><span class="atx${x.kind === "text" ? " md" : ""}">${x.kind === "text" ? md(x.text, origin) : esc(x.text.replace(/\n/g, " · "))}</span><span class="when">${time(x.at)}</span></div>`)
     .join("");
   return `<details class="subag${running ? " on" : ""}" id="sub-${esc(s.id)}">
-    <summary>${mark}${s.type ? `<span class="subtype">${esc(s.type)}</span>` : ""}<span class="subdesc">${esc(s.desc || "a subagent")}</span>${s.bg ? `<span class="subbg" title="Runs in the background: the agent goes on meanwhile">bg</span>` : ""}${s.depth > 1 ? `<span class="subbg" title="Started by another subagent">nested</span>` : ""}<span class="submeta">${esc(when)} · ${s.steps} step${s.steps === 1 ? "" : "s"}</span></summary>
+    <summary>${mark}<span class="subdesc">${esc(s.desc || "a subagent")}</span>${s.bg ? `<span class="subbg" title="Runs in the background: the agent goes on meanwhile">bg</span>` : ""}${s.depth > 1 ? `<span class="subbg" title="Started by another subagent">nested</span>` : ""}<span class="submeta">${s.type ? `${esc(s.type)} · ` : ""}${esc(when)} · ${s.steps} step${s.steps === 1 ? "" : "s"}</span></summary>
     <div class="subbody">
       ${s.prompt ? `<div class="subsec"><span class="askh">Asked</span><div class="subprompt">${esc(s.prompt)}</div></div>` : ""}
       ${stepRows ? `<div class="subsec"><span class="askh">Steps${s.steps > steps.length ? ` (the last ${steps.length} of ${s.steps})` : ""}</span><div class="substeps">${stepRows}</div></div>` : running ? `<p class="small muted">No steps yet.</p>` : ""}
@@ -30,18 +30,14 @@ function subItem(s: Sub, steps: SubStep[], origin: string | null, now: number): 
 
 /** The strip: empty (but there, for live updates) when the agent has no subagents. */
 export function subsRegion(subs: Sub[], steps: Map<string, SubStep[]>, origin: string | null, now = Date.now()): string {
-  if (!subs.length) return `<div id="subs" class="subs" data-region hidden></div>`;
+  if (!subs.length) return `<section id="subs" class="subs ipart" data-region hidden></section>`;
   const run = runningSubs(subs);
   const done = subs.filter((s) => s.status !== "running").sort((a, b) => b.updated - a.updated);
   const item = (s: Sub) => subItem(s, steps.get(s.id) ?? [], origin, now);
-  const now1 = run[0]?.desc || run[0]?.type || "";
-  const head = `${icon("users", 13)}<b>Subagents</b><span class="muted">${run.length ? `${run.length} running` : "none running"}${done.length ? ` · ${done.length} finished` : ""}</span>${
-    run.length ? `<span class="subspin" aria-hidden="true"></span><span class="subnow">${esc(now1)}</span>` : ""
-  }<span class="subcaret">${icon("chevron", 12)}</span>`;
-  // Folded to its one line unless you open it (the browser remembers that), so it doesn't push the chat down.
-  return `<div id="subs" class="subs" data-region><details class="subbox" id="subs-box"><summary class="subhd">${head}</summary><div class="sublist">${[...run, ...done.slice(0, SHOWN_DONE)].map(item).join("")}${
+  // In the agent's inspector: a heading with the count, the running ones, then the latest finished.
+  return `<section id="subs" class="subs ipart" data-region><h3>Subagents<span class="muted">${run.length ? `${run.length} running` : "none running"}${done.length ? ` · ${done.length} finished` : ""}</span></h3><div class="sublist">${[...run, ...done.slice(0, SHOWN_DONE)].map(item).join("")}${
     done.length > SHOWN_DONE ? `<details class="submore" id="subs-more"><summary>${done.length - SHOWN_DONE} earlier</summary>${done.slice(SHOWN_DONE).map(item).join("")}</details>` : ""
-  }</div></details></div>`;
+  }</div></section>`;
 }
 
 /** The tree's mark on an agent with subagents running. */
