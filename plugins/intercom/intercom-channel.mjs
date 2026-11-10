@@ -20,7 +20,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const VERSION = "0.12.49"; // kept in step with .claude-plugin/plugin.json (a test checks)
+const VERSION = "0.12.50"; // kept in step with .claude-plugin/plugin.json (a test checks)
 const DIR = path.join(os.homedir(), ".claude", "intercom");
 const CONFIG = path.join(DIR, "config");
 function readConf() {
@@ -275,6 +275,25 @@ function noteMentions(text) {
   }
 }
 
+/** Whether the session's transcript has this path in it, as written or JSON-escaped (C:\\Users\\…). */
+function inTranscript(p) {
+  try {
+    const file = transcriptFor(SESSION);
+    if (!file || !p) return false;
+    const st = fs.statSync(file);
+    const fd = fs.openSync(file, "r");
+    // The last 64 MB at most: enough for any session, without reading a huge one whole.
+    const len = Math.min(st.size, 64 * 1024 * 1024);
+    const buf = Buffer.alloc(len);
+    fs.readSync(fd, buf, 0, len, st.size - len);
+    fs.closeSync(fd);
+    const text = buf.toString("utf8");
+    return text.includes(p) || text.includes(JSON.stringify(p).slice(1, -1));
+  } catch {
+    return false;
+  }
+}
+
 // ---- file requests: the owner opened a path this session mentioned, in the dashboard; send them the file ----
 
 async function answerFileRequest(f) {
@@ -282,7 +301,8 @@ async function answerFileRequest(f) {
     fetch(`${BASE}/api/file-reply`, { method: "POST", headers: { authorization: headers.authorization, "content-type": "application/json" }, body: JSON.stringify({ req: f.req, ...body }), signal: AbortSignal.timeout(60_000) });
   try {
     const raw = String(f.path ?? "");
-    if (!mentioned.has(raw)) return await reply({ error: `This session hasn't mentioned ${raw} since its intercom server started, so it isn't sent.` });
+    // Mentioned since this server started, or anywhere in the session's transcript (a reload starts this server over).
+    if (!mentioned.has(raw) && !inTranscript(raw)) return await reply({ error: `This session hasn't mentioned ${raw}, so it isn't sent.` });
     const file = path.resolve(process.cwd(), raw.replace(/^~(?=$|[\\/])/, os.homedir()));
     if (secret(file)) return await reply({ error: `${raw} looks like a key or credential; those are never sent from this machine.` });
     let st;
@@ -997,6 +1017,24 @@ let me = "";
 let wokeAt = 0;
 const REWAKE_MS = 15 * 60_000;
 
+function claimWake(id) {
+  const dir = path.join(DIR, "woke");
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.closeSync(fs.openSync(path.join(dir, `${SESSION}-${Number(id) || 0}`), "wx"));
+    // Old claims go after a day.
+    for (const n of fs.readdirSync(dir)) {
+      const f = path.join(dir, n);
+      try {
+        if (Date.now() - fs.statSync(f).mtimeMs > 86_400_000) fs.rmSync(f, { force: true });
+      } catch {}
+    }
+    return true;
+  } catch (e) {
+    return e?.code !== "EEXIST";
+  }
+}
+
 function codexPush(m, state, unfetched = false) {
   if (headers["x-intercom-client"] !== "codex" || SESSION.startsWith("pid-") || state !== "idle") return;
   const fromUser = !!me && m.sender === me && !m.sender_agent && !!m.from_user && m.recipient === me && m.kind !== "event";
@@ -1010,6 +1048,8 @@ function codexPush(m, state, unfetched = false) {
     if (unfetched && Date.now() - wokeAt < REWAKE_MS) return;
     wokeAt = Date.now();
   }
+  // Two servers for one session (after a restart, say) each get the message: only one of them queues the turn.
+  if (!claimWake(m.id)) return;
   const from = m.sender_agent ? `${m.sender}/${m.sender_agent}` : m.sender;
   // Who it's from comes first, so the body can't pose as something else; a teammate's words never become a turn here,
   // only a pointer to read them with the inbox tool.
