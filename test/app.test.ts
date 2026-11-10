@@ -1237,10 +1237,10 @@ describe("delivery marks", () => {
     const view = async (as: string, path: string) => (await w.request(path, { as, cookie: true })).text();
 
     let page = await view("bob", "/dashboard?view=agents&agent=bob/alder");
-    assert.match(page, /class="bubble md relay"[^>]*><span class="rhd"><a class="an" href="\/dashboard\?view=agents&amp;agent=bob%2Fcore"[^>]*>bob\/core<\/a> → <a class="an"[^>]*>bob\/alder<\/a> <span class="badge accent"[^>]*>work<\/span><\/span>/);
-    assert.match(page, /bob\/core<\/a> → <a class="an"[^>]*>bob\/alder[\s\S]*?class="dlv wait"/);
-    assert.match(page, /alice → <a class="an"[^>]*>bob\/alder/);
-    assert.match(await view("bob", "/dashboard?view=agents&agent=bob/core"), /bob\/core<\/a> → <a class="an"[^>]*>bob\/ghost[\s\S]*?⚠ not connected/);
+    assert.match(page, /class="bubble md relay r-in"[^>]*><div class="rcard"><span class="rhd"><span[^>]*>[^<]*<\/span><a class="an" href="\/dashboard\?view=agents&amp;agent=bob%2Fcore"[^>]*>bob\/core<\/a><span class="rarrow">→<\/span><span[^>]*>[^<]*<\/span><a class="an"[^>]*>bob\/alder<\/a> <span class="badge accent"[^>]*>work<\/span><\/span>/);
+    assert.match(page, /bob\/core<\/a><span class="rarrow">→<\/span>[\s\S]*?bob\/alder[\s\S]*?class="dlv wait"/);
+    assert.match(page, /alice<span class="rarrow">→<\/span>[\s\S]*?bob\/alder/);
+    assert.match(await view("bob", "/dashboard?view=agents&agent=bob/core"), /bob\/core<\/a><span class="rarrow">→<\/span>[^\n]*?bob\/ghost[\s\S]*?⚠ not connected/);
     const DM = /→ <a class="an"[^>]*>bob\/alder<\/a><\/span><span class="meta"><time[^>]*>[^<]*<\/time>(<span class="dlv[^"]*"[^>]*>[^<]*<\/span>)/;
     assert.match((await view("alice", "/dashboard")).match(DM)![1]!, /dlv wait/);
 

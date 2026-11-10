@@ -370,7 +370,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
       a.kind === "text" ? md(a.text, agent.origin, files) : a.kind === "prompt" ? `<span class="muted">typed in the terminal:</span> ${esc(plainSpaces(a.text))}` : esc(plainSpaces(a.text))
     }</span><span class="when">${time(a.at)}</span></div>`;
   };
-  type Item = { at: number; html: string; act?: Activity; you?: boolean; reply?: boolean };
+  type Item = { at: number; html: string; act?: Activity; you?: boolean; reply?: boolean; pair?: string };
   const items: Item[] = [];
   const thread0 = rows
     .reverse()
@@ -386,7 +386,12 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
         const from = address(m.sender, m.sender_agent);
         const to = address(m.recipient!, m.recipient_agent);
         const named = (member: string, agentLabel: string | null, text: string) => (agentLabel ? agentLink(member, agentLabel, text) : esc(text));
-        return `<div class="bubble md relay" data-mid="${m.id}"><span class="rhd">${named(m.sender, m.sender_agent, from)} → ${named(m.recipient!, m.recipient_agent, to)}${m.delegated ? ' <span class="badge accent" title="Handed as work: the receiving agent takes work from your other agents">work</span>' : ""}</span>${md(m.body, originOf(m.sender, m.sender_agent), null, codeOf(m.sender, m.sender_agent))}<span class="when">${time(m.created_at)}${mark}</span></div>`;
+        // A card of its own: who wrote to whom (avatars, an arrow), what kind, the text; it sits to the right when the
+        // agent you're looking at wrote it, to the left when it came to that agent, in the middle when neither.
+        const dir = m.sender === agent.member && m.sender_agent === agent.label ? "out" : m.recipient === agent.member && m.recipient_agent === agent.label ? "in" : "side";
+        const face = (member: string, agentLabel: string | null) => (agentLabel ? agentAvatar(member, agentLabel, "s") : avatar(member, "s"));
+        const pair = [from, to].sort().join(" ⇄ ");
+        return `<div class="bubble md relay r-${dir}" data-mid="${m.id}" data-pair="${esc(pair)}"><div class="rcard"><span class="rhd">${face(m.sender, m.sender_agent)}${named(m.sender, m.sender_agent, from)}<span class="rarrow">→</span>${face(m.recipient!, m.recipient_agent)}${named(m.recipient!, m.recipient_agent, to)}${m.delegated ? ' <span class="badge accent" title="Handed as work: the receiving agent takes work from your other agents">work</span>' : ""}</span><div class="rbody">${md(m.body, originOf(m.sender, m.sender_agent), null, codeOf(m.sender, m.sender_agent))}</div><span class="when">${time(m.created_at)}${mark}</span></div></div>`;
       }
       const speak = fromMe ? "" : `<button type="button" class="speak" data-speak title="Read aloud">${icon("volume", 13)}</button>`;
       // Not taken by an agent yet: you can still edit or cancel it (lib.ts unsend). Held means you're editing it.
@@ -404,6 +409,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
       html: thread0[i]!,
       you: m.sender === me && !m.sender_agent && !!m.recipient,
       reply: m.sender === agent.member && m.sender_agent === agent.label && m.recipient === me,
+      pair: m.recipient && !(m.sender === me && !m.sender_agent) && !(m.sender === agent.member && m.sender_agent === agent.label && m.recipient === me && (!m.recipient_agent || agent.member !== me)) ? [address(m.sender, m.sender_agent), address(m.recipient, m.recipient_agent)].sort().join(" ⇄ ") : undefined,
     }),
   );
   // A dashboard message handed to the agent as a prompt (the mod's prompt.submit, codex queue) is also in its
@@ -449,8 +455,25 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
     else if (run.length) out.push(foldSteps(run, tail && working, actRow));
     run = [];
   };
+  // Three or more messages in a row between the same two agents fold into one line ("core ⇄ render · 4 messages").
+  let rel: Item[] = [];
+  const flushRel = () => {
+    if (rel.length >= 3) {
+      const first = rel[0]!, last = rel[rel.length - 1]!;
+      const [a, b] = first.pair!.split(" ⇄ ");
+      out.push(`<details class="relaygroup" id="rg-${/data-mid="(\d+)"/.exec(first.html)?.[1] ?? first.at}" data-gid="rg${first.at}"><summary><span class="rgic">${icon("messages", 13)}</span><span class="rgwho"><b>${esc(a!.split("/").pop()!)}</b> ⇄ <b>${esc(b!.split("/").pop()!)}</b></span><span class="rgn">${rel.length} messages</span><span class="when">${time(last.at)}</span></summary>${rel.map((r) => r.html).join("")}</details>`);
+    } else out.push(...rel.map((r) => r.html));
+    rel = [];
+  };
   let answered = false;
   for (const it of sorted) {
+    if (it.pair) {
+      if (rel.length && rel[0]!.pair !== it.pair) flushRel();
+      if (!rel.length) flush(false);
+      rel.push(it);
+      continue;
+    }
+    if (rel.length) flushRel();
     if (it.you || it.act?.kind === "prompt") answered = false;
     // A long text (an answer it wrote in its terminal) is never folded away, even after a reply.
     const long = it.act?.kind === "text" && it.act.text.length >= 280;
@@ -461,6 +484,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
     }
     if (it.reply) answered = true;
   }
+  flushRel();
   flush(true);
   const thread = out.join("");
   const on = isOn(agent);

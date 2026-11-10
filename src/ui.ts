@@ -1547,6 +1547,25 @@ article.mdfile[hidden]{display:none}
 
 .thread .bubble.sending{opacity:.7}.thread .bubble.sending p{white-space:pre-wrap}.thread .bubble.sending .when{font-style:italic}
 
+/* Agents writing to each other: a card per message (who → whom, with their avatars), to the right when the agent
+   you're viewing wrote it, to the left when it came to it; runs between the same two fold into one line. */
+.thread.term .bubble.relay{padding:5px 0;margin:0 auto;border:0;background:none;font-size:13px;color:var(--ink-2)}
+.thread.term .bubble.relay::before{display:none}
+.relay .rcard{max-width:min(88%,720px);padding:9px 13px 8px;border:1px solid var(--line);border-left:3px solid var(--rc,var(--line-strong));border-radius:12px;background:color-mix(in srgb,var(--rc,var(--mute)) 6%,var(--bg))}
+.relay.r-out .rcard{margin-left:auto;--rc:var(--accent)}.relay.r-in .rcard{--rc:var(--hl-f)}.relay.r-side .rcard{margin:0 auto;--rc:var(--mute)}
+.thread.term .relay .rhd{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:4px;font-size:12px;color:var(--mute)}
+.relay .rhd .av{width:18px;height:18px;font-size:8px}.relay .rhd .an{font-weight:600;color:var(--ink-2)!important}.relay .rarrow{color:var(--mute);margin:0 1px}
+.relay .rbody{line-height:1.55}.relay .rbody>:last-child{margin-bottom:0}
+.thread.term .relay .when{margin-top:4px}
+.relaygroup{margin:6px auto!important}
+.relaygroup>summary{display:flex;align-items:center;gap:8px;padding:7px 12px;border:1px dashed var(--line-strong);border-radius:10px;cursor:pointer;list-style:none;font-size:12.5px;color:var(--ink-2)}
+.relaygroup>summary::-webkit-details-marker{display:none}.relaygroup>summary:hover{background:var(--hover)}
+.relaygroup .rgic{display:grid;place-items:center;width:22px;height:22px;border-radius:7px;background:var(--accent-soft);color:var(--accent)}
+.relaygroup .rgwho b{font-weight:600;color:var(--ink)}.relaygroup .rgn{color:var(--mute)}.relaygroup>summary .when{margin-left:auto;font-size:11px;color:var(--mute)}
+.relaygroup[open]>summary{margin-bottom:4px;border-style:solid}
+.norelay .relaygroup{display:none}
+@media (max-width:640px){.relay .rcard{max-width:94%}}
+
 `;
 
 // Client behaviour: relative times, day separators, copy buttons, dialogs, toasts, progressive form submits
