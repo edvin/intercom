@@ -1986,7 +1986,7 @@ export const SCRIPT = `
   });
   // On phones the tree slides over the page: a tap outside it (on the dimmed backdrop) or Escape closes it.
   const closeTree = () => document.getElementById("ide")?.classList.remove("treeopen");
-  document.addEventListener("click", (e) => { const ide = document.getElementById("ide"); if (ide?.classList.contains("treeopen") && !e.target.closest(".tree, [data-treetoggle]")) { e.preventDefault(); e.stopPropagation(); closeTree(); } }, true);
+  document.addEventListener("click", (e) => { const ide = document.getElementById("ide"); if (ide?.classList.contains("treeopen") && !e.target.closest(".tree, .irail, [data-treetoggle]")) { e.preventDefault(); e.stopPropagation(); closeTree(); } }, true);
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeTree(); });
   document.addEventListener("keydown", (e) => { if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "b") { e.preventDefault(); toggleTree(); } });
 
