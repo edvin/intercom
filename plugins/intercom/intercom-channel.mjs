@@ -20,7 +20,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const VERSION = "0.12.43"; // kept in step with .claude-plugin/plugin.json (a test checks)
+const VERSION = "0.12.44"; // kept in step with .claude-plugin/plugin.json (a test checks)
 const DIR = path.join(os.homedir(), ".claude", "intercom");
 const CONFIG = path.join(DIR, "config");
 function readConf() {
@@ -987,12 +987,23 @@ function pushToClaude(m, text) {
  * A busy session gets them from its Stop and PostToolUse hooks instead, so nothing arrives twice.
  */
 let me = "";
-function codexPush(m, state) {
+// When this session last queued a turn for a teammate's message (codexPush).
+let wokeAt = 0;
+const REWAKE_MS = 15 * 60_000;
+
+function codexPush(m, state, unfetched = false) {
   if (headers["x-intercom-client"] !== "codex" || SESSION.startsWith("pid-") || state !== "idle") return;
   const fromUser = !!me && m.sender === me && !m.sender_agent && !!m.from_user && m.recipient === me && m.kind !== "event";
   const mode = setting("INTERCOM_CODEX_PUSH");
   if (mode === "0" || (!fromUser && mode !== "1")) return;
   if (!fromUser && !(m.recipient || m.broadcast)) return;
+  // One turn per batch, not per message: eight DMs in a row queued eight turns, the first read them all with the inbox
+  // tool and the other seven woke the agent to "No unread messages". While a queued wake hasn't fetched yet, the next
+  // message rides along with it (unless that wake is old enough to have been lost). Your own messages always get a turn.
+  if (!fromUser) {
+    if (unfetched && Date.now() - wokeAt < REWAKE_MS) return;
+    wokeAt = Date.now();
+  }
   const from = m.sender_agent ? `${m.sender}/${m.sender_agent}` : m.sender;
   // Who it's from comes first, so the body can't pose as something else; a teammate's words never become a turn here,
   // only a pointer to read them with the inbox tool.
@@ -1057,9 +1068,11 @@ function connect() {
     } else if (f.type === "screen-request") {
       answerScreenRequest(f);
     } else if (f.type === "peek") {
+      // Unread mail it hasn't fetched yet (the hook removes the flag when it does): a wake for that is already queued.
+      const unfetched = markers("pending").some((m) => fs.existsSync(m));
       for (const m of markers("pending")) touch(m);
       notify(f.message);
-      codexPush(f.message, f.state);
+      codexPush(f.message, f.state, unfetched);
     }
   };
   ws.onclose = () => {
