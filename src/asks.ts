@@ -110,7 +110,7 @@ function leadUpHtml(p: Approval, lead: LeadUp | undefined, back: string, now: nu
 function card(p: Approval, me: string, back: string, now: number, screens: Screens = new Map(), lead?: LeadUp): string {
   const agent = `/dashboard?view=agents&agent=${encodeURIComponent(`${me}/${p.label}`)}`;
   const deadline = p.away ? `<span class="askdue" title="Away mode: unanswered, it's denied then">denied in ${Math.max(0, Math.round((p.expires_at - now) / 60000))}m</span>` : "";
-  const head = `<header class="askwho">${agentAvatar(me, p.label, "s")}<a href="${esc(agent)}" class="askname">${esc(p.label)}</a><span class="askk">${p.kind === "permission" ? esc(p.tool) : KIND[p.kind]}</span><span class="grow"></span>${deadline}${time(p.created_at)}${lookBtn(me, screens.get(p.session_id))}</header>`;
+  const head = `<header class="askwho">${agentAvatar(me, p.label, "s")}<a href="${esc(agent)}" class="askname">${esc(p.label)}</a><span class="askk">${p.kind === "permission" ? esc(p.tool) : KIND[p.kind]}</span><span class="grow"></span>${deadline}${time(p.created_at)}${lookBtn(me, screens.get(p.session_id), screens.get(p.session_id)?.screen === "keys" ? "Terminal" : "")}</header>`;
   let body: string;
   if (p.kind === "question") body = questionForm(p, back);
   else if (p.kind === "plan")
@@ -337,7 +337,7 @@ export async function asksDock(env: Env, me: string, back: string): Promise<stri
   return `<section class="asks" id="asks" data-region data-n="${n}" aria-label="Waiting for you">
     <button type="button" class="askpill" data-askstoggle title="Show what your agents are waiting on"><span class="askdot"></span><b>${n}</b> waiting for you${icon("chevron", 14)}</button>
     <div class="askpanel">
-      <div class="askhd"><span class="askdot"></span><b>Waiting for you</b><span class="badge amber">${n}</span><span class="grow"></span><span class="small muted askor">or answer in the terminal</span><button type="button" class="btn ghost xs askpush" data-pushon hidden title="Get a notification on this device when something is waiting for you">${icon("bell", 13)}Notify me</button><button type="button" class="btn ghost xs icon" data-askstoggle title="Minimize">${icon("chevron", 14)}</button></div>
+      <div class="askhd"><span class="askdot"></span><b>Waiting for you</b><span class="badge amber">${n}</span><span class="grow"></span><button type="button" class="btn ghost xs askpush" data-pushon hidden title="Get a notification on this device when something is waiting for you">${icon("bell", 13)}Notify me</button><button type="button" class="btn ghost xs icon" data-askstoggle title="Minimize">${icon("chevron", 14)}</button></div>
       <div class="asklist">${pending.map((p) => card(p, me, back, now, screens, leads.get(p.id))).join("")}${waits.map((w) => waitCard(w, me)).join("")}${reviews
         .map((r) => reviewCard(r, me, back, agentOnline(env, r, agents), names.filter((l) => l !== r.label)))
         .join("")}${tickets.map((t) => ticketCard(t, me, back)).join("")}${stuck.map((st) => stuckCard(st, me, back, agents, nudgeOn)).join("")}${upkeepCards.join("")}</div>

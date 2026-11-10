@@ -1266,10 +1266,10 @@ h1{font-size:22px;font-weight:620;letter-spacing:-.02em}
 
 /* The chat: messages in the UI type, read in a centred column; what an agent does in small mono beneath. */
 .thread.term{font-family:Geist,ui-sans-serif,system-ui,sans-serif;font-size:14px;line-height:1.62;padding:22px 28px 16px;gap:2px;background:var(--bg)}
-.thread.term>*{width:100%;max-width:860px;margin-left:auto;margin-right:auto}
+.thread.term>*,.thread.term>.bubble{box-sizing:border-box;width:100%;max-width:860px;margin-left:auto;margin-right:auto;align-self:center}
 .thread.term .bubble{padding:10px 0 12px}
 .thread.term .bubble::before{content:attr(data-who);display:block;margin-bottom:3px;font:620 13px/1.4 Geist,system-ui,sans-serif;color:var(--ink);letter-spacing:-.005em}
-.thread.term .bubble.mine{margin:10px 0 6px;padding:10px 14px 11px;border:0;border-radius:12px;background:var(--surface-2)}
+.thread.term .bubble.mine{margin:10px auto 6px;padding:10px 14px 11px;border:0;border-radius:12px;background:var(--surface-2)}
 .thread.term .bubble.mine::before{content:"You";color:var(--ink)}
 .thread.term .bubble .when{display:block;margin:4px 0 0;font-size:11px;color:var(--mute);opacity:.8}
 .thread.term .bubble:not(:hover) .when .speak{opacity:0}
@@ -1277,7 +1277,7 @@ h1{font-size:22px;font-weight:620;letter-spacing:-.02em}
 .thread.term .mdpre{font-size:12.5px;border-radius:9px}
 .thread.term .md .mdh{color:var(--ink)}
 .thread.term .md a,.thread.term .bubble a.ref{text-decoration:none;color:var(--accent)}
-.thread.term .bubble.relay{padding:8px 0 8px 12px;border-left:2px solid var(--line-strong);margin:6px 0;font-size:13px;color:var(--ink-2)}
+.thread.term .bubble.relay{padding:8px 0 8px 12px;border-left:2px solid var(--line-strong);margin:6px auto;font-size:13px;color:var(--ink-2)}
 .thread.term .bubble.relay::before{display:none}
 .thread.term .rhd{display:flex;align-items:center;gap:6px;margin-bottom:2px;font-size:12px;color:var(--mute)}.thread.term .rhd .an{font-weight:600;color:var(--ink-2)!important}
 .thread.term .act{font:12px/1.55 "Geist Mono",ui-monospace,monospace;color:var(--mute);padding:1px 0}
