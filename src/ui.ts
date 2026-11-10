@@ -25,6 +25,9 @@ const ICONS: Record<string, string> = {
   user: '<circle cx="12" cy="8" r="5"/><path d="M20 21a8 8 0 0 0-16 0"/>',
   search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
   volume: '<path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z"/><path d="M16 9a5 5 0 0 1 0 6"/><path d="M19.364 18.364a9 9 0 0 0 0-12.728"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2m-7.07-2.93 1.41-1.41m11.32-11.32 1.41-1.41M2 12h2m16 0h2M4.93 4.93l1.41 1.41m11.32 11.32 1.41 1.41"/>',
+  moon: '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>',
+  contrast: '<circle cx="12" cy="12" r="9"/><path d="M12 3v18a9 9 0 0 0 0-18Z" fill="currentColor"/>',
   square: '<rect width="14" height="14" x="5" y="5" rx="2"/>',
   repeat: '<path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/>',
   lock: '<rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
@@ -162,24 +165,36 @@ const STYLE = `
   --accent:#5b47e0;--accent-2:#5b47e0;--accent-ink:#ffffff;--accent-soft:rgba(91,71,224,.09);
   --green:#15a050;--green-soft:rgba(21,160,80,.11);--amber:#c27407;--amber-soft:rgba(201,122,6,.11);
   --red:#d93a45;--red-soft:rgba(217,58,69,.09);
-  --hover:rgba(15,17,25,.045);--sel:rgba(15,17,25,.065);
+  --hover:rgba(15,17,25,.045);--sel:rgba(15,17,25,.065);--cshadow:0 1px 2px rgba(15,17,25,.04),0 6px 24px -10px rgba(15,17,25,.14);
   --shadow:0 1px 2px rgba(15,17,25,.04);
   --shadow-lg:0 1px 2px rgba(15,17,25,.05),0 16px 40px -12px rgba(15,17,25,.22);
   --grad:linear-gradient(var(--accent),var(--accent));
   --scroll:rgba(15,17,25,.14);--scroll-hover:rgba(15,17,25,.28);
   --r:12px;--r-s:8px;color-scheme:light;
 }
-@media (prefers-color-scheme:dark){:root{
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){
   --an-l:70%;--bg:#1a1a1d;--bg-glow:transparent;--side:#141416;--surface:#1f1f22;--surface-2:#252529;--surface-3:#2e2e33;
   --line:rgba(255,255,255,.07);--line-strong:rgba(255,255,255,.12);--ink:#e9e9ec;--ink-2:#b5b6bd;--mute:#7f8089;
   --scroll:rgba(255,255,255,.12);--scroll-hover:rgba(255,255,255,.24);
   --accent:#9284ff;--accent-2:#9284ff;--accent-ink:#ffffff;--accent-soft:rgba(146,132,255,.14);
   --green:#3ecf80;--green-soft:rgba(62,207,128,.12);--amber:#f0aa3c;--amber-soft:rgba(240,170,60,.12);
   --red:#f2636d;--red-soft:rgba(242,99,109,.12);
-  --hover:rgba(255,255,255,.045);--sel:rgba(255,255,255,.075);
+  --hover:rgba(255,255,255,.045);--sel:rgba(255,255,255,.075);--cshadow:0 0 0 1px rgba(255,255,255,.06),0 18px 50px -12px rgba(0,0,0,.75);
   --shadow:0 0 0 1px rgba(255,255,255,.02);
   --shadow-lg:0 0 0 1px rgba(255,255,255,.06),0 18px 50px -12px rgba(0,0,0,.75);color-scheme:dark;
 }}
+:root[data-theme=dark]{
+  --an-l:70%;--bg:#1a1a1d;--bg-glow:transparent;--side:#141416;--surface:#1f1f22;--surface-2:#252529;--surface-3:#2e2e33;
+  --line:rgba(255,255,255,.07);--line-strong:rgba(255,255,255,.12);--ink:#e9e9ec;--ink-2:#b5b6bd;--mute:#7f8089;
+  --scroll:rgba(255,255,255,.12);--scroll-hover:rgba(255,255,255,.24);
+  --accent:#9284ff;--accent-2:#9284ff;--accent-ink:#ffffff;--accent-soft:rgba(146,132,255,.14);
+  --green:#3ecf80;--green-soft:rgba(62,207,128,.12);--amber:#f0aa3c;--amber-soft:rgba(240,170,60,.12);
+  --red:#f2636d;--red-soft:rgba(242,99,109,.12);
+  --hover:rgba(255,255,255,.045);--sel:rgba(255,255,255,.075);--cshadow:0 0 0 1px rgba(255,255,255,.06),0 18px 50px -12px rgba(0,0,0,.75);
+  --shadow:0 0 0 1px rgba(255,255,255,.02);
+  --shadow-lg:0 0 0 1px rgba(255,255,255,.06),0 18px 50px -12px rgba(0,0,0,.75);color-scheme:dark;
+}
+:root[data-theme=light]{color-scheme:light}
 *{box-sizing:border-box}
 /* Scrollbars in the theme's colors: a thin thumb on a clear track, darker while you point at it (macOS draws wide
    light-gray ones when a mouse is attached). Browsers without scrollbar-color (Safari) get the same via ::-webkit-scrollbar. */
@@ -232,7 +247,7 @@ p{margin:.5em 0}
 .badge{display:inline-flex;align-items:center;gap:3px;font-size:11px;font-weight:600;padding:1px 7px;border-radius:99px;background:var(--surface-3);color:var(--ink-2)}
 .client{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;color:var(--ink-2);flex:none}
 .client svg{flex:none}.client.cl{color:#c9643f}.client.cx{color:var(--ink)}
-@media (prefers-color-scheme:dark){.client.cl{color:#e08a6a}}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]) .client.cl{color:#e08a6a}}:root[data-theme=dark] .client.cl{color:#e08a6a}
 .hd .client,.hd .badge{height:22px;padding:0 9px 0 7px;border-radius:99px;font-size:11.5px;font-weight:600;display:inline-flex;align-items:center;gap:5px;line-height:1}
 .hd .client{background:var(--surface-2);border:1px solid var(--line)}
 .hd .client svg{width:13px;height:13px}
@@ -1277,7 +1292,7 @@ h1{font-size:22px;font-weight:620;letter-spacing:-.02em}
 .chatbox{flex:none;padding:8px 28px 16px;border:0;background:var(--bg)}
 .chatbox>*{width:100%;max-width:860px;margin-left:auto;margin-right:auto}
 .chatbox>.row{display:flex;align-items:flex-end;gap:2px;padding:6px 6px 6px 4px;border:1px solid var(--line-strong);border-radius:14px;background:var(--surface);box-shadow:var(--shadow-lg);transition:border-color .15s}
-@media (prefers-color-scheme:light){.chatbox>.row{box-shadow:0 1px 2px rgba(15,17,25,.04),0 6px 24px -10px rgba(15,17,25,.14)}}
+.chatbox>.row{box-shadow:var(--cshadow)}
 .chatbox>.row:focus-within{border-color:color-mix(in srgb,var(--accent) 45%,var(--line-strong))}
 .chatbox textarea{border:0!important;background:transparent!important;box-shadow:none!important;min-height:40px;padding:9px 8px;font:14px/1.5 Geist,system-ui,sans-serif;resize:none}
 .chatbox>.row>.btn{height:34px!important;align-self:flex-end}.chatbox>.row>.btn.icon{width:34px}
@@ -1315,6 +1330,9 @@ body:has(#asks:not([hidden]):not(.min)) .toasts{right:16px;left:auto}
 .drawer{background:var(--side);border-left:1px solid var(--line)}
 .pane{background:var(--bg)}
 @media (max-width:900px){.card>.hd [data-drawertoggle]{display:none}}
+
+/* The appearance switch shows the icon of what's chosen. */
+[data-theme-btn] .th-i{display:none}[data-theme-btn="system"] .th-system,[data-theme-btn="light"] .th-light,[data-theme-btn="dark"] .th-dark{display:inline}
 
 `;
 
@@ -1493,6 +1511,21 @@ export const SCRIPT = `
     const ed = editing[e.target.form?.dataset.agent]; if (ed) { e.preventDefault(); unsendOp(ed.id, "send"); }
   });
 
+  // Appearance: as the system has it, light or dark (a cookie, read before the page paints; see page()).
+  const THEMES = ["system", "light", "dark"];
+  function themeShow() {
+    const t = document.documentElement.dataset.theme || "system";
+    $$("[data-theme-btn]").forEach((b) => { b.dataset.themeBtn = t; b.title = "Appearance: " + (t === "system" ? "as your system" : t) + " (click to change)"; });
+  }
+  document.addEventListener("click", (e) => {
+    if (!e.target.closest("[data-theme-btn]")) return;
+    const cur = document.documentElement.dataset.theme || "system", next = THEMES[(THEMES.indexOf(cur) + 1) % 3];
+    if (next === "system") { delete document.documentElement.dataset.theme; document.cookie = "ic_theme=; path=/; max-age=0; samesite=lax"; }
+    else { document.documentElement.dataset.theme = next; document.cookie = "ic_theme=" + next + "; path=/; max-age=31536000; samesite=lax"; }
+    $$("meta[name=theme-color]").forEach((m) => { if (next === "system") { m.setAttribute("media", m.content === "#141416" ? "(prefers-color-scheme: dark)" : "(prefers-color-scheme: light)"); } else { m.content = next === "dark" ? "#141416" : "#f4f4f6"; m.removeAttribute("media"); } });
+    themeShow();
+    icToast(next === "system" ? "Appearance follows your system" : next === "light" ? "Light mode" : "Dark mode");
+  });
   function toggleTree() {
     const ide = document.getElementById("ide"); if (!ide) return;
     if (matchMedia("(max-width: 900px)").matches) { ide.classList.toggle("treeopen"); return; }
@@ -1904,6 +1937,7 @@ export const SCRIPT = `
     bindTabs();
     hdMenu();
     inspAuto();
+    themeShow();
     if (picked) { const b = document.querySelector('.bubble[data-mid="' + picked + '"]'); if (b && b.querySelector('[data-unsend="edit"]')) b.classList.add("picked"); else picked = null; }
     trailBack();
     $$("#compose", root).forEach((t) => { if (!t.value) t.value = drafts.get(t); t.addEventListener("input", () => drafts.set(t)); });
@@ -2388,7 +2422,8 @@ export const BUILD = (() => {
 /** Full HTML document. */
 export function page(title: string, body: string, opts: { top?: string } = {}): string {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>${esc(title)}</title><meta name="theme-color" content="#09090d" media="(prefers-color-scheme: dark)"><meta name="theme-color" content="#f6f6f8" media="(prefers-color-scheme: light)">
+<title>${esc(title)}</title><meta name="theme-color" content="#141416" media="(prefers-color-scheme: dark)"><meta name="theme-color" content="#f4f4f6" media="(prefers-color-scheme: light)">
+<script>(function(){var t=(document.cookie.match(/(?:^|; )ic_theme=(light|dark)/)||[])[1];if(t){document.documentElement.dataset.theme=t;document.querySelectorAll('meta[name=theme-color]').forEach(function(m){m.content=t==="dark"?"#141416":"#f4f4f6";m.removeAttribute("media")})}})()</script>
 <link rel="icon" href="data:image/svg+xml,${encodeURIComponent(LOGO.replace('width="28" height="28" ', ""))}">
 <link rel="manifest" href="/manifest.webmanifest"><link rel="apple-touch-icon" href="/assets/icon-180.png">
 <meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="Intercom"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">

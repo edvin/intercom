@@ -231,6 +231,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
     <button type="button" class="rl" data-kopen title="Search (⌘K)" aria-label="Search">${icon("search", 18)}</button>
     <button type="button" class="rl${away ? " away" : ""}" data-open="dlg-away" title="${away ? `Away: what your agents ask is denied after ${waitMin} min unless you answer` : "At your desk: what your agents ask waits for your answer"}" aria-label="Away mode">${icon(away ? "door" : "clock", 18)}</button>
     ${rl(false, "/discover", "users", "Find projects to join")}
+    <button type="button" class="rl" data-theme-btn="system" title="Appearance" aria-label="Appearance"><span class="th-i th-system">${icon("contrast", 18)}</span><span class="th-i th-light">${icon("sun", 18)}</span><span class="th-i th-dark">${icon("moon", 18)}</span></button>
     ${rl(false, "/docs", "book", "Docs")}
     ${nav.admin ? rl(nav.view === "admin", "/dashboard?view=admin", "shield", "Admin: members and sign-up") : ""}
     <a class="rl rme${nav.view === "account" ? " on" : ""}" href="/dashboard?view=account" title="${esc(me)}: account and notifications" aria-label="Account">${avatar(me, "s")}</a>
