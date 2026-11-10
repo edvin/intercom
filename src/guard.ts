@@ -62,14 +62,23 @@ function detectEnv(command: string): string | null {
 }
 
 /**
- * A script or task name that says it deploys: the risky word starts or ends the name (deploy.sh, release-prod,
- * prod-deploy, db:migrate, run-migrations), not one somewhere in the middle (screen-release-sequencer.py analyses a
- * mechanical release; it ships nothing).
+ * A script or task name that says it deploys: the risky word starts or ends the name (deploy.sh, prod-deploy,
+ * db:migrate, run-migrations), not one somewhere in the middle (screen-release-sequencer.py analyses a mechanical
+ * release; it ships nothing). "release", "rollout", "publish" and "promote" are ordinary words in other trades too
+ * (screen-captive-roof-release.py computes a part's release), so at the end of a name they count only after an
+ * environment (release-prod, prod-release) or alone.
  */
+const AMBIGUOUS = /^(release|rollout|publish|promote)$/i;
 function riskyName(word: string): boolean {
   if (!RISKY_WORD.test(word)) return false;
   const parts = word.replace(/^.*\//, "").replace(/\.(sh|py|rb|js|ts|mjs|cjs|bash)$/i, "").split(/[:._-]+/).filter(Boolean);
-  return parts.length > 0 && ([parts[0], parts[parts.length - 1]].some((p) => RISKY_WORD.test(p)) || /^db:(migrate|rollback|push)$/i.test(parts.slice(0, 2).join(":")));
+  if (!parts.length) return false;
+  const first = parts[0]!;
+  const last = parts[parts.length - 1]!;
+  if (RISKY_WORD.test(first)) return true;
+  if (/^db:(migrate|rollback|push)$/i.test(parts.slice(0, 2).join(":"))) return true;
+  if (!RISKY_WORD.test(last)) return false;
+  return !AMBIGUOUS.test(last) || (parts.length >= 2 && !!normEnv(parts[parts.length - 2]!));
 }
 
 /** Does this shell command look like it deploys, migrates or changes infrastructure? Conservative on purpose. */
@@ -99,10 +108,19 @@ export function riskyCommand(command: string): RiskyCommand | null {
 const actionOf = (word: string) => (/migrat|db:/i.test(word) ? "migrate" : /release|publish|promote/i.test(word) ? "release" : "deploy");
 
 /** Locks held by someone else that this command could collide with. */
+/**
+ * The locks that hold a running system: <action>:<project>:<env> with a deploying action, or a hold/freeze on deploys.
+ * Others name work someone is busy with (work:fabricate:wrl-circle-clearance, gpu:…, review:…): another agent's
+ * deploy doesn't collide with those, however busy that project is. A bare name (no action) still counts.
+ */
+const SYSTEM_LOCK = /^(deploy|deployment|deploys|release|rollout|rollback|migrate|migration|migrations|db|infra|publish|promote|hold|freeze|maintenance|prod)$/i;
+export const holdsSystem = (resource: string) => !resource.includes(":") || SYSTEM_LOCK.test(resource.split(":")[0]!);
+
 export function conflicting(locks: Lock[], me: string, project: string | null, command: string, risky: RiskyCommand, label: string | null = null): Lock[] {
   const words = new Set(command.toLowerCase().split(/[^a-z0-9._-]+/));
   return locks.filter((l) => {
     if (isMyLock(l, me, label)) return false; // another of the same person's agents holding it counts
+    if (!holdsSystem(l.resource)) return false;
     const [, lockProject = l.channel, lockEnv] = l.resource.split(":");
     const sameProject = lockProject === project || l.channel === project || words.has(lockProject);
     if (!sameProject) return false;

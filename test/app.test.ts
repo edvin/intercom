@@ -117,10 +117,13 @@ describe("deploy guard", () => {
       "bin/prod-deploy.sh",
       "npm run release:prod",
       "python3 tools/run_migrations.py",
+      "./scripts/prod-release.sh",
+      "./release.sh",
+      "python3 scripts/publish-docs.py",
     ]) {
       assert.ok(riskyCommand(c), c);
     }
-    for (const c of ["ls -la", "cat deploy.yaml", "grep -r deploy src", "git log --grep deploy", "npm install", "kubectl get pods", "helm list", "npm test", "vim scripts/deploy.sh", "python3 scripts/screen-release-sequencer-a09.py --no-plot", "./scripts/check-deploy-config-lint.sh"]) {
+    for (const c of ["ls -la", "cat deploy.yaml", "grep -r deploy src", "git log --grep deploy", "npm install", "kubectl get pods", "helm list", "npm test", "vim scripts/deploy.sh", "python3 scripts/screen-release-sequencer-a09.py --no-plot", "./scripts/check-deploy-config-lint.sh", "python3 scripts/screen-captive-roof-release.py --plot", "./tools/spring-latch-rollout.sh"]) {
       assert.equal(riskyCommand(c), null, c);
     }
     assert.equal(riskyCommand("helm upgrade billing ./chart --set env=production")?.env, "prod");
@@ -139,6 +142,10 @@ describe("deploy guard", () => {
     assert.equal(conflicting([lock("deploy:shop:prod")], "alice", "billing", "helm upgrade x --set env=prod", prod).length, 0);
     // Deploying another project by name from a different repo still counts.
     assert.equal(conflicting([lock("deploy:shop:prod")], "alice", "billing", "helm upgrade shop chart --set env=prod", prod).length, 1);
+    // A lock on work someone is doing in the project, or a lease on a machine, doesn't hold its deploys.
+    const site = riskyCommand("./scripts/deploy.sh")!;
+    for (const r of ["work:billing:invoice-retry", "gpu:billing:a100", "review:billing:shop!456"]) assert.equal(conflicting([lock(r)], "alice", "billing", "./scripts/deploy.sh", site).length, 0, r);
+    for (const r of ["hold:billing:prod", "release:billing:prod", "migrate:billing", "billing"]) assert.equal(conflicting([{ ...lock(r), channel: "billing" }], "alice", "billing", "./scripts/deploy.sh", site).length, 1, r);
   });
 
   test("asks the user when a teammate holds the lock; reminds to claim otherwise", async () => {
