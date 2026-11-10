@@ -360,6 +360,9 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
           : `<div class="act act-loop step s-loop${m[1] === "stopped" ? " off" : ""}" data-mid="a${a.id}">${head}</div>`;
       }
     }
+    // A long text it wrote in its terminal reads as a message of its own (marked where it was written).
+    if (a.kind === "text" && a.text.length >= 280)
+      return `<div class="bubble md termtext" data-mid="a${a.id}" data-who="${esc(agent.label)}" style="--h:${agentHue(agent.member, agent.label)}">${md(a.text, agent.origin, files)}<span class="when">${time(a.at)} · in its terminal</span></div>`;
     return `<div class="act act-${a.kind}" data-mid="a${a.id}"><span class="aic">${ACT_ICON[a.kind] ?? "·"}</span><span class="atx${a.kind === "text" ? " md" : ""}">${
       a.kind === "text" ? md(a.text, agent.origin, files) : a.kind === "prompt" ? `<span class="muted">typed in the terminal:</span> ${esc(plainSpaces(a.text))}` : esc(plainSpaces(a.text))
     }</span><span class="when">${time(a.at)}</span></div>`;
@@ -446,7 +449,9 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   let answered = false;
   for (const it of sorted) {
     if (it.you || it.act?.kind === "prompt") answered = false;
-    if (it.act && (STEP.has(it.act.kind) || (answered && it.act.kind === "text"))) run.push(it.act);
+    // A long text (an answer it wrote in its terminal) is never folded away, even after a reply.
+    const long = it.act?.kind === "text" && it.act.text.length >= 280;
+    if (it.act && (STEP.has(it.act.kind) || (answered && it.act.kind === "text" && !long))) run.push(it.act);
     else {
       flush(false);
       out.push(it.html);

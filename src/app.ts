@@ -140,8 +140,12 @@ async function replyFromTurn(env: Env, me: string, session: Session & { cursor: 
   await env.DB.prepare("UPDATE sessions SET answered = ? WHERE member = ? AND session_id = ?").bind(asked.id, me, session.session_id).run();
   const reply = text.trim();
   if (!reply) return;
-  const posted = await env.DB.prepare("SELECT 1 FROM messages WHERE sender = ? AND sender_agent = ? AND recipient = ? AND id > ? LIMIT 1").bind(me, session.label, me, asked.id).first();
-  if (!posted) await postMessage(env, { channel: session.project || "dm", sender: me, sender_agent: session.label, recipient: me, body: reply, max: 20_000 });
+  // What it posted to you itself this turn. Only a short note ("on it", "looking") and then its real answer in the
+  // terminal: that answer is the reply too, or it would only show folded in with its steps.
+  const { results: posted } = await env.DB.prepare("SELECT body FROM messages WHERE sender = ? AND sender_agent = ? AND recipient = ? AND id > ?").bind(me, session.label, me, asked.id).all<{ body: string }>();
+  const same = (a: string) => a.replace(/\s+/g, " ").trim() === reply.replace(/\s+/g, " ").trim();
+  if (!posted.length || (reply.length >= 280 && posted.every((p) => p.body.length < 200) && !posted.some((p) => same(p.body))))
+    await postMessage(env, { channel: session.project || "dm", sender: me, sender_agent: session.label, recipient: me, body: reply, max: 20_000 });
 }
 
 /** The dashboard state for a failed turn (StopFailure hook input): waiting with the reason, or idle. */

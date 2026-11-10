@@ -2879,6 +2879,25 @@ describe("replies from the terminal", () => {
     return { w, core, stop, replies };
   };
 
+  test("a quick note posted mid-turn doesn't hide the real answer: the long final message is the reply too, and long terminal text is never folded away", async () => {
+    const { w, core, stop, replies } = await world("0.12.17");
+    await w.ok("bob", "post", { to: "bob/core", message: "Why does the export fail?" });
+    await w.ok("bob", "inbox", {}, core);
+    await w.ok("bob", "post", { to: "bob", message: "Looking into it." }, core); // the quick note
+    const answer = `The export fails because ${"the date column is parsed as text in the old reader and the new one expects ISO dates; ".repeat(4)}fixed in exporter.ts.`;
+    await stop(answer);
+    assert.deepEqual(await replies(), ["Looking into it.", answer]);
+    // Had it posted the answer itself, the closing line isn't posted again.
+    await w.ok("bob", "post", { to: "bob/core", message: "And the import?" });
+    await w.ok("bob", "inbox", {}, core);
+    await w.ok("bob", "post", { to: "bob", message: answer.replace("export", "import") }, core);
+    await stop("Replied on the intercom.");
+    assert.equal((await replies()).length, 3);
+    // Long text in its terminal after a reply shows as a message of its own, not folded in with the steps.
+    await w.request("/api/activity?session=tr1", { as: "bob", method: "POST", body: JSON.stringify({ items: [{ kind: "cmd", text: "npm test" }, { kind: "text", text: `Also: ${"a long explanation of what else I found in the reader. ".repeat(6)}` }] }) });
+    assert.match(await (await w.request("/dashboard?view=agents&agent=bob/core", { as: "bob", cookie: true })).text(), /<div class="bubble md termtext"[^>]*data-who="core"[\s\S]*?Also: a long explanation[\s\S]*?· in its terminal<\/span>/);
+  });
+
   test("the final message of a turn that answered the dashboard becomes the reply, once", async () => {
     const { w, core, stop, replies } = await world("0.12.17");
     await w.ok("bob", "post", { to: "bob/core", message: "Is the ledger fix deployed?" });
