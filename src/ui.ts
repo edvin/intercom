@@ -1258,7 +1258,7 @@ h1{font-size:22px;font-weight:620;letter-spacing:-.02em}
 .insp .subag>summary{flex-wrap:wrap;align-items:center;gap:3px 8px;padding:9px 10px;font-size:13px}
 .insp .subdesc{flex:1 1 0;white-space:normal;font-weight:550}
 .insp .submeta{flex-basis:100%;margin:0 0 0 19px;white-space:normal}
-.insp .subag:not(.on){opacity:.75}.insp .subag[open]{opacity:1}
+.insp .subag:not(.on){opacity:.92}.insp .subag[open]{opacity:1}
 .insp .subbody{padding:2px 10px 12px}
 @media (max-width:900px){
   .chd{padding:0 6px 0 4px;gap:6px}.chd .presence{display:none}.ctitle{gap:8px}.csub{display:none}.ctitle h2{max-width:none;flex:0 1 auto}
@@ -1514,6 +1514,11 @@ body:has(dialog[open]) .thread,body:has(dialog[open]) .pane,body:has(dialog[open
 .commitbar{display:flex;align-items:center;gap:8px;margin:0 0 12px;padding:10px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
 .commitbar input[name=message]{flex:1;min-width:0;height:32px;font-size:13px}.commitbar .check{white-space:nowrap}
 @media (max-width:640px){.commitbar{flex-wrap:wrap}.commitbar input[name=message]{flex-basis:100%}}
+
+/* A finished subagent's check: solid, readable in both themes. */
+.subend{width:16px;height:16px;background:var(--green);color:#fff}.subend .i{width:10px;height:10px;stroke-width:3}
+.subend.stop{background:var(--surface-3);color:var(--ink-2)}
+.insp .subag:not(.on) .subdesc{color:var(--ink-2)}
 
 `;
 
