@@ -1364,6 +1364,8 @@ body:has(#asks:not([hidden]):not(.min)) .toasts{right:16px;left:auto}
 .md blockquote{border-left-width:2px;color:var(--ink-2)}
 /* A long message folds to its start; Show all opens it (and it stays open). */
 .thread .bubble.fold{max-height:440px;overflow:hidden;position:relative}
+/* Items in the chat never shrink to fit it (a folded message, with overflow hidden, otherwise could, down to a sliver). */
+.thread>*{flex-shrink:0}
 .thread .bubble.fold::after{content:"";position:absolute;left:0;right:0;bottom:0;height:90px;background:linear-gradient(transparent,var(--bg));pointer-events:none}
 .thread .bubble.mine.fold::after{background:linear-gradient(transparent,var(--surface-2))}
 .foldbtn{position:absolute;left:50%;bottom:10px;z-index:1;transform:translateX(-50%);height:28px;padding:0 12px;border:1px solid var(--line-strong);border-radius:99px;background:var(--surface);color:var(--ink-2);font:500 12px Geist,system-ui,sans-serif;cursor:pointer;box-shadow:var(--shadow-lg)}
