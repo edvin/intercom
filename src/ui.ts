@@ -1398,6 +1398,34 @@ body:has(#asks:not([hidden]):not(.min)) .toasts{right:16px;left:auto}
 .rpill,.rpill.amber{background:var(--accent);color:#fff}
 .tw{background:var(--accent-soft);color:var(--accent)}
 
+/* Tree: one tag per row; a violet dot for news you haven't opened. */
+.tb .tsub{color:var(--accent)}
+.ta.unread .tn{color:var(--ink);font-weight:600}
+.ta.unread .tb::after{content:"";width:7px;height:7px;border-radius:50%;background:var(--accent)}
+.ta.unread .tt{display:none}
+/* The chat: days, where you left off, what it's doing right now. */
+.tday,.newmark{display:flex;align-items:center;gap:12px;margin:14px auto 6px!important;font-size:11.5px;font-weight:600;color:var(--mute)}
+.tday::before,.tday::after,.newmark::before,.newmark::after{content:"";flex:1;height:1px;background:var(--line)}
+.newmark{color:var(--accent)}.newmark::before,.newmark::after{background:color-mix(in srgb,var(--accent) 45%,transparent)}
+.nowline{display:flex;align-items:center;gap:10px;flex:none;width:calc(100% - 56px);max-width:860px;margin:0 auto 2px;padding:7px 12px;border-radius:10px;background:var(--surface-2);font-size:12.5px;color:var(--ink-2)}
+.nowline[hidden]{display:none}
+.nowdot{width:8px;height:8px;flex:none;border-radius:50%;background:var(--green);animation:pulse 1.6s infinite}
+.nowtx{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.nowtx b{font-weight:560;color:var(--ink)}.nowtx code{font-size:11.5px;background:none;border:0;padding:0}
+.nowt{flex:none;font-variant-numeric:tabular-nums;font-weight:600;color:var(--ink)}.nowall{flex:none;color:var(--mute);font-variant-numeric:tabular-nums}
+@media (max-width:900px){.nowline{width:calc(100% - 16px)}.nowall{display:none}}
+/* Message actions, on hover. */
+.thread .bubble{position:relative}
+.bact{position:absolute;top:4px;right:0;display:none;gap:2px;padding:2px;border:1px solid var(--line);border-radius:8px;background:var(--surface);box-shadow:var(--shadow-lg)}
+.thread .bubble:hover>.bact{display:flex}.thread .bubble.mine>.bact{top:6px;right:6px}
+.bact button{display:grid;place-items:center;width:26px;height:24px;border:0;border-radius:6px;background:none;color:var(--ink-2);cursor:pointer}.bact button:hover{background:var(--hover);color:var(--ink)}
+@media (hover:none){.bact{display:none!important}}
+/* An image the agent looked at: Show, then a thumbnail. */
+.stepimg{display:inline-flex;align-items:center;gap:4px;margin-right:8px;padding:0 7px;height:20px;border-radius:6px;background:var(--accent-soft);color:var(--accent)!important;font-size:11.5px;font-weight:550;text-decoration:none!important;vertical-align:middle}
+.thread.term .step .when:has(.stepimg){opacity:1}
+.stepimg.thumb{height:auto;padding:0;background:none;border-radius:6px;overflow:hidden;border:1px solid var(--line)}
+.stepimg.thumb img{display:block;height:44px;max-width:120px;object-fit:cover}
+.mdmermaid.done:not(.err){cursor:zoom-in}
+
 `;
 
 // Client behaviour: relative times, day separators, copy buttons, dialogs, toasts, progressive form submits
@@ -1625,6 +1653,117 @@ export const SCRIPT = `
       }
     }).catch(() => els.forEach((el) => el.classList.add("done", "err")));
   }
+  // ---- Reading aids ----
+  // What you've seen of each agent (the latest message it sent you that you had open): the tree dots the others,
+  // and an agent's chat draws a "New" line where you left off. Kept in this browser.
+  const seenGet = () => { try { return JSON.parse(localStorage.getItem("ic_seen") || "null"); } catch { return null; } };
+  const seenSet = (v) => { try { localStorage.setItem("ic_seen", JSON.stringify(v)); } catch {} };
+  const leftAt = {};
+  function unread() {
+    let seen = seenGet();
+    const rows = $$(".ta[data-k]");
+    if (!seen) { seen = {}; rows.forEach((r) => { if (r.dataset.last) seen[r.dataset.k] = Number(r.dataset.last); }); }
+    const h = document.getElementById("chathd"), here = h ? h.dataset.agent : null;
+    if (here) {
+      if (!(here in leftAt)) leftAt[here] = seen[here] ?? null;
+      const top = Math.max(0, ...$$("#thread .bubble[data-mid]").map((b) => Number(b.dataset.mid) || 0));
+      const row = rows.find((r) => r.dataset.k === here);
+      seen[here] = Math.max(seen[here] || 0, top, row && row.dataset.last ? Number(row.dataset.last) : 0);
+    }
+    seenSet(seen);
+    rows.forEach((r) => r.classList.toggle("unread", !!r.dataset.last && Number(r.dataset.last) > (seen[r.dataset.k] || 0)));
+    // The New line, before the first message from it you hadn't seen when you opened this chat.
+    const th = document.getElementById("thread"); if (!th || !here) return;
+    th.querySelector(".newmark")?.remove();
+    const was = leftAt[here];
+    if (was == null) return;
+    const first = $$(".bubble[data-mid]:not(.mine)", th).find((b) => Number(b.dataset.mid) > was);
+    if (first) { const m = document.createElement("div"); m.className = "newmark"; m.innerHTML = "<span>New</span>"; first.before(m); }
+  }
+  // Days in a chat: Today, Yesterday, then the date, between the messages where the day changes.
+  function dayLines() {
+    const th = document.getElementById("thread"); if (!th) return;
+    $$(".tday", th).forEach((d) => d.remove());
+    let last = "";
+    const today = new Date(), yest = new Date(Date.now() - 86400000);
+    const label = (d) => d.toDateString() === today.toDateString() ? "Today" : d.toDateString() === yest.toDateString() ? "Yesterday" : d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
+    for (const el of [...th.children]) {
+      const t = el.querySelector("time[data-ts]"); if (!t) continue;
+      const d = new Date(Number(t.dataset.ts)), k = d.toDateString();
+      if (k !== last) { if (last || k !== today.toDateString()) { const sep = document.createElement("div"); sep.className = "tday"; sep.innerHTML = "<span></span>"; sep.firstChild.textContent = label(d); el.before(sep); } last = k; }
+    }
+  }
+  // How long it has been at it (the live line above the composer), every second.
+  const span = (ms) => { const s = Math.max(0, Math.floor(ms / 1000)); return s < 60 ? s + "s" : s < 3600 ? Math.floor(s / 60) + "m " + String(s % 60).padStart(2, "0") + "s" : Math.floor(s / 3600) + "h " + Math.floor((s % 3600) / 60) + "m"; };
+  setInterval(() => $$("[data-elapsed]").forEach((e) => (e.textContent = span(Date.now() - Number(e.dataset.elapsed)))), 1000);
+  // On a message: Copy, Quote (into the composer) and Ask about it (a side question, like /btw).
+  function msgActions() {
+    const form = document.getElementById("chatform"), field = document.getElementById("chat-input");
+    const canAsk = !!document.querySelector("[data-btwtoggle]");
+    $$("#thread .bubble[data-mid]").forEach((b) => {
+      if (b.querySelector(".bact")) return;
+      const bar = document.createElement("span"); bar.className = "bact";
+      bar.innerHTML = '<button type="button" data-a="copy" title="Copy">${icon("copy", 13)}</button>' + (field ? '<button type="button" data-a="quote" title="Quote in your reply">${icon("message", 13)}</button>' : "") + (canAsk && !b.classList.contains("mine") ? '<button type="button" data-a="ask" title="Ask about this on the side (btw)">${icon("sparkles", 13)}</button>' : "");
+      b.append(bar);
+    });
+    if (form && !form._bact) {
+      form._bact = true;
+      document.addEventListener("click", async (e) => {
+        const btn = e.target.closest && e.target.closest(".bact button"); if (!btn) return;
+        const b = btn.closest(".bubble"), sel = String(getSelection() || "").trim();
+        const text = sel && b.contains(getSelection().anchorNode) ? sel : [...b.childNodes].filter((n) => !(n.classList && (n.classList.contains("when") || n.classList.contains("bact") || n.classList.contains("rhd")))).map((n) => n.textContent).join("\\n").trim();
+        if (btn.dataset.a === "copy") { try { await navigator.clipboard.writeText(text); icToast("Copied"); } catch {} return; }
+        const f = document.getElementById("chat-input"); if (!f) return;
+        const quoted = text.slice(0, 600).split("\\n").map((l) => "> " + l).join("\\n") + "\\n\\n";
+        if (btn.dataset.a === "ask") { const t = document.querySelector("[data-btwtoggle]"); if (t && !t.classList.contains("on")) t.click(); }
+        f.value = quoted + f.value; f.focus(); f.setSelectionRange(f.value.length, f.value.length); f.dispatchEvent(new Event("input"));
+      });
+    }
+  }
+  // An image an agent looked at: fetched from its machine the first time you open it, then shown as a thumbnail.
+  const lpGet = () => { try { return JSON.parse(localStorage.getItem("ic_lp") || "{}"); } catch { return {}; } };
+  function stepImages() {
+    const lp = lpGet();
+    $$("a.stepimg[data-lp]").forEach((a) => { const u = lp[a.dataset.lp]; if (u && !a.querySelector("img")) { a.href = u; a.classList.add("thumb"); a.innerHTML = '<img alt="" loading="lazy">'; a.firstChild.src = u; } });
+  }
+  document.addEventListener("click", async (e) => {
+    const a = e.target.closest && e.target.closest("a.stepimg[data-lp]"); if (!a || a.classList.contains("thumb") || e.metaKey || e.ctrlKey) return;
+    e.preventDefault(); e.stopImmediatePropagation();
+    if (a.dataset.busy) return; a.dataset.busy = "1"; const was = a.innerHTML; a.innerHTML = '<span>Fetching…</span>';
+    try {
+      const r = await fetch(a.getAttribute("href"), { credentials: "same-origin" });
+      if (!r.ok || !(r.headers.get("content-type") || "").startsWith("image/")) throw new Error();
+      const lp = lpGet(); lp[a.dataset.lp] = new URL(r.url).pathname; try { localStorage.setItem("ic_lp", JSON.stringify(lp)); } catch {}
+      stepImages(); a.click();
+    } catch { a.innerHTML = was; icToast("Couldn't fetch it from the agent's machine", true); }
+    delete a.dataset.busy;
+  }, true);
+  // A diagram opens full-screen in the image viewer (pinch or zoom to read a big one).
+  document.addEventListener("click", (e) => {
+    const m = e.target.closest && e.target.closest(".mdmermaid.done:not(.err)"); if (!m || e.target.closest("a")) return;
+    const svg = m.querySelector("svg"); if (!svg) return;
+    const c = svg.cloneNode(true); c.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+    const bg = getComputedStyle(document.body).backgroundColor;
+    c.style.background = bg; c.style.maxWidth = "none";
+    const url = URL.createObjectURL(new Blob([c.outerHTML], { type: "image/svg+xml" }));
+    const a = document.createElement("a"); a.className = "att"; a.href = url; a.dataset.name = "Diagram"; a.hidden = true; document.body.append(a); a.click(); a.remove();
+  });
+  // Keys: J/K or ⌘↑/⌘↓ move between agents, ⌘1–9 open the agent in that place, ⌘/ goes to the message field, Esc
+  // closes the inspector or a menu.
+  document.addEventListener("keydown", (e) => {
+    const typing = e.target.closest && e.target.closest("input, textarea, select, [contenteditable]");
+    if (document.querySelector("dialog[open]")) return;
+    const rows = $$(".tree .ta[href]").filter((r) => r.offsetParent);
+    const cur = rows.findIndex((r) => r.classList.contains("on"));
+    const go = (i) => { const r = rows[Math.max(0, Math.min(rows.length - 1, i))]; if (r) location.href = r.href; };
+    const mod = e.metaKey || e.ctrlKey;
+    if (mod && e.key === "/") { e.preventDefault(); document.getElementById("chat-input")?.focus(); return; }
+    if (mod && (e.key === "ArrowDown" || e.key === "ArrowUp") && !typing) { e.preventDefault(); go(cur + (e.key === "ArrowDown" ? 1 : -1)); return; }
+    if (mod && /^[1-9]$/.test(e.key) && !e.shiftKey && !e.altKey) { e.preventDefault(); go(Number(e.key) - 1); return; }
+    if (typing || mod || e.altKey) return;
+    if (e.key === "j" || e.key === "k") { e.preventDefault(); go(cur + (e.key === "j" ? 1 : -1)); }
+    else if (e.key === "Escape" && document.querySelector("section.chat.inspon")) { e.preventDefault(); inspSet(false); }
+  });
   // A step you opened (its exact command) stays open when the chat redraws.
   const openSteps = new Set();
   document.addEventListener("toggle", (e) => { const d = e.target; if (d.matches && d.matches("details.step")) { if (d.open) openSteps.add(d.dataset.mid); else openSteps.delete(d.dataset.mid); } }, true);
@@ -2058,6 +2197,10 @@ export const SCRIPT = `
     mermaids();
     longFolds();
     reopenSteps();
+    unread();
+    dayLines();
+    msgActions();
+    stepImages();
     if (picked) { const b = document.querySelector('.bubble[data-mid="' + picked + '"]'); if (b && b.querySelector('[data-unsend="edit"]')) b.classList.add("picked"); else picked = null; }
     trailBack();
     $$("#compose", root).forEach((t) => { if (!t.value) t.value = drafts.get(t); t.addEventListener("input", () => drafts.set(t)); });

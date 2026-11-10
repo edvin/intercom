@@ -1549,7 +1549,7 @@ describe("loops", () => {
     let page = await view("bob");
     assert.match(page, /<\/svg><span>loop every 20m: \/babysit-prs/);
     assert.match(page, /<\/svg><span>self-paced loop, next in 20m: check the deploy/);
-    assert.match(page, /<span class="tloop" title="running a loop"><svg/); // marked in the tree
+    assert.match(page, /data-k="bob\/[^"]+"[^>]*title="[^"]*running a loop/); // marked in the tree
     assert.match(page, /data-chip="Stop your loop\."/);
     assert.equal((page.match(/started a self-paced loop: check the deploy/g) ?? []).length, 1); // re-arming isn't news
     assert.doesNotMatch(await view("alice"), /babysit-prs/); // only the owner
@@ -1910,7 +1910,7 @@ describe("reviews", () => {
     assert.match(dash, /<input type="radio" name="outcome" value="request_changes" checked>/);
     assert.match(dash, /id="railasks" data-asksopen title="Waiting for you" aria-label="Waiting for you">[\s\S]*?<span class="rpill amber">1</);
     // The agent's row and chat header say a review is waiting, besides the dock.
-    assert.match(dash, /data-k="bob\/core"[^>]*>[\s\S]*?<span class="tw" title="a review is waiting for you">!<\/span>/);
+    assert.match(dash, /data-k="bob\/core"[^>]*>[\s\S]*?<span class="tw" title="a review is waiting for you">asks<\/span>/);
     assert.match(await (await w.request("/dashboard?view=agents&agent=bob/core", { as: "bob", cookie: true })).text(), /class="badge amber rvbadge" data-asksopen[^>]*>[\s\S]*?review waiting for you<\/button>/);
     // Only bob decides bob's reviews.
     assert.match(loc(await w.form("/review/1", "alice", { decide: "1", outcome: "approve" })).get("err")!, /No such review/);
@@ -2148,7 +2148,7 @@ describe("background jobs", () => {
     const view = (as: string) => w.request("/dashboard?view=agents&agent=bob/runner", { as, cookie: true }).then((r) => r.text());
     let page = await view("bob");
     assert.match(page, />Run the dev server <span class="muted">· running/);
-    assert.match(page, /<span title="background jobs">⧗<\/span>/); // marked in the tree
+    assert.match(page, /data-k="bob\/runner"[^>]*title="[^"]*background jobs/); // marked in the tree
     assert.doesNotMatch(await view("alice"), /Run the dev server/);
 
     await post([

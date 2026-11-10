@@ -115,6 +115,14 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   // What a teammate's agent is waiting on can be the very command it wants approved (a password in it, say): they see
   // only that it waits.
   for (const a of agents) if (a.member !== me) a.state_detail = "";
+  // The latest message each agent sent you (the last week): the tree marks agents with one you haven't opened (the
+  // browser remembers what you've seen).
+  const { results: lastRows } = await env.DB.prepare(
+    "SELECT sender || '/' || sender_agent AS k, MAX(id) AS id FROM messages WHERE recipient = ? AND sender_agent IS NOT NULL AND kind != 'event' AND created_at > ? GROUP BY sender, sender_agent",
+  )
+    .bind(me, Date.now() - 7 * 86400_000)
+    .all<{ k: string; id: number }>();
+  const lastTo = new Map(lastRows.map((r) => [r.k, r.id]));
   const connected = env.live?.() ?? new Set<string>();
   const nick = await hostNames(env, me);
   const hostOf = (a: Agent) => (a.member === me ? nick.get(a.host) ?? a.host : a.host);
@@ -172,7 +180,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   );
   const dot = (a: Agent) => (!isOn(a) ? "off" : a.state === "waiting" ? "wait" : a.state === "working" ? "work" : "idle");
   const tip = (a: Agent) =>
-    [key(a), !isOn(a) ? `last seen ${ago(a.last_seen)}` : a.state === "waiting" ? `needs you: ${a.state_detail || "waiting"}` : a.state || "connected", a.host ? `on ${hostOf(a)}` : "", a.branch ? `⎇ ${a.branch}` : "", a.member === me ? a.cwd : "", a.note]
+    [key(a), a.client === "codex" ? "Codex" : "", loopsOf(a).length ? "running a loop" : "", jobsOf(a).length ? "background jobs" : "", a.member === me && isOn(a) && outdated(a.version) ? "update available" : "", !isOn(a) ? `last seen ${ago(a.last_seen)}` : a.state === "waiting" ? `needs you: ${a.state_detail || "waiting"}` : a.state || "connected", a.host ? `on ${hostOf(a)}` : "", a.branch ? `⎇ ${a.branch}` : "", a.member === me ? a.cwd : "", a.note]
       .filter(Boolean)
       .join(" · ");
   // When it last did something (a prompt, a step, a post), as a quiet "2m" on the row; working agents show their dot instead.
@@ -183,9 +191,17 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   const ctxLevel = (a: Agent) => (a.ctx_pct == null || a.client === "codex" ? null : a.ctx_pct >= 90 ? "red" : a.ctx_pct >= 75 ? "amber" : "");
   const ctxBadge = (a: Agent) =>
     ctxLevel(a) === null ? "" : `<span class="badge ctxb ${ctxLevel(a)}" title="Context: ${kTok(a.ctx_tokens)} of ${kTok(a.ctx_window)} tokens · ${ago(a.ctx_at ?? 0)}">${a.ctx_pct}% context</span>`;
-  const tRow = (a: Agent) => `<a class="ta${sel(a) ? " on" : ""}${isOn(a) ? "" : " gone"}" data-k="${esc(key(a))}"${isOn(a) && a.state === "waiting" ? " data-w" : ""} href="/dashboard?view=agents&agent=${encodeURIComponent(key(a))}" title="${esc(tip(a))}">
+  // One thing per row, the one that matters most: it asks for you, its subagents at work, a context nearly full, or
+  // (quietly) when it last did something. Loops, jobs, its version and client are in its tooltip and inspector.
+  const rowTag = (a: Agent) =>
+    (isOn(a) && a.state === "waiting") || reviewsOf(a)
+      ? `<span class="tw" title="${reviewsOf(a) ? "a review is waiting for you" : "needs you"}">asks</span>`
+      : (a.member === me && isOn(a) && subMark(parseSubs(a.subagents))) ||
+        (isOn(a) && ctxLevel(a) ? `<span class="tctx ${ctxLevel(a)}" title="Context ${a.ctx_pct}% full">${a.ctx_pct}%</span>` : "") ||
+        since(a);
+  const tRow = (a: Agent) => `<a class="ta${sel(a) ? " on" : ""}${isOn(a) ? "" : " gone"}" data-k="${esc(key(a))}"${lastTo.has(key(a)) ? ` data-last="${lastTo.get(key(a))}"` : ""}${isOn(a) && a.state === "waiting" ? " data-w" : ""} href="/dashboard?view=agents&agent=${encodeURIComponent(key(a))}" title="${esc(tip(a))}">
       <span class="tdot ${dot(a)}"></span><span class="tn">${agentName(a.member, a.label, a.member === me ? a.label : `${a.member}/${a.label}`)}</span>
-      <span class="tb">${(isOn(a) && a.state === "waiting") || reviewsOf(a) ? `<span class="tw" title="${reviewsOf(a) ? "a review is waiting for you" : "needs you"}">!</span>` : ""}${loopsOf(a).length ? `<span class="tloop" title="running a loop">${icon("repeat", 12)}</span>` : ""}${jobsOf(a).length ? '<span title="background jobs">⧗</span>' : ""}${a.member === me && isOn(a) ? subMark(parseSubs(a.subagents)) : ""}${a.member === me && isOn(a) && outdated(a.version) ? '<span title="update available">⬆</span>' : ""}${isOn(a) && ctxLevel(a) ? `<span class="tctx ${ctxLevel(a)}" title="Context ${a.ctx_pct}% full">${a.ctx_pct}%</span>` : ""}${a.client === "codex" ? '<span class="tcx" title="Codex">cx</span>' : ""}${since(a)}</span></a>`;
+      <span class="tb">${rowTag(a)}</span></a>`;
   const branch = (id: string, title: string, href: string | null, list: Agent[], badges: string, on: boolean) => {
     // Needs you, then working, then the rest by when they last did something. Live redraws keep the order the
     // page loaded with (see the script), so rows don't move under the pointer.
@@ -301,7 +317,9 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
     }
     if (a.kind === "read" || a.kind === "edit") {
       const st = fileStep(a.kind, plainSpaces(a.text));
-      return `<div class="act act-${a.kind} step s-${st.kind}" data-mid="a${a.id}" title="${esc(st.where)}"><span class="aic">${icon(STEP_IC[st.kind] ?? "file", 13)}</span><span class="atx">${st.title}${chip(st)}</span><span class="when">${time(a.at)}</span></div>`;
+      // An image it looked at (a screenshot, a render): a preview, fetched from its machine the first time it's opened.
+      const img = files && a.kind === "read" && /\.(png|jpe?g|webp|gif)$/i.test(st.where) ? `<a class="att stepimg" href="/agent-file?agent=${encodeURIComponent(files)}&amp;path=${encodeURIComponent(st.where)}" data-lp="${esc(`${files}|${st.where}`)}" data-name="${esc(st.where.split(/[\\/]/).pop() ?? "")}" title="Show it">${icon("image", 13)}<span>Show</span></a>` : "";
+      return `<div class="act act-${a.kind} step s-${st.kind}" data-mid="a${a.id}" title="${esc(st.where)}"><span class="aic">${icon(STEP_IC[st.kind] ?? "file", 13)}</span><span class="atx">${st.title}${chip(st)}</span><span class="when">${img}${time(a.at)}</span></div>`;
     }
     return `<div class="act act-${a.kind}" data-mid="a${a.id}"><span class="aic">${ACT_ICON[a.kind] ?? "·"}</span><span class="atx${a.kind === "text" ? " md" : ""}">${
       a.kind === "text" ? md(a.text, agent.origin, files) : a.kind === "prompt" ? `<span class="muted">typed in the terminal:</span> ${esc(plainSpaces(a.text))}` : esc(plainSpaces(a.text))
@@ -488,6 +506,14 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
       ${on && agent.state === "waiting" && !pending.some((p) => p.session_id === agent.session_id) ? `<div class="cbanner"><i></i><span><b>${esc(agent.label)} is waiting${agent.state_at ? ` (asked ${ago(agent.state_at)})` : ""}:</b> ${esc(agent.state_detail || "for approval or input")}. Only its terminal can answer this.${canScreen ? "" : " Already answered? Claude Code doesn't say when, so this stays until the step has run."}</span>${canScreen ? `<button type="button" class="btn sm" ${screenAttrs(key(agent), agent.label, agent.screen ?? "", agent.client ?? "")}>${icon("terminal", 14)}Open its screen</button>` : ""}</div>` : ""}
       <div class="cbody"><div class="cmain">
       ${codeOn ? codePane : `<div class="thread term${/(?:^|;\s*)ic_activity=off/.test(cookie) ? " noact" : ""}${/(?:^|;\s*)ic_relay=off/.test(cookie) ? " norelay" : ""}" id="thread" data-region>${thread || `<div class="empty" style="margin:auto">${icon("message", 28)}<div>No messages with ${esc(agent.label)} yet.</div><div class="small">${ownAgent ? "Ask a question or give it a new direction; it treats what you write here like a prompt you typed." : "Your message reaches this session; its owner's agent treats it as information from you."}</div></div>`}</div>
+${(() => {
+        // While it works: its latest step and how long it has been at it, live, above the composer.
+        if (!on || agent.state !== "working" || codeOn) return `<div class="nowline" id="nowline" data-region hidden></div>`;
+        const last = acts.find((x) => x.kind !== "prompt");
+        const what = !last ? "Thinking" : last.kind === "cmd" ? commandStep(plainSpaces(last.text)).title : last.kind === "read" || last.kind === "edit" ? fileStep(last.kind, plainSpaces(last.text)).title : last.kind === "text" ? esc(plainSpaces(last.text).split("\n")[0]!.slice(0, 120)) : esc(plainSpaces(last.text).slice(0, 120));
+        const since = last && last.at > (agent.state_at ?? 0) ? last.at : (agent.state_at ?? Date.now());
+        return `<div class="nowline" id="nowline" data-region><span class="nowdot"></span><span class="nowtx">${what}</span><span class="nowt" data-elapsed="${since}"></span><span class="nowall" title="Working for">${agent.state_at ? `<span data-elapsed="${agent.state_at}"></span> in all` : ""}</span></div>`;
+      })()}
       <form method="post" action="/action/post" class="chatbox" id="chatform" data-region data-quiet data-images data-agent="${esc(key(agent))}" data-label="${esc(agent.label)}">${hidden({ back, to: key(agent), channel: agent.project || "", session: agent.session_id, mode: "", thread: "", edit: "" })}
         <div class="imgtray" hidden></div>
         <div class="row" style="align-items:flex-end;flex-wrap:nowrap">
