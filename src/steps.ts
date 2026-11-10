@@ -66,7 +66,12 @@ function one(cmd: string): { kind: Step["kind"]; title: string } | null {
   }
   if (/^(curl|wget|http|Invoke-WebRequest)$/i.test(bin)) {
     const url = args.find((a) => /^['"]?https?:\/\//.test(a));
-    return { kind: "web", title: `Fetched ${q(url ? new URL(unquote(url)).host : "a URL")}` };
+    // The host, when the address is one (a URL built from shell variables isn't).
+    let host = "";
+    try {
+      host = url ? new URL(unquote(url)).host : "";
+    } catch {}
+    return { kind: "web", title: `Fetched ${q(host || "a URL")}` };
   }
   return null;
 }

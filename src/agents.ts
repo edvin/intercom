@@ -330,6 +330,14 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   const STEP_IC: Record<string, string> = { git: "branch", read: "file", search: "search", edit: "pencil", test: "check", run: "terminal", build: "layers", web: "link", cmd: "terminal" };
   const chip = (st: { cwd: string; where: string }) => (st.cwd ? `<span class="scwd" title="${esc(st.where)}">${esc(st.cwd)}</span>` : "");
   const actRow = (a: Activity) => {
+    // A step that can't be put in words shows as it is: one odd command never takes the chat down.
+    try {
+      return stepRow(a);
+    } catch {
+      return `<div class="act act-${esc(a.kind)}" data-mid="a${a.id}"><span class="aic">·</span><span class="atx">${esc(plainSpaces(a.text))}</span><span class="when">${time(a.at)}</span></div>`;
+    }
+  };
+  const stepRow = (a: Activity) => {
     if (a.kind === "cmd") {
       const st = commandStep(plainSpaces(a.text));
       return `<details class="act act-cmd step s-${st.kind}" data-mid="a${a.id}"><summary><span class="aic">${icon(STEP_IC[st.kind] ?? "terminal", 13)}</span><span class="atx">${st.title}${chip(st)}</span><span class="when">${time(a.at)}</span></summary><div class="stepcmd"><pre>${esc(st.command)}</pre><button type="button" class="mdcopy" data-copystep title="Copy the command">Copy</button></div></details>`;

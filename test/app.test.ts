@@ -2350,6 +2350,17 @@ describe("starting and watching agents", () => {
   });
 });
 
+describe("steps put in words", () => {
+  test("a command with a URL built from shell variables (curl \"https://$HOST/…\") doesn't break the chat", async () => {
+    const w = await standardWorld();
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=u1&name=core", { as: "bob" });
+    await w.request("/api/activity?session=u1", { as: "bob", method: "POST", body: JSON.stringify({ items: [{ kind: "cmd", text: 'curl -s "https://$HOST/api/health"' }, { kind: "cmd", text: "curl https://" }] }) });
+    const res = await w.request("/dashboard?view=agents&agent=bob/core", { as: "bob", cookie: true });
+    assert.equal(res.status, 200);
+    assert.match(await res.text(), /Fetched <b>\$host<\/b>[\s\S]*Fetched <b>a URL<\/b>/);
+  });
+});
+
 describe("handover notes", () => {
   test("an agent leaves notes for its name; the next session with the name gets them, others see the name is free, and taking it over hands them on", async () => {
     const w = await standardWorld();
