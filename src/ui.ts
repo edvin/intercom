@@ -1545,6 +1545,8 @@ article.mdfile[hidden]{display:none}
 
 .kpal .kit.khit .kn{flex:none;width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.kpal .kit.khit .ks{flex:1;min-width:0;margin-left:0;text-align:left}
 
+.thread .bubble.sending{opacity:.7}.thread .bubble.sending p{white-space:pre-wrap}.thread .bubble.sending .when{font-style:italic}
+
 `;
 
 // Client behaviour: relative times, day separators, copy buttons, dialogs, toasts, progressive form submits
@@ -2544,7 +2546,17 @@ export const SCRIPT = `
     const touch = matchMedia("(pointer: coarse)").matches;
     const chat = f.querySelector("textarea[data-chat]"), unsent = chat ? chat.value : "";
     if (chat) { const fresh = chat.cloneNode(); fresh.value = ""; fresh.style.height = ""; chat.replaceWith(fresh); drafts.set(fresh); chatField(fresh); if (typing === chat && !touch) fresh.focus(); }
-    const restore = () => { const t = chat && (document.getElementById(chat.id) || chat); if (t && !t.value) { t.value = unsent; drafts.set(t); } };
+    // Your message shows in the chat at once, marked as sending; the hub's copy takes its place when it's in (the
+    // redraw drops this one), and it goes again if sending fails. Not for a side question or an edit.
+    let ghost = null;
+    const th0 = f.id === "chatform" && document.getElementById("thread");
+    if (th0 && unsent.trim() && !data.get("mode") && !data.get("edit")) {
+      ghost = document.createElement("div"); ghost.className = "bubble md mine sending"; ghost.dataset.mid = "sending-" + Date.now();
+      const p = document.createElement("p"); p.textContent = unsent; ghost.append(p);
+      const w = document.createElement("span"); w.className = "when"; w.textContent = "sending…"; ghost.append(w);
+      th0.append(ghost); th0.scrollTop = th0.scrollHeight;
+    }
+    const restore = () => { ghost && ghost.remove(); const t = chat && (document.getElementById(chat.id) || chat); if (t && !t.value) { t.value = unsent; drafts.set(t); } };
     (f._imgs || []).forEach((it) => data.append("image", it.file, it.file.name));
     try {
       const res = await fetch(f.action, { method: "POST", body: data, credentials: "same-origin" });
