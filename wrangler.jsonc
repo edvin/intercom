@@ -8,6 +8,8 @@
     { "type": "Text", "globs": ["**/*.sh", "**/*.md", "**/*.sql"], "fallthrough": false },
     { "type": "Data", "globs": ["**/*.woff2", "**/*.png"], "fallthrough": false }
   ],
+  // Static files served as they are (a library the dashboard loads only when a message has a diagram).
+  "assets": { "directory": "./public" },
   "durable_objects": {
     "bindings": [{ "name": "HUB", "class_name": "TeamHub" }]
   },

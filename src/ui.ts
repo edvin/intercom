@@ -11,7 +11,7 @@ export const html = (body: string, status = 200, headers: Record<string, string>
     headers: {
       "content-type": "text/html; charset=utf-8",
       "content-security-policy":
-        "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; worker-src 'self'; manifest-src 'self'; font-src 'self'; img-src 'self' data: blob:; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+        "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline' 'self'; worker-src 'self'; manifest-src 'self'; font-src 'self'; img-src 'self' data: blob:; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
       "x-content-type-options": "nosniff",
       "referrer-policy": "same-origin",
       ...headers,
@@ -166,6 +166,7 @@ const STYLE = `
   --green:#15a050;--green-soft:rgba(21,160,80,.11);--amber:#c27407;--amber-soft:rgba(201,122,6,.11);
   --red:#d93a45;--red-soft:rgba(217,58,69,.09);
   --hover:rgba(15,17,25,.045);--sel:rgba(15,17,25,.065);--cshadow:0 1px 2px rgba(15,17,25,.04),0 6px 24px -10px rgba(15,17,25,.14);
+  --hl-c:#8a8f98;--hl-s:#0b7a3b;--hl-n:#b35a00;--hl-k:#7a3fd1;--hl-f:#1f5fbf;--hl-t:#0d7480;--hl-a:#1f5fbf;--hl-v:#0d7480;--hl-add:rgba(21,160,80,.12);--hl-del:rgba(217,58,69,.10);--hl-addc:#0b6b34;--hl-delc:#b0303a;
   --shadow:0 1px 2px rgba(15,17,25,.04);
   --shadow-lg:0 1px 2px rgba(15,17,25,.05),0 16px 40px -12px rgba(15,17,25,.22);
   --grad:linear-gradient(var(--accent),var(--accent));
@@ -180,6 +181,7 @@ const STYLE = `
   --green:#3ecf80;--green-soft:rgba(62,207,128,.12);--amber:#f0aa3c;--amber-soft:rgba(240,170,60,.12);
   --red:#f2636d;--red-soft:rgba(242,99,109,.12);
   --hover:rgba(255,255,255,.045);--sel:rgba(255,255,255,.075);--cshadow:0 0 0 1px rgba(255,255,255,.06),0 18px 50px -12px rgba(0,0,0,.75);
+  --hl-c:#7d818c;--hl-s:#8fd3a0;--hl-n:#f0a868;--hl-k:#c3a6ff;--hl-f:#82b8ff;--hl-t:#6fd0d6;--hl-a:#82b8ff;--hl-v:#6fd0d6;--hl-add:rgba(62,207,128,.13);--hl-del:rgba(242,99,109,.13);--hl-addc:#8fe0a8;--hl-delc:#ff9aa1;
   --shadow:0 0 0 1px rgba(255,255,255,.02);
   --shadow-lg:0 0 0 1px rgba(255,255,255,.06),0 18px 50px -12px rgba(0,0,0,.75);color-scheme:dark;
 }}
@@ -191,6 +193,7 @@ const STYLE = `
   --green:#3ecf80;--green-soft:rgba(62,207,128,.12);--amber:#f0aa3c;--amber-soft:rgba(240,170,60,.12);
   --red:#f2636d;--red-soft:rgba(242,99,109,.12);
   --hover:rgba(255,255,255,.045);--sel:rgba(255,255,255,.075);--cshadow:0 0 0 1px rgba(255,255,255,.06),0 18px 50px -12px rgba(0,0,0,.75);
+  --hl-c:#7d818c;--hl-s:#8fd3a0;--hl-n:#f0a868;--hl-k:#c3a6ff;--hl-f:#82b8ff;--hl-t:#6fd0d6;--hl-a:#82b8ff;--hl-v:#6fd0d6;--hl-add:rgba(62,207,128,.13);--hl-del:rgba(242,99,109,.13);--hl-addc:#8fe0a8;--hl-delc:#ff9aa1;
   --shadow:0 0 0 1px rgba(255,255,255,.02);
   --shadow-lg:0 0 0 1px rgba(255,255,255,.06),0 18px 50px -12px rgba(0,0,0,.75);color-scheme:dark;
 }
@@ -1334,6 +1337,39 @@ body:has(#asks:not([hidden]):not(.min)) .toasts{right:16px;left:auto}
 /* The appearance switch shows the icon of what's chosen. */
 [data-theme-btn] .th-i{display:none}[data-theme-btn="system"] .th-system,[data-theme-btn="light"] .th-light,[data-theme-btn="dark"] .th-dark{display:inline}
 
+/* Rich messages: code with colour and a copy bar, diagrams, callouts, tables that read as tables, headings with air. */
+.mdcode{margin:.7em 0;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--surface-2)}
+.mdcodehd{display:flex;align-items:center;justify-content:space-between;height:30px;padding:0 6px 0 12px;border-bottom:1px solid var(--line);font:500 11px/1 "Geist Mono",ui-monospace,monospace;color:var(--mute);text-transform:lowercase}
+.mdcopy{height:22px;padding:0 8px;border:0;border-radius:6px;background:none;color:var(--mute);font:500 11.5px Geist,system-ui,sans-serif;cursor:pointer}.mdcopy:hover{background:var(--hover);color:var(--ink)}
+.mdcode .mdpre,.thread.term .mdcode .mdpre{margin:0;border:0;border-radius:0;background:none;padding:10px 14px 12px;max-height:440px;overflow:auto;font-size:12.5px;line-height:1.6}
+.hl-c{color:var(--hl-c);font-style:italic}.hl-s{color:var(--hl-s)}.hl-n{color:var(--hl-n)}.hl-k{color:var(--hl-k)}.hl-f{color:var(--hl-f)}.hl-t{color:var(--hl-t)}.hl-a{color:var(--hl-a)}.hl-v{color:var(--hl-v)}.hl-o{color:var(--ink-2)}.hl-p{color:var(--mute);user-select:none}.hl-d{color:var(--hl-n)}
+.hl-da,.hl-dd,.hl-dh{display:inline-block;min-width:100%;margin:0 -14px;padding:0 14px}
+.hl-da{background:var(--hl-add);color:var(--hl-addc)}.hl-dd{background:var(--hl-del);color:var(--hl-delc)}.hl-dh{color:var(--hl-k)}
+.mdmermaid{margin:.8em 0;padding:14px;border:1px solid var(--line);border-radius:10px;background:var(--surface);overflow-x:auto;text-align:center}
+.mdmermaid svg{max-width:100%;height:auto;max-height:380px}.mdmermaid .mdpre{text-align:left;margin:0}.mdmermaid.err::after{content:"This diagram couldn't be drawn; its source is above.";display:block;margin-top:6px;font-size:11.5px;color:var(--mute)}
+.mdcall{margin:.7em 0;padding:9px 13px 10px;border-radius:9px;border-left:3px solid var(--c,var(--accent));background:color-mix(in srgb,var(--c,var(--accent)) 8%,transparent)}
+.mdcall>p:last-child{margin-bottom:0}.mdcallt{margin-bottom:3px;font-size:12.5px;font-weight:620;color:var(--c,var(--accent))}
+.mdcall-note{--c:var(--hl-f)}.mdcall-tip{--c:var(--green)}.mdcall-important{--c:var(--accent)}.mdcall-warning{--c:var(--amber)}.mdcall-caution{--c:var(--red)}
+.md .mdtable{margin:.7em 0;border:1px solid var(--line);border-radius:10px;overflow-x:auto}
+.md table{width:100%;border-collapse:collapse;font-size:13px;line-height:1.45}
+.md th,.md td{border:0;border-bottom:1px solid var(--line);padding:7px 12px}.md tbody tr:last-child td{border-bottom:0}
+.md th{background:var(--surface-2);font-size:12px;font-weight:600;color:var(--ink-2);white-space:nowrap}
+.md tbody tr:nth-child(even){background:color-mix(in srgb,var(--surface-2) 45%,transparent)}
+.md td.num{font-variant-numeric:tabular-nums;white-space:nowrap}
+.thread.term .md .mdh{margin:1em 0 .35em;line-height:1.3;letter-spacing:-.01em}.thread.term .md>.mdh:first-child{margin-top:.2em}
+.thread.term .md .mdh1{font-size:1.18em;font-weight:650}.thread.term .md .mdh2{font-size:1.07em;font-weight:640}.thread.term .md .mdh3,.thread.term .md .mdh4{font-size:.98em;font-weight:620;color:var(--ink-2)}
+.md ul,.md ol{padding-left:1.3em}.md li{margin:.22em 0}.md li::marker{color:var(--mute)}
+.md p{margin:0 0 .7em}
+.md hr{margin:1.1em 0}
+.md blockquote{border-left-width:2px;color:var(--ink-2)}
+/* A long message folds to its start; Show all opens it (and it stays open). */
+.thread .bubble.fold{max-height:440px;overflow:hidden;position:relative}
+.thread .bubble.fold::after{content:"";position:absolute;left:0;right:0;bottom:0;height:90px;background:linear-gradient(transparent,var(--bg));pointer-events:none}
+.thread .bubble.mine.fold::after{background:linear-gradient(transparent,var(--surface-2))}
+.foldbtn{position:absolute;left:50%;bottom:10px;z-index:1;transform:translateX(-50%);height:28px;padding:0 12px;border:1px solid var(--line-strong);border-radius:99px;background:var(--surface);color:var(--ink-2);font:500 12px Geist,system-ui,sans-serif;cursor:pointer;box-shadow:var(--shadow-lg)}
+.foldbtn:hover{color:var(--ink)}
+.thread .bubble:not(.fold)>.foldbtn{display:none}
+
 `;
 
 // Client behaviour: relative times, day separators, copy buttons, dialogs, toasts, progressive form submits
@@ -1526,6 +1562,52 @@ export const SCRIPT = `
     themeShow();
     icToast(next === "system" ? "Appearance follows your system" : next === "light" ? "Light mode" : "Dark mode");
   });
+  // Code blocks: Copy puts the code (not the colours) on the clipboard.
+  document.addEventListener("click", async (e) => {
+    const b = e.target.closest && e.target.closest("[data-copycode]"); if (!b) return;
+    const pre = b.closest(".mdcode")?.querySelector("pre"); if (!pre) return;
+    try { await navigator.clipboard.writeText(pre.textContent); b.textContent = "Copied"; setTimeout(() => (b.textContent = "Copy"), 1400); } catch { b.textContent = "Select and copy"; }
+  });
+  // Diagrams (mermaid): the library loads only when a message has one; each is drawn once and kept, so live updates
+  // don't redraw it. In the page's theme; if it can't be drawn, its source stays with a note.
+  let mmLib = null, mmN = 0;
+  const mmDone = new Map();
+  function mermaids() {
+    const els = $$("[data-mermaid]:not(.done)"); if (!els.length) return;
+    const dark = (document.documentElement.dataset.theme || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")) === "dark";
+    mmLib = mmLib || new Promise((ok, no) => { const s = document.createElement("script"); s.src = "/vendor/mermaid-11.17.2.min.js"; s.onload = () => ok(window.mermaid); s.onerror = no; document.head.append(s); });
+    mmLib.then(async (m) => {
+      const pal = dark
+        ? { background: "#1f1f22", primaryColor: "#2a2a31", secondaryColor: "#25252b", tertiaryColor: "#222226", primaryBorderColor: "#4b4b57", primaryTextColor: "#e9e9ec", textColor: "#c9cad1", lineColor: "#80818b", edgeLabelBackground: "#1f1f22", noteBkgColor: "#2e2a1f", noteTextColor: "#e9e9ec", pie: ["#8f80ff", "#3ecf80", "#f0aa3c", "#5fb3f9", "#f2636d", "#6fd0d6", "#c3a6ff", "#a3a3ad"] }
+        : { background: "#ffffff", primaryColor: "#f3f3f7", secondaryColor: "#f7f7fa", tertiaryColor: "#fafafc", primaryBorderColor: "#c8c8d2", primaryTextColor: "#16171c", textColor: "#3b3d48", lineColor: "#7d7f89", edgeLabelBackground: "#ffffff", noteBkgColor: "#fff7e6", noteTextColor: "#16171c", pie: ["#5b47e0", "#15a050", "#c27407", "#1f78d1", "#d93a45", "#0d7480", "#9a6bf0", "#8a8f98"] };
+      const tv = { fontFamily: "Geist, system-ui, sans-serif", fontSize: "13px", ...pal, mainBkg: pal.primaryColor, nodeBorder: pal.primaryBorderColor, clusterBkg: pal.secondaryColor, clusterBorder: pal.primaryBorderColor, titleColor: pal.primaryTextColor, actorBkg: pal.primaryColor, actorBorder: pal.primaryBorderColor, actorTextColor: pal.primaryTextColor, signalColor: pal.lineColor, signalTextColor: pal.textColor, pieStrokeColor: pal.background, pieStrokeWidth: "2px", pieOuterStrokeWidth: "0px", pieTitleTextSize: "15px", pieSectionTextColor: "#ffffff", pieSectionTextSize: "13px", pieLegendTextColor: pal.textColor, pieLegendTextSize: "13px", pieOpacity: "1" };
+      pal.pie.forEach((c, i) => (tv["pie" + (i + 1)] = c));
+      delete tv.pie;
+      m.initialize({ startOnLoad: false, securityLevel: "strict", theme: "base", themeVariables: tv, flowchart: { curve: "basis" } });
+      for (const el of els) {
+        if (el.classList.contains("done")) continue;
+        const src = el.textContent, key = (dark ? "d:" : "l:") + src;
+        el.classList.add("done");
+        let svg = mmDone.get(key);
+        if (!svg) { try { svg = (await m.render("mm" + ++mmN, src)).svg; mmDone.set(key, svg); } catch { el.classList.add("err"); document.getElementById("dmm" + mmN)?.remove(); continue; } }
+        el.innerHTML = svg;
+      }
+    }).catch(() => els.forEach((el) => el.classList.add("done", "err")));
+  }
+  // Long messages fold to their start (not the latest one, and not one you opened).
+  const unfolded = new Set();
+  function longFolds() {
+    const all = $$("#thread .bubble"); const last = all[all.length - 1];
+    for (const b of all) {
+      if (b === last || unfolded.has(b.dataset.mid) || b.dataset.folded) continue;
+      b.dataset.folded = "1";
+      if (b.scrollHeight < 760) continue;
+      b.classList.add("fold");
+      const btn = document.createElement("button"); btn.type = "button"; btn.className = "foldbtn"; btn.textContent = "Show all";
+      btn.onclick = () => { b.classList.remove("fold"); unfolded.add(b.dataset.mid); };
+      b.append(btn);
+    }
+  }
   function toggleTree() {
     const ide = document.getElementById("ide"); if (!ide) return;
     if (matchMedia("(max-width: 900px)").matches) { ide.classList.toggle("treeopen"); return; }
@@ -1938,6 +2020,8 @@ export const SCRIPT = `
     hdMenu();
     inspAuto();
     themeShow();
+    mermaids();
+    longFolds();
     if (picked) { const b = document.querySelector('.bubble[data-mid="' + picked + '"]'); if (b && b.querySelector('[data-unsend="edit"]')) b.classList.add("picked"); else picked = null; }
     trailBack();
     $$("#compose", root).forEach((t) => { if (!t.value) t.value = drafts.get(t); t.addEventListener("input", () => drafts.set(t)); });

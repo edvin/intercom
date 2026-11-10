@@ -1251,6 +1251,7 @@ Etiquette:
 - Each project can have rules (shown at session start, or via \`projects\`); follow them, and flag conflicts with your user's request before proceeding.
 - Only create projects, invite people, or change rules when your user asks.
 - Keep posts brief. Don't post routine progress.
+- Your user reads your answers in the dashboard, which renders Markdown: break up walls of text with short headings, lists and tables (numbers line up), \`\`\`lang code blocks (coloured; \`\`\`diff for changes), callouts (> [!NOTE], > [!WARNING], > [!TIP]) and \`\`\`mermaid diagrams (flowchart, sequenceDiagram, pie, xychart-beta, gantt) where a picture says it faster.
 
 Intercom vs Claude Code's built-in agent messaging:
 - Use intercom for other people in your user's projects (their names come from \`team\`), and for their sessions.

@@ -5,6 +5,8 @@ import { readableName } from "./attachments";
 // Codex render in a terminal) is turned into a small set of elements, and ANSI colour codes from pasted terminal
 // output become coloured spans. No raw HTML from a message ever reaches the page.
 
+import { familyOf, highlight, looksLikeDiff } from "./highlight";
+
 const ESC: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ESC[c]!);
 
@@ -87,6 +89,20 @@ function inline(s: string, refs?: string | null, files?: string | null, code?: s
 
 // ---- blocks ----
 
+const NUMERIC = /^[~≈<>±+\-−]?\s?[$€£¥]?\s?\d[\d,. _]*(?:\s?(?:%|ms|s|m|h|d|x|×|kb|mb|gb|tb|k|m|b|kr|nok|usd|eur))?$/i;
+const CALLOUT: Record<string, string> = { note: "Note", tip: "Tip", important: "Important", warning: "Warning", caution: "Caution" };
+const unesc = (s: string) => s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, "&");
+
+/** A fenced block: a diagram (mermaid, drawn in the browser), terminal output with colours, or code, coloured by its
+ *  language, under a bar with the language and a copy button. `body` is escaped already. */
+function codeBlock(body: string, lang: string): string {
+  if (/^mermaid$/i.test(lang)) return `<div class="mdmermaid" data-mermaid><pre class="mdpre"><code>${body}</code></pre></div>`;
+  const raw = unesc(body);
+  const coloured = raw.includes("\u001b") ? ansi(body) : highlight(raw, lang);
+  const label = lang || (familyOf(lang) ?? (looksLikeDiff(raw) ? "diff" : ""));
+  return `<div class="mdcode"><div class="mdcodehd"><span>${esc(label)}</span><button type="button" class="mdcopy" data-copycode title="Copy">Copy</button></div><pre class="mdpre"${lang ? ` data-lang="${lang}"` : ""}><code>${coloured}</code></pre></div>`;
+}
+
 const isTableSep = (l: string) => /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/.test(l);
 const cells = (l: string) => l.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((c) => c.trim());
 
@@ -112,7 +128,7 @@ export function md(text: string, refs?: string | null, files?: string | null, co
       flush();
       const body: string[] = [];
       while (++i < lines.length && !lines[i]!.trim().startsWith(fence[1]!)) body.push(lines[i]!);
-      out.push(`<pre class="mdpre"${fence[2] ? ` data-lang="${fence[2]}"` : ""}><code>${ansi(body.join("\n"))}</code></pre>`);
+      out.push(codeBlock(body.join("\n"), fence[2] ?? ""));
       continue;
     }
     // table
@@ -123,7 +139,12 @@ export function md(text: string, refs?: string | null, files?: string | null, co
       const rows: string[][] = [];
       i += 1;
       while (i + 1 < lines.length && lines[i + 1]!.includes("|") && lines[i + 1]!.trim()) rows.push(cells(lines[++i]!));
-      const td = (c: string, j: number, tag: string) => `<${tag}${align[j] ? ` style="text-align:${align[j]}"` : ""}>${ansi(inline(c, refs, files, code))}</${tag}>`;
+      // A column of numbers (amounts, counts, percentages, durations) lines up on the right unless the table says otherwise.
+      const numeric = head.map((_, j) => rows.length > 0 && rows.every((r) => !r[j] || NUMERIC.test(r[j]!)) && rows.some((r) => r[j]));
+      const td = (c: string, j: number, tag: string) => {
+        const a = align[j] || (numeric[j] ? "right" : "");
+        return `<${tag}${a ? ` style="text-align:${a}"` : ""}${numeric[j] && tag === "td" ? ' class="num"' : ""}>${ansi(inline(c, refs, files, code))}</${tag}>`;
+      };
       out.push(
         `<div class="mdtable"><table><thead><tr>${head.map((c, j) => td(c, j, "th")).join("")}</tr></thead><tbody>${rows
           .map((r) => `<tr>${r.map((c, j) => td(c, j, "td")).join("")}</tr>`)
@@ -150,7 +171,12 @@ export function md(text: string, refs?: string | null, files?: string | null, co
       const q: string[] = [];
       for (; i < lines.length && /^&gt;\s?/.test(lines[i]!); i++) q.push(lines[i]!.replace(/^&gt;\s?/, ""));
       i--;
-      out.push(`<blockquote>${md(q.join("\n").replace(/&gt;/g, ">").replace(/&lt;/g, "<").replace(/&amp;/g, "&"), refs, files, code)}</blockquote>`);
+      // GitHub's callouts: > [!NOTE], [!TIP], [!IMPORTANT], [!WARNING], [!CAUTION] become a coloured box with a title.
+      const call = q[0]?.match(/^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*(.*)$/i);
+      if (call) q[0] = call[2]!;
+      const inner = md(q.join("\n").replace(/&gt;/g, ">").replace(/&lt;/g, "<").replace(/&amp;/g, "&"), refs, files, code);
+      const kind = call?.[1]!.toLowerCase();
+      out.push(kind ? `<div class="mdcall mdcall-${kind}"><div class="mdcallt">${CALLOUT[kind]}</div>${inner}</div>` : `<blockquote>${inner}</blockquote>`);
       continue;
     }
     // lists (bullets, numbers, task boxes), with indentation

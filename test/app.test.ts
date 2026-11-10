@@ -1060,7 +1060,7 @@ describe("message rendering", () => {
     assert.match(html, /<div class="mdh mdh2">Results<\/div>/);
     assert.match(html, /<b>bold<\/b> and <i>italic<\/i> and <s>gone<\/s>, <code>code<\/code>/);
     assert.match(html, /<th style="text-align:left">step<\/th>|<th>step<\/th>/);
-    assert.match(html, /<td style="text-align:right">1\.08s<\/td>/);
+    assert.match(html, /<td style="text-align:right" class="num">1\.08s<\/td>/);
     assert.match(html, /class="mdbox on">✓<\/span>lazy codecs/);
     assert.match(html, /<ol><li[^>]*>first<\/li>/);
     assert.match(html, /<blockquote><p>quoted<\/p><\/blockquote>/);
