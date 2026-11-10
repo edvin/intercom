@@ -2402,6 +2402,28 @@ describe("an agent's own text stays in the chat", () => {
   });
 });
 
+describe("search in your chats", () => {
+  test("finds your messages, your agents' replies and what they wrote in their terminals; never someone else's DMs", async () => {
+    const w = await standardWorld();
+    const core = { id: "q1", project: "billing-api" };
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=q1&name=core", { as: "bob" });
+    await w.form("/action/post", "bob", { to: "bob/core", message: "Which flange radius did we pick?", back: "/dashboard" });
+    await w.ok("bob", "post", { to: "bob", message: "We picked the 4 mm flange radius, see PLAN.md." }, core);
+    await w.request("/api/activity?session=q1", { as: "bob", method: "POST", body: JSON.stringify({ items: [{ kind: "text", text: "| Size | Feel |\n|---|---|\n| small | warm flange |" }] }) });
+    await w.ok("alice", "post", { to: "alice", message: "secret flange notes" });
+    const find = async (as: string, q: string) => (await (await w.request(`/search?q=${encodeURIComponent(q)}`, { as, cookie: true })).json()).hits as { kind: string; title: string; snippet: string; href: string }[];
+    const hits = await find("bob", "flange");
+    assert.deepEqual(hits.map((h) => h.kind).sort(), ["message", "message", "text"]);
+    assert.ok(hits.every((h) => !/secret/.test(h.snippet)));
+    const reply = hits.find((h) => /4 mm/.test(h.snippet))!;
+    assert.equal(reply.title, "core");
+    assert.match(reply.href, /view=agents&agent=bob%2Fcore&find=\d+/);
+    assert.match(hits.find((h) => h.kind === "text")!.href, /&find=a\d+/);
+    assert.deepEqual(await find("bob", "fl"), []); // three letters at least
+    assert.deepEqual(await find("bob", "100%_"), []); // % and _ are matched as written
+  });
+});
+
 describe("handover notes", () => {
   test("an agent leaves notes for its name; the next session with the name gets them, others see the name is free, and taking it over hands them on", async () => {
     const w = await standardWorld();

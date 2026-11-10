@@ -13,6 +13,7 @@ import { type TicketOutcome, askTicket, decideTicket } from "./tickets";
 import { type CodeQuery, askCode, codeQuery, codeReply, drawCode } from "./code";
 import { parseJobs } from "./jobs";
 import { notesBrief, setNote } from "./notes";
+import { search } from "./search";
 import { updateSummary } from "./upkeep";
 import { closeTerm, newTerm, termsPanel } from "./terminals";
 import { type Env, type Message, type Proposal, type Session, LIVE, MEMBER_OF, postMessage, RECEIVES, UserError, activeLocks, address, isMyLock, ago, addActivity, lockIn, scopedLocks, cleanBranch, cleanClient, fromOwnUser, fromOwnAgent, DELEGATED_NOTE, staleFor, renameSession, setHost, setVersion, workingOn, authenticate, coMembers, fmtLock, fmtMessage, myProjects, moveSession, projectFor, resolveProject, setCwd, setOrigin, setPresence, setRepo, signedIn, tally, touchSession, unread } from "./lib";
@@ -958,6 +959,10 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
       body = `<div class="codebar"><span class="grow"></span><button type="button" class="btn ghost xs icon" data-coderefresh title="Try again">${icon("refresh", 13)}</button></div><div class="empty">${icon("code", 26)}<div>Couldn't read its code</div><div class="small">${esc(e.message)}</div></div>`;
     }
     return new Response(body, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "content-security-policy": "default-src 'none'; frame-ancestors 'none'" } });
+  }
+  if (url.pathname === "/search" && req.method === "GET") {
+    // ⌘K's search in your chats (search.ts).
+    return json({ hits: await search(env, me, url.searchParams.get("q") ?? "") });
   }
   if (url.pathname === "/md-preview" && req.method === "POST") {
     // The Markdown editor's preview: the same rendering as messages (tables, callouts, code, diagrams).

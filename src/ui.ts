@@ -1538,6 +1538,13 @@ article.mdfile[hidden]{display:none}
 
 .md .mdbox{width:15px;height:15px;font-size:11px;line-height:1;border-radius:4px;vertical-align:-2px}.md .mdbox.on{color:#fff;font-weight:700}
 
+/* Search results in ⌘K, and the message it opens at. */
+.kpal .ks.kshit{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.kpal .ks mark{background:var(--accent-soft);color:var(--ink);border-radius:3px}
+.thread .found{animation:found 2.4s ease-out;border-radius:12px}
+@keyframes found{0%,40%{box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 55%,transparent);background:var(--accent-soft)}}
+
+.kpal .kit.khit .kn{flex:none;width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.kpal .kit.khit .ks{flex:1;min-width:0;margin-left:0;text-align:left}
+
 `;
 
 // Client behaviour: relative times, day separators, copy buttons, dialogs, toasts, progressive form submits
@@ -1980,6 +1987,17 @@ export const SCRIPT = `
     sessionStorage.setItem("ic_starting", String(n + 1));
     const e = document.querySelector(".chat .empty div"); if (e) e.textContent = "Starting " + (u.searchParams.get("agent") || "").split("/")[1] + "… it shows up here as soon as it connects.";
     setTimeout(() => location.reload(), 3000);
+  })();
+  // Opened from search (&find=): the message is scrolled to and lit up (unfolded, if it was folded away).
+  (() => {
+    const u = new URL(location.href), id = u.searchParams.get("find"); if (!id) return;
+    setTimeout(() => {
+      const el = document.querySelector('#thread [data-mid="' + CSS.escape(id) + '"]');
+      if (!el) { icToast("That's older than what this chat shows now"); return; }
+      el.closest("details")?.setAttribute("open", ""); el.classList.remove("fold");
+      el.scrollIntoView({ block: "center" }); el.classList.add("found");
+      u.searchParams.delete("find"); history.replaceState(history.state, "", u.pathname + u.search);
+    }, 150);
   })();
   // A step you opened (its exact command) stays open when the chat redraws.
   const openSteps = new Set();
@@ -2721,27 +2739,46 @@ export const SCRIPT = `
     // No query: the agents you had open most recently come first, so ⌘K then Enter goes back to the last one.
     const recent = q ? [] : trail().filter((k) => k !== shownAgent()).map((k) => all.find((it) => it.group === "Agents" && it.name === k)).filter(Boolean).slice(0, 5).map((it) => Object.assign({}, it, { group: "Recent" }));
     kList = q ? all.map((it) => ({ it, s: Math.max(kScore(q, it.name) * 2, kScore(q, it.sub), kScore(q, it.more) / 2) - (it.gone ? 50 : 0) })).filter((x) => x.s > 0).sort((x, y) => y.s - x.s).map((x) => x.it).slice(0, 40) : [...recent, ...all.filter((it) => !it.gone && !recent.some((r) => r.name === it.name))];
+    // Words in your chats (from 3 letters): asked of the hub as you type, shown under what matched by name.
+    if (q.length >= 3) {
+      if (kRemote.q === q) kList = kList.concat(kRemote.hits.map((h) => ({ group: "In chats", name: h.title, sub: h.snippet, href: h.href, icon: ICONS_K.message, when: h.when, hit: q })));
+      else kAsk(q);
+    }
     kSel = Math.min(kSel, Math.max(0, kList.length - 1));
     const box = kd.querySelector(".klist");
     box.textContent = "";
     if (!kList.length) { const e = document.createElement("div"); e.className = "kempty"; e.textContent = "Nothing matches “" + q + "”"; box.append(e); return; }
     let group = "";
     kList.forEach((it, n) => {
-      if (!q && it.group !== group) { group = it.group; const g = document.createElement("div"); g.className = "kgrp"; g.textContent = group; box.append(g); }
+      if ((!q || it.group === "In chats") && it.group !== group) { group = it.group; const g = document.createElement("div"); g.className = "kgrp"; g.textContent = group; box.append(g); }
       const a = document.createElement("a");
-      a.className = "kit" + (n === kSel ? " on" : "") + (it.gone ? " gone" : "");
+      a.className = "kit" + (n === kSel ? " on" : "") + (it.gone ? " gone" : "") + (it.hit ? " khit" : "");
       a.href = it.href; a.dataset.n = n; a.setAttribute("role", "option");
       const ic = document.createElement("span"); ic.className = "kic"; ic.innerHTML = it.icon;
       const nm = document.createElement("span"); nm.className = "kn";
       const at = q ? it.name.toLowerCase().indexOf(q) : -1;
       if (at >= 0) { const m = document.createElement("mark"); m.textContent = it.name.slice(at, at + q.length); nm.append(it.name.slice(0, at), m, it.name.slice(at + q.length)); } else nm.textContent = it.name;
-      const sb = document.createElement("span"); sb.className = "ks"; sb.textContent = it.sub;
+      const sb = document.createElement("span"); sb.className = "ks" + (it.hit ? " kshit" : "");
+      const hi = it.hit ? it.sub.toLowerCase().indexOf(it.hit) : -1;
+      if (hi >= 0) { const m = document.createElement("mark"); m.textContent = it.sub.slice(hi, hi + it.hit.length); sb.append(it.sub.slice(0, hi), m, it.sub.slice(hi + it.hit.length)); } else sb.textContent = it.sub;
       a.append(ic, nm, sb);
       if (it.when) { const wh = document.createElement("span"); wh.className = "kw"; wh.textContent = it.when; wh.title = it.whenTip; a.append(wh); }
       a.onmousemove = () => { if (kSel !== n) { kSel = n; kMark(); } };
       box.append(a);
     });
   };
+  let kRemote = { q: "", hits: [] }, kTimer = 0;
+  const kAgo = (t) => { const m = Math.round((Date.now() - t) / 60000); return m < 60 ? Math.max(1, m) + "m" : m < 1440 ? Math.round(m / 60) + "h" : Math.round(m / 1440) + "d"; };
+  function kAsk(q) {
+    clearTimeout(kTimer);
+    kTimer = setTimeout(async () => {
+      try {
+        const r = await fetch("/search?q=" + encodeURIComponent(q), { credentials: "same-origin" }); const j = await r.json();
+        kRemote = { q, hits: (j.hits || []).map((h) => Object.assign(h, { when: kAgo(h.at) })) };
+        if (kd && kd.open && kd.querySelector("input").value.trim().toLowerCase() === q) kDraw();
+      } catch {}
+    }, 220);
+  }
   const kMark = () => kd.querySelectorAll(".kit").forEach((a) => { const on = Number(a.dataset.n) === kSel; a.classList.toggle("on", on); if (on) a.scrollIntoView({ block: "nearest" }); });
   // The page opens ready to write: the cursor goes to the message field (an agent's, or the composer on Everything),
   // after any draft. Not on touch screens, where it would pop up the keyboard.
@@ -2753,7 +2790,7 @@ export const SCRIPT = `
     if (!kd) {
       kd = document.createElement("dialog");
       kd.className = "kpal";
-      kd.innerHTML = '<div class="kin">' + ${JSON.stringify(icon("search", 18))} + '<input type="search" placeholder="Find an agent, project or page" aria-label="Search" autocomplete="off" spellcheck="false"><span class="kbd">esc</span></div><div class="klist" role="listbox"></div><div class="kft"><span><span class="kbd">↑</span><span class="kbd">↓</span> move</span><span><span class="kbd">PgUp</span><span class="kbd">PgDn</span> page</span><span><span class="kbd">↵</span> open</span><span><span class="kbd">⌘</span><span class="kbd">↵</span> new tab</span></div>';
+      kd.innerHTML = '<div class="kin">' + ${JSON.stringify(icon("search", 18))} + '<input type="search" placeholder="Find an agent, a page, or words in your chats" aria-label="Search" autocomplete="off" spellcheck="false"><span class="kbd">esc</span></div><div class="klist" role="listbox"></div><div class="kft"><span><span class="kbd">↑</span><span class="kbd">↓</span> move</span><span><span class="kbd">PgUp</span><span class="kbd">PgDn</span> page</span><span><span class="kbd">↵</span> open</span><span><span class="kbd">⌘</span><span class="kbd">↵</span> new tab</span></div>';
       document.body.append(kd);
       const input = kd.querySelector("input");
       input.oninput = () => { kSel = 0; kDraw(); };
