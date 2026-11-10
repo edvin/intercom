@@ -10,7 +10,7 @@ import { fetchLocalFile, fileReply } from "./localfiles";
 import { readerPage } from "./reader";
 import { type Outcome, type Review, askReview, decideReview, findingsOf, moveReview } from "./reviews";
 import { type TicketOutcome, askTicket, decideTicket } from "./tickets";
-import { askCode, codeQuery, codeReply, drawCode } from "./code";
+import { type CodeQuery, askCode, codeQuery, codeReply, drawCode } from "./code";
 import { parseJobs } from "./jobs";
 import { notesBrief, setNote } from "./notes";
 import { updateSummary } from "./upkeep";
@@ -954,6 +954,28 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
       body = `<div class="codebar"><span class="grow"></span><button type="button" class="btn ghost xs icon" data-coderefresh title="Try again">${icon("refresh", 13)}</button></div><div class="empty">${icon("code", 26)}<div>Couldn't read its code</div><div class="small">${esc(e.message)}</div></div>`;
     }
     return new Response(body, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "content-security-policy": "default-src 'none'; frame-ancestors 'none'" } });
+  }
+  if ((url.pathname === "/agent-code/save" || url.pathname === "/agent-code/commit") && req.method === "POST") {
+    // Editing in the code view: a file written in your agent's repo, or chosen files committed (and pushed) there.
+    if (!sameOrigin(req)) return new Response("Cross-origin request refused", { status: 403 });
+    const form = await req.formData();
+    const [member, label] = String(form.get("agent") ?? "").split("/");
+    const wt = String(form.get("wt") ?? "").slice(0, 1024);
+    try {
+      if (member !== me || !label || env.authKind !== "web") throw new UserError("Only your own agents' code, from your dashboard.");
+      const save = url.pathname === "/agent-code/save";
+      const q: CodeQuery = save
+        ? { op: "save", path: String(form.get("path") ?? "").slice(0, 1024), text: String(form.get("text") ?? ""), ...(wt ? { wt } : {}) }
+        : { op: "gitcommit", paths: form.getAll("path").map(String).slice(0, 500), message: String(form.get("message") ?? "").slice(0, 4000), push: form.get("push") === "1", ...(wt ? { wt } : {}) };
+      const d = await askCode(env, me, label, q);
+      const sid = (await env.DB.prepare("SELECT session_id FROM sessions WHERE member = ? AND label = ? ORDER BY last_seen DESC LIMIT 1").bind(me, d.via ?? label).first<{ session_id: string }>())?.session_id;
+      const said = save ? `you edited ${d.saved} from the dashboard` : `you committed ${d.committed?.files} file${d.committed?.files === 1 ? "" : "s"} from the dashboard (${d.committed?.sha})${d.committed?.pushed ? `, ${d.committed.pushed}` : ""}: ${q.message?.split("\n")[0]}`;
+      if (sid) await env.DB.prepare("INSERT INTO activity (member, session_id, at, kind, text) VALUES (?, ?, ?, 'keys', ?)").bind(me, sid, Date.now(), said).run();
+      return json({ ok: true, saved: d.saved, committed: d.committed });
+    } catch (e) {
+      if (!(e instanceof UserError)) throw e;
+      return json({ error: e.message }, 400);
+    }
   }
   if ((url.pathname === "/agent-screen" && req.method === "GET") || (url.pathname === "/agent-keys" && req.method === "POST")) {
     // An agent's screen (screen.ts): a fragment for the dashboard's screen window, after sending keys if asked.

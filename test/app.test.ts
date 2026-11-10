@@ -2361,6 +2361,33 @@ describe("steps put in words", () => {
   });
 });
 
+describe("editing in the code view", () => {
+  test("a file is saved and chosen files committed (and pushed) on the agent's machine; both are noted in its activity", async () => {
+    const w = await standardWorld();
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=e1&name=core&version=0.12.49", { as: "bob" });
+    const answer = async (go: () => Promise<Response>, data: object) => {
+      const n = w.codeAsked.length;
+      const p = go();
+      while (w.codeAsked.length === n) await new Promise((r) => setTimeout(r, 5));
+      const ask = w.codeAsked[n]!;
+      await w.request("/api/code-reply", { as: ask.member, method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ req: ask.req, data }) });
+      return { res: await p, q: ask.q };
+    };
+    const over = { name: "billing-api", branch: "main", head: "abc", upstream: "origin/main", ahead: 0, behind: 0, log: [] };
+    const saved = await answer(() => w.form("/agent-code/save", "bob", { agent: "bob/core", path: "PLAN.md", text: "# Plan\n" }), { ...over, saved: "PLAN.md" });
+    assert.deepEqual(saved.q, { op: "save", path: "PLAN.md", text: "# Plan\n" });
+    assert.deepEqual(await saved.res.json(), { ok: true, saved: "PLAN.md" });
+    const done = await answer(() => w.form("/agent-code/commit", "bob", { agent: "bob/core", path: "PLAN.md", message: "Write the plan", push: "1" }), { ...over, committed: { sha: "def1234", files: 1, pushed: "pushed" } });
+    assert.deepEqual(done.q, { op: "gitcommit", paths: ["PLAN.md"], message: "Write the plan", push: true });
+    const acts = (await w.db.prepare("SELECT text FROM activity WHERE session_id = 'e1' ORDER BY id").all<{ text: string }>()).results.map((r) => r.text);
+    assert.deepEqual(acts, ["you edited PLAN.md from the dashboard", "you committed 1 file from the dashboard (def1234), pushed: Write the plan"]);
+    // Someone else's agent: refused before anything is asked.
+    const n = w.codeAsked.length;
+    assert.match((await (await w.form("/agent-code/save", "alice", { agent: "bob/core", path: "x", text: "y" })).json()).error, /Only your own agents/);
+    assert.equal(w.codeAsked.length, n);
+  });
+});
+
 describe("handover notes", () => {
   test("an agent leaves notes for its name; the next session with the name gets them, others see the name is free, and taking it over hands them on", async () => {
     const w = await standardWorld();

@@ -20,7 +20,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const VERSION = "0.12.48"; // kept in step with .claude-plugin/plugin.json (a test checks)
+const VERSION = "0.12.49"; // kept in step with .claude-plugin/plugin.json (a test checks)
 const DIR = path.join(os.homedir(), ".claude", "intercom");
 const CONFIG = path.join(DIR, "config");
 function readConf() {
@@ -307,7 +307,7 @@ async function answerCodeRequest(f) {
   try {
     // Loaded when first needed, so a copy installed without it (an older installer) still runs everything else.
     const { codeRequest } = await import("./code.mjs");
-    body = { data: await codeRequest(WORKDIR, f.q, { agentDir }) };
+    body = { data: await codeRequest(WORKDIR, f.q, { agentDir, editOn: setting("INTERCOM_EDIT") !== "0" }) };
   } catch (e) {
     body = { error: String(e.message ?? e).slice(0, 300) };
   }
@@ -383,6 +383,7 @@ const SETTINGS = {
   share_branch: { key: "INTERCOM_SHARE_BRANCH", on: "1", off: "0", def: true, what: "share this machine's git branch with project members", live: false },
   auto_status: { key: "INTERCOM_AUTO_STATUS", on: "1", off: "0", def: true, what: "let agents set their own status notes", live: false },
   screen: { key: "INTERCOM_SCREEN", on: "1", off: "0", def: true, what: "let you see this machine's agents' terminals (tmux panes) from your dashboard and Claude.ai; only you, never teammates or other agents", live: false },
+  edit: { key: "INTERCOM_EDIT", on: "1", off: "0", def: true, what: "let you edit files in your agents' repos from your dashboard's code view, and commit (and push) them; only you", live: true },
   terminals: { key: "INTERCOM_TERMINALS", on: "1", off: "0", def: true, what: "let you list, open, start and close tmux terminals on this machine from your dashboard (a shell, Claude Code or Codex in a folder); only you", live: true },
   keys: { key: "INTERCOM_KEYS", on: "1", off: "0", def: true, what: "let you send keys (Enter, Esc, Ctrl+C, a typed line) to this machine's agents' terminals from your dashboard and Claude.ai; only you", live: false },
 };

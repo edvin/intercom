@@ -1503,6 +1503,16 @@ html:has(dialog[open]),html:has(dialog[open]) body{overflow:hidden;overscroll-be
 body:has(dialog[open]) .thread,body:has(dialog[open]) .pane,body:has(dialog[open]) .tbody,body:has(dialog[open]) .insp{overflow:hidden!important}
 .imgview,.imgview .ivbody{overscroll-behavior:contain}.imgview .ivbody{touch-action:pinch-zoom}
 
+/* Editing in the code view. */
+.fedit{display:flex;flex-direction:column;gap:8px;margin:8px 0 12px}.fedit[hidden]{display:none}
+.fedit textarea{min-height:min(62vh,640px);font:12.5px/1.6 "Geist Mono",ui-monospace,monospace;tab-size:4;white-space:pre;overflow:auto;resize:vertical;background:var(--surface)}
+.fedit .fnewpath{font-family:"Geist Mono",ui-monospace,monospace;font-size:13px}
+.feditbar{display:flex;align-items:center;gap:8px}
+.fview[hidden]{display:none}
+.commitbar{display:flex;align-items:center;gap:8px;margin:0 0 12px;padding:10px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+.commitbar input[name=message]{flex:1;min-width:0;height:32px;font-size:13px}.commitbar .check{white-space:nowrap}
+@media (max-width:640px){.commitbar{flex-wrap:wrap}.commitbar input[name=message]{flex-basis:100%}}
+
 `;
 
 // Client behaviour: relative times, day separators, copy buttons, dialogs, toasts, progressive form submits
@@ -2712,6 +2722,51 @@ export const SCRIPT = `
   const CODE_KEYS = ["code", "sha", "dir", "path", "rev", "q", "in", "wt"];
   let codeNav = false, codeSeq = 0;
   // While you type in its search box, only the results are redrawn, so the box keeps focus and caret.
+  // Editing in the code view: a file opens in an editor and is saved on its machine; Changes commits (and pushes).
+  const codeAgent = () => { const u = new URL(location.href); return { agent: u.searchParams.get("agent") || "", wt: u.searchParams.get("wt") || "" }; };
+  async function codePost(url, f) {
+    const { agent, wt } = codeAgent(); f.set("agent", agent); if (wt) f.set("wt", wt);
+    const r = await fetch(url, { method: "POST", body: f, credentials: "same-origin" });
+    const j = await r.json().catch(() => ({ error: "HTTP " + r.status }));
+    if (j.error) throw new Error(j.error);
+    return j;
+  }
+  document.addEventListener("click", async (e) => {
+    const cp = document.getElementById("codepane"); if (!cp || !e.target.closest || !cp.contains(e.target)) return;
+    const open = e.target.closest("[data-editopen]"), nf = e.target.closest("[data-newfile]"), cancel = e.target.closest("[data-editcancel]"), save = e.target.closest("[data-editsave]");
+    if (open || nf) {
+      const ed = cp.querySelector(nf ? ".fedit.fnew" : ".fedit:not(.fnew)"); if (!ed) return;
+      ed.hidden = false; cp.querySelector(".fview")?.setAttribute("hidden", ""); (open || nf).hidden = true;
+      if (nf) { const pth = ed.querySelector(".fnewpath"); pth.value = nf.dataset.newfile; pth.focus(); } else ed.querySelector("textarea").focus();
+      return;
+    }
+    if (cancel) { const ed = cancel.closest(".fedit"); ed.hidden = true; cp.querySelector(".fview")?.removeAttribute("hidden"); cp.querySelectorAll("[data-editopen],[data-newfile]").forEach((b) => (b.hidden = false)); return; }
+    if (save) {
+      const ed = save.closest(".fedit"), path = ed.classList.contains("fnew") ? ed.querySelector(".fnewpath").value.trim() : ed.dataset.edit;
+      if (!path) { icToast("Give it a path in the repo", true); return; }
+      const f = new FormData(); f.set("path", path); f.set("text", ed.querySelector("textarea").value);
+      save.disabled = true;
+      try {
+        await codePost("/agent-code/save", f);
+        icToast("Saved " + path);
+        if (ed.classList.contains("fnew")) { const u = new URL(location.href); u.searchParams.set("code", "file"); u.searchParams.set("path", path); u.searchParams.delete("dir"); history.pushState(history.state, "", u.pathname + u.search); }
+        codeLoad();
+      } catch (err) { icToast(err.message, true); }
+      save.disabled = false;
+    }
+  });
+  document.addEventListener("keydown", (e) => { if ((e.metaKey || e.ctrlKey) && e.key === "s" && e.target.closest && e.target.closest(".fedit")) { e.preventDefault(); e.target.closest(".fedit").querySelector("[data-editsave]")?.click(); } });
+  document.addEventListener("submit", async (e) => {
+    const form = e.target; if (!form.matches || !form.matches("form[data-commit]")) return;
+    e.preventDefault(); e.stopImmediatePropagation();
+    const btn = form.querySelector("button"); btn.disabled = true;
+    try {
+      const j = await codePost("/agent-code/commit", new FormData(form));
+      icToast("Committed " + j.committed.sha + (j.committed.pushed ? " · " + j.committed.pushed : ""), /^not pushed/.test(j.committed.pushed || ""));
+      codeLoad();
+    } catch (err) { icToast(err.message, true); }
+    btn.disabled = false;
+  }, true);
   async function codeLoad(results) {
     const cp = document.getElementById("codepane"); if (!cp) return;
     const u = new URL(location.href), p = new URLSearchParams([["agent", u.searchParams.get("agent") || ""]]);

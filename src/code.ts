@@ -11,6 +11,8 @@ import { esc, icon } from "./ui";
 export const CODE_SINCE = "0.12.23";
 /** … and searches (find). */
 export const SEARCH_SINCE = "0.12.24";
+/** Editing a file and committing from the code view (code.mjs save, gitcommit). */
+export const EDIT_SINCE = "0.12.49";
 const WAIT_MS = 20_000;
 
 interface Commit {
@@ -59,9 +61,15 @@ interface CodeData extends Overview {
   list?: { dir: string; dirs: string[]; files: string[] };
   file?: { path: string; rev: string; text?: string; binary?: boolean; tooBig?: number; size?: number };
   find?: { q: string; mode: "files" | "text"; hits: { path: string; line?: number; text?: string }[]; more: boolean };
+  saved?: string;
+  committed?: { sha: string; files: number; pushed: string };
 }
 export interface CodeQuery {
-  op: "changes" | "commit" | "list" | "file" | "find";
+  op: "changes" | "commit" | "list" | "file" | "find" | "save" | "gitcommit";
+  text?: string;
+  message?: string;
+  push?: boolean;
+  paths?: string[];
   /** Another worktree than the one the agent works in (it must be one of its repos' worktrees). */
   wt?: string;
   q?: string;
@@ -98,7 +106,7 @@ export async function askCode(env: Env, me: string, label: string, q: CodeQuery)
   type Row = { session_id: string; version: string; label: string; origin: string | null };
   let s = await env.DB.prepare("SELECT session_id, version, label, origin FROM sessions WHERE member = ? AND label = ? ORDER BY last_seen DESC LIMIT 1").bind(me, label).first<Row>();
   if (!s) throw new UserError(`You have no agent named ${label}.`);
-  const since = q.op === "find" ? SEARCH_SINCE : CODE_SINCE;
+  const since = q.op === "save" || q.op === "gitcommit" ? EDIT_SINCE : q.op === "find" ? SEARCH_SINCE : CODE_SINCE;
   // An agent that has ended (a commit it once mentioned, say): another of yours running in the same repo reads it.
   const live = env.live?.();
   if (live && !live.has(`${me}/${s.session_id}`) && s.origin) {
@@ -106,7 +114,7 @@ export async function askCode(env: Env, me: string, label: string, q: CodeQuery)
     s = results.find((r) => live.has(`${me}/${r.session_id}`) && !outdated(r.version, since)) ?? s;
   }
   label = s.label;
-  if (outdated(s.version, since)) throw new UserError(`${label} runs intercom ${s.version || "(unknown)"}; ${q.op === "find" ? "searching" : "the code view"} needs ${since}. Restart it after /intercom:update.`);
+  if (outdated(s.version, since)) throw new UserError(`${label} runs intercom ${s.version || "(unknown)"}; ${q.op === "save" || q.op === "gitcommit" ? "editing from here" : q.op === "find" ? "searching" : "the code view"} needs ${since}. Restart it after /intercom:update.`);
   const req = crypto.randomUUID();
   const reply = new Promise<Reply>((resolve) => {
     const timer = setTimeout(() => done({ error: `${label} didn't answer within ${WAIT_MS / 1000} seconds.` }), WAIT_MS);
@@ -379,7 +387,9 @@ function body(key: string, base: string, tab: string, q: CodeQuery, d: CodeData)
     const lang = langOf(f.path);
     const st = { block: false };
     const lines = (f.text ?? "").replace(/\n$/, "").split("\n");
-    return `${top}<div class="dscroll fview"><table class="diff code"><tbody>${lines.map((l, i) => `<tr id="L${i + 1}"><td class="ln"><a href="#L${i + 1}" data-jump>${i + 1}</a></td><td class="dc">${highlight(l, lang, st)}</td></tr>`).join("")}</tbody></table></div>`;
+    // On disk now (not an old revision): editable here, saved on its machine.
+    const editor = f.rev === "worktree" ? `<div class="fedit" data-edit="${esc(f.path)}" hidden><textarea spellcheck="false">${esc(f.text ?? "")}</textarea><div class="feditbar"><span class="small muted">Saved on its machine, in the repo; commit it from Changes.</span><span class="grow"></span><button type="button" class="btn ghost sm" data-editcancel>Cancel</button><button type="button" class="btn primary sm" data-editsave>${icon("check", 13)}Save</button></div></div>` : "";
+    return `${top.replace('<span class="grow"></span>', `<span class="grow"></span>${f.rev === "worktree" ? `<button type="button" class="btn sm" data-editopen>${icon("pencil", 13)}Edit</button>` : ""}`)}${editor}<div class="dscroll fview"><table class="diff code"><tbody>${lines.map((l, i) => `<tr id="L${i + 1}"><td class="ln"><a href="#L${i + 1}" data-jump>${i + 1}</a></td><td class="dc">${highlight(l, lang, st)}</td></tr>`).join("")}</tbody></table></div>`;
   }
   if (q.op === "find" && d.find) return `${searchBox(d.find.q, d.find.mode)}<div id="sresults">${drawFind(base, d.find)}</div>`;
   if (q.op === "list" && d.list) {
@@ -388,7 +398,8 @@ function body(key: string, base: string, tab: string, q: CodeQuery, d: CodeData)
       ...l.dirs.map((x) => `<a class="frow" href="${base}&amp;code=files&amp;dir=${enc(l.dir ? `${l.dir}/${x}` : x)}" data-code>${icon("folder", 14)}<span>${esc(x)}</span></a>`),
       ...l.files.map((x) => `<a class="frow" href="${base}&amp;code=file&amp;path=${enc(l.dir ? `${l.dir}/${x}` : x)}" data-code>${icon("file", 14)}<span>${esc(x)}</span></a>`),
     ].join("");
-    return `${searchBox("", "files")}<div id="sresults"><div class="chead">${crumbs(base, l.dir)}</div>${rows ? `<div class="flist">${rows}</div>` : '<div class="empty"><div>Nothing here.</div></div>'}</div>`;
+    const newFile = `<button type="button" class="btn ghost sm" data-newfile="${esc(l.dir ? `${l.dir}/` : "")}">${icon("plus", 13)}New file</button>`;
+    return `${searchBox("", "files")}<div id="sresults"><div class="chead">${crumbs(base, l.dir)}<span class="grow"></span>${newFile}</div><div class="fedit fnew" data-edit="" hidden><input class="fnewpath" placeholder="path/in/the/repo.md" spellcheck="false"><textarea spellcheck="false" placeholder="Its text"></textarea><div class="feditbar"><span class="small muted">Created on its machine, in the repo.</span><span class="grow"></span><button type="button" class="btn ghost sm" data-editcancel>Cancel</button><button type="button" class="btn primary sm" data-editsave>${icon("check", 13)}Create</button></div></div>${rows ? `<div class="flist">${rows}</div>` : '<div class="empty"><div>Nothing here.</div></div>'}</div>`;
   }
   if (q.op === "commit" && d.commit) {
     const c = d.commit;
@@ -412,5 +423,6 @@ function body(key: string, base: string, tab: string, q: CodeQuery, d: CodeData)
   if (!files.length) return `<div class="empty">${icon("check", 26)}<div>No uncommitted changes.</div>${d.log[0] ? `<div class="small">Last commit: <a href="${base}&amp;code=commit&amp;sha=${enc(d.log[0].sha)}" data-code>${esc(d.log[0].subject ?? d.log[0].short)}</a>, ${ago(d.log[0].at)}</div>` : ""}</div>`;
   const add = files.reduce((s, f) => s + (f.add ?? 0), 0);
   const del = files.reduce((s, f) => s + (f.del ?? 0), 0);
-  return `<div class="chead small"><b>${plural(files.length, "file")} changed</b><span class="cnum"><span class="cadd">+${add}</span><span class="cdel">−${del}</span></span><span class="muted">· not committed</span></div>${fileList(files, true)}${d.truncated ? '<div class="small muted ctrunc">Long diff: only the first 512 KB is shown.</div>' : ""}${drawDiff(d.diff ?? "", (p) => `${base}&amp;code=file&amp;path=${enc(p)}`)}`;
+  const commitBar = `<form class="commitbar" data-commit>${files.map((f) => `<input type="hidden" name="path" value="${esc((f as { path: string }).path)}">`).join("")}<input name="message" placeholder="Commit message" required autocomplete="off"><label class="check small"><input type="checkbox" name="push" value="1"${d.upstream ? " checked" : ""}> Push</label><button class="btn primary sm">${icon("check", 13)}Commit ${plural(files.length, "file")}</button></form>`;
+  return `${commitBar}<div class="chead small"><b>${plural(files.length, "file")} changed</b><span class="cnum"><span class="cadd">+${add}</span><span class="cdel">−${del}</span></span><span class="muted">· not committed</span></div>${fileList(files, true)}${d.truncated ? '<div class="small muted ctrunc">Long diff: only the first 512 KB is shown.</div>' : ""}${drawDiff(d.diff ?? "", (p) => `${base}&amp;code=file&amp;path=${enc(p)}`)}`;
 }

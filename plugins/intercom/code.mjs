@@ -257,7 +257,8 @@ async function worktrees(roots) {
  * repo the agent works in now (`agentDir`, from its transcript), else the one it started in; `wt` picks another
  * worktree of those repos, and only one of them.
  */
-export async function codeRequest(dir, q, { agentDir } = {}) {
+export async function codeRequest(dir, q, { agentDir, editOn = true } = {}) {
+  if ((q?.op === "save" || q?.op === "gitcommit") && !editOn) throw new Error("Editing from the dashboard is turned off on that machine (INTERCOM_EDIT=0).");
   const start = await repoRoot(dir);
   let current = agentDir && fs.existsSync(agentDir) ? await repoRoot(agentDir) : null;
   // The agent's folder counts only as a worktree of the repo the session started in (when it started in one).
@@ -273,8 +274,53 @@ export async function codeRequest(dir, q, { agentDir } = {}) {
   return { ...(await answer(root, q)), ...where };
 }
 
+// ---- editing from the dashboard: a file written, chosen files committed (and pushed), for the session's owner ----
+
+const NEVER = /(^|\/)(\.git(\/|$)|\.env(\.|$)|\.npmrc$|\.netrc$|\.pgpass$|id_[a-z0-9]+$)|\.(pem|key|p12|pfx)$/i;
+async function save(root, p, text) {
+  const f = cleanPath(p);
+  if (!f) throw new Error("That isn't a path in the repo.");
+  if (NEVER.test(f)) throw new Error(`${f} is a file that isn't written from the dashboard (git's own files, secrets, keys).`);
+  if (typeof text !== "string" || text.length > FILE_MAX) throw new Error("The text is too long (up to 1 MB).");
+  const full = path.join(root, f);
+  const realRoot = fs.realpathSync(root);
+  // The folder it goes in must be inside the repo (created if it isn't there yet); the file itself, if it exists, too.
+  fs.mkdirSync(path.dirname(full), { recursive: true });
+  const dir = fs.realpathSync(path.dirname(full));
+  if (dir !== realRoot && !dir.startsWith(realRoot + path.sep)) throw new Error(`${f} is outside the repo.`);
+  if (fs.existsSync(full) && fs.lstatSync(full).isSymbolicLink()) throw new Error(`${f} is a symlink; edit what it points to.`);
+  fs.writeFileSync(full, text);
+  return { saved: f };
+}
+async function commitPaths(root, paths, message, push) {
+  const files = (Array.isArray(paths) ? paths : []).map(cleanPath).filter((f) => f && !NEVER.test(f));
+  if (!files.length) throw new Error("Nothing to commit.");
+  const msg = String(message ?? "").trim();
+  if (!msg) throw new Error("Write a commit message.");
+  await git(root, ["add", "--", ...files]);
+  await git(root, ["commit", "-q", "-m", msg, "--", ...files]);
+  const sha = (await git(root, ["rev-parse", "--short", "HEAD"])).trim();
+  let pushed = "";
+  if (push) {
+    try {
+      const up = await git(root, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"], { ok: [0, 128] });
+      await new Promise((resolve, reject) =>
+        execFile("git", ["-C", root, "push", ...(up.trim() ? [] : ["-u", "origin", "HEAD"])], { encoding: "utf8", timeout: 60_000 }, (err, _o, e) => (err ? reject(new Error(((l) => l.find((x) => /^(fatal|error):/.test(x)) ?? l.pop())(String(e || err.message).trim().split("\n")).replace(/^(fatal|error):\s*/, ""))) : resolve())),
+      );
+      pushed = "pushed";
+    } catch (e) {
+      pushed = `not pushed: ${e.message}`.slice(0, 300);
+    }
+  }
+  return { committed: { sha, files: files.length, pushed } };
+}
+
 async function answer(root, q) {
   switch (q?.op) {
+    case "save":
+      return { ...(await save(root, q.path, q.text)), ...(await overview(root, await head(root))) };
+    case "gitcommit":
+      return { ...(await commitPaths(root, q.paths, q.message, !!q.push)), ...(await overview(root, await head(root))) };
     case "changes":
       return await changes(root);
     case "commit":
