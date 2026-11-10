@@ -228,6 +228,7 @@ export class TeamHub extends DurableObject<WorkerEnv> {
       onMessage: (m) => this.fanout(m),
       live: () => this.liveSessions(),
       refreshWeb: (member: string) => this.refreshWeb(member),
+      dbSize: () => this.ctx.storage.sql.databaseSize,
       askFile: (member, sessionId, req, path) => this.askFile(member, sessionId, req, path),
       askCode: (member, sessionId, req, q) => this.toSession(member, sessionId, { type: "code-request", req, q }),
       askScreen: (member, sessionId, req, q) => this.toSession(member, sessionId, { type: "screen-request", req, q }),

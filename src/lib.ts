@@ -25,6 +25,8 @@ export interface Env {
   live?: () => Set<string>;
   /** Redraw a member's open dashboards; undefined outside the hub. */
   refreshWeb?: (member: string) => void;
+  /** The hub's database size in bytes (the Durable Object's SQLite), for the admin page. */
+  dbSize?: () => number;
   /** Ask a session's local server for a file on its machine (localfiles.ts); false when it isn't connected. */
   askFile?: (member: string, sessionId: string, req: string, path: string) => boolean;
   /** Ask a session's local server about its repo (code.ts); false when it isn't connected. */
@@ -625,6 +627,8 @@ export function workingOn(project: string | null, branch: string | null | undefi
 }
 
 export const RETENTION_DAYS = 90;
+/** Messages (and their delivery marks) go sooner than the records: there are far more of them. */
+export const MESSAGE_DAYS = 30;
 
 /**
  * Housekeeping, run daily by the hub's alarm. Messages older than the retention period are deleted;
@@ -634,7 +638,7 @@ export async function prune(env: Env, retentionDays = RETENTION_DAYS, now = Date
   const day = 86400_000;
   const run = async (q: string, ...p: unknown[]) => (await env.DB.prepare(q).bind(...p).run()).meta.changes;
   return {
-    messages: await run("DELETE FROM messages WHERE created_at < ?", now - retentionDays * day),
+    messages: await run("DELETE FROM messages WHERE created_at < ?", now - Math.min(retentionDays, MESSAGE_DAYS) * day),
     locks: await run("DELETE FROM locks WHERE expires_at < ?", now),
     invites: await run("DELETE FROM invites WHERE expires_at < ? OR uses_left <= 0", now - 7 * day),
     sessions: await run("DELETE FROM sessions WHERE last_seen < ?", now - 14 * day),
@@ -650,7 +654,7 @@ export async function prune(env: Env, retentionDays = RETENTION_DAYS, now = Date
     limits: await run("DELETE FROM rate_limits WHERE window_start < ?", now - 2 * day),
     webTokens: await run("DELETE FROM tokens WHERE kind = 'web' AND created_at < ?", now - 365 * day),
     activity: await run("DELETE FROM activity WHERE at < ?", now - 14 * day),
-    deliveries: await run("DELETE FROM deliveries WHERE at < ?", now - retentionDays * day),
+    deliveries: await run("DELETE FROM deliveries WHERE at < ?", now - Math.min(retentionDays, MESSAGE_DAYS) * day),
     // Away-mode questions are answered (or expire) within the hour; a request nobody answered within a month lapses.
     approvals: await run("DELETE FROM approvals WHERE created_at < ?", now - 14 * day),
     reviews: await run("DELETE FROM reviews WHERE created_at < ?", now - 30 * day),

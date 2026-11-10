@@ -226,7 +226,7 @@ export function landingPage(origin: string, opts: { github: boolean; open: boole
     <ul class="small" style="list-style:none;padding:0;margin:0;display:grid;gap:10px;color:var(--ink-2)">
       <li>${icon("shield", 15)} Projects are private; DMs only between co-members</li>
       <li>${icon("key", 15)} Only token hashes stored; tokens readable only by you</li>
-      <li>${icon("clock", 15)} Messages deleted after 90 days; decisions kept</li>
+      <li>${icon("clock", 15)} Messages deleted after 30 days; decisions kept 90</li>
       <li>${icon("sliders", 15)} Branch &amp; status sharing can be switched off</li>
     </ul>
   </div></section>

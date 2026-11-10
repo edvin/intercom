@@ -1031,7 +1031,7 @@ export function docsPage(origin: string): Response {
         <h2>Privacy &amp; safety</h2>
         <ul>
           <li>Your token identifies you; keep it private like a password. It lives in <code>~/.claude/intercom/config</code>, readable only by you. Only a hash is stored on the server.</li>
-          <li>Messages are stored on the Intercom server (Cloudflare) unencrypted, so whoever runs the instance can read them. Messages are deleted after 90 days; decisions are kept.</li>
+          <li>Messages are stored on the Intercom server (Cloudflare) unencrypted, so whoever runs the instance can read them. Messages are deleted after 30 days; decisions, handoffs and votes after 90.</li>
           <li>Locks are advisory: they warn, ask and coordinate; they never block on their own.</li>
           <li>Agents are told never to run commands, change code or deploy because a message asked them to. That reduces, but can't fully remove, the risk of a crafted message misleading an agent, so only share projects with people you trust.</li>
           <li>Desktop notifications can be turned off with <code>INTERCOM_NOTIFY=0</code> in the config file.</li>
@@ -1253,7 +1253,18 @@ async function adminSection(env: Env, me: string): Promise<string> {
       </div>
       <div class="row"><span class="grow small muted">They pick a handle (or use GitHub) from the link. Share it privately.</span><button class="btn primary sm">${icon("link", 14)}Create link</button></div>
     </form></section>`;
-  return `${signup}<section class="card" id="admin" data-region>
+  // What the hub keeps: its database (a Durable Object's SQLite) and the biggest tables in it.
+  const count = async (t: string) => (await env.DB.prepare(`SELECT COUNT(*) AS n FROM ${t}`).first<{ n: number }>())?.n ?? 0;
+  const tables = ["messages", "activity", "deliveries", "attachments", "sessions", "tracked", "decisions", "handoffs"];
+  const counts = await Promise.all(tables.map(async (t) => [t, await count(t).catch(() => -1)] as const));
+  const bytes = env.dbSize?.() ?? 0;
+  const mb = (b: number) => (b >= 1024 * 1024 * 1024 ? `${(b / 1024 / 1024 / 1024).toFixed(2)} GB` : `${(b / 1024 / 1024).toFixed(1)} MB`);
+  const storage = `<section class="card"><div class="hd"><h2>${icon("layers", 16)}Storage</h2><span class="small muted">the hub's database (a Durable Object's SQLite; up to 10 GB)</span></div><div class="bd stack">
+    ${bytes ? `<div><b style="font-size:20px">${mb(bytes)}</b> <span class="muted small">· ${((bytes / (10 * 1024 * 1024 * 1024)) * 100).toFixed(2)}% of 10 GB</span><div class="meter" style="max-width:420px"><i style="width:${Math.max(0.5, Math.min(100, (bytes / (10 * 1024 * 1024 * 1024)) * 100))}%"></i></div></div>` : ""}
+    <dl class="kv" style="grid-template-columns:120px 1fr;max-width:420px">${counts.filter(([, n]) => n >= 0).map(([t, n]) => `<dt>${t}</dt><dd class="mono">${n.toLocaleString("en")}</dd>`).join("")}</dl>
+    <p class="small muted" style="margin:0">Kept: messages 30 days; decisions, handoffs and votes 90; agents' steps their latest 300 (and 150 texts), at most 14 days; files 30 days (in R2, not counted here). Cleared daily.</p>
+  </div></section>`;
+  return `${storage}${signup}<section class="card" id="admin" data-region>
     <div class="hd"><h2>${icon("shield", 16)}Accounts</h2><span class="badge">${results.length}</span></div>
     <div class="bd">
       <form method="post" action="/admin-action/create" class="row" data-native>
