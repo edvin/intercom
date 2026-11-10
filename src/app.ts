@@ -13,6 +13,7 @@ import { type TicketOutcome, askTicket, decideTicket } from "./tickets";
 import { askCode, codeQuery, codeReply, drawCode } from "./code";
 import { parseJobs } from "./jobs";
 import { notesBrief, setNote } from "./notes";
+import { closeTerm, newTerm, termsPanel } from "./terminals";
 import { type Env, type Message, type Proposal, type Session, LIVE, MEMBER_OF, postMessage, RECEIVES, UserError, activeLocks, address, isMyLock, ago, addActivity, lockIn, scopedLocks, cleanBranch, cleanClient, fromOwnUser, fromOwnAgent, DELEGATED_NOTE, staleFor, renameSession, setHost, setVersion, workingOn, authenticate, coMembers, fmtLock, fmtMessage, myProjects, moveSession, projectFor, resolveProject, setCwd, setOrigin, setPresence, setRepo, signedIn, tally, touchSession, unread } from "./lib";
 import { type Tool, instructions, tools } from "./tools";
 import { CONNECTOR, authorize, connectorMember, preflight, register, resourceMetadata, serverMetadata, token, unauthorized } from "./connector";
@@ -950,7 +951,10 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
     if (post && !sameOrigin(req)) return new Response("Cross-origin request refused", { status: 403 });
     const form = post ? await req.formData() : null;
     const k = (form ? String(form.get("agent") ?? "") : url.searchParams.get("agent")) ?? "";
-    const [member, label] = k.split("/");
+    // "you/core@%12": a terminal on core's machine (terminals.ts), reached through core.
+    const [member, at = ""] = k.split("/");
+    const [label, termPane] = at.split("@");
+    const onPane = termPane && /^%\d+$/.test(termPane) ? { pane: termPane } : {};
     let body: string;
     try {
       if (member !== me || !label) throw new UserError("You can only see the screen of your own agents.");
@@ -960,8 +964,8 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
         body = drawScreen(r.data, r.how);
       } else {
         const q: ScreenQuery = form
-          ? { op: "keys", keys: form.getAll("key").map(String).filter((x) => x in KEY_NAMES), text: String(form.get("text") ?? "").replace(/[\r\n]+/g, " ").slice(0, 1000), enter: form.get("enter") === "1", history: 200 }
-          : { op: "capture", history: 200, ...(/^(\d{2,3}x\d{1,3}|off)$/.test(url.searchParams.get("fit") ?? "") ? { fit: url.searchParams.get("fit")! } : {}) };
+          ? { op: "keys", keys: form.getAll("key").map(String).filter((x) => x in KEY_NAMES), text: String(form.get("text") ?? "").replace(/[\r\n]+/g, " ").slice(0, 1000), enter: form.get("enter") === "1", history: 200, ...onPane }
+          : { op: "capture", history: 200, ...onPane, ...(/^(\d{2,3}x\d{1,3}|off)$/.test(url.searchParams.get("fit") ?? "") ? { fit: url.searchParams.get("fit")! } : {}) };
         if (q.op === "keys" && !q.keys?.length && !q.text) throw new UserError("Pick a key or type something.");
         // Fit to this screen needs the machine's intercom to know it; an older one shows its own size, and says why.
         const old = q.op === "capture" && q.fit && q.fit !== "off" && newer(FIT_SINCE, (await env.DB.prepare("SELECT version FROM sessions WHERE member = ? AND label = ? ORDER BY last_seen DESC LIMIT 1").bind(me, label).first<{ version: string | null }>())?.version ?? "0");
@@ -972,6 +976,33 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
       body = `<div class="screrr">${icon("monitor", 22)}<p>${esc(e.message)}</p></div>`;
     }
     return new Response(body, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "content-security-policy": "default-src 'none'; frame-ancestors 'none'" } });
+  }
+  if (url.pathname === "/terminals" && req.method === "GET") {
+    // A machine's terminals, as a panel for the Versions page (terminals.ts).
+    const body = await termsPanel(env, me, String(url.searchParams.get("host") ?? "").slice(0, 120), "/dashboard?view=fleet");
+    return new Response(body, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "content-security-policy": "default-src 'none'; frame-ancestors 'none'" } });
+  }
+  if ((url.pathname === "/terminals/new" || url.pathname === "/terminals/close") && req.method === "POST") {
+    if (!sameOrigin(req)) return new Response("Cross-origin request refused", { status: 403 });
+    const form = await req.formData();
+    const back = new URL(localPath(form.get("back"), "/dashboard?view=fleet"), url);
+    const host = String(form.get("host") ?? "").slice(0, 120);
+    const name = String(form.get("name") ?? "").trim().slice(0, 64);
+    try {
+      if (url.pathname === "/terminals/new") {
+        await newTerm(env, me, host, name, String(form.get("cwd") ?? "~").trim().slice(0, 500), String(form.get("run") ?? "shell"));
+        back.searchParams.set("ok", `Started ${name} on ${host}`);
+        back.searchParams.set("terms", host);
+      } else {
+        await closeTerm(env, me, host, name);
+        back.searchParams.set("ok", `Closed ${name} on ${host}`);
+        back.searchParams.set("terms", host);
+      }
+    } catch (e) {
+      if (!(e instanceof UserError)) throw e;
+      back.searchParams.set("err", e.message);
+    }
+    return redirect(back.pathname + back.search);
   }
   if (url.pathname === "/api/screen-reply" && req.method === "POST") {
     return json({ ok: screenReply(me, (await req.json().catch(() => ({}))) as Record<string, unknown>) });

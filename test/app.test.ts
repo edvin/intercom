@@ -2293,6 +2293,45 @@ describe("tree order", () => {
   });
 });
 
+describe("terminals", () => {
+  test("a machine's tmux sessions are listed, opened in the screen window, started and closed from the dashboard; agents' own panes can't be closed", async () => {
+    const w = await standardWorld();
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=t1&name=core&host=ultra&version=0.12.45", { as: "bob" });
+    await w.db.prepare("UPDATE sessions SET screen = 'keys', pane = '%3' WHERE session_id = 't1'").run();
+    const terms = [
+      { session: "core", window: 0, pane: "%3", cmd: "claude", cwd: "~/work/billing-api", attached: true, size: "160x45", created: 1, active: true },
+      { session: "term-1", window: 0, pane: "%7", cmd: "zsh", cwd: "~", attached: false, size: "160x45", created: 2, active: true },
+    ];
+    const page = async () => (await answeringAll(w, () => w.request("/terminals?host=ultra", { as: "bob", cookie: true }).then((r) => r.text()), { text: "", cols: 0, rows: 0, cursor: null, keys: true, terms })).result;
+    const { result: html, asks } = await answeringAll(w, () => w.request("/terminals?host=ultra", { as: "bob", cookie: true }).then((r) => r.text()), { text: "", cols: 0, rows: 0, cursor: null, keys: true, terms });
+    assert.deepEqual(asks, [{ op: "tmux" }]);
+    assert.match(html, /<b>core<\/b> <span class="badge accent">agent core<\/span>/);
+    assert.match(html, /data-screen="bob\/core@%7"[^>]*data-screenname="term-1"/);
+    assert.doesNotMatch(html, /name="name" value="core"/); // no Close for the agent's own pane
+    assert.match(html, /name="name" value="term-1">/);
+    assert.match(html, /name="name" value="term-2" pattern/); // the next free name
+    // Opening one reads that pane, through core.
+    const shown = await answeringAll(w, () => w.request("/agent-screen?agent=bob%2Fcore%40%257", { as: "bob", cookie: true }).then((r) => r.text()), { text: "$ ls\n", cols: 80, rows: 24, cursor: null, keys: true });
+    assert.equal(shown.asks[0]!.pane, "%7");
+    // Starting and closing are noted in core's activity.
+    const made = await answeringAll(w, () => w.form("/terminals/new", "bob", { host: "ultra", name: "term-2", cwd: "~/work", run: "claude", back: "/dashboard?view=fleet" }), { text: "", cols: 0, rows: 0, cursor: null, keys: true, made: { pane: "%9" } });
+    assert.deepEqual(made.asks[0], { op: "tmux-new", name: "term-2", cwd: "~/work", run: "claude" });
+    await answeringAll(w, () => w.form("/terminals/close", "bob", { host: "ultra", name: "term-1", back: "/dashboard?view=fleet" }), { text: "", cols: 0, rows: 0, cursor: null, keys: true, made: { closed: "term-1" } });
+    const acts = (await w.db.prepare("SELECT text FROM activity WHERE session_id = 't1' ORDER BY id").all<{ text: string }>()).results.map((r) => r.text).join("\n");
+    assert.match(acts, /started a terminal on ultra from the dashboard: term-2 \(claude in ~\/work\)[\s\S]*closed the terminal term-1 on ultra/);
+    // A machine whose intercom says no: its reason is shown.
+    const off = await (async () => {
+      const go = w.request("/terminals?host=ultra", { as: "bob", cookie: true }).then((r) => r.text());
+      while (!w.screenAsked.length || w.screenAsked[w.screenAsked.length - 1]!.q.op !== "tmux") await new Promise((r) => setTimeout(r, 5));
+      const ask = w.screenAsked[w.screenAsked.length - 1]!;
+      await w.request("/api/screen-reply", { as: ask.member, method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ req: ask.req, error: "Terminals are off on that machine." }) });
+      return go;
+    })();
+    assert.match(off, /class="termsoff"[\s\S]*Terminals are off on that machine/);
+    void page;
+  });
+});
+
 describe("handover notes", () => {
   test("an agent leaves notes for its name; the next session with the name gets them, others see the name is free, and taking it over hands them on", async () => {
     const w = await standardWorld();

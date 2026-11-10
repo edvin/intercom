@@ -20,7 +20,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const VERSION = "0.12.44"; // kept in step with .claude-plugin/plugin.json (a test checks)
+const VERSION = "0.12.45"; // kept in step with .claude-plugin/plugin.json (a test checks)
 const DIR = path.join(os.homedir(), ".claude", "intercom");
 const CONFIG = path.join(DIR, "config");
 function readConf() {
@@ -318,13 +318,14 @@ async function answerCodeRequest(f) {
 let PANE = null;
 const screenOn = () => setting("INTERCOM_SCREEN") !== "0";
 const keysOn = () => screenOn() && setting("INTERCOM_KEYS") !== "0";
+const termsOn = () => screenOn() && setting("INTERCOM_TERMINALS") === "1";
 
 async function answerScreenRequest(f) {
   let body;
   try {
     if (!screenOn()) throw new Error("Seeing the screen is turned off on that machine (INTERCOM_SCREEN=0 in its intercom config).");
     const { screenRequest } = await import("./code.mjs");
-    body = { data: await screenRequest(f.q ?? {}, { pane: PANE, keysOn: keysOn() }) };
+    body = { data: await screenRequest(f.q ?? {}, { pane: PANE, keysOn: keysOn(), termsOn: termsOn() }) };
   } catch (e) {
     body = { error: String(e.message ?? e).slice(0, 300) };
   }
@@ -379,6 +380,7 @@ const SETTINGS = {
   share_branch: { key: "INTERCOM_SHARE_BRANCH", on: "1", off: "0", def: true, what: "share this machine's git branch with project members", live: false },
   auto_status: { key: "INTERCOM_AUTO_STATUS", on: "1", off: "0", def: true, what: "let agents set their own status notes", live: false },
   screen: { key: "INTERCOM_SCREEN", on: "1", off: "0", def: true, what: "let you see this machine's agents' terminals (tmux panes) from your dashboard and Claude.ai; only you, never teammates or other agents", live: false },
+  terminals: { key: "INTERCOM_TERMINALS", on: "1", off: "0", def: false, what: "let you list, open, start and close tmux terminals on this machine from your dashboard (a shell, Claude Code or Codex in a folder); only you", live: true },
   keys: { key: "INTERCOM_KEYS", on: "1", off: "0", def: true, what: "let you send keys (Enter, Esc, Ctrl+C, a typed line) to this machine's agents' terminals from your dashboard and Claude.ai; only you", live: false },
 };
 

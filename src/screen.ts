@@ -50,7 +50,19 @@ export const KEY_NAMES: Record<string, string> = {
 };
 
 const WAIT_MS = 12_000;
-type Reply = { data: ScreenData & { panes?: AgentPane[] } } | { error: string };
+export interface Term {
+  session: string;
+  window: number;
+  pane: string;
+  cmd: string;
+  cwd: string;
+  attached: boolean;
+  size: string;
+  created: number;
+  active: boolean;
+}
+type Extra = { panes?: AgentPane[]; terms?: Term[]; made?: { pane: string; closed: string } };
+type Reply = { data: ScreenData & Extra } | { error: string };
 const waiting = new Map<string, { member: string; done: (r: Reply) => void }>();
 
 interface Target {
@@ -94,9 +106,9 @@ export async function askSession(
   env: Env,
   me: string,
   via: { session_id: string; label: string },
-  q: ScreenQuery | { op: "panes" },
+  q: ScreenQuery | { op: "panes" } | { op: "tmux" } | { op: "tmux-new"; name: string; cwd: string; run: string } | { op: "tmux-kill"; name: string },
   note: { label: string; by: string; target?: string },
-): Promise<ScreenData & { panes?: AgentPane[] }> {
+): Promise<ScreenData & Extra> {
   if (!env.askScreen) throw new UserError("The screen isn't available here.");
   const req = crypto.randomUUID();
   const reply = new Promise<Reply>((resolve) => {
@@ -137,7 +149,23 @@ export function screenReply(me: string, body: { req?: unknown; data?: unknown; e
           version: String(p.version ?? "").slice(0, 20),
         }))
       : undefined;
-    w.done({ data: { text: d.text.slice(0, 400_000), cols: Number(d.cols) || 0, rows: Number(d.rows) || 0, cursor: Array.isArray(d.cursor) ? [Number(d.cursor[0]), Number(d.cursor[1])] : null, keys: !!d.keys, ...(panes ? { panes } : {}) } });
+    // Terminals (terminals.ts): the machine's tmux panes, or the one just started.
+    const dt = d as { terms?: unknown; made?: unknown };
+    const terms = Array.isArray(dt.terms)
+      ? (dt.terms as Record<string, unknown>[]).slice(0, 200).map((t) => ({
+          session: String(t.session ?? "").slice(0, 64),
+          window: Number(t.window) || 0,
+          pane: typeof t.pane === "string" && /^%\d+$/.test(t.pane) ? t.pane : "",
+          cmd: String(t.cmd ?? "").slice(0, 60),
+          cwd: String(t.cwd ?? "").slice(0, 300),
+          attached: !!t.attached,
+          size: String(t.size ?? "").slice(0, 12),
+          created: Number(t.created) || 0,
+          active: !!t.active,
+        }))
+      : undefined;
+    const made = dt.made && typeof dt.made === "object" ? { pane: String((dt.made as { pane?: unknown }).pane ?? "").slice(0, 12), closed: String((dt.made as { closed?: unknown }).closed ?? "").slice(0, 64) } : undefined;
+    w.done({ data: { text: d.text.slice(0, 400_000), cols: Number(d.cols) || 0, rows: Number(d.rows) || 0, cursor: Array.isArray(d.cursor) ? [Number(d.cursor[0]), Number(d.cursor[1])] : null, keys: !!d.keys, ...(panes ? { panes } : {}), ...(terms ? { terms } : {}), ...(made ? { made } : {}) } });;
   } else w.done({ error: "The agent sent an empty answer." });
   return true;
 }

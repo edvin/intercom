@@ -345,7 +345,49 @@ export async function findPane(env = process.env, ppid = process.ppid) {
  * capture: the pane as it looks now (colours as ANSI), and `history` lines above it. keys: send named keys and/or a
  * line of text (typed literally, then Enter if asked), then capture what it looks like after.
  */
-export async function screenRequest(q, { pane, keysOn = true } = {}) {
+// Terminals on this machine (only with INTERCOM_TERMINALS=1): its tmux sessions listed, a new one started (a shell,
+// Claude Code or Codex, in a folder), or one closed. Seeing and typing into one goes through the pane ops below.
+const TERM_RUN = { shell: null, claude: "claude", codex: "codex" };
+async function terminalOp(q) {
+  if (q.op === "tmux") {
+    const r = await tmux(["list-panes", "-a", "-F", "#{session_name}\t#{window_index}\t#{pane_id}\t#{pane_current_command}\t#{pane_current_path}\t#{session_attached}\t#{pane_width}x#{pane_height}\t#{session_created}\t#{pane_active}\t#{window_active}"]);
+    if (r.err && /no server running|error connecting/i.test(r.err)) return [];
+    if (r.err) throw new Error(`tmux: ${r.err}`);
+    return r.out.trim().split("\n").filter(Boolean).slice(0, 200).map((l) => {
+      const [session, win, pane, cmd, cwd, attached, size, created, active, winActive] = l.split("\t");
+      return { session, window: Number(win), pane, cmd, cwd: cwd.replace(os.homedir(), "~"), attached: attached !== "0", size, created: Number(created) * 1000, active: active === "1" && winActive === "1" };
+    });
+  }
+  if (q.op === "tmux-new") {
+    const name = String(q.name ?? "").trim();
+    if (!/^[A-Za-z0-9_-]{1,32}$/.test(name)) throw new Error("A name of letters, digits, - and _ (up to 32).");
+    const run = String(q.run ?? "shell");
+    if (!(run in TERM_RUN)) throw new Error("Start a shell, claude or codex.");
+    const dir = path.resolve(String(q.cwd || "~").replace(/^~(?=$|\/)/, os.homedir()));
+    if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) throw new Error(`${dir} isn't a folder on this machine.`);
+    const args = ["new-session", "-d", "-P", "-F", "#{pane_id}", "-s", name, "-c", dir, "-x", "160", "-y", "45"];
+    if (TERM_RUN[run]) args.push(TERM_RUN[run]);
+    const r = await tmux(args);
+    if (r.err) throw new Error(`tmux: ${r.err}`);
+    return { pane: r.out.trim() };
+  }
+  if (q.op === "tmux-kill") {
+    const name = String(q.name ?? "");
+    if (!/^[A-Za-z0-9_.:-]{1,64}$/.test(name)) throw new Error("Not a tmux session name.");
+    const r = await tmux(["kill-session", "-t", `=${name}`]);
+    if (r.err) throw new Error(`tmux: ${r.err}`);
+    return { closed: name };
+  }
+  return null;
+}
+
+export async function screenRequest(q, { pane, keysOn = true, termsOn = false } = {}) {
+  if (q.op === "tmux" || q.op === "tmux-new" || q.op === "tmux-kill") {
+    if (!termsOn) throw new Error("Terminals are off on that machine. To use them from your dashboard, set INTERCOM_TERMINALS=1 in ~/.claude/intercom/config there (or ask an agent on it to turn the terminals setting on).");
+    if (q.op !== "tmux" && !keysOn) throw new Error("Sending keys is turned off on that machine (INTERCOM_KEYS=0), so terminals can't be started or closed from here.");
+    const r = await terminalOp(q);
+    return { text: "", cols: 0, rows: 0, cursor: null, keys: keysOn, terms: Array.isArray(r) ? r : undefined, made: r && !Array.isArray(r) ? r : undefined };
+  }
   // Another agent's pane on this machine (one whose own intercom can't take keys, or that exited): its owner asks
   // through this one. Only a pane id; tmux refuses anything that isn't a pane of this machine's tmux.
   if (q.pane !== undefined) {

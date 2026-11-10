@@ -1451,6 +1451,32 @@ tr.dh td{background:var(--diff-hunk)}
 .inote{width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:9px;background:var(--surface);font-size:12.5px;line-height:1.55;color:var(--ink-2);max-height:220px;overflow:auto}
 .inotes[open]>summary{display:none}.inotes form{margin:0 2px}.inotes textarea{width:100%;min-height:150px;font-size:12.5px}
 
+/* Terminals on a machine (Versions page). */
+.terms{margin-top:10px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+.terms>summary{display:flex;align-items:center;gap:8px;padding:10px 14px;cursor:pointer;list-style:none;font-size:13px}.terms>summary::-webkit-details-marker{display:none}
+.terms>summary .muted{margin-left:4px}.terms[open]>summary{border-bottom:1px solid var(--line)}
+.termsbody{padding:10px 12px 12px}
+.termlist{display:flex;flex-direction:column;gap:2px}
+.termrow{display:flex;align-items:center;gap:10px;padding:7px 6px;border-radius:9px}.termrow:hover{background:var(--hover)}
+.termrow form{margin:0}.termrow .small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.termic{display:grid;place-items:center;width:28px;height:28px;flex:none;border-radius:8px;background:var(--surface-2);color:var(--ink-2)}.termic.ag{background:var(--accent-soft);color:var(--accent)}
+.termnew{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px solid var(--line)}
+.termnew input,.termnew select{height:30px;font-size:12.5px}.termnew input[name=name]{width:120px}.termnew input[name=cwd]{min-width:160px;font-family:"Geist Mono",ui-monospace,monospace}.termnew select{width:auto}
+.termsoff{display:flex;gap:10px;align-items:flex-start;color:var(--ink-2);font-size:13px}.termsoff p{margin:0}.termsoff .i{margin-top:2px;color:var(--mute)}
+
+/* Phones: the rail's buttons big enough to hit, its counts tucked in; no floating "waiting" pill (a dot on the menu
+   button says something waits, the bell in the menu opens it, and a toast tells what's new). */
+.hasasks{position:relative}.hasasks::after{content:"";position:absolute;top:5px;right:5px;width:8px;height:8px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 2px var(--surface)}
+.chd .mtree.hasasks::after,.top .treebtn.hasasks::after{box-shadow:0 0 0 2px var(--bg)}
+@media (max-width:900px){
+  .irail{width:64px;gap:6px;padding-left:0;padding-right:0}
+  .rl{width:48px;height:44px;border-radius:11px}.rl .i{width:20px;height:20px}
+  .rpill{top:2px;right:2px;min-width:15px;height:15px;font-size:9.5px;line-height:15px;padding:0 3px}
+  .tree{left:64px;width:min(300px,calc(100vw - 80px))}
+  .asks.min{display:none!important}
+  body:has(#asks.min:not([hidden])) .chatmode .thread{padding-bottom:12px}
+}
+
 `;
 
 // Client behaviour: relative times, day separators, copy buttons, dialogs, toasts, progressive form submits
@@ -1789,6 +1815,14 @@ export const SCRIPT = `
     if (e.key === "j" || e.key === "k") { e.preventDefault(); go(cur + (e.key === "j" ? 1 : -1)); }
     else if (e.key === "Escape" && document.querySelector("section.chat.inspon")) { e.preventDefault(); inspSet(false); }
   });
+  // A machine's terminals (Versions page): asked for when you open the panel, again after you start or close one.
+  async function loadTerms(d) {
+    const body = d.querySelector(".termsbody");
+    try { const r = await fetch("/terminals?host=" + encodeURIComponent(d.dataset.terms), { credentials: "same-origin" }); body.innerHTML = await r.text(); } catch { body.innerHTML = '<p class="small muted">Couldn’t reach it.</p>'; }
+    bindScreen();
+  }
+  document.addEventListener("toggle", (e) => { const d = e.target; if (d.matches && d.matches("details.terms") && d.open) loadTerms(d); }, true);
+  function termsOpen() { const h = new URL(location.href).searchParams.get("terms"); if (!h) return; const d = $$("details.terms").find((x) => x.dataset.terms === h); if (d && !d.open) d.open = true; }
   // A step you opened (its exact command) stays open when the chat redraws.
   const openSteps = new Set();
   document.addEventListener("toggle", (e) => { const d = e.target; if (d.matches && d.matches("details.step")) { if (d.open) openSteps.add(d.dataset.mid); else openSteps.delete(d.dataset.mid); } }, true);
@@ -1975,6 +2009,7 @@ export const SCRIPT = `
     // The rail's bell carries the count; the dock itself stays out of the way until you open it.
     const bell = document.getElementById("railasks");
     if (bell) { bell.hidden = !ids.length; const p = bell.querySelector(".rpill"); if (p) p.textContent = ids.length > 99 ? "99+" : String(ids.length); }
+    $$("[data-treetoggle]").forEach((b) => b.classList.toggle("hasasks", ids.length > 0));
     if (!ids.length) { asksOpened = false; return; }
     // Something new: a small toast says who asks what, with a button to open it. It never covers what you're doing.
     let seen = []; try { seen = JSON.parse(sessionStorage.getItem("ic_asks_seen") || "[]"); } catch {}
@@ -2223,6 +2258,7 @@ export const SCRIPT = `
     longFolds();
     reopenSteps();
     unread();
+    termsOpen();
     dayLines();
     msgActions();
     stepImages();

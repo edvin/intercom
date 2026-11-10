@@ -67,7 +67,8 @@ export async function fleetView(env: Env, me: string): Promise<string> {
             ? `<p class="flnote warn">${icon("flag", 12)}No agent here can update the others yet. Update one that runs in tmux by hand (<code>/intercom:update</code>, then <code>/reload-plugins</code> in it); after that the rest can be updated from here.</p>`
             : `<p class="flnote warn">${icon("flag", 12)}None of these run in tmux, so they're updated by hand: <code>/intercom:update</code> once on this machine, then <code>/reload-plugins</code> in each. Started in tmux, they can be updated (and seen) from here.</p>`;
       return `<section class="flhost"><h2 class="flh">${icon("monitor", 15)}${esc(host)}<span class="badge">${list.length}</span></h2>${note}
-        <div class="flscroll"><table class="fltable"><thead><tr><th>Agent</th><th>Kind</th><th>Intercom</th><th>State</th><th>Terminal</th><th>Updates</th><th></th></tr></thead><tbody>${list.map((r) => row(r, host)).join("")}</tbody></table></div></section>`;
+        <div class="flscroll"><table class="fltable"><thead><tr><th>Agent</th><th>Kind</th><th>Intercom</th><th>State</th><th>Terminal</th><th>Updates</th><th></th></tr></thead><tbody>${list.map((r) => row(r, host)).join("")}</tbody></table></div>
+        ${host !== "unknown machine" ? `<details class="terms" data-terms="${esc(host)}"><summary>${icon("terminal", 14)}<b>Terminals</b><span class="small muted">tmux sessions on ${esc(host)}: open, start or close them</span></summary><div class="termsbody"><p class="small muted">Asking ${esc(host)}…</p></div></details>` : ""}</section>`;
     })
     .join("");
 
