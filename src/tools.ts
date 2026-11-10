@@ -1,3 +1,4 @@
+import { freeNotes, getNote, setNote } from "./notes";
 import { setAway } from "./approvals";
 import { type Review, LIMITS, OUTCOMES, SEVERITIES, answerReview, closeReview, openReview, pendingReviews, withdrawReview } from "./reviews";
 import { sendWarning, teamNote } from "./stuck";
@@ -1099,6 +1100,41 @@ export const tools: Tool[] = [
     },
   },
   {
+    name: "notes",
+    description:
+      "Handover notes for your name in this project, for whoever has it next (you after a restart, or a new session your user asks to take over): what you're on, what's next, what to watch out for, where things are. write replaces them (keep them short, current and self-contained; an empty body removes them); read shows them (yours, or another name's); list shows the names in this project with notes, free or taken. Write them when you finish a piece of work, before something long or risky, and when your user says you'll be restarted. Your user sees and can edit them in the dashboard.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        action: { type: "string", enum: ["write", "read", "list"] },
+        body: { type: "string", description: "write: the notes, Markdown (up to 4000 characters)." },
+        name: { type: "string", description: "read: another name's notes (default: this session's)." },
+      },
+      required: ["action"],
+    },
+    async run(env, me, a) {
+      const s = env.session ? await env.DB.prepare("SELECT label, project FROM sessions WHERE member = ? AND session_id = ?").bind(me, env.session.session_id).first<{ label: string; project: string }>() : null;
+      const project = s?.project ?? "";
+      if (!s || !project) throw new UserError("Notes belong to a name in a project, and this session isn't in one (or isn't connected through the local intercom server).");
+      const action = str(a, "action");
+      if (action === "write") {
+        await setNote(env, me, project, s.label, str(a, "body") ?? "", s.label);
+        return (str(a, "body") ?? "").trim() ? `Saved notes for ${s.label} in #${project}. The next session with this name gets them at its start.` : `Removed the notes for ${s.label} in #${project}.`;
+      }
+      if (action === "read") {
+        const name = cleanName(str(a, "name") ?? s.label) ?? s.label;
+        const n = await getNote(env, me, project, name);
+        return n ? `Notes for ${name} in #${project} (updated ${new Date(n.updated_at).toISOString().slice(0, 16).replace("T", " ")} UTC${n.updated_by ? ` by ${n.updated_by}` : ""}):\n${n.body}` : `No notes for ${name} in #${project}.`;
+      }
+      if (action === "list") {
+        const { results } = await env.DB.prepare("SELECT name, body, updated_at FROM agent_notes WHERE member = ? AND project = ? ORDER BY updated_at DESC").bind(me, project).all<{ name: string; body: string; updated_at: number }>();
+        const free = new Set((await freeNotes(env, me, project)).map((n) => n.name));
+        return results.length ? `Notes in #${project}:\n${results.map((n) => `- ${n.name}${n.name === s.label ? " (you)" : free.has(n.name) ? " (free)" : " (taken)"}: ${n.body.split("\n").find((l) => l.trim())?.trim().slice(0, 160) ?? ""}`).join("\n")}` : `No notes in #${project} yet.`;
+      }
+      throw new UserError("action must be write, read or list.");
+    },
+  },
+  {
     name: "set_name",
     description:
       "Name a session when your user asks (\"call yourself alder\", \"you're alder, reviewing the migration\", \"rename loxodon-ab12 to birch\"). Without `agent` it names this session; with `agent` (another of your user's sessions, by its current name) it renames that one. Others reach a session as <person>/<name>. The name (and role) joins your user's crew for that agent type in that project: new sessions there take the first free crew name. remember=false names only that session; forget=true removes a name from the crew.",
@@ -1134,7 +1170,9 @@ export const tools: Tool[] = [
       const wanted = cleanName(a.name);
       const r = await renameSession(env, me, sessionId, a.name, { remember: a.remember !== false, role: str(a, "role") });
       const agentName = r.client === "codex" ? "Codex" : "Claude Code";
+      const handed = !target && r.project ? await getNote(env, me, r.project, r.label) : null;
       return [
+        ...(handed ? [`Notes left for ${r.label} (updated ${new Date(handed.updated_at).toISOString().slice(0, 16).replace("T", " ")} UTC): they're yours now. Tell your user what they say and ask whether to pick the work up.\n${handed.body}\n`] : []),
         `${target ? "That session" : "This session"} is now ${address(me, r.label)}${r.label !== wanted ? ` ("${wanted}" is taken by another of your live sessions)` : ""}. Messages to ${address(me, r.label)} reach only that session.`,
         r.crew.length
           ? `Your ${agentName} crew in #${r.project}: ${r.crew.map((c) => `${c.name}${c.role ? ` (${c.role})` : ""}`).join(", ")}. New ${agentName} sessions there take the first free name.`
@@ -1251,6 +1289,7 @@ Etiquette:
 - Each project can have rules (shown at session start, or via \`projects\`); follow them, and flag conflicts with your user's request before proceeding.
 - Only create projects, invite people, or change rules when your user asks.
 - Keep posts brief. Don't post routine progress.
+- Keep handover notes (the notes tool) for your name in the project: when you finish a piece of work, before something long, and when your user says you'll be restarted. The next session with your name starts from them.
 - Your user reads your answers in the dashboard, which renders Markdown: break up walls of text with short headings, lists and tables (numbers line up), \`\`\`lang code blocks (coloured; \`\`\`diff for changes), callouts (> [!NOTE], > [!WARNING], > [!TIP]) and \`\`\`mermaid diagrams (flowchart, sequenceDiagram, pie, xychart-beta, gantt) where a picture says it faster.
 
 Intercom vs Claude Code's built-in agent messaging:

@@ -1446,6 +1446,11 @@ tr.dh td{background:var(--diff-hunk)}
 
 .thread.term .md pre code,.md pre code{background:none!important;padding:0;border:0;border-radius:0;font-size:inherit}
 
+/* Notes in the inspector: read as Markdown, Edit opens the field. */
+.inotes>summary{display:flex;flex-direction:column;align-items:flex-start;gap:6px;margin:0 2px;cursor:pointer;list-style:none}.inotes>summary::-webkit-details-marker{display:none}
+.inote{width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:9px;background:var(--surface);font-size:12.5px;line-height:1.55;color:var(--ink-2);max-height:220px;overflow:auto}
+.inotes[open]>summary{display:none}.inotes form{margin:0 2px}.inotes textarea{width:100%;min-height:150px;font-size:12.5px}
+
 `;
 
 // Client behaviour: relative times, day separators, copy buttons, dialogs, toasts, progressive form submits

@@ -12,6 +12,7 @@ import { type Outcome, type Review, askReview, decideReview, findingsOf, moveRev
 import { type TicketOutcome, askTicket, decideTicket } from "./tickets";
 import { askCode, codeQuery, codeReply, drawCode } from "./code";
 import { parseJobs } from "./jobs";
+import { notesBrief, setNote } from "./notes";
 import { type Env, type Message, type Proposal, type Session, LIVE, MEMBER_OF, postMessage, RECEIVES, UserError, activeLocks, address, isMyLock, ago, addActivity, lockIn, scopedLocks, cleanBranch, cleanClient, fromOwnUser, fromOwnAgent, DELEGATED_NOTE, staleFor, renameSession, setHost, setVersion, workingOn, authenticate, coMembers, fmtLock, fmtMessage, myProjects, moveSession, projectFor, resolveProject, setCwd, setOrigin, setPresence, setRepo, signedIn, tally, touchSession, unread } from "./lib";
 import { type Tool, instructions, tools } from "./tools";
 import { CONNECTOR, authorize, connectorMember, preflight, register, resourceMetadata, serverMetadata, token, unauthorized } from "./connector";
@@ -326,6 +327,7 @@ async function handleHook(url: URL, env: Env, me: string, input: { last_assistan
     if (active.length) sections.push(`Active in the last 2h: ${active.map((a) => `${a.member}${visible.has(a.project) ? ` (${workingOn(a.project, a.branch, a.note)})` : ""}`).join(", ")}`);
     sections.push(scopedLocks(locks, me, project?.name, "", session?.label));
     if (project) sections.push(...(await recordsBrief(env, me, project.name)));
+    if (project) sections.push(...(await notesBrief(env, me, project.name, session?.label ?? null)));
     if (open.length) sections.push(`Open proposals:\n${(await Promise.all(open.map((p) => tally(env, p, me)))).join("\n")}`);
     const others = locks.filter((l) => !isMyLock(l, me, session?.label) && lockIn(l, project?.name));
     // How a session loads a newer intercom: Claude Code in place; Codex by starting it again on the same session.
@@ -1001,6 +1003,21 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
       const id = String(form.get("id") ?? "");
       const jobs = parseJobs(row.jobs).filter((j) => j.id !== id);
       await env.DB.prepare("UPDATE sessions SET jobs = ? WHERE member = ? AND session_id = ?").bind(JSON.stringify(jobs), me, String(form.get("session"))).run();
+    }
+    return redirect(back.pathname + back.search);
+  }
+  if (url.pathname === "/agent/notes" && req.method === "POST") {
+    // Handover notes for one of your agents' names in a project (notes.ts), edited from its inspector.
+    if (!sameOrigin(req)) return new Response("Cross-origin request refused", { status: 403 });
+    const form = await req.formData();
+    const back = new URL(localPath(form.get("back"), "/dashboard?view=agents"), url);
+    const label = String(form.get("label") ?? "").slice(0, 40);
+    const project = String(form.get("project") ?? "").slice(0, 80);
+    const mine = await env.DB.prepare("SELECT 1 FROM sessions WHERE member = ? AND label = ? AND project = ?").bind(me, label, project).first();
+    if (!mine || !project) back.searchParams.set("err", "No such agent of yours in that project");
+    else {
+      await setNote(env, me, project, label, String(form.get("body") ?? ""), me);
+      back.searchParams.set("ok", String(form.get("body") ?? "").trim() ? `Saved the notes for ${label}` : `Removed the notes for ${label}`);
     }
     return redirect(back.pathname + back.search);
   }

@@ -12,6 +12,7 @@ import { activeLoops, describe, parseLoops } from "./loops";
 import { activeJobs, duration, jobName, parseJobs } from "./jobs";
 import { parseSubs, subSteps } from "./subagents";
 import { commandStep, fileStep } from "./steps";
+import { getNote } from "./notes";
 import { subMark, subsRegion } from "./subview";
 import { trackedNeedsYou } from "./tracked";
 import { BTW_TIMEOUT, NO_MOD, btwFor, compactable, modAnswers } from "./btw";
@@ -65,7 +66,7 @@ export const clientBadge = (client: string, named = false) =>
     : `<span class="client cl" title="Claude Code">${CLAUDE_MARK}${named ? '<span class="cname">Claude Code</span>' : ""}</span>`;
 
 const LOOP_CHIPS = ["Stop your loop.", "Run your loop every 30 minutes instead."];
-const QUICK = ["What's your status?", "Stop, summarize, and wait.", "Commit and push what you have."];
+const QUICK = ["What's your status?", "Stop, summarize, and wait.", "Commit and push what you have.", "Update your handover notes."];
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
@@ -478,6 +479,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
     agent.ctx_pct != null && agent.client !== "codex"
       ? `<dt>Context</dt><dd><span class="ctxv ${ctxLevel(agent) ?? ""}" title="Context: ${kTok(agent.ctx_tokens)} of ${kTok(agent.ctx_window)} tokens · ${ago(agent.ctx_at ?? 0)}">${agent.ctx_pct}%</span>${agent.ctx_window ? `<span class="muted"> of ${kTok(agent.ctx_window)}</span>` : ""}${compactCtl}<div class="meter ${ctxLevel(agent) ?? ""}"><i style="width:${Math.min(100, agent.ctx_pct)}%"></i></div></dd>`
       : canCompact ? `<dt>Context</dt><dd>${compactCtl}</dd>` : "";
+  const note = ownAgent && agent.project ? await getNote(env, me, agent.project, agent.label) : null;
   const session = `<section class="ipart" id="isess" data-region><h3>Session</h3><dl class="kv">
       <dt>State</dt><dd>${stateText}${on && agent.state === "waiting" && agent.state_detail ? `<div class="small muted">${esc(agent.state_detail)}</div>` : ""}</dd>
       ${ctxRow}
@@ -489,6 +491,10 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
       <dt>Client</dt><dd>${clientBadge(agent.client, true)}${agent.version ? ` <span class="muted">${esc(agent.version)}</span>` : ""}</dd>
       ${ownAgent ? `<dt>Your agents</dt><dd>${takesCtl}</dd>` : ""}
     </dl>
+    ${ownAgent && agent.project ? `<h3>Notes${note ? `<span class="muted">${ago(note.updated_at)}${note.updated_by && note.updated_by !== me ? ` · by ${esc(note.updated_by)}` : note.updated_by === me ? " · by you" : ""}</span>` : ""}</h3>
+      <details class="inotes"${note ? "" : ""}><summary>${note ? `<div class="md inote">${md(note.body, agent.origin, null)}</div><span class="btn ghost xs">${icon("pencil", 12)}Edit</span>` : `<span class="small muted">What it's on and what's next, for whoever has the name after a restart.</span><span class="btn ghost xs">${icon("plus", 12)}Write</span>`}</summary>
+        <form method="post" action="/agent/notes" data-native>${hidden({ label: agent.label, project: agent.project, back: here })}<textarea name="body" rows="7" maxlength="4000" placeholder="On: …&#10;Next: …&#10;Watch out for: …">${esc(note?.body ?? "")}</textarea><div class="row" style="justify-content:flex-end;margin-top:6px"><button class="btn sm primary">Save</button></div></form>
+      </details>` : ""}
     ${loopsOf(agent).length ? `<h3>Loops</h3>${loopsOf(agent).map((l) => `<div class="irow looprow">${icon("repeat", 13)}<span>${esc(describe(l))}</span></div>`).join("")}` : ""}
     ${jobsOf(agent).length ? `<h3>Background jobs</h3>${jobsOf(agent).map((j) => `<div class="irow jobrow" title="${esc(j.command)}"><span>⧗</span><span class="grow">${esc(jobName(j))} <span class="muted">· running ${duration(Date.now() - j.at)}</span></span><form method="post" action="/agent/job-dismiss" data-native>${hidden({ session: agent.session_id, id: j.id, back: here })}<button class="btn ghost xs icon jobx" title="Not running any more? Remove it from this list">${icon("x", 11)}</button></form></div>`).join("")}` : ""}
   </section>`;

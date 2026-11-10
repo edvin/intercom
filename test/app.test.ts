@@ -2293,6 +2293,28 @@ describe("tree order", () => {
   });
 });
 
+describe("handover notes", () => {
+  test("an agent leaves notes for its name; the next session with the name gets them, others see the name is free, and taking it over hands them on", async () => {
+    const w = await standardWorld();
+    const start = (sid: string, name = "") =>
+      w.request(`/api/hook?event=SessionStart&project=billing-api&session=${sid}${name ? `&name=${name}` : ""}`, { as: "bob" }).then((r) => r.text());
+    await start("n1", "core");
+    assert.match(await w.ok("bob", "notes", { action: "write", body: "On: retry backoff.\nNext: deploy to staging after the 2.14 migration." }, { id: "n1", project: "billing-api" }), /Saved notes for core in #billing/);
+    // core's session goes away; a new session that takes the name hears the notes in full.
+    await w.db.prepare("UPDATE sessions SET last_seen = ? WHERE session_id = 'n1'").bind(Date.now() - 3600_000).run();
+    assert.match(await start("n2", "core"), /Notes left for \\"core\\" in #billing[\s\S]*Next: deploy to staging/);
+    // Another new session hears that a name with notes is free, and how to take it.
+    await w.db.prepare("UPDATE sessions SET last_seen = ? WHERE session_id = 'n2'").bind(Date.now() - 3600_000).run();
+    const other = await start("n3", "fresh");
+    assert.match(other, /Free names in #billing with notes[\s\S]*- core \(last active [^)]*\): On: retry backoff\.[\s\S]*call set_name/);
+    assert.match(await w.ok("bob", "set_name", { name: "core" }, { id: "n3", project: "billing-api" }), /Notes left for core[\s\S]*Next: deploy to staging/);
+    // The dashboard shows them on the agent, and they can be edited there (or removed).
+    assert.match(await (await w.request("/dashboard?view=agents&agent=bob/core", { as: "bob", cookie: true })).text(), /<div class="md inote"><p>On: retry backoff\.<br>Next: deploy to staging/);
+    await w.form("/agent/notes", "bob", { label: "core", project: "billing", body: "", back: "/dashboard?view=agents" });
+    assert.match(await w.ok("bob", "notes", { action: "read" }, { id: "n3", project: "billing-api" }), /No notes for core in #billing/);
+  });
+});
+
 describe("working directory", () => {
   test("the hooks report where a session works; only its owner sees it", async () => {
     const w = await standardWorld();
