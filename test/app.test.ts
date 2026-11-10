@@ -1550,7 +1550,6 @@ describe("loops", () => {
     assert.match(page, /<\/svg><span>loop every 20m: \/babysit-prs/);
     assert.match(page, /<\/svg><span>self-paced loop, next in 20m: check the deploy/);
     assert.match(page, /data-k="bob\/[^"]+"[^>]*title="[^"]*running a loop/); // marked in the tree
-    assert.match(page, /data-chip="Stop your loop\."/);
     assert.equal((page.match(/Started self-paced loop<\/b><span class="lpq">check the deploy/g) ?? []).length, 1); // re-arming isn't news
     assert.doesNotMatch(await view("alice"), /babysit-prs/); // only the owner
 
@@ -1559,7 +1558,6 @@ describe("loops", () => {
     assert.doesNotMatch(page, /<\/svg>loop every 20m/);
     assert.match(page, /Stopped loop every 20m<\/b><span class="lpq">\/babysit-prs/);
     assert.match(page, /Stopped self-paced loop<\/b>/);
-    assert.doesNotMatch(page, /data-chip="Stop your loop\."/);
   });
 
   test("describing schedules, and a self-paced loop that stopped re-arming expires", async () => {
@@ -2329,6 +2327,26 @@ describe("terminals", () => {
     })();
     assert.match(off, /class="termsoff"[\s\S]*Terminals are off on that machine/);
     void page;
+  });
+});
+
+describe("starting and watching agents", () => {
+  test("a new agent starts in a tmux terminal under its name with its first message; the bell sends a notification when its turn ends", async () => {
+    const w = await standardWorld();
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=v1&name=core&host=ultra&version=0.12.46", { as: "bob" });
+    await w.db.prepare("UPDATE sessions SET screen = 'keys', pane = '%3' WHERE session_id = 'v1'").run();
+    assert.match(await (await w.request("/dashboard?view=agents&agent=bob/core", { as: "bob", cookie: true })).text(), /<form method="post" action="\/agents\/new"[\s\S]*<option value="ultra">/);
+    const made = await answeringAll(w, () => w.form("/agents/new", "bob", { host: "ultra", name: "birch", run: "codex", cwd: "~/work/billing-api", prompt: "Pick up core's notes." }), { text: "", cols: 0, rows: 0, cursor: null, keys: true, made: { pane: "%9" } });
+    assert.deepEqual(made.asks[0], { op: "tmux-new", name: "birch", cwd: "~/work/billing-api", run: "codex", prompt: "Pick up core's notes." });
+    assert.match(made.result.headers.get("location")!, /agent=bob%2Fbirch&starting=1/);
+    // A name a connected agent has is refused before anything starts.
+    const taken = await w.form("/agents/new", "bob", { host: "ultra", name: "core", run: "claude", cwd: "~" });
+    assert.match(decodeURIComponent(taken.headers.get("location")!), /core is already a connected agent of yours/);
+    // The bell: on, then the turn ends (Stop) and the watch is used up.
+    await w.form("/agent/watch", "bob", { label: "core", on: "1" });
+    assert.match(await (await w.request("/dashboard?view=agents&agent=bob/core", { as: "bob", cookie: true })).text(), /class="btn ghost sm icon cbtn watchbtn on" data-watch="core"/);
+    await w.request("/api/hook?event=Stop&project=billing-api&session=v1", { as: "bob", method: "POST", body: JSON.stringify({ last_assistant_message: "All done." }) });
+    assert.equal((await w.db.prepare("SELECT COUNT(*) AS n FROM agent_watch").first<{ n: number }>())!.n, 0);
   });
 });
 

@@ -7,12 +7,15 @@ import { screenAttrs } from "./screen";
 import { awayState, pendingApprovals } from "./approvals";
 import { pendingReviews } from "./reviews";
 import { pendingTickets } from "./tickets";
+import { chatAsks } from "./asks";
 import { AUTO_UPDATE_SINCE, PLUGIN_VERSION, outdated } from "./version";
 import { activeLoops, describe, parseLoops } from "./loops";
 import { activeJobs, duration, jobName, parseJobs } from "./jobs";
 import { parseSubs, subSteps } from "./subagents";
 import { commandStep, fileStep } from "./steps";
 import { getNote } from "./notes";
+import { NEW_AGENT_SINCE } from "./terminals";
+import { newer } from "./upkeep";
 import { subMark, subsRegion } from "./subview";
 import { trackedNeedsYou } from "./tracked";
 import { BTW_TIMEOUT, NO_MOD, btwFor, compactable, modAnswers } from "./btw";
@@ -65,8 +68,6 @@ export const clientBadge = (client: string, named = false) =>
     ? `<span class="client cx" title="OpenAI Codex">${CODEX_MARK}${named ? '<span class="cname">Codex</span>' : ""}</span>`
     : `<span class="client cl" title="Claude Code">${CLAUDE_MARK}${named ? '<span class="cname">Claude Code</span>' : ""}</span>`;
 
-const LOOP_CHIPS = ["Stop your loop.", "Run your loop every 30 minutes instead."];
-const QUICK = ["What's your status?", "Stop, summarize, and wait.", "Commit and push what you have.", "Update your handover notes."];
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
@@ -231,6 +232,22 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   const waitingN = pending.length + (await stuckSessions(env, me)).length;
   const stale = agents.filter((a) => a.member === me && isOn(a) && outdated(a.version));
   const trackedN = await trackedNeedsYou(env, me);
+  // Starting a new agent (terminals.ts): on a machine where one of your agents runs in tmux with a new enough intercom.
+  const ableHosts = [...new Set(agents.filter((a) => a.member === me && isOn(a) && a.screen === "keys" && a.host && a.version && !newer(NEW_AGENT_SINCE, a.version)).map((a) => a.host))];
+  const folders = [...new Set(agents.filter((a) => a.member === me && a.cwd).map((a) => a.cwd))].slice(0, 30);
+  const newAgentDialog = `<dialog id="dlg-newagent"><div class="hd">${icon("plus", 18)}<h2>New agent</h2></div>
+    ${ableHosts.length
+      ? `<form method="post" action="/agents/new" data-native><div class="bd stack">
+        <div class="row" style="flex-wrap:nowrap"><label class="field grow">Name<input name="name" required pattern="[A-Za-z][A-Za-z0-9\-]{0,23}" placeholder="e.g. birch" autocomplete="off"></label>
+          <label class="field">Kind<select name="run"><option value="claude">Claude Code</option><option value="codex">Codex</option></select></label></div>
+        <div class="row" style="flex-wrap:nowrap"><label class="field">Machine<select name="host">${ableHosts.map((h) => `<option value="${esc(h)}">${esc(nick.get(h) ?? h)}</option>`).join("")}</select></label>
+          <label class="field grow">Folder<input name="cwd" required list="dl-folders" value="${esc(folders[0] ?? "~")}" style="font-family:'Geist Mono',ui-monospace,monospace;font-size:13px"></label></div>
+        <datalist id="dl-folders">${folders.map((f) => `<option value="${esc(f)}">`).join("")}</datalist>
+        <label class="field">First message <span class="tiny">(optional: what it should do)</span><textarea name="prompt" rows="4" maxlength="4000" placeholder="e.g. Pick up the retry work from core's notes and get it to staging."></textarea></label>
+        <p class="tiny muted" style="margin:0">It starts in a tmux terminal of that name on the machine, takes the name on the intercom (and any notes left for it), and shows up here in a few seconds.</p>
+      </div><div class="ft"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary">${icon("plus", 14)}Start it</button></div></form>`
+      : `<div class="bd"><p class="small" style="margin:0">Agents are started through one of yours that runs in tmux on that machine, with intercom ${NEW_AGENT_SINCE} or newer and terminals turned on there (<code>INTERCOM_TERMINALS=1</code> in <code>~/.claude/intercom/config</code>). None qualifies right now.</p></div><div class="ft"><button type="button" class="btn" data-close>OK</button></div>`}
+  </dialog>`;
   // The rail: every page as an icon (what needs you as a count on it), then search, away, docs and your account.
   // The tree beside it: projects with their agents, wide enough for their names.
   const rl = (on: boolean, href: string, ic: string, title: string, pill = "", extra = "") =>
@@ -254,10 +271,11 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
     <a class="rl rme${nav.view === "account" ? " on" : ""}" href="/dashboard?view=account" title="${esc(me)}: account and notifications" aria-label="Account">${avatar(me, "s")}</a>
   </nav>`;
   const tree = `${rail}<aside class="tree" id="tree" data-region>
-    <div class="thead"><b>Agents</b><span class="live" id="live" title="Updates arrive live while this is green"><span class="dot"></span>Connecting</span><span class="grow"></span><button type="button" class="btn ghost xs icon" data-open="dlg-create" title="New project">${icon("plus", 14)}</button><button type="button" class="btn ghost xs icon" data-treetoggle title="Hide the list (⌘B)" aria-label="Hide the list">${icon("sidebar", 14)}</button></div>
+    <div class="thead"><b>Agents</b><span class="live" id="live" title="Updates arrive live while this is green"><span class="dot"></span>Connecting</span><span class="grow"></span><button type="button" class="btn ghost xs newag" data-open="dlg-newagent" title="Start a new agent on one of your machines">${icon("plus", 13)}Agent</button><button type="button" class="btn ghost xs icon" data-open="dlg-create" title="New project">${icon("hash", 13)}</button></div>
     <button type="button" class="tsearch" data-kopen>${icon("search", 13)}<span>Find agent or page</span><span class="kbd kbd-k">⌘K</span></button>
     <div class="tbody">${projectNodes || '<p class="tempty">No projects yet.</p>'}${loose.length ? branch("~none", "No project", null, loose, "", false) : ""}</div>
   </aside>
+  ${newAgentDialog}
   <dialog id="dlg-away"><div class="hd"><span style="font-size:18px">${away ? "🌙" : "🖥"}</span><h2>${away ? "Away mode is on" : "Going away?"}</h2></div>
     <form method="post" action="/away" data-native><div class="bd stack">
       <p class="small muted" style="margin:0">${away ? `What your agents ask (permissions, questions, plans) and you don't answer within ${waitMin} min is denied, so they move on.` : "What your agents ask (permissions, questions, plans) shows here as well as in their terminal, and waits for you. In away mode, what you don't answer in time is denied, so agents keep moving."}</p>
@@ -480,6 +498,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
       ? `<dt>Context</dt><dd><span class="ctxv ${ctxLevel(agent) ?? ""}" title="Context: ${kTok(agent.ctx_tokens)} of ${kTok(agent.ctx_window)} tokens · ${ago(agent.ctx_at ?? 0)}">${agent.ctx_pct}%</span>${agent.ctx_window ? `<span class="muted"> of ${kTok(agent.ctx_window)}</span>` : ""}${compactCtl}<div class="meter ${ctxLevel(agent) ?? ""}"><i style="width:${Math.min(100, agent.ctx_pct)}%"></i></div></dd>`
       : canCompact ? `<dt>Context</dt><dd>${compactCtl}</dd>` : "";
   const note = ownAgent && agent.project ? await getNote(env, me, agent.project, agent.label) : null;
+  const watching = ownAgent && !!(await env.DB.prepare("SELECT 1 FROM agent_watch WHERE member = ? AND label = ?").bind(me, agent.label).first());
   const session = `<section class="ipart" id="isess" data-region><h3>Session</h3><dl class="kv">
       <dt>State</dt><dd>${stateText}${on && agent.state === "waiting" && agent.state_detail ? `<div class="small muted">${esc(agent.state_detail)}</div>` : ""}</dd>
       ${ctxRow}
@@ -506,7 +525,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
       ${ownAgent ? `<hr><button type="button" class="mi" data-open="dlg-rename">${icon("pencil", 15)}<span>Rename…</span></button><button type="button" class="mi" data-open="dlg-project">${icon("hash", 15)}<span>Change project…</span></button>${canCompact && !agent.compact_req && !agent.compact_prep ? `<button type="button" class="mi" data-open="dlg-compact">${icon("layers", 15)}<span>Compact…</span></button>` : ""}` : ""}
     </div>`;
   const chat = `<section class="chat${codeOn ? " codemode" : ""}${inspOpen ? " inspon" : ""}">
-      <header class="chd" id="chathd" data-region data-subs="${runningN}" data-agent="${esc(key(agent))}">
+      <header class="chd" id="chathd" data-region data-subs="${runningN}" data-agent="${esc(key(agent))}" data-state="${on ? esc(agent.state ?? "") : "off"}">
         <button type="button" class="btn ghost icon sm mtree" data-treetoggle title="Agents">${icon("sidebar", 17)}</button>
         <a class="btn ghost icon sm trailback" data-trailback hidden title="Back">${icon("back", 17)}</a>
         <span class="presence ${on ? "on" : ""}">${agentAvatar(agent.member, agent.label, "s")}</span>
@@ -516,6 +535,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
           ${seg}
           ${subs.length ? `<button type="button" class="btn ghost sm cbtn subsbtn${runningN ? " live" : ""}" data-insp title="Subagents: ${runningN} running">${icon("users", 15)}${runningN ? `<span class="cnt">${runningN}</span>` : ""}</button>` : ""}
           ${canScreen ? `<button type="button" class="btn ghost sm icon cbtn scrbtn" ${screenAttrs(key(agent), agent.label, agent.screen ?? "", agent.client ?? "")} title="See its terminal and send it keys">${icon("terminal", 15)}</button>` : ""}
+          ${ownAgent ? `<button type="button" class="btn ghost sm icon cbtn watchbtn${watching ? " on" : ""}" data-watch="${esc(agent.label)}" title="${watching ? "You'll get a notification when its turn ends (click to cancel)" : "Tell me when it's done: a notification when its current turn ends"}">${icon("bell", 15)}</button>` : ""}
           <button type="button" class="btn ghost sm icon cbtn inspbtn" data-insp title="Details: subagents, context, machine, folder">${icon("sidebar", 15)}</button>
           <button type="button" class="btn ghost sm icon cbtn" data-hdmore aria-expanded="false" title="More: text size, what to show, rename, project">${icon("dots", 16)}</button>
           ${menu}
@@ -524,15 +544,16 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
       ${on && agent.state === "waiting" && !pending.some((p) => p.session_id === agent.session_id) ? `<div class="cbanner"><i></i><span><b>${esc(agent.label)} is waiting${agent.state_at ? ` (asked ${ago(agent.state_at)})` : ""}:</b> ${esc(agent.state_detail || "for approval or input")}. Only its terminal can answer this.${canScreen ? "" : " Already answered? Claude Code doesn't say when, so this stays until the step has run."}</span>${canScreen ? `<button type="button" class="btn sm" ${screenAttrs(key(agent), agent.label, agent.screen ?? "", agent.client ?? "")}>${icon("terminal", 14)}Open its screen</button>` : ""}</div>` : ""}
       <div class="cbody"><div class="cmain">
       ${codeOn ? codePane : `<div class="thread term${/(?:^|;\s*)ic_activity=off/.test(cookie) ? " noact" : ""}${/(?:^|;\s*)ic_relay=off/.test(cookie) ? " norelay" : ""}" id="thread" data-region>${thread || `<div class="empty" style="margin:auto">${icon("message", 28)}<div>No messages with ${esc(agent.label)} yet.</div><div class="small">${ownAgent ? "Ask a question or give it a new direction; it treats what you write here like a prompt you typed." : "Your message reaches this session; its owner's agent treats it as information from you."}</div></div>`}</div>
+${ownAgent && !codeOn ? await chatAsks(env, me, agent.session_id, here) : ""}
 ${(() => {
         // While it works: its latest step and how long it has been at it, live, above the composer.
         if (!on || agent.state !== "working" || codeOn) return `<div class="nowline" id="nowline" data-region hidden></div>`;
         const last = acts.find((x) => x.kind !== "prompt");
         const what = !last ? "Thinking" : last.kind === "cmd" ? commandStep(plainSpaces(last.text)).title : last.kind === "read" || last.kind === "edit" ? fileStep(last.kind, plainSpaces(last.text)).title : last.kind === "text" ? esc(plainSpaces(last.text).split("\n")[0]!.slice(0, 120)) : esc(plainSpaces(last.text).slice(0, 120));
         const since = last && last.at > (agent.state_at ?? 0) ? last.at : (agent.state_at ?? Date.now());
-        return `<div class="nowline" id="nowline" data-region><span class="nowdot"></span><span class="nowtx">${what}</span><span class="nowt" data-elapsed="${since}"></span><span class="nowall" title="Working for">${agent.state_at ? `<span data-elapsed="${agent.state_at}"></span> in all` : ""}</span></div>`;
+        return `<div class="nowline" id="nowline" data-region><span class="nowdot"></span><span class="nowtx">${what}</span><span class="nowt" data-elapsed="${since}"></span><span class="nowall" title="Working for">${agent.state_at ? `<span data-elapsed="${agent.state_at}"></span> in all` : ""}</span>${canScreen && agent.screen === "keys" ? `<button type="button" class="btn ghost xs nowstop" data-stopnow="${esc(key(agent))}" title="Interrupt it (Esc in its terminal)">${icon("square", 11)}Stop</button>` : ""}</div>`;
       })()}
-      <form method="post" action="/action/post" class="chatbox" id="chatform" data-region data-quiet data-images data-agent="${esc(key(agent))}" data-label="${esc(agent.label)}">${hidden({ back, to: key(agent), channel: agent.project || "", session: agent.session_id, mode: "", thread: "", edit: "" })}
+      <form method="post" action="/action/post" class="chatbox" id="chatform" data-region data-quiet data-images data-agent="${esc(key(agent))}" data-label="${esc(agent.label)}" data-client="${agent.client === "codex" ? "codex" : "claude"}"${canScreen && agent.screen === "keys" ? ' data-keys="1"' : ""}>${hidden({ back, to: key(agent), channel: agent.project || "", session: agent.session_id, mode: "", thread: "", edit: "" })}
         <div class="imgtray" hidden></div>
         <div class="row" style="align-items:flex-end;flex-wrap:nowrap">
           <button type="button" class="btn ghost icon" style="height:48px" data-imgbtn title="Attach files or images (or paste / drop them here)">${icon("paperclip", 16)}</button><input type="file" multiple hidden data-imgpick>
@@ -542,7 +563,7 @@ ${(() => {
         </div>
         <div class="editbar tiny" hidden>${icon("pencil", 12)}<span>Editing your message: no agent gets it until you send it.</span><a href="#" data-editsend>Send it unchanged</a> · <a href="#" data-editcancel>Cancel it</a></div>
         <div class="btwbar tiny muted" hidden>Side question for ${esc(agent.label)}: answered from its current context, not added to it. Follow-ups continue the thread · <a href="#" data-btwnew>start a new side thread</a></div>
-        <div class="chips">${[...QUICK, ...(loopsOf(agent).length ? LOOP_CHIPS : [])].map((q) => `<button type="button" class="chip" data-chip="${esc(q)}">${esc(q)}</button>`).join("")}${on ? "" : '<span class="tiny muted" style="align-self:center">· not connected: the next session with this name gets it</span>'}</div>
+        ${on ? "" : '<div class="tiny muted chatoff">Not connected: the next session with this name gets it.</div>'}
       </form>`}
       </div>
       <aside class="insp" id="insp" aria-label="Details">

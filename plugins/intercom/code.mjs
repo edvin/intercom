@@ -366,7 +366,11 @@ async function terminalOp(q) {
     const dir = path.resolve(String(q.cwd || "~").replace(/^~(?=$|\/)/, os.homedir()));
     if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) throw new Error(`${dir} isn't a folder on this machine.`);
     const args = ["new-session", "-d", "-P", "-F", "#{pane_id}", "-s", name, "-c", dir, "-x", "160", "-y", "45"];
-    if (TERM_RUN[run]) args.push(TERM_RUN[run]);
+    // An agent takes the terminal's name as its intercom name, and starts on the first message, if one was given.
+    if (TERM_RUN[run]) {
+      const prompt = typeof q.prompt === "string" ? q.prompt.trim().slice(0, 4000) : "";
+      args.push("-e", `INTERCOM_NAME=${name}`, TERM_RUN[run], ...(prompt ? [prompt] : []));
+    }
     const r = await tmux(args);
     if (r.err) throw new Error(`tmux: ${r.err}`);
     return { pane: r.out.trim() };

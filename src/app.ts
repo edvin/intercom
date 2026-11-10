@@ -25,7 +25,8 @@ import { getSetting, githubRepo, openSignup, setSetting } from "./github";
 import { landingPage } from "./landing";
 import { BUILD, esc, icon, redirect } from "./ui";
 import { accountPage, dashboard, soloCard, exportProject, localPath, sameOrigin, handleAction, handleAdminAction, handleJoin, handleLogin, handleLogout, loginPage } from "./web";
-import { phoneReport, publicKey, sendTest, subscribe, unsubscribe } from "./push";
+import { phoneReport, publicKey, sendNote, sendTest, subscribe, unsubscribe } from "./push";
+import { plainSpaces } from "./markdown";
 
 const SUPPORTED_PROTOCOLS = ["2025-11-25", "2025-06-18", "2025-03-26"];
 const SERVER_INFO = { name: "intercom", version: "0.1.0" };
@@ -279,6 +280,15 @@ async function handleHook(url: URL, env: Env, me: string, input: { last_assistan
     // A Codex turn that failed on a usage limit ends with this hook too, around when its local server reports the limit.
     const cur = session ? await env.DB.prepare("SELECT state, state_detail, state_at FROM sessions WHERE member = ? AND session_id = ?").bind(me, session.session_id).first<{ state: string; state_detail: string; state_at: number | null }>() : null;
     if (!(cur && outOfUsage(cur) && Date.now() - (cur.state_at ?? 0) < 60_000)) await setState("idle");
+    // "Tell me when it's done": its turn ended, so a notification goes to your devices (once).
+    if (session) {
+      const w = await env.DB.prepare("DELETE FROM agent_watch WHERE member = ? AND label = ? RETURNING label").bind(me, session.label).first<{ label: string }>();
+      if (w) {
+        const said = typeof input.last_assistant_message === "string" ? plainSpaces(input.last_assistant_message).replace(/[#*`>_]/g, "").trim() : "";
+        await sendNote(env, me, { title: `${session.label} is done`, body: said ? (said.length > 180 ? `${said.slice(0, 179)}…` : said) : "It finished its turn.", tag: `done-${session.label}`, url: `/dashboard?view=agents&agent=${encodeURIComponent(`${me}/${session.label}`)}`, count: 0, ttl: 3600 });
+        env.refreshWeb?.(me);
+      }
+    }
     return new Response("", { status: 200 });
   }
   if (event === "UserPromptSubmit" || event === "SessionStart") await setState(event === "SessionStart" ? "idle" : "working");
@@ -1036,6 +1046,31 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
       await env.DB.prepare("UPDATE sessions SET jobs = ? WHERE member = ? AND session_id = ?").bind(JSON.stringify(jobs), me, String(form.get("session"))).run();
     }
     return redirect(back.pathname + back.search);
+  }
+  if (url.pathname === "/agent/watch" && req.method === "POST") {
+    // The bell in an agent's header: a notification when its current turn ends.
+    if (!sameOrigin(req)) return new Response("Cross-origin request refused", { status: 403 });
+    const form = await req.formData();
+    const label = String(form.get("label") ?? "").slice(0, 40);
+    if (form.get("on") === "1") await env.DB.prepare("INSERT OR REPLACE INTO agent_watch (member, label, created_at) VALUES (?, ?, ?)").bind(me, label, Date.now()).run();
+    else await env.DB.prepare("DELETE FROM agent_watch WHERE member = ? AND label = ?").bind(me, label).run();
+    return json({ ok: true });
+  }
+  if (url.pathname === "/agents/new" && req.method === "POST") {
+    // A new agent, started from the dashboard in a tmux terminal on one of your machines (terminals.ts).
+    if (!sameOrigin(req)) return new Response("Cross-origin request refused", { status: 403 });
+    const form = await req.formData();
+    const host = String(form.get("host") ?? "").slice(0, 120);
+    const name = String(form.get("name") ?? "").trim().slice(0, 32);
+    const run = form.get("run") === "codex" ? "codex" : "claude";
+    try {
+      if (!/^[A-Za-z][A-Za-z0-9-]{0,23}$/.test(name)) throw new UserError("A name of letters, digits and -, starting with a letter (up to 24).");
+      await newTerm(env, me, host, name, String(form.get("cwd") ?? "~").trim().slice(0, 500), run, String(form.get("prompt") ?? "").slice(0, 4000));
+      return redirect(`/dashboard?view=agents&agent=${encodeURIComponent(`${me}/${name}`)}&starting=1`);
+    } catch (e) {
+      if (!(e instanceof UserError)) throw e;
+      return redirect(`/dashboard?view=agents&err=${encodeURIComponent(e.message)}`);
+    }
   }
   if (url.pathname === "/agent/notes" && req.method === "POST") {
     // Handover notes for one of your agents' names in a project (notes.ts), edited from its inspector.

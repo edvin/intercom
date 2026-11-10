@@ -106,7 +106,7 @@ export async function askSession(
   env: Env,
   me: string,
   via: { session_id: string; label: string },
-  q: ScreenQuery | { op: "panes" } | { op: "tmux" } | { op: "tmux-new"; name: string; cwd: string; run: string } | { op: "tmux-kill"; name: string },
+  q: ScreenQuery | { op: "panes" } | { op: "tmux" } | { op: "tmux-new"; name: string; cwd: string; run: string; prompt?: string } | { op: "tmux-kill"; name: string },
   note: { label: string; by: string; target?: string },
 ): Promise<ScreenData & Extra> {
   if (!env.askScreen) throw new UserError("The screen isn't available here.");

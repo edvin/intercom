@@ -1477,6 +1477,20 @@ tr.dh td{background:var(--diff-hunk)}
   body:has(#asks.min:not([hidden])) .chatmode .thread{padding-bottom:12px}
 }
 
+/* Slash commands above the composer; the bell; Stop on the live line; a new agent button; asks in the chat. */
+.slashmenu{display:flex;flex-direction:column;margin:0 auto 6px;padding:4px;border:1px solid var(--line-strong);border-radius:12px;background:var(--surface);box-shadow:var(--shadow-lg);max-height:280px;overflow:auto}
+.slashmenu button{display:flex;align-items:baseline;gap:10px;width:100%;padding:6px 10px;border:0;border-radius:7px;background:none;color:var(--ink-2);font:inherit;font-size:13px;text-align:left;cursor:pointer}
+.slashmenu button b{font:600 12.5px "Geist Mono",ui-monospace,monospace;color:var(--ink);min-width:120px}.slashmenu button.on,.slashmenu button:hover{background:var(--sel)}
+.slashft{padding:4px 10px 2px;font-size:11px;color:var(--mute)}
+.watchbtn.on{color:var(--accent)!important;background:var(--accent-soft)}
+.nowstop{flex:none;height:24px;gap:4px;color:var(--ink-2)}.nowstop:hover{color:var(--red);background:var(--red-soft)}
+.newag{gap:4px;padding:0 7px;color:var(--ink-2)!important;font-size:12px}
+.chatasks{flex:none;width:calc(100% - 56px);max-width:860px;margin:6px auto;display:flex;flex-direction:column;gap:8px}.chatasks[hidden]{display:none}
+.chatasks .ask{border:1px solid color-mix(in srgb,var(--amber) 40%,var(--line));border-radius:12px;background:var(--surface);box-shadow:var(--shadow-lg)}
+@media (max-width:900px){.chatasks{width:calc(100% - 16px)}}
+
+.chatoff{max-width:860px;margin:6px auto 0;padding:0 4px}
+
 `;
 
 // Client behaviour: relative times, day separators, copy buttons, dialogs, toasts, progressive form submits
@@ -1823,6 +1837,77 @@ export const SCRIPT = `
   }
   document.addEventListener("toggle", (e) => { const d = e.target; if (d.matches && d.matches("details.terms") && d.open) loadTerms(d); }, true);
   function termsOpen() { const h = new URL(location.href).searchParams.get("terms"); if (!h) return; const d = $$("details.terms").find((x) => x.dataset.terms === h); if (d && !d.open) d.open = true; }
+  // The bell in an agent's header: a notification when its turn ends (and a toast here, if this page is open).
+  const stateWas = {};
+  document.addEventListener("click", async (e) => {
+    const b = e.target.closest && e.target.closest("[data-watch]"); if (!b) return;
+    const on = !b.classList.contains("on");
+    const f = new FormData(); f.set("label", b.dataset.watch); f.set("on", on ? "1" : "0");
+    try { await fetch("/agent/watch", { method: "POST", body: f, credentials: "same-origin" }); } catch { return; }
+    b.classList.toggle("on", on);
+    icToast(on ? "You'll get a notification when " + b.dataset.watch + " is done" : "No notification for " + b.dataset.watch);
+  });
+  function watchDone() {
+    const h = document.getElementById("chathd"); if (!h) return;
+    const k = h.dataset.agent, st = h.dataset.state, was = stateWas[k];
+    stateWas[k] = st;
+    if (was === "working" && st !== "working" && h.querySelector(".watchbtn")) { h.querySelector(".watchbtn").classList.remove("on"); icToast(k.split("/")[1] + " is done"); }
+  }
+  // Stop on the line that says what it's doing: Esc into its terminal.
+  document.addEventListener("click", async (e) => {
+    const b = e.target.closest && e.target.closest("[data-stopnow]"); if (!b) return;
+    const f = new FormData(); f.set("agent", b.dataset.stopnow); f.set("stop", "1");
+    b.disabled = true;
+    try { const r = await fetch("/agent-keys", { method: "POST", body: f, credentials: "same-origin" }); const t = await r.text(); icToast(/screrr/.test(t) ? (new DOMParser().parseFromString(t, "text/html").querySelector("p")?.textContent || "Couldn't stop it") : "Sent Esc: it stops what it's doing", /screrr/.test(t)); } catch {}
+    b.disabled = false;
+  });
+  // Slash commands: "/" in an agent's message field lists its commands; one sent goes into its terminal as typed.
+  const SLASH = {
+    claude: [["/compact", "Summarize the conversation to free context"], ["/clear", "Start over with an empty context"], ["/context", "How full its context is"], ["/model", "Pick the model"], ["/cost", "What this session has cost"], ["/loop", "Run a prompt on a loop"], ["/reload-plugins", "Load new plugin versions"], ["/status", "Its version, model and account"], ["/agents", "Its subagents"], ["/mcp", "Its MCP servers"]],
+    codex: [["/compact", "Summarize the conversation to free context"], ["/new", "Start a new conversation"], ["/model", "Pick the model and effort"], ["/status", "Its settings and token use"], ["/diff", "Its uncommitted changes"], ["/review", "Review its changes"], ["/mcp", "Its MCP servers"]],
+  };
+  let slashMenu = null, slashAt = 0;
+  function slashShow(t) {
+    const form = t.form; if (!form || !form.dataset.keys) return slashHide();
+    const m = /^\\/([\\w:-]*)$/.exec(t.value); if (!m) return slashHide();
+    const list = (SLASH[form.dataset.client] || SLASH.claude).filter(([c]) => c.slice(1).startsWith(m[1]));
+    if (!list.length) return slashHide();
+    if (!slashMenu) { slashMenu = document.createElement("div"); slashMenu.className = "slashmenu"; form.querySelector(".row").before(slashMenu); }
+    slashAt = Math.min(slashAt, list.length - 1);
+    slashMenu.innerHTML = list.map(([c, d], i) => '<button type="button" class="' + (i === slashAt ? "on" : "") + '" data-slash="' + c + '"><b>' + c + "</b><span>" + d + "</span></button>").join("") + '<div class="slashft">Typed into its terminal · ↑↓ Enter</div>';
+  }
+  function slashHide() { slashMenu?.remove(); slashMenu = null; slashAt = 0; }
+  document.addEventListener("input", (e) => { if (e.target.id === "chat-input") { slashAt = 0; slashShow(e.target); } });
+  document.addEventListener("keydown", (e) => {
+    if (!slashMenu || e.target.id !== "chat-input") return;
+    const items = $$("[data-slash]", slashMenu);
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); slashAt = (slashAt + (e.key === "ArrowDown" ? 1 : -1) + items.length) % items.length; slashShow(e.target); }
+    else if ((e.key === "Enter" || e.key === "Tab") && items[slashAt] && e.target.value !== items[slashAt].dataset.slash) { e.preventDefault(); e.stopImmediatePropagation(); e.target.value = items[slashAt].dataset.slash; slashHide(); }
+    else if (e.key === "Escape") slashHide();
+  }, true);
+  document.addEventListener("click", (e) => { const b = e.target.closest && e.target.closest("[data-slash]"); if (!b) return; const t = document.getElementById("chat-input"); t.value = b.dataset.slash; slashHide(); t.focus(); });
+  document.addEventListener("submit", async (e) => {
+    const form = e.target; if (form.id !== "chatform" || !form.dataset.keys) return;
+    const t = form.querySelector("#chat-input"), v = (t?.value || "").trim();
+    if (!/^\\/[a-z][\\w:-]*(\\s|$)/i.test(v) || (form._imgs && form._imgs.length)) return;
+    e.preventDefault(); e.stopImmediatePropagation(); slashHide();
+    const f = new FormData(); f.set("agent", form.dataset.agent); f.set("text", v); f.set("enter", "1");
+    try {
+      const r = await fetch("/agent-keys", { method: "POST", body: f, credentials: "same-origin" }); const txt = await r.text();
+      if (/screrr/.test(txt)) icToast(new DOMParser().parseFromString(txt, "text/html").querySelector("p")?.textContent || "Couldn't type it", true);
+      else { t.value = ""; t.dispatchEvent(new Event("input")); icToast("Typed " + v.split(/\\s/)[0] + " into " + form.dataset.label + "'s terminal"); }
+    } catch {}
+  }, true);
+  // A new agent you started: its page waits for it to connect (it takes a few seconds), then shows it.
+  (() => {
+    const u = new URL(location.href); if (!u.searchParams.has("starting")) return;
+    if (document.getElementById("chathd")) { u.searchParams.delete("starting"); history.replaceState(history.state, "", u.pathname + u.search); return; }
+    const n = Number(sessionStorage.getItem("ic_starting") || 0);
+    if (n > 30) { sessionStorage.removeItem("ic_starting"); return; }
+    sessionStorage.setItem("ic_starting", String(n + 1));
+    const e = document.querySelector(".chat .empty div"); if (e) e.textContent = "Starting " + (u.searchParams.get("agent") || "").split("/")[1] + "… it shows up here as soon as it connects.";
+    setTimeout(() => location.reload(), 3000);
+  })();
   // A step you opened (its exact command) stays open when the chat redraws.
   const openSteps = new Set();
   document.addEventListener("toggle", (e) => { const d = e.target; if (d.matches && d.matches("details.step")) { if (d.open) openSteps.add(d.dataset.mid); else openSteps.delete(d.dataset.mid); } }, true);
@@ -2258,6 +2343,7 @@ export const SCRIPT = `
     longFolds();
     reopenSteps();
     unread();
+    watchDone();
     termsOpen();
     dayLines();
     msgActions();

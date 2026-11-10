@@ -9,6 +9,8 @@ import { esc, hidden, icon } from "./ui";
 import { newer } from "./upkeep";
 
 export const TERMS_SINCE = "0.12.45";
+/** Starting an agent under a name with a first message (tmux-new with prompt). */
+export const NEW_AGENT_SINCE = "0.12.46";
 
 interface Via {
   session_id: string;
@@ -47,9 +49,13 @@ export async function listTerms(env: Env, me: string, host: string): Promise<{ v
   return { via, terms: r.terms };
 }
 
-export async function newTerm(env: Env, me: string, host: string, name: string, cwd: string, run: string): Promise<string> {
+export async function newTerm(env: Env, me: string, host: string, name: string, cwd: string, run: string, prompt = ""): Promise<string> {
   const via = await viaOn(env, me, host);
-  const r = await askSession(env, me, via, { op: "tmux-new", name, cwd, run }, note(via));
+  if (run !== "shell") {
+    const taken = await env.DB.prepare("SELECT session_id FROM sessions WHERE member = ? AND label = ? AND last_seen > ?").bind(me, name, Date.now() - 10 * 60_000).first<{ session_id: string }>();
+    if (taken && (!env.live || liveIds(env, me).includes(taken.session_id))) throw new UserError(`${name} is already a connected agent of yours; pick another name.`);
+  }
+  const r = await askSession(env, me, via, { op: "tmux-new", name, cwd, run, ...(prompt ? { prompt } : {}) }, note(via));
   await env.DB.prepare("INSERT INTO activity (member, session_id, at, kind, text) VALUES (?, ?, ?, 'keys', ?)")
     .bind(me, via.session_id, Date.now(), `you started a terminal on ${host} from the dashboard: ${name} (${run} in ${cwd || "~"})`)
     .run();

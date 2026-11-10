@@ -297,6 +297,19 @@ function stuckCard(st: Stuck, me: string, back: string, online: { label: string;
 }
 
 /** The dock, for the bottom corner of every dashboard page (an empty placeholder keeps live redraws able to fill it). */
+/** What one agent asks you, as cards in its own chat (the same cards as in Waiting for you). */
+export async function chatAsks(env: Env, me: string, sessionId: string, back: string): Promise<string> {
+  const pending = (await pendingApprovals(env, me)).filter((p) => p.session_id === sessionId);
+  if (!pending.length) return `<div class="chatasks" id="chatasks" data-region hidden></div>`;
+  const leads = await leadUps(env, me, pending);
+  const { results: seen } = await env.DB.prepare("SELECT session_id, label, screen, client FROM sessions WHERE member = ? AND session_id = ? AND screen != ''")
+    .bind(me, sessionId)
+    .all<{ session_id: string; label: string; screen: string; client: string }>();
+  const screens: Screens = new Map(seen.map((x) => [x.session_id, x]));
+  const now = Date.now();
+  return `<div class="chatasks" id="chatasks" data-region>${pending.map((p) => card(p, me, back, now, screens, leads.get(p.id))).join("")}</div>`;
+}
+
 export async function asksDock(env: Env, me: string, back: string): Promise<string> {
   const pending = await pendingApprovals(env, me);
   const leads = await leadUps(env, me, pending);
