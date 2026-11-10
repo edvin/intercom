@@ -1370,6 +1370,8 @@ body:has(#asks:not([hidden]):not(.min)) .toasts{right:16px;left:auto}
 .foldbtn:hover{color:var(--ink)}
 .thread .bubble:not(.fold)>.foldbtn{display:none}
 
+.themeseg button{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border:0;border-radius:6px;background:none;color:var(--mute);font:inherit;font-size:12.5px;cursor:pointer}.themeseg button.on{background:var(--surface);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.12)}
+
 `;
 
 // Client behaviour: relative times, day separators, copy buttons, dialogs, toasts, progressive form submits
@@ -1552,10 +1554,12 @@ export const SCRIPT = `
   function themeShow() {
     const t = document.documentElement.dataset.theme || "system";
     $$("[data-theme-btn]").forEach((b) => { b.dataset.themeBtn = t; b.title = "Appearance: " + (t === "system" ? "as your system" : t) + " (click to change)"; });
+    $$("[data-theme-set]").forEach((b) => b.classList.toggle("on", b.dataset.themeSet === t));
   }
   document.addEventListener("click", (e) => {
-    if (!e.target.closest("[data-theme-btn]")) return;
-    const cur = document.documentElement.dataset.theme || "system", next = THEMES[(THEMES.indexOf(cur) + 1) % 3];
+    const pick = e.target.closest("[data-theme-set]");
+    if (!e.target.closest("[data-theme-btn]") && !pick) return;
+    const cur = document.documentElement.dataset.theme || "system", next = pick ? pick.dataset.themeSet : THEMES[(THEMES.indexOf(cur) + 1) % 3];
     if (next === "system") { delete document.documentElement.dataset.theme; document.cookie = "ic_theme=; path=/; max-age=0; samesite=lax"; }
     else { document.documentElement.dataset.theme = next; document.cookie = "ic_theme=" + next + "; path=/; max-age=31536000; samesite=lax"; }
     $$("meta[name=theme-color]").forEach((m) => { if (next === "system") { m.setAttribute("media", m.content === "#141416" ? "(prefers-color-scheme: dark)" : "(prefers-color-scheme: light)"); } else { m.content = next === "dark" ? "#141416" : "#f4f4f6"; m.removeAttribute("media"); } });

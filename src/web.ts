@@ -1138,7 +1138,13 @@ export async function accountSection(env: Env, me: string, origin: string): Prom
     <div><h3>Reset your original token</h3><p class="small muted">If your first token leaked or got lost: the old one stops working at once, so run the setup again where it was used.</p>
       <form method="post" action="/account" data-native data-confirm="Reset your original token? It stops working on every machine that uses it, until you run the setup again.">${hidden({ action: "token" })}<button class="btn sm">${icon("key", 14)}Reset token</button></form></div>`,
   );
-  return `${you}${notifications}${github}${machines}`;
+  // Appearance: this browser's choice (a cookie the page reads before it paints; the rail has the same switch).
+  const appearance = card(
+    "sun",
+    "Appearance",
+    `<div class="row acctrow"><span class="small grow">Light or dark in this browser, or as your system has it.</span><nav class="seg themeseg" aria-label="Appearance"><button type="button" data-theme-set="system">${icon("contrast", 13)}<span>System</span></button><button type="button" data-theme-set="light">${icon("sun", 13)}<span>Light</span></button><button type="button" data-theme-set="dark">${icon("moon", 13)}<span>Dark</span></button></nav></div>`,
+  );
+  return `${you}${appearance}${notifications}${github}${machines}`;
 }
 
 export async function handleAdminAction(req: Request, env: Env, me: string, action: string): Promise<Response> {
