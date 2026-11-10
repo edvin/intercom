@@ -345,7 +345,7 @@ export async function findPane(env = process.env, ppid = process.ppid) {
  * capture: the pane as it looks now (colours as ANSI), and `history` lines above it. keys: send named keys and/or a
  * line of text (typed literally, then Enter if asked), then capture what it looks like after.
  */
-// Terminals on this machine (only with INTERCOM_TERMINALS=1): its tmux sessions listed, a new one started (a shell,
+// Terminals on this machine (unless INTERCOM_TERMINALS=0): its tmux sessions listed, a new one started (a shell,
 // Claude Code or Codex, in a folder), or one closed. Seeing and typing into one goes through the pane ops below.
 const TERM_RUN = { shell: null, claude: "claude", codex: "codex" };
 async function terminalOp(q) {
@@ -387,7 +387,7 @@ async function terminalOp(q) {
 
 export async function screenRequest(q, { pane, keysOn = true, termsOn = false } = {}) {
   if (q.op === "tmux" || q.op === "tmux-new" || q.op === "tmux-kill") {
-    if (!termsOn) throw new Error("Terminals are off on that machine. To use them from your dashboard, set INTERCOM_TERMINALS=1 in ~/.claude/intercom/config there (or ask an agent on it to turn the terminals setting on).");
+    if (!termsOn) throw new Error("Terminals are turned off on that machine (INTERCOM_TERMINALS=0, or seeing screens or sending keys is off there).");
     if (q.op !== "tmux" && !keysOn) throw new Error("Sending keys is turned off on that machine (INTERCOM_KEYS=0), so terminals can't be started or closed from here.");
     const r = await terminalOp(q);
     return { text: "", cols: 0, rows: 0, cursor: null, keys: keysOn, terms: Array.isArray(r) ? r : undefined, made: r && !Array.isArray(r) ? r : undefined };

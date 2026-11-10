@@ -246,7 +246,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
         <label class="field">First message <span class="tiny">(optional: what it should do)</span><textarea name="prompt" rows="4" maxlength="4000" placeholder="e.g. Pick up the retry work from core's notes and get it to staging."></textarea></label>
         <p class="tiny muted" style="margin:0">It starts in a tmux terminal of that name on the machine, takes the name on the intercom (and any notes left for it), and shows up here in a few seconds.</p>
       </div><div class="ft"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary">${icon("plus", 14)}Start it</button></div></form>`
-      : `<div class="bd"><p class="small" style="margin:0">Agents are started through one of yours that runs in tmux on that machine, with intercom ${NEW_AGENT_SINCE} or newer and terminals turned on there (<code>INTERCOM_TERMINALS=1</code> in <code>~/.claude/intercom/config</code>). None qualifies right now.</p></div><div class="ft"><button type="button" class="btn" data-close>OK</button></div>`}
+      : `<div class="bd"><p class="small" style="margin:0">Agents are started through one of yours that runs in tmux on that machine, with intercom ${NEW_AGENT_SINCE} or newer (run <code>/intercom:update</code> there, then <code>/reload-plugins</code>). None qualifies right now.</p></div><div class="ft"><button type="button" class="btn" data-close>OK</button></div>`}
   </dialog>`;
   // The rail: every page as an icon (what needs you as a count on it), then search, away, docs and your account.
   // The tree beside it: projects with their agents, wide enough for their names.
