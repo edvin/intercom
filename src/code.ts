@@ -5,7 +5,7 @@
 
 import { type Env, UserError, ago } from "./lib";
 import { outdated } from "./version";
-import { esc, icon } from "./ui";
+import { esc, icon, md } from "./ui";
 
 /** The first plugin version whose local server answers code requests. */
 export const CODE_SINCE = "0.12.23";
@@ -377,6 +377,26 @@ function drawFind(base: string, f: NonNullable<CodeData["find"]>): string {
     .join("")}${more}`;
 }
 
+/** The Markdown editor's toolbar: formatting on the selection (also ⌘B, ⌘I, ⌘K), and the preview beside it or not. */
+const MD_TOOLBAR = `<div class="mdtools">${[
+  ["h", "Heading", "H"],
+  ["b", "Bold (⌘B)", "<b>B</b>"],
+  ["i", "Italic (⌘I)", "<i>I</i>"],
+  ["s", "Strikethrough", "<s>S</s>"],
+  ["|", "", ""],
+  ["ul", "Bullet list", "•&nbsp;List"],
+  ["ol", "Numbered list", "1.&nbsp;List"],
+  ["task", "Checklist", "☑&nbsp;Tasks"],
+  ["quote", "Quote", "❝"],
+  ["|", "", ""],
+  ["code", "Code", "&lt;/&gt;"],
+  ["link", "Link (⌘K)", "Link"],
+  ["table", "Table", "Table"],
+  ["note", "Callout", "Note"],
+]
+  .map(([a, t, l]) => (a === "|" ? '<span class="mdsep"></span>' : `<button type="button" class="mdb" data-md="${a}" title="${t}">${l}</button>`))
+  .join("")}<span class="grow"></span><button type="button" class="mdb mdprevbtn on" data-mdprev title="Show the preview beside it">Preview</button></div>`;
+
 function body(key: string, base: string, tab: string, q: CodeQuery, d: CodeData): string {
   if (q.op === "file" && d.file) {
     const f = d.file;
@@ -388,8 +408,11 @@ function body(key: string, base: string, tab: string, q: CodeQuery, d: CodeData)
     const st = { block: false };
     const lines = (f.text ?? "").replace(/\n$/, "").split("\n");
     // On disk now (not an old revision): editable here, saved on its machine.
-    const editor = f.rev === "worktree" ? `<div class="fedit" data-edit="${esc(f.path)}" hidden><textarea spellcheck="false">${esc(f.text ?? "")}</textarea><div class="feditbar"><span class="small muted">Saved on its machine, in the repo; commit it from Changes.</span><span class="grow"></span><button type="button" class="btn ghost sm" data-editcancel>Cancel</button><button type="button" class="btn primary sm" data-editsave>${icon("check", 13)}Save</button></div></div>` : "";
-    return `${top.replace('<span class="grow"></span>', `<span class="grow"></span>${f.rev === "worktree" ? `<button type="button" class="btn sm" data-editopen>${icon("pencil", 13)}Edit</button>` : ""}`)}${editor}<div class="dscroll fview"><table class="diff code"><tbody>${lines.map((l, i) => `<tr id="L${i + 1}"><td class="ln"><a href="#L${i + 1}" data-jump>${i + 1}</a></td><td class="dc">${highlight(l, lang, st)}</td></tr>`).join("")}</tbody></table></div>`;
+    const isMd = /\.(md|markdown|mdx)$/i.test(f.path);
+    const editor = f.rev === "worktree" ? `<div class="fedit${isMd ? " mdmode" : ""}" data-edit="${esc(f.path)}" hidden>${isMd ? MD_TOOLBAR : ""}<div class="mdsplit"><textarea spellcheck="${isMd ? "true" : "false"}">${esc(f.text ?? "")}</textarea>${isMd ? '<div class="mdprev md"></div>' : ""}</div><div class="feditbar"><span class="small muted">Saved on its machine, in the repo; commit it from Changes.</span><span class="grow"></span><button type="button" class="btn ghost sm" data-editcancel>Cancel</button><button type="button" class="btn primary sm" data-editsave>${icon("check", 13)}Save</button></div></div>` : "";
+    const read = isMd ? `<article class="md mdfile fview">${md(f.text ?? "", null)}</article>` : "";
+    const seg = isMd ? `<nav class="seg mdseg"><a class="on" data-mdview="read">Preview</a><a data-mdview="src">Source</a></nav>` : "";
+    return `${top.replace('<span class="grow"></span>', `<span class="grow"></span>${seg}${f.rev === "worktree" ? `<button type="button" class="btn sm" data-editopen>${icon("pencil", 13)}Edit</button>` : ""}`)}${editor}${read}<div class="dscroll fview${isMd ? " mdsrc" : ""}"${isMd ? " hidden" : ""}><table class="diff code"><tbody>${lines.map((l, i) => `<tr id="L${i + 1}"><td class="ln"><a href="#L${i + 1}" data-jump>${i + 1}</a></td><td class="dc">${highlight(l, lang, st)}</td></tr>`).join("")}</tbody></table></div>`;
   }
   if (q.op === "find" && d.find) return `${searchBox(d.find.q, d.find.mode)}<div id="sresults">${drawFind(base, d.find)}</div>`;
   if (q.op === "list" && d.list) {
@@ -399,7 +422,7 @@ function body(key: string, base: string, tab: string, q: CodeQuery, d: CodeData)
       ...l.files.map((x) => `<a class="frow" href="${base}&amp;code=file&amp;path=${enc(l.dir ? `${l.dir}/${x}` : x)}" data-code>${icon("file", 14)}<span>${esc(x)}</span></a>`),
     ].join("");
     const newFile = `<button type="button" class="btn ghost sm" data-newfile="${esc(l.dir ? `${l.dir}/` : "")}">${icon("plus", 13)}New file</button>`;
-    return `${searchBox("", "files")}<div id="sresults"><div class="chead">${crumbs(base, l.dir)}<span class="grow"></span>${newFile}</div><div class="fedit fnew" data-edit="" hidden><input class="fnewpath" placeholder="path/in/the/repo.md" spellcheck="false"><textarea spellcheck="false" placeholder="Its text"></textarea><div class="feditbar"><span class="small muted">Created on its machine, in the repo.</span><span class="grow"></span><button type="button" class="btn ghost sm" data-editcancel>Cancel</button><button type="button" class="btn primary sm" data-editsave>${icon("check", 13)}Create</button></div></div>${rows ? `<div class="flist">${rows}</div>` : '<div class="empty"><div>Nothing here.</div></div>'}</div>`;
+    return `${searchBox("", "files")}<div id="sresults"><div class="chead">${crumbs(base, l.dir)}<span class="grow"></span>${newFile}</div><div class="fedit fnew" data-edit="" hidden><input class="fnewpath" placeholder="path/in/the/repo.md" spellcheck="false">${MD_TOOLBAR}<div class="mdsplit"><textarea spellcheck="false" placeholder="Its text"></textarea><div class="mdprev md"></div></div><div class="feditbar"><span class="small muted">Created on its machine, in the repo.</span><span class="grow"></span><button type="button" class="btn ghost sm" data-editcancel>Cancel</button><button type="button" class="btn primary sm" data-editsave>${icon("check", 13)}Create</button></div></div>${rows ? `<div class="flist">${rows}</div>` : '<div class="empty"><div>Nothing here.</div></div>'}</div>`;
   }
   if (q.op === "commit" && d.commit) {
     const c = d.commit;

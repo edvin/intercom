@@ -1520,6 +1520,24 @@ body:has(dialog[open]) .thread,body:has(dialog[open]) .pane,body:has(dialog[open
 .subend.stop{background:var(--surface-3);color:var(--ink-2)}
 .insp .subag:not(.on) .subdesc{color:var(--ink-2)}
 
+/* The Markdown editor: a toolbar, the text and its preview side by side; a .md file reads as a document. */
+.mdtools{display:none;align-items:center;gap:2px;padding:4px;border:1px solid var(--line);border-radius:10px;background:var(--surface);flex-wrap:wrap}
+.fedit.mdmode .mdtools{display:flex}
+.mdb{height:28px;min-width:30px;padding:0 9px;border:0;border-radius:7px;background:none;color:var(--ink-2);font:500 12.5px Geist,system-ui,sans-serif;cursor:pointer;white-space:nowrap}
+.mdb:hover{background:var(--hover);color:var(--ink)}.mdb.on{background:var(--sel);color:var(--ink)}.mdsep{width:1px;height:18px;margin:0 4px;background:var(--line-strong)}
+.mdsplit{display:grid;grid-template-columns:minmax(0,1fr);gap:10px}
+.fedit.mdmode:not(.noprev) .mdsplit{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+.mdprev{display:none;min-height:min(62vh,640px);max-height:72vh;overflow:auto;padding:16px 20px;border:1px solid var(--line);border-radius:10px;background:var(--surface);font-size:14px;line-height:1.65}
+.fedit.mdmode:not(.noprev) .mdprev{display:block}
+.fedit.mdmode textarea{font:13.5px/1.7 "Geist Mono",ui-monospace,monospace;white-space:pre-wrap;padding:14px 16px;max-height:72vh}
+article.mdfile{max-width:860px;padding:22px 28px;border:1px solid var(--line);border-radius:12px;background:var(--surface);font-size:14.5px;line-height:1.7}
+article.mdfile[hidden]{display:none}
+.md .mdh1{font-size:1.5em;font-weight:650;margin:.2em 0 .5em}.md .mdh2{font-size:1.22em;font-weight:640;margin:1.1em 0 .45em}.md .mdh3{font-size:1.05em;font-weight:620;margin:1em 0 .4em}
+.mdseg{margin-right:6px}.mdseg a{cursor:pointer}
+@media (max-width:900px){.fedit.mdmode:not(.noprev) .mdsplit{grid-template-columns:minmax(0,1fr)}.mdprev{min-height:0}}
+
+.md .mdbox{width:15px;height:15px;font-size:11px;line-height:1;border-radius:4px;vertical-align:-2px}.md .mdbox.on{color:#fff;font-weight:700}
+
 `;
 
 // Client behaviour: relative times, day separators, copy buttons, dialogs, toasts, progressive form submits
@@ -2796,6 +2814,72 @@ export const SCRIPT = `
       save.disabled = false;
     }
   });
+  // ---- The Markdown editor (code view): toolbar, shortcuts, lists that continue, a live preview beside it ----
+  document.addEventListener("click", (e) => {
+    const v = e.target.closest && e.target.closest("[data-mdview]"); if (!v) return;
+    const cp = document.getElementById("codepane"); if (!cp) return;
+    const src = v.dataset.mdview === "src";
+    cp.querySelector("article.mdfile")?.toggleAttribute("hidden", src); cp.querySelector(".fview.mdsrc")?.toggleAttribute("hidden", !src);
+    v.parentElement.querySelectorAll("a").forEach((a) => a.classList.toggle("on", a === v));
+  });
+  const mdTimers = new WeakMap();
+  function mdPreview(ed) {
+    if (!ed.classList.contains("mdmode") || ed.classList.contains("noprev")) return;
+    clearTimeout(mdTimers.get(ed));
+    mdTimers.set(ed, setTimeout(async () => {
+      const f = new FormData(); f.set("text", ed.querySelector("textarea").value);
+      try { const r = await fetch("/md-preview", { method: "POST", body: f, credentials: "same-origin" }); const pv = ed.querySelector(".mdprev"); if (pv && r.ok) { pv.innerHTML = await r.text(); mermaids(); } } catch {}
+    }, 250));
+  }
+  function mdWrap(t, before, after = before, placeholder = "text") {
+    const a = t.selectionStart, b = t.selectionEnd, sel = t.value.slice(a, b) || placeholder;
+    t.setRangeText(before + sel + after, a, b, "end");
+    if (a === b) { t.selectionStart = a + before.length; t.selectionEnd = a + before.length + sel.length; }
+  }
+  function mdLines(t, fn) {
+    const v = t.value, a = v.lastIndexOf("\\n", t.selectionStart - 1) + 1, e0 = v.indexOf("\\n", t.selectionEnd), b = e0 < 0 ? v.length : e0;
+    const out = v.slice(a, b).split("\\n").map(fn).join("\\n");
+    t.setRangeText(out, a, b, "select");
+  }
+  function mdAct(t, act) {
+    if (act === "b") mdWrap(t, "**"); else if (act === "i") mdWrap(t, "_"); else if (act === "s") mdWrap(t, "~~");
+    else if (act === "code") { const sel = t.value.slice(t.selectionStart, t.selectionEnd); if (sel.includes("\\n")) mdWrap(t, "\`\`\`\\n", "\\n\`\`\`"); else mdWrap(t, "\`", "\`", "code"); }
+    else if (act === "link") mdWrap(t, "[", "](https://)", "link text");
+    else if (act === "h") mdLines(t, (l) => (/^#{1,5}\\s/.test(l) ? l.replace(/^(#+)/, "$1#") : /^#{6}\\s/.test(l) ? l.replace(/^#+\\s/, "") : "## " + l));
+    else if (act === "ul") mdLines(t, (l) => (/^\\s*[-*+]\\s/.test(l) ? l.replace(/^(\\s*)[-*+]\\s/, "$1") : "- " + l));
+    else if (act === "ol") { let n = 0; mdLines(t, (l) => (/^\\s*\\d+[.)]\\s/.test(l) ? l.replace(/^(\\s*)\\d+[.)]\\s/, "$1") : ++n + ". " + l)); }
+    else if (act === "task") mdLines(t, (l) => (/^\\s*[-*]\\s\\[[ xX]\\]\\s/.test(l) ? l.replace(/^(\\s*)[-*]\\s\\[[ xX]\\]\\s/, "$1") : "- [ ] " + l.replace(/^(\\s*)[-*+]\\s/, "$1")));
+    else if (act === "quote") mdLines(t, (l) => (/^>\\s?/.test(l) ? l.replace(/^>\\s?/, "") : "> " + l));
+    else if (act === "table") t.setRangeText("\\n| Column | Column |\\n|---|---|\\n| | |\\n", t.selectionStart, t.selectionEnd, "end");
+    else if (act === "note") mdLines(t, (l, i) => (i === 0 ? "> [!NOTE]\\n> " + l : "> " + l));
+    t.focus(); t.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+  document.addEventListener("click", (e) => {
+    const b = e.target.closest && e.target.closest(".mdtools [data-md], .mdtools [data-mdprev]"); if (!b) return;
+    const ed = b.closest(".fedit"), t = ed.querySelector("textarea");
+    if (b.hasAttribute("data-mdprev")) { const off = !ed.classList.contains("noprev"); ed.classList.toggle("noprev", off); b.classList.toggle("on", !off); if (!off) mdPreview(ed); return; }
+    mdAct(t, b.dataset.md);
+  });
+  document.addEventListener("input", (e) => {
+    const ed = e.target.closest && e.target.closest(".fedit"); if (!ed) return;
+    if (e.target.matches(".fnewpath")) { ed.classList.toggle("mdmode", /\\.(md|markdown|mdx)$/i.test(e.target.value)); }
+    mdPreview(ed);
+  });
+  document.addEventListener("keydown", (e) => {
+    const t = e.target; if (!t.matches || !t.matches(".fedit.mdmode textarea")) return;
+    const mod = e.metaKey || e.ctrlKey;
+    if (mod && !e.shiftKey && (e.key === "b" || e.key === "i" || e.key === "k")) { e.preventDefault(); mdAct(t, e.key === "k" ? "link" : e.key); return; }
+    if (e.key === "Tab") { e.preventDefault(); mdLines(t, (l) => (e.shiftKey ? l.replace(/^ {1,2}/, "") : "  " + l)); t.dispatchEvent(new Event("input", { bubbles: true })); return; }
+    if (e.key === "Enter" && !mod && !e.shiftKey && t.selectionStart === t.selectionEnd) {
+      const v = t.value, a = v.lastIndexOf("\\n", t.selectionStart - 1) + 1, line = v.slice(a, t.selectionStart);
+      const m = /^(\\s*)(?:([-*+])|(\\d+)([.)]))\\s+(\\[[ xX]\\]\\s+)?/.exec(line); if (!m) return;
+      e.preventDefault();
+      if (line.length === m[0].length) { t.setRangeText("", a, t.selectionStart, "end"); }
+      else { const marker = m[2] ? m[2] : Number(m[3]) + 1 + m[4]; t.setRangeText("\\n" + m[1] + marker + " " + (m[5] ? "[ ] " : ""), t.selectionStart, t.selectionStart, "end"); }
+      t.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+  });
+  document.addEventListener("click", (e) => { const o = e.target.closest && e.target.closest("[data-editopen], [data-newfile]"); if (!o) return; setTimeout(() => { const ed = document.querySelector("#codepane .fedit:not([hidden])"); if (ed) mdPreview(ed); }, 0); });
   document.addEventListener("keydown", (e) => { if ((e.metaKey || e.ctrlKey) && e.key === "s" && e.target.closest && e.target.closest(".fedit")) { e.preventDefault(); e.target.closest(".fedit").querySelector("[data-editsave]")?.click(); } });
   document.addEventListener("submit", async (e) => {
     const form = e.target; if (!form.matches || !form.matches("form[data-commit]")) return;

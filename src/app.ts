@@ -24,7 +24,7 @@ import { guard } from "./guard";
 import { PLUGIN_VERSION, outdated, replyHow } from "./version";
 import { getSetting, githubRepo, openSignup, setSetting } from "./github";
 import { landingPage } from "./landing";
-import { BUILD, esc, icon, redirect } from "./ui";
+import { BUILD, esc, icon, md, redirect } from "./ui";
 import { accountPage, dashboard, soloCard, exportProject, localPath, sameOrigin, handleAction, handleAdminAction, handleJoin, handleLogin, handleLogout, loginPage } from "./web";
 import { phoneReport, publicKey, sendNote, sendTest, subscribe, unsubscribe } from "./push";
 import { plainSpaces } from "./markdown";
@@ -958,6 +958,12 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
       body = `<div class="codebar"><span class="grow"></span><button type="button" class="btn ghost xs icon" data-coderefresh title="Try again">${icon("refresh", 13)}</button></div><div class="empty">${icon("code", 26)}<div>Couldn't read its code</div><div class="small">${esc(e.message)}</div></div>`;
     }
     return new Response(body, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "content-security-policy": "default-src 'none'; frame-ancestors 'none'" } });
+  }
+  if (url.pathname === "/md-preview" && req.method === "POST") {
+    // The Markdown editor's preview: the same rendering as messages (tables, callouts, code, diagrams).
+    if (!sameOrigin(req)) return new Response("Cross-origin request refused", { status: 403 });
+    const text = String((await req.formData()).get("text") ?? "").slice(0, 1_000_000);
+    return new Response(md(text, null), { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "content-security-policy": "default-src 'none'; frame-ancestors 'none'" } });
   }
   if ((url.pathname === "/agent-code/save" || url.pathname === "/agent-code/commit") && req.method === "POST") {
     // Editing in the code view: a file written in your agent's repo, or chosen files committed (and pushed) there.
