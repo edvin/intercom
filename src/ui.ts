@@ -1498,6 +1498,11 @@ tr.dh td{background:var(--diff-hunk)}
 .dlv.ok,.thread.term .bubble.mine .dlv.ok{color:var(--green-ink);font-weight:600;opacity:1}
 .dlv.wait{opacity:1}
 
+/* While an image (or a dialog) is open, what's behind it stays put: a swipe on a phone doesn't scroll the chat. */
+html:has(dialog[open]),html:has(dialog[open]) body{overflow:hidden;overscroll-behavior:none}
+body:has(dialog[open]) .thread,body:has(dialog[open]) .pane,body:has(dialog[open]) .tbody,body:has(dialog[open]) .insp{overflow:hidden!important}
+.imgview,.imgview .ivbody{overscroll-behavior:contain}.imgview .ivbody{touch-action:pinch-zoom}
+
 `;
 
 // Client behaviour: relative times, day separators, copy buttons, dialogs, toasts, progressive form submits
@@ -1820,6 +1825,29 @@ export const SCRIPT = `
     c.style.background = bg; c.style.maxWidth = "none";
     const url = URL.createObjectURL(new Blob([c.outerHTML], { type: "image/svg+xml" }));
     const a = document.createElement("a"); a.className = "att"; a.href = url; a.dataset.name = "Diagram"; a.hidden = true; document.body.append(a); a.click(); a.remove();
+  });
+  // ⌘← / ⌘→: back and forward through the agents you've opened (this tab), like a browser's history, agents only.
+  const AH = "ic_agenthist";
+  const ahGet = () => { try { return JSON.parse(sessionStorage.getItem(AH) || "null") || { list: [], at: -1 }; } catch { return { list: [], at: -1 }; } };
+  const ahSet = (h) => { try { sessionStorage.setItem(AH, JSON.stringify(h)); } catch {} };
+  (() => {
+    const h0 = document.getElementById("chathd"); if (!h0) return;
+    const k = h0.dataset.agent, h = ahGet();
+    if (h.list[h.at] === k) return; // a redraw, or arrived here by ⌘←/⌘→
+    h.list = h.list.slice(0, h.at + 1).filter((x) => x !== k).concat(k).slice(-30);
+    h.at = h.list.length - 1;
+    ahSet(h);
+  })();
+  document.addEventListener("keydown", (e) => {
+    if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey || (e.key !== "ArrowLeft" && e.key !== "ArrowRight")) return;
+    // In a field they move the cursor, unless it's empty (an agent's message field has focus when its page opens).
+    const field = e.target.closest && e.target.closest("input, textarea, select, [contenteditable]");
+    if (field && (field.value ?? field.textContent ?? "") !== "") return;
+    const h = ahGet(), to = h.at + (e.key === "ArrowLeft" ? -1 : 1);
+    if (to < 0 || to >= h.list.length) return;
+    e.preventDefault();
+    h.at = to; ahSet(h);
+    location.href = "/dashboard?view=agents&agent=" + encodeURIComponent(h.list[to]);
   });
   // Keys: J/K or ⌘↑/⌘↓ move between agents, ⌘1–9 open the agent in that place, ⌘/ goes to the message field, Esc
   // closes the inspector or a menu.
