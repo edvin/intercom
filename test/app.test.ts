@@ -1449,8 +1449,8 @@ describe("folded tool steps", () => {
     const page = await (await w.request("/dashboard?view=agents&agent=bob/folder", { as: "bob", cookie: true })).text();
     assert.match(page, /<details class="actgroup" data-gid="g\d+"><summary>.*Ran 2 commands, read 1 file, 1 tool call<span class="alast"> · ToolSearch/);
     assert.match(page, /<\/details><div class="act act-text"[^>]*>.*All green/);
-    assert.match(page, /All green[\s\S]*<div class="act act-edit"/); // one step alone isn't folded
-    assert.match(page, /<span class="adesc">Deploy, commit, wait until live<\/span><span class="acmd">npx wrangler deploy &amp;&amp; git push<\/span>/);
+    assert.match(page, /All green[\s\S]*<div class="act act-edit step/); // one step alone isn't folded
+    assert.match(page, /<span class="atx">Deploy, commit, wait until live<\/span>[\s\S]*?<pre>npx wrangler deploy &amp;&amp; git push<\/pre>/);
   });
 });
 
@@ -2841,7 +2841,7 @@ describe("codex edits", () => {
       body: JSON.stringify({ items: [{ at: Date.now(), kind: "edit", text: "edit /src/a.svelte\\n@@\\n+\\tonpointermove={() => {}}\\n*** End Patch" }] }),
     });
     const page = await (await w.request("/dashboard?view=agents&agent=bob/alder", { as: "bob", cookie: true })).text();
-    assert.match(page, /edit \/src\/a\.svelte/);
+    assert.match(page, /Edited <b>a\.svelte<\/b><span class="scwd" title="\/src\/a\.svelte">src<\/span>/);
     assert.doesNotMatch(page, /onpointermove|End Patch/);
   });
 });

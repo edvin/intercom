@@ -11,6 +11,7 @@ import { AUTO_UPDATE_SINCE, PLUGIN_VERSION, outdated } from "./version";
 import { activeLoops, describe, parseLoops } from "./loops";
 import { activeJobs, duration, jobName, parseJobs } from "./jobs";
 import { parseSubs, subSteps } from "./subagents";
+import { commandStep, fileStep } from "./steps";
 import { subMark, subsRegion } from "./subview";
 import { trackedNeedsYou } from "./tracked";
 import { BTW_TIMEOUT, NO_MOD, btwFor, compactable, modAnswers } from "./btw";
@@ -290,17 +291,22 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   const ACT_ICON: Record<string, string> = { cmd: "$", edit: "✎", read: "·", tool: "⚙", text: "●", prompt: "›", loop: "↻", job: "" };
   // Paths your own agent mentions link to the file on its machine (localfiles.ts).
   const files = agent.member === me ? `${agent.member}/${agent.label}` : null;
-  const actRow = (a: Activity) =>
-    `<div class="act act-${a.kind}" data-mid="a${a.id}"><span class="aic">${ACT_ICON[a.kind] ?? "·"}</span><span class="atx${a.kind === "text" ? " md" : ""}">${
-      a.kind === "text"
-        ? md(a.text, agent.origin, files)
-        : a.kind === "prompt"
-          ? `<span class="muted">typed in the terminal:</span> ${esc(plainSpaces(a.text))}`
-          : a.kind === "cmd" && a.text.includes("\n")
-            ? // "what it's doing" (the agent's description), then the command, dimmer
-              `<span class="adesc">${esc(plainSpaces(a.text.split("\n")[0]!))}</span><span class="acmd">${esc(plainSpaces(a.text.split("\n").slice(1).join(" ")))}</span>`
-            : esc(plainSpaces(a.text))
+  // Commands, reads and edits as a person would say them (steps.ts); a command opens to the exact command line.
+  const STEP_IC: Record<string, string> = { git: "branch", read: "file", search: "search", edit: "pencil", test: "check", run: "terminal", build: "layers", web: "link", cmd: "terminal" };
+  const chip = (st: { cwd: string; where: string }) => (st.cwd ? `<span class="scwd" title="${esc(st.where)}">${esc(st.cwd)}</span>` : "");
+  const actRow = (a: Activity) => {
+    if (a.kind === "cmd") {
+      const st = commandStep(plainSpaces(a.text));
+      return `<details class="act act-cmd step s-${st.kind}" data-mid="a${a.id}"><summary><span class="aic">${icon(STEP_IC[st.kind] ?? "terminal", 13)}</span><span class="atx">${st.title}${chip(st)}</span><span class="when">${time(a.at)}</span></summary><div class="stepcmd"><pre>${esc(st.command)}</pre><button type="button" class="mdcopy" data-copystep title="Copy the command">Copy</button></div></details>`;
+    }
+    if (a.kind === "read" || a.kind === "edit") {
+      const st = fileStep(a.kind, plainSpaces(a.text));
+      return `<div class="act act-${a.kind} step s-${st.kind}" data-mid="a${a.id}" title="${esc(st.where)}"><span class="aic">${icon(STEP_IC[st.kind] ?? "file", 13)}</span><span class="atx">${st.title}${chip(st)}</span><span class="when">${time(a.at)}</span></div>`;
+    }
+    return `<div class="act act-${a.kind}" data-mid="a${a.id}"><span class="aic">${ACT_ICON[a.kind] ?? "·"}</span><span class="atx${a.kind === "text" ? " md" : ""}">${
+      a.kind === "text" ? md(a.text, agent.origin, files) : a.kind === "prompt" ? `<span class="muted">typed in the terminal:</span> ${esc(plainSpaces(a.text))}` : esc(plainSpaces(a.text))
     }</span><span class="when">${time(a.at)}</span></div>`;
+  };
   type Item = { at: number; html: string; act?: Activity; you?: boolean; reply?: boolean };
   const items: Item[] = [];
   const thread0 = rows

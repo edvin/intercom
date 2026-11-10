@@ -161,7 +161,7 @@ const STYLE = `
 @font-face{font-family:"JetBrains Mono";src:url(/assets/jetbrains-mono.woff2) format("woff2");font-weight:100 800;font-display:swap}
 :root{
   --an-l:40%;--bg:#ffffff;--bg-glow:transparent;--side:#f4f4f6;--surface:#ffffff;--surface-2:#f2f2f4;--surface-3:#e8e8eb;
-  --line:rgba(15,17,25,.08);--line-strong:rgba(15,17,25,.14);--ink:#16171c;--ink-2:#4a4c57;--mute:#7d7f89;
+  --line:rgba(15,17,25,.08);--line-strong:rgba(15,17,25,.14);--ink:#121318;--ink-2:#383a45;--mute:#5d606b;
   --accent:#5b47e0;--accent-2:#5b47e0;--accent-ink:#ffffff;--accent-soft:rgba(91,71,224,.09);
   --green:#15a050;--green-soft:rgba(21,160,80,.11);--amber:#c27407;--amber-soft:rgba(201,122,6,.11);
   --red:#d93a45;--red-soft:rgba(217,58,69,.09);
@@ -175,7 +175,7 @@ const STYLE = `
 }
 @media (prefers-color-scheme:dark){:root:not([data-theme=light]){
   --an-l:70%;--bg:#1a1a1d;--bg-glow:transparent;--side:#141416;--surface:#1f1f22;--surface-2:#252529;--surface-3:#2e2e33;
-  --line:rgba(255,255,255,.07);--line-strong:rgba(255,255,255,.12);--ink:#e9e9ec;--ink-2:#b5b6bd;--mute:#7f8089;
+  --line:rgba(255,255,255,.07);--line-strong:rgba(255,255,255,.12);--ink:#ededf0;--ink-2:#c9cad1;--mute:#9a9ca6;
   --scroll:rgba(255,255,255,.12);--scroll-hover:rgba(255,255,255,.24);
   --accent:#9284ff;--accent-2:#9284ff;--accent-ink:#ffffff;--accent-soft:rgba(146,132,255,.14);
   --green:#3ecf80;--green-soft:rgba(62,207,128,.12);--amber:#f0aa3c;--amber-soft:rgba(240,170,60,.12);
@@ -187,7 +187,7 @@ const STYLE = `
 }}
 :root[data-theme=dark]{
   --an-l:70%;--bg:#1a1a1d;--bg-glow:transparent;--side:#141416;--surface:#1f1f22;--surface-2:#252529;--surface-3:#2e2e33;
-  --line:rgba(255,255,255,.07);--line-strong:rgba(255,255,255,.12);--ink:#e9e9ec;--ink-2:#b5b6bd;--mute:#7f8089;
+  --line:rgba(255,255,255,.07);--line-strong:rgba(255,255,255,.12);--ink:#ededf0;--ink-2:#c9cad1;--mute:#9a9ca6;
   --scroll:rgba(255,255,255,.12);--scroll-hover:rgba(255,255,255,.24);
   --accent:#9284ff;--accent-2:#9284ff;--accent-ink:#ffffff;--accent-soft:rgba(146,132,255,.14);
   --green:#3ecf80;--green-soft:rgba(62,207,128,.12);--amber:#f0aa3c;--amber-soft:rgba(240,170,60,.12);
@@ -1372,6 +1372,32 @@ body:has(#asks:not([hidden]):not(.min)) .toasts{right:16px;left:auto}
 
 .themeseg button{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border:0;border-radius:6px;background:none;color:var(--mute);font:inherit;font-size:12.5px;cursor:pointer}.themeseg button.on{background:var(--surface);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.12)}
 
+/* An agent's steps: what it did in words, an icon for the kind, the folder as a chip; a command opens to its line. */
+.thread.term .step{display:block;padding:1px 0;font:13px/1.5 Geist,ui-sans-serif,system-ui,sans-serif;color:var(--ink-2)}
+.thread.term .step>summary,.thread.term div.step{display:grid;grid-template-columns:22px minmax(0,1fr) auto;gap:8px;align-items:center;padding:3px 6px 3px 2px;border-radius:7px;list-style:none}
+.thread.term .step>summary{cursor:pointer}.thread.term .step>summary::-webkit-details-marker{display:none}
+.thread.term .step>summary:hover,.thread.term div.step:hover{background:var(--hover)}
+.thread.term .step .aic{display:grid;place-items:center;width:20px;height:20px;border-radius:6px;background:var(--surface-2);color:var(--ink-2)}
+.thread.term .step .atx{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink-2)}
+.thread.term .step .atx b{font-weight:560;color:var(--ink)}.thread.term .step .atx code{font-size:12px;background:none;border:0;padding:0;color:var(--ink-2)}
+.thread.term .step .sx{color:var(--mute)}
+.scwd{display:inline-block;margin-left:8px;padding:0 6px;border-radius:5px;background:var(--surface-2);font:500 10.5px/18px "Geist Mono",ui-monospace,monospace;color:var(--mute);vertical-align:1px}
+.thread.term .step .when{opacity:0;transition:opacity .12s}.thread.term .step:hover .when,.thread.term .step[open] .when{opacity:.8}
+.s-git .aic{color:var(--accent)!important;background:var(--accent-soft)!important}
+.s-test .aic{color:var(--green)!important;background:var(--green-soft)!important}
+.s-edit .aic{color:var(--amber)!important;background:var(--amber-soft)!important}
+.s-search .aic,.s-web .aic{color:var(--hl-f)!important}
+.stepcmd{position:relative;margin:4px 0 8px 30px;border:1px solid var(--line);border-radius:9px;background:var(--surface-2)}
+.stepcmd pre{margin:0;padding:9px 64px 10px 12px;font:12px/1.55 "Geist Mono",ui-monospace,monospace;color:var(--ink);white-space:pre-wrap;overflow-wrap:anywhere;max-height:300px;overflow:auto}
+.stepcmd .mdcopy{position:absolute;top:6px;right:6px}
+.thread.term .actgroup>.act.step{border-left:0;margin-left:0;padding-left:0}
+.thread.term .actgroup>summary{color:var(--ink-2)}
+/* Icons and quiet text a touch darker; counts in the accent, not orange. */
+.rl{color:var(--ink-2)}.rl:hover,.rl.on{color:var(--ink)}
+.thead .btn,.ihead .btn,.cbtn{color:var(--ink-2)}
+.rpill,.rpill.amber{background:var(--accent);color:#fff}
+.tw{background:var(--accent-soft);color:var(--accent)}
+
 `;
 
 // Client behaviour: relative times, day separators, copy buttons, dialogs, toasts, progressive form submits
@@ -1568,8 +1594,9 @@ export const SCRIPT = `
   });
   // Code blocks: Copy puts the code (not the colours) on the clipboard.
   document.addEventListener("click", async (e) => {
-    const b = e.target.closest && e.target.closest("[data-copycode]"); if (!b) return;
-    const pre = b.closest(".mdcode")?.querySelector("pre"); if (!pre) return;
+    const b = e.target.closest && e.target.closest("[data-copycode], [data-copystep]"); if (!b) return;
+    e.preventDefault();
+    const pre = b.closest(".mdcode, .stepcmd")?.querySelector("pre"); if (!pre) return;
     try { await navigator.clipboard.writeText(pre.textContent); b.textContent = "Copied"; setTimeout(() => (b.textContent = "Copy"), 1400); } catch { b.textContent = "Select and copy"; }
   });
   // Diagrams (mermaid): the library loads only when a message has one; each is drawn once and kept, so live updates
@@ -1598,6 +1625,10 @@ export const SCRIPT = `
       }
     }).catch(() => els.forEach((el) => el.classList.add("done", "err")));
   }
+  // A step you opened (its exact command) stays open when the chat redraws.
+  const openSteps = new Set();
+  document.addEventListener("toggle", (e) => { const d = e.target; if (d.matches && d.matches("details.step")) { if (d.open) openSteps.add(d.dataset.mid); else openSteps.delete(d.dataset.mid); } }, true);
+  function reopenSteps() { openSteps.forEach((m) => { const d = document.querySelector('details.step[data-mid="' + m + '"]'); if (d) d.open = true; }); }
   // Long messages fold to their start (not the latest one, and not one you opened).
   const unfolded = new Set();
   function longFolds() {
@@ -2026,6 +2057,7 @@ export const SCRIPT = `
     themeShow();
     mermaids();
     longFolds();
+    reopenSteps();
     if (picked) { const b = document.querySelector('.bubble[data-mid="' + picked + '"]'); if (b && b.querySelector('[data-unsend="edit"]')) b.classList.add("picked"); else picked = null; }
     trailBack();
     $$("#compose", root).forEach((t) => { if (!t.value) t.value = drafts.get(t); t.addEventListener("input", () => drafts.set(t)); });
