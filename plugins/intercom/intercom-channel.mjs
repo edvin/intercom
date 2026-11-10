@@ -20,7 +20,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const VERSION = "0.12.47"; // kept in step with .claude-plugin/plugin.json (a test checks)
+const VERSION = "0.12.48"; // kept in step with .claude-plugin/plugin.json (a test checks)
 const DIR = path.join(os.homedir(), ".claude", "intercom");
 const CONFIG = path.join(DIR, "config");
 function readConf() {
@@ -175,6 +175,8 @@ let lastNotify = 0;
 function notify(m) {
   // DMs and new votes; lock claims/releases only with INTERCOM_NOTIFY_LOCKS=1. Never the user's own activity.
   if (m.sender === me && m.sender_agent && !m.recipient) return;
+  // What you wrote yourself (from the dashboard, to one of your agents): you know, no need to pop it up on this machine.
+  if (m.sender === me && !m.sender_agent) return;
   const lock = m.broadcast && /\block\b/.test(m.body);
   const important = m.recipient || /^opened proposal/.test(m.body) || (lock && setting("INTERCOM_NOTIFY_LOCKS") === "1");
   if (!notifyOn() || !important || Date.now() - lastNotify < 3000) return;
@@ -263,7 +265,8 @@ function unsafeTarget(file) {
 
 // Paths this session has written (its terminal text and steps, and its messages): only those can be fetched from the
 // dashboard, checked here as well as on the hub.
-const PATH_RE = /(?:~\/|\/(?!\/))[\w.\-/@+~%,=]*\.[A-Za-z0-9]{1,8}/g;
+// Windows paths (C:\Users\…) too, as the dashboard links them (markdown.ts PATH).
+const PATH_RE = /(?:~\/|\/(?!\/)|[A-Za-z]:\\)[\w.\-/\\@+~%,=]*\.[A-Za-z0-9]{1,8}/g;
 const mentioned = new Set();
 function noteMentions(text) {
   for (const p of String(text ?? "").match(PATH_RE) ?? []) {

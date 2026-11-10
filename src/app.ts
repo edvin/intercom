@@ -13,6 +13,7 @@ import { type TicketOutcome, askTicket, decideTicket } from "./tickets";
 import { askCode, codeQuery, codeReply, drawCode } from "./code";
 import { parseJobs } from "./jobs";
 import { notesBrief, setNote } from "./notes";
+import { updateSummary } from "./upkeep";
 import { closeTerm, newTerm, termsPanel } from "./terminals";
 import { type Env, type Message, type Proposal, type Session, LIVE, MEMBER_OF, postMessage, RECEIVES, UserError, activeLocks, address, isMyLock, ago, addActivity, lockIn, scopedLocks, cleanBranch, cleanClient, fromOwnUser, fromOwnAgent, DELEGATED_NOTE, staleFor, renameSession, setHost, setVersion, workingOn, authenticate, coMembers, fmtLock, fmtMessage, myProjects, moveSession, projectFor, resolveProject, setCwd, setOrigin, setPresence, setRepo, signedIn, tally, touchSession, unread } from "./lib";
 import { type Tool, instructions, tools } from "./tools";
@@ -783,8 +784,7 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
       const op = f("op");
       let ok: string;
       if (op === "update") {
-        const done = await updateIdle(env, me, "from the dashboard");
-        ok = done.length ? done.join(" · ") : "Nothing to update";
+        ok = updateSummary(await updateIdle(env, me, "from the dashboard"));
       } else if (op === "update-one") {
         const { rows, live } = await myRows(env, me);
         const t = rows.find((r) => r.session_id === f("session"));

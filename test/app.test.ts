@@ -3669,18 +3669,18 @@ describe("keeping agents running and current", () => {
     const answer = (q: Record<string, unknown>) =>
       q.op === "panes" ? { text: "", panes: [{ session: "up1", pane: "%5", paneIsAgent: false, current: "claude", launch: "claude", version: "0.12.6" }] } : { text: "❯ \n  ⏵⏵ bypass permissions on\n" };
     const { result, seen } = await machine(w, () => w.form("/upkeep", "bob", { op: "update", back: "/dashboard" }), answer);
-    assert.equal(ok(result), `core: /reload-plugins (intercom 0.12.6 → ${PLUGIN_VERSION})`);
+    assert.equal(ok(result), "Updating core"); // the toast: one short line (the details are in its activity)
     assert.deepEqual(seen, [{ op: "panes" }, { op: "capture", pane: "%5" }, { op: "keys", text: "/reload-plugins", enter: true, pane: "%5" }]);
     const act = await w.db.prepare("SELECT text FROM activity WHERE session_id = 'up1' AND kind = 'keys'").first<{ text: string }>();
     assert.equal(act!.text, "you sent keys from the dashboard (through triage): typed “/reload-plugins”, Enter");
     // Claude Code has an update waiting: /restart.
     const cli = (q: Record<string, unknown>) => (q.op === "panes" ? answer(q) : { text: "✔ Update installed · /restart to apply\n❯ \n" });
     const { result: r2, seen: s2 } = await machine(w, () => w.form("/upkeep", "bob", { op: "update", back: "/dashboard" }), cli);
-    assert.match(ok(r2)!, /core: \/restart \(a Claude Code update was waiting\)/);
+    assert.equal(ok(r2), "Updating core");
     assert.deepEqual(s2[2], { op: "keys", text: "/restart", enter: true, pane: "%5" });
     // A busy one is left alone; automatic updates can be turned on.
     await w.db.prepare("UPDATE sessions SET state = 'working' WHERE session_id = 'up1'").run();
-    assert.equal(ok(await w.form("/upkeep", "bob", { op: "update", back: "/dashboard" })), "core: busy, left alone");
+    assert.equal(ok(await w.form("/upkeep", "bob", { op: "update", back: "/dashboard" })), "core: busy");
     assert.equal(ok(await w.form("/upkeep", "bob", { op: "auto-on", back: "/dashboard" })), "Your idle agents update by themselves now");
     assert.match(await page(w), /Stop updating them by themselves/);
     // A Codex session is quit (Ctrl+C twice; Codex keeps the session) and resumed by its id, with its flags.
@@ -3688,12 +3688,12 @@ describe("keeping agents running and current", () => {
     const codex = (q: Record<string, unknown>) =>
       q.op === "panes" ? answer(q) : q.op === "keys" && (q.keys as string[] | undefined)?.[0] === "ctrl-c" ? { text: "To reconnect, run:\n  codex resume up1\nedvin@vms01:~/projects/billing$ " } : { text: "" };
     const { result: r3, seen: s3 } = await machine(w, () => w.form("/upkeep", "bob", { op: "update", back: "/dashboard" }), codex);
-    assert.equal(ok(r3), "core: restarted in place, same session (codex --dangerously-bypass-approvals-and-sandbox resume up1)");
+    assert.equal(ok(r3), "Updating core");
     assert.deepEqual(s3.slice(1), [{ op: "capture", pane: "%5" }, { op: "keys", keys: ["ctrl-c", "ctrl-c"], pane: "%5" }, { op: "keys", text: "codex --dangerously-bypass-approvals-and-sandbox resume up1", enter: true, pane: "%5" }]);
     // A turn running in its terminal (a goal's turns don't always show as working): left alone, not cut off.
     const running = (q: Record<string, unknown>) => (q.op === "panes" ? answer(q) : { text: "• Working (1m 05s • esc to interrupt)\n› Ask Codex to do anything\n  gpt · ~/billing                Pursuing goal (2h 3m)\n" });
     const { result: r4, seen: s4 } = await machine(w, () => w.form("/upkeep", "bob", { op: "update", back: "/dashboard" }), running);
-    assert.equal(ok(r4), "core: busy (a turn is running in its terminal), left alone");
+    assert.equal(ok(r4), "core: busy");
     assert.equal(s4.length, 2);
     // Pursuing a goal between turns: after the restart (which pauses it) the goal is resumed, with Enter on its own.
     let quit = false;
@@ -3704,11 +3704,11 @@ describe("keeping agents running and current", () => {
       return { text: "› Ask Codex to do anything\n  gpt · ~/billing                Goal paused (/goal resume)\n" };
     };
     const { result: r5, seen: s5 } = await machine(w, () => w.form("/upkeep", "bob", { op: "update", back: "/dashboard" }), goalTerm);
-    assert.match(ok(r5)!, /core: restarted in place, same session \(codex .* resume up1\); goal resumed \(\/goal resume\)$/);
+    assert.equal(ok(r5)!, "Updating core");
     assert.deepEqual(s5.slice(-2), [{ op: "keys", text: "/goal resume", pane: "%5" }, { op: "keys", keys: ["enter"], pane: "%5" }]);
     // Out of usage: an update doesn't restart it.
     await w.db.prepare("UPDATE sessions SET state = 'waiting', state_detail = 'usage limit · resets Nov 15th, 2026 10:19 AM' WHERE session_id = 'up1'").run();
-    assert.equal(ok(await w.form("/upkeep", "bob", { op: "update", back: "/dashboard" })), "core: out of usage (usage limit · resets Nov 15th, 2026 10:19 AM), left alone");
+    assert.equal(ok(await w.form("/upkeep", "bob", { op: "update", back: "/dashboard" })), "core: out of usage");
   });
 
   test("one that stopped without ending is restarted in its pane, resumed by its session id; one frozen or nearly full gets a card", async () => {

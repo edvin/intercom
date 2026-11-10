@@ -174,6 +174,26 @@ export async function updateIdle(env: Env, me: string, by: string, quietFor = 0)
   return out;
 }
 
+/**
+ * updateIdle's lines ("core: /reload-plugins (intercom 0.12.40 → 0.12.47)", "fw: busy, left alone", …) as one short
+ * toast: who is being updated, then who isn't and why in a word. The full lines stay in each agent's activity.
+ */
+export function updateSummary(lines: string[]): string {
+  if (!lines.length) return "Nothing to update: your agents are up to date";
+  const started: string[] = [];
+  const skipped = new Map<string, string[]>();
+  for (const l of lines) {
+    const [label, ...rest] = l.split(": ");
+    const why = rest.join(": ");
+    const reason = /\/(reload-plugins|restart)|restarted in place|codex .*resume/i.test(why) ? "" : /up to date/.test(why) ? "already current" : /busy/.test(why) ? "busy" : /out of usage/.test(why) ? "out of usage" : /terminal|tmux/.test(why) ? "no terminal to reach" : /by hand/.test(why) ? "restart by hand" : "see its activity";
+    if (!reason) started.push(label!);
+    else skipped.set(reason, [...(skipped.get(reason) ?? []), label!]);
+  }
+  const names = (xs: string[]) => (xs.length > 3 ? `${xs.slice(0, 3).join(", ")} and ${xs.length - 3} more` : xs.join(", "));
+  const parts = [started.length ? `Updating ${names(started)}` : "", ...[...skipped].map(([why, xs]) => `${names(xs)}: ${why}`)].filter(Boolean);
+  return parts.join(" · ");
+}
+
 // ---- watchdog ----
 
 /** Working a long while, with nothing new: possibly frozen. */

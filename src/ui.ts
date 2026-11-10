@@ -1415,8 +1415,8 @@ body:has(#asks:not([hidden]):not(.min)) .toasts{right:16px;left:auto}
 @media (max-width:900px){.nowline{width:calc(100% - 16px)}.nowall{display:none}}
 /* Message actions, on hover. */
 .thread .bubble{position:relative}
-.bact{position:absolute;top:4px;right:0;display:none;gap:2px;padding:2px;border:1px solid var(--line);border-radius:8px;background:var(--surface);box-shadow:var(--shadow-lg)}
-.thread .bubble:hover>.bact{display:flex}.thread .bubble.mine>.bact{top:6px;right:6px}
+.bact{position:absolute;top:-14px;right:0;z-index:2;display:none;gap:2px;padding:2px;border:1px solid var(--line);border-radius:8px;background:var(--surface);box-shadow:var(--shadow-lg)}
+.thread .bubble:hover>.bact{display:flex}.thread .bubble.mine>.bact{top:-14px;right:8px}
 .bact button{display:grid;place-items:center;width:26px;height:24px;border:0;border-radius:6px;background:none;color:var(--ink-2);cursor:pointer}.bact button:hover{background:var(--hover);color:var(--ink)}
 @media (hover:none){.bact{display:none!important}}
 /* An image the agent looked at: Show, then a thumbnail. */
@@ -1804,10 +1804,11 @@ export const SCRIPT = `
     if (a.dataset.busy) return; a.dataset.busy = "1"; const was = a.innerHTML; a.innerHTML = '<span>Fetching…</span>';
     try {
       const r = await fetch(a.getAttribute("href"), { credentials: "same-origin" });
-      if (!r.ok || !(r.headers.get("content-type") || "").startsWith("image/")) throw new Error();
+      if (!r.ok) { const why = new DOMParser().parseFromString(await r.text(), "text/html").querySelector("p.muted, p")?.textContent; throw new Error(why || ""); }
+      if (!(r.headers.get("content-type") || "").startsWith("image/")) throw new Error("");
       const lp = lpGet(); lp[a.dataset.lp] = new URL(r.url).pathname; try { localStorage.setItem("ic_lp", JSON.stringify(lp)); } catch {}
       stepImages(); a.click();
-    } catch { a.innerHTML = was; icToast("Couldn't fetch it from the agent's machine", true); }
+    } catch (err) { a.innerHTML = was; icToast((err && err.message) || "Couldn't fetch it from the agent's machine", true); }
     delete a.dataset.busy;
   }, true);
   // A diagram opens full-screen in the image viewer (pinch or zoom to read a big one).
