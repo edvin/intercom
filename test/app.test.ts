@@ -2388,6 +2388,20 @@ describe("editing in the code view", () => {
   });
 });
 
+describe("an agent's own text stays in the chat", () => {
+  test("hundreds of commands after it don't push what the agent wrote out of view, or out of storage", async () => {
+    const w = await standardWorld();
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=x1&name=core", { as: "bob" });
+    const post = (items: object[]) => w.request("/api/activity?session=x1", { as: "bob", method: "POST", body: JSON.stringify({ items }) });
+    await post([{ kind: "text", text: "| Size | Feel |\n|---|---|\n| small | warm |" }]);
+    for (let i = 0; i < 4; i++) await post(Array.from({ length: 100 }, (_, j) => ({ kind: "cmd", text: `npm test -- part ${i * 100 + j}` })));
+    const page = await (await w.request("/dashboard?view=agents&agent=bob/core", { as: "bob", cookie: true })).text();
+    assert.match(page, /<td>small<\/td><td>warm<\/td>/);
+    const n = (await w.db.prepare("SELECT COUNT(*) AS n FROM activity WHERE session_id = 'x1' AND kind = 'cmd'").first<{ n: number }>())!.n;
+    assert.equal(n, 300); // the steps are still capped
+  });
+});
+
 describe("handover notes", () => {
   test("an agent leaves notes for its name; the next session with the name gets them, others see the name is free, and taking it over hands them on", async () => {
     const w = await standardWorld();

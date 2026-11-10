@@ -315,7 +315,10 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   // What the agent is doing, mirrored from its transcript: only ever for your own agents.
   const { results: acts } =
     agent.member === me
-      ? await env.DB.prepare("SELECT * FROM activity WHERE member = ? AND session_id = ? ORDER BY id DESC LIMIT 200").bind(me, agent.session_id).all<Activity>()
+      ? await env.DB.prepare(
+          // Its latest steps, and its latest texts on their own (they'd fall out of a busy agent's step window).
+          "SELECT * FROM (SELECT * FROM activity WHERE member = ?1 AND session_id = ?2 AND kind != 'text' ORDER BY id DESC LIMIT 200) UNION ALL SELECT * FROM (SELECT * FROM activity WHERE member = ?1 AND session_id = ?2 AND kind = 'text' ORDER BY id DESC LIMIT 60) ORDER BY id DESC",
+        ).bind(me, agent.session_id).all<Activity>()
       : { results: [] as Activity[] };
   const marks = await deliveryMarks(env, me, rows);
   // Each writer's repo, so their !MR / #issue / commit refs link where they belong.

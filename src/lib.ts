@@ -870,6 +870,7 @@ export interface Activity {
 
 const ACTIVITY_KINDS = new Set(["prompt", "text", "cmd", "edit", "read", "tool", "loop", "job"]);
 export const ACTIVITY_KEEP = 300;
+export const TEXT_KEEP = 150;
 
 /** Store a batch of mirrored activity for one of `me`'s own sessions. */
 export async function addActivity(env: Env, me: string, sessionId: string, items: unknown): Promise<number> {
@@ -944,9 +945,14 @@ export async function addActivity(env: Env, me: string, sessionId: string, items
   }
   await env.DB.batch([
     ...rows.map((r) => env.DB.prepare("INSERT INTO activity (member, session_id, at, kind, text) VALUES (?, ?, ?, ?, ?)").bind(me, sessionId, r.at, r.kind, r.text)),
+    // Its steps (commands, reads, edits) up to ACTIVITY_KEEP; what it wrote (text) has an allowance of its own, so a
+    // busy agent's commands don't push its answers and tables out of the chat within minutes.
     env.DB.prepare(
-      "DELETE FROM activity WHERE member = ?1 AND session_id = ?2 AND id <= (SELECT id FROM activity WHERE member = ?1 AND session_id = ?2 ORDER BY id DESC LIMIT 1 OFFSET ?3)",
+      "DELETE FROM activity WHERE member = ?1 AND session_id = ?2 AND kind != 'text' AND id <= (SELECT id FROM activity WHERE member = ?1 AND session_id = ?2 AND kind != 'text' ORDER BY id DESC LIMIT 1 OFFSET ?3)",
     ).bind(me, sessionId, ACTIVITY_KEEP),
+    env.DB.prepare(
+      "DELETE FROM activity WHERE member = ?1 AND session_id = ?2 AND kind = 'text' AND id <= (SELECT id FROM activity WHERE member = ?1 AND session_id = ?2 AND kind = 'text' ORDER BY id DESC LIMIT 1 OFFSET ?3)",
+    ).bind(me, sessionId, TEXT_KEEP),
     env.DB.prepare("UPDATE sessions SET active_at = MAX(COALESCE(active_at, 0), ?) WHERE member = ? AND session_id = ?").bind(Math.max(...rows.map((r) => r.at)), me, sessionId),
     // A step after it started waiting: the question was answered in the terminal, so it no longer needs you. A channel
     // session's tool calls never reach the hub (its hooks take the fast path), so the mirror is what tells. The step the
