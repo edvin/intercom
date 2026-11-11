@@ -5,7 +5,7 @@ import { dismissStuck, moveStuck, releaseSenders, setNudge, wakeStuck } from "./
 import { CTX_STALE_MS, FIT_SINCE, compactAgent, compactOnStop, markCompacted, dismiss, myRows, newer, outOfUsage, restartAgent, setAuto, updateAgent, updateIdle } from "./upkeep";
 import { KEY_NAMES, type ScreenQuery, askScreen, drawScreen, screenReply, sendNow, stopAgent } from "./screen";
 import { answerBtw, pendingBtw } from "./btw";
-import { getAttachment, isImage, readImage, readable } from "./attachments";
+import { getAttachment, isImage, playable, readImage, readable, videoType } from "./attachments";
 import { fetchLocalFile, fileReply } from "./localfiles";
 import { readerPage } from "./reader";
 import { type Outcome, type Review, askReview, decideReview, findingsOf, moveReview } from "./reviews";
@@ -923,6 +923,30 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
     const buf = await readImage(env, a);
     if (!buf) return new Response("This attachment has expired", { status: 410 });
     const image = isImage(a.mime);
+    // A video plays in the page (gallery.ts, markdown.ts), seeking by byte ranges.
+    const video = videoType(a.name, a.mime);
+    if (playable(video)) {
+      const total = buf.byteLength;
+      const r = /^bytes=(\d*)-(\d*)$/.exec(req.headers.get("range") ?? "");
+      let [from, to] = [0, total - 1];
+      if (r) {
+        from = r[1] ? Number(r[1]) : Math.max(0, total - Number(r[2]));
+        to = r[1] && r[2] ? Math.min(Number(r[2]), total - 1) : total - 1;
+        if (from > to || from >= total) return new Response(null, { status: 416, headers: { "content-range": `bytes */${total}` } });
+      }
+      return new Response(r ? buf.slice(from, to + 1) : buf, {
+        status: r ? 206 : 200,
+        headers: {
+          "content-type": video!,
+          "content-disposition": `inline; filename="${a.name.replace(/"/g, "")}"`,
+          "accept-ranges": "bytes",
+          ...(r ? { "content-range": `bytes ${from}-${to}/${total}` } : {}),
+          "cache-control": "private, max-age=86400",
+          "x-content-type-options": "nosniff",
+          "content-security-policy": "default-src 'none'; media-src 'self'; sandbox",
+        },
+      });
+    }
     return new Response(buf, {
       headers: {
         "content-type": image ? a.mime : "application/octet-stream",

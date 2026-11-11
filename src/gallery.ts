@@ -2,7 +2,7 @@
 // thumbnails without the messages around them (a file that isn't an image shows its type, name and size). Filter by agent, project and kind; an image opens in the viewer
 // (← → step through the grid), a file opens in the reader or downloads. Kept as long as the files are (30 days).
 
-import { RETENTION_DAYS, isImage, readableName, size } from "./attachments";
+import { RETENTION_DAYS, VIDEO_EXTS, isImage, playable, readableName, size, videoType } from "./attachments";
 import { type Env, ago } from "./lib";
 import { esc, icon } from "./ui";
 
@@ -27,10 +27,13 @@ export async function galleryView(env: Env, me: string, url: URL): Promise<strin
   const p = url.searchParams;
   const agent = p.get("agent") ?? "";
   const project = p.get("project") ?? "";
-  const kind = p.get("kind") === "files" ? "files" : p.get("kind") === "all" ? "all" : "images";
+  const k = p.get("kind");
+  const kind = k === "files" || k === "all" || k === "videos" ? k : "images";
   const before = Number(p.get("before")) || 0;
   const since = Date.now() - RETENTION_DAYS * 86400_000;
   const IMG = "a.mime IN ('image/png','image/jpeg','image/webp','image/gif')";
+  // A video by its name or its type (videoType in attachments.ts).
+  const VID = `(a.mime LIKE 'video/%' OR ${VIDEO_EXTS.map((e) => `lower(a.name) LIKE '%.${e}'`).join(" OR ")})`;
 
   const where = [VISIBLE];
   const binds: unknown[] = [me, since];
@@ -43,7 +46,7 @@ export async function galleryView(env: Env, me: string, url: URL): Promise<strin
     binds.push(project);
     where.push(`m.channel = ?${binds.length}`);
   }
-  if (kind !== "all") where.push(kind === "images" ? IMG : `NOT ${IMG}`);
+  if (kind !== "all") where.push(kind === "images" ? IMG : kind === "videos" ? VID : `NOT ${IMG} AND NOT ${VID}`);
   if (before) {
     binds.push(before);
     where.push(`a.id < ?${binds.length}`);
@@ -57,11 +60,11 @@ export async function galleryView(env: Env, me: string, url: URL): Promise<strin
       .all<Item>(),
     // What the filters offer: every agent and project with something in the last 30 days, whatever is picked.
     env.DB.prepare(
-      `SELECT m.sender, m.sender_agent, m.channel, COUNT(*) AS n, SUM(${IMG}) AS imgs FROM attachments a JOIN messages m ON m.id = a.message_id
+      `SELECT m.sender, m.sender_agent, m.channel, COUNT(*) AS n, SUM(${IMG}) AS imgs, SUM(${VID}) AS vids FROM attachments a JOIN messages m ON m.id = a.message_id
        WHERE ${VISIBLE} GROUP BY m.sender, m.sender_agent, m.channel`,
     )
       .bind(me, since)
-      .all<{ sender: string; sender_agent: string; channel: string; n: number; imgs: number }>(),
+      .all<{ sender: string; sender_agent: string; channel: string; n: number; imgs: number; vids: number }>(),
   ]);
   const more = items.length > PAGE;
   const shown = items.slice(0, PAGE);
@@ -75,6 +78,7 @@ export async function galleryView(env: Env, me: string, url: URL): Promise<strin
   }
   const total = facets.reduce((s, f) => s + f.n, 0);
   const imgs = facets.reduce((s, f) => s + (f.imgs ?? 0), 0);
+  const vids = facets.reduce((s, f) => s + (f.vids ?? 0), 0);
   // Your own agents first, then everyone else's, each by name.
   const agentKeys = [...agents.keys()].sort((a, b) => Number(!a.startsWith(`${me}/`)) - Number(!b.startsWith(`${me}/`)) || a.localeCompare(b));
   if (agent && !agents.has(agent)) agentKeys.unshift(agent);
@@ -89,12 +93,12 @@ export async function galleryView(env: Env, me: string, url: URL): Promise<strin
   };
   const who = (k: string) => (k.startsWith(`${me}/`) ? k.slice(me.length + 1) : k);
   const opt = (v: string, label: string, on: boolean) => `<option value="${esc(v)}"${on ? " selected" : ""}>${esc(label)}</option>`;
-  const seg = (k: "images" | "files" | "all", label: string, ico: string) =>
+  const seg = (k: "images" | "videos" | "files" | "all", label: string, ico: string) =>
     `<a href="${esc(link({ kind: k === "images" ? "" : k, before: "" }))}"${kind === k ? ' class="on"' : ""}>${icon(ico, 13)}<span>${label}</span></a>`;
 
   const filters = `<form class="galbar" method="get" action="/dashboard" data-native>
     <input type="hidden" name="view" value="files">${kind === "images" ? "" : `<input type="hidden" name="kind" value="${kind}">`}
-    <nav class="seg" aria-label="Kind">${seg("images", "Images", "image")}${seg("files", "Files", "file")}${seg("all", "All", "layers")}</nav>
+    <nav class="seg" aria-label="Kind">${seg("images", "Images", "image")}${seg("videos", "Videos", "film")}${seg("files", "Files", "file")}${seg("all", "All", "layers")}</nav>
     <select name="agent" aria-label="Agent" onchange="this.form.requestSubmit()">${opt("", "All agents", !agent)}${agentKeys.map((k) => opt(k, who(k), k === agent)).join("")}</select>
     <select name="project" aria-label="Project" onchange="this.form.requestSubmit()">${opt("", "All projects", !project)}${projectKeys.map((k) => opt(k, `#${k}`, k === project)).join("")}</select>
     ${agent || project ? `<a class="btn ghost sm" href="${esc(link({ agent: "", project: "", before: "" }))}" title="Clear the filters">${icon("x", 13)}<span class="lbl">Clear</span></a>` : ""}
@@ -106,18 +110,21 @@ export async function galleryView(env: Env, me: string, url: URL): Promise<strin
     const tip = esc(`${f.name} · ${from}`);
     if (isImage(f.mime))
       return `<a class="att gtile" href="/attachment/${f.id}" title="${tip}" data-name="${esc(f.name)}"><img src="/attachment/${f.id}" alt="${esc(f.name)}" loading="lazy" decoding="async"></a>`;
+    // A video: its first frame, a play button and its length; it plays in the viewer (← → step through the grid).
+    if (playable(videoType(f.name, f.mime)))
+      return `<a class="attv gtile gvid" href="/attachment/${f.id}" data-video data-name="${esc(f.name)}" title="${esc(`${f.name} · ${size(f.bytes)} · ${from}`)}"><video src="/attachment/${f.id}#t=0.1" preload="metadata" muted playsinline></video><span class="attv-play">▶</span><span class="attv-n">${esc(f.name)}</span></a>`;
     const ext = (/\.([a-z0-9]{1,8})$/i.exec(f.name)?.[1] ?? "file").toUpperCase();
     const stem = f.name.replace(/\.[a-z0-9]{1,8}$/i, "");
     const href = readableName(f.name) ? `/attachment/${f.id}/view` : `/attachment/${f.id}`;
     return `<a class="gtile gfile" href="${href}"${readableName(f.name) ? ' target="_blank" rel="noopener"' : ` download="${esc(f.name)}"`} title="${esc(`${f.name} · ${size(f.bytes)} · ${from}`)}">${icon("file", 26)}<span class="gext">${esc(ext)}</span><span class="gname">${esc(stem)}</span><span class="gsize">${esc(size(f.bytes))}</span></a>`;
   };
 
-  const empty = `<div class="empty galempty">${icon(kind === "files" ? "file" : "image", 30)}<div>${
-    total === 0 ? "No files from agents in the last 30 days." : agent || project ? "Nothing here with these filters." : kind === "images" ? "No images from agents; try Files." : "No files of this kind."
+  const empty = `<div class="empty galempty">${icon(kind === "files" ? "file" : kind === "videos" ? "film" : "image", 30)}<div>${
+    total === 0 ? "No files from agents in the last 30 days." : agent || project ? "Nothing here with these filters." : kind === "images" ? "No images from agents; try Files." : kind === "videos" ? "No videos from agents in the last 30 days." : "No files of this kind."
   }</div><div class="small muted">Agents share screenshots, renders and reports with <code>share_file</code>; they show here for ${RETENTION_DAYS} days.</div></div>`;
 
   return `<div class="pane-in galpane">
-    <header class="flhead"><div><h1>Files from agents</h1><p class="muted">${total ? `${imgs} image${imgs === 1 ? "" : "s"} and ${total - imgs} file${total - imgs === 1 ? "" : "s"} in the last ${RETENTION_DAYS} days.` : `Nothing shared in the last ${RETENTION_DAYS} days.`}</p></div></header>
+    <header class="flhead"><div><h1>Files from agents</h1><p class="muted">${total ? `${imgs} image${imgs === 1 ? "" : "s"}, ${vids} video${vids === 1 ? "" : "s"} and ${total - imgs - vids} other file${total - imgs - vids === 1 ? "" : "s"} in the last ${RETENTION_DAYS} days.` : `Nothing shared in the last ${RETENTION_DAYS} days.`}</p></div></header>
     ${filters}
     ${shown.length ? `<div class="gal" data-gallery>${shown.map(tile).join("")}</div>` : empty}
     ${more || before ? `<nav class="galmore">${before ? `<a class="btn ghost sm" href="${esc(link({ before: "" }))}">${icon("back", 13)}Newest</a>` : ""}${more ? `<a class="btn sm" href="${esc(link({ before: String(shown[shown.length - 1].id) }))}">Older${icon("arrow", 13)}</a>` : ""}</nav>` : ""}

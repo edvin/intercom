@@ -1,5 +1,5 @@
 import { linkCode, linkRefs } from "./refs";
-import { readableName } from "./attachments";
+import { playable, readableName, videoType } from "./attachments";
 
 // Message text → HTML, safely: everything is escaped first, then the Markdown agents write (what Claude Code and
 // Codex render in a terminal) is turned into a small set of elements, and ANSI colour codes from pasted terminal
@@ -220,7 +220,10 @@ export function md(text: string, refs?: string | null, files?: string | null, co
       `<a class="att" href="/attachment/${id}" target="_blank" rel="noopener" title="${name || `image #${id}`}"><img src="/attachment/${id}" alt="${name || `image #${id}`}" loading="lazy"></a>`,
     )
     .replace(/\[📎 file #(\d+):\s?([^\]<·]*?)\s*(?:·\s*([^\]<]*))?\]/g, (_, id: string, name: string, size = "") =>
-      readableName(name)
+      // A video: its first frame with a play button; it plays in the viewer.
+      playable(videoType(name))
+        ? `<a class="attv" href="/attachment/${id}" data-video data-name="${name}" title="Play ${name}"><video src="/attachment/${id}#t=0.1" preload="metadata" muted playsinline></video><span class="attv-play">▶</span><span class="attv-n">${name}${size ? ` · ${size}` : ""}</span></a>`
+        : readableName(name)
         ? `<a class="attf" href="/attachment/${id}/view" target="_blank" rel="noopener" title="Read ${name}"><span class="attf-i">${ICON_FILE}</span><span class="attf-n">${name}</span>${size ? `<span class="attf-s">${size}</span>` : ""}</a>`
         : `<a class="attf" href="/attachment/${id}" download="${name}" title="Download ${name}"><span class="attf-i">⤓</span><span class="attf-n">${name}</span>${size ? `<span class="attf-s">${size}</span>` : ""}</a>`,
     );

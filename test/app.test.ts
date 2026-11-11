@@ -1766,6 +1766,35 @@ describe("share_file", () => {
     assert.match(await (await w.request("/dashboard?view=agents&agent=bob%2Fcore", { as: "bob", cookie: true })).text(), /href="\/dashboard\?view=files&amp;agent=bob%2Fcore"/);
   });
 
+  test("videos from agents: their own tab, a player in the chat and the grid, served inline with byte ranges", async () => {
+    const w = await standardWorld();
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=gv1&name=core", { as: "bob" });
+    const s = { id: "gv1", project: "billing-api" };
+    const data = Buffer.from("0123456789").toString("base64");
+    await w.ok("bob", "share_file", { path: "/w/intro.mp4", message: "The intro", _file: { name: "intro.mp4", mime: "application/octet-stream", data } }, s); // #1
+    await w.ok("bob", "share_file", { path: "/w/raw.mkv", _file: { name: "raw.mkv", mime: "application/octet-stream", data } }, s); // #2: not one a browser plays
+    await w.ok("bob", "share_file", { path: "/w/build.log", _file: { name: "build.log", mime: "text/plain", data } }, s); // #3
+    const view = async (q: string) => (await w.request(`/dashboard?view=files${q}`, { as: "bob", cookie: true })).text();
+    const vids = await view("&kind=videos");
+    assert.match(vids, /<a class="attv gtile gvid" href="\/attachment\/1" data-video data-name="intro\.mp4"[^>]*><video src="\/attachment\/1#t=0\.1" preload="metadata"/);
+    assert.match(vids, /href="\/attachment\/2" download="raw\.mkv"/);
+    assert.doesNotMatch(vids, /build\.log/);
+    assert.match(vids, /0 images, 2 videos and 1 other file/);
+    assert.doesNotMatch(await view("&kind=files"), /intro\.mp4|raw\.mkv/);
+    assert.match(await (await w.request("/dashboard?view=agents&agent=bob%2Fcore", { as: "bob", cookie: true })).text(), /<a class="attv" href="\/attachment\/1" data-video[^>]*><video/);
+    const whole = await w.request("/attachment/1", { as: "bob", cookie: true });
+    assert.equal(whole.headers.get("content-type"), "video/mp4");
+    assert.match(whole.headers.get("content-disposition")!, /^inline/);
+    assert.equal(whole.headers.get("accept-ranges"), "bytes");
+    const part = await w.request("/attachment/1", { as: "bob", cookie: true, headers: { range: "bytes=2-5" } });
+    assert.equal(part.status, 206);
+    assert.equal(part.headers.get("content-range"), "bytes 2-5/10");
+    assert.equal(await part.text(), "2345");
+    assert.equal((await w.request("/attachment/1", { as: "bob", cookie: true, headers: { range: "bytes=20-" } })).status, 416);
+    // One a browser can't play only downloads.
+    assert.equal((await w.request("/attachment/2", { as: "bob", cookie: true })).headers.get("content-type"), "application/octet-stream");
+  });
+
   test("tickets & MRs: an agent publishes where its tickets and MRs stand with track, and the dashboard groups them by who they wait on", async () => {
     const w = await standardWorld();
     await w.request("/api/hook?event=SessionStart&project=billing-api&session=tk1&name=merginator", { as: "bob" });

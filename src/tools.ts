@@ -160,7 +160,7 @@ export const tools: Tool[] = [
   {
     name: "share_file",
     description:
-      "Share a file from this machine (an image, screenshot, PDF, log, build output, archive, up to 10 MB) so it shows in the intercom: by default to your user, in the dashboard, where images preview and other files download. Use it when your user asks to see something you made or found, e.g. a screenshot or a generated report, or to hand a file to another agent (to: \"anna/shop\"), which saves it on its machine with save_attachment. Same addressing as post (to / channel). Kept 30 days.",
+      "Share a file from this machine (an image, screenshot, PDF, log, build output, archive, up to 10 MB) so it shows in the intercom: by default to your user, in the dashboard, where images preview, videos (.mp4, .webm, .mov) play and other files download. Use it when your user asks to see something you made or found, e.g. a screenshot or a generated report, or to hand a file to another agent (to: \"anna/shop\"), which saves it on its machine with save_attachment. Same addressing as post (to / channel). Kept 30 days.",
     inputSchema: {
       type: "object",
       properties: {

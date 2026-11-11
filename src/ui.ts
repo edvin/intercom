@@ -11,7 +11,7 @@ export const html = (body: string, status = 200, headers: Record<string, string>
     headers: {
       "content-type": "text/html; charset=utf-8",
       "content-security-policy":
-        "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline' 'self'; worker-src 'self'; manifest-src 'self'; font-src 'self'; img-src 'self' data: blob:; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+        "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline' 'self'; worker-src 'self'; manifest-src 'self'; font-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
       "x-content-type-options": "nosniff",
       "referrer-policy": "same-origin",
       ...headers,
@@ -69,6 +69,7 @@ const ICONS: Record<string, string> = {
   eyeOff: '<path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49"/><path d="M14.084 14.158a3 3 0 0 1-4.242-4.242"/><path d="M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143"/><path d="m2 2 20 20"/>',
   messages: '<path d="M14 9a2 2 0 0 1-2 2H6l-4 4V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z"/><path d="M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1"/>',
   paperclip: '<path d="m16 6-8.414 8.586a2 2 0 0 0 2.829 2.829l8.414-8.586a4 4 0 1 0-5.657-5.657l-8.379 8.551a6 6 0 1 0 8.485 8.485l8.379-8.551"/>',
+  film: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M7 3v18M17 3v18M3 7.5h4M17 7.5h4M3 12h18M3 16.5h4M17 16.5h4"/>',
   image: '<rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>',
   terminal: '<path d="m4 17 6-6-6-6"/><path d="M12 19h8"/>',
   at: '<circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8"/>',
@@ -897,6 +898,14 @@ pre.term .b8{background:#555a6e}pre.term .b9{background:#d4505a}pre.term .b10{ba
 .gtile{position:relative;display:block;aspect-ratio:1;margin:0;border-radius:10px;overflow:hidden;border:1px solid var(--line);background:var(--surface-2)}
 .gal .att.gtile img{width:100%;height:100%;max-width:none;max-height:none;object-fit:cover;border:0;border-radius:0;transition:transform .25s ease}
 .gtile:hover{border-color:var(--line-strong)}.gtile:hover img{transform:scale(1.035)}.gtile:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+/* a video an agent shared: its first frame with a play button (markdown.ts, gallery.ts); it plays in the viewer */
+.attv{position:relative;display:inline-block;width:min(420px,100%);aspect-ratio:16/9;margin:6px 0;border-radius:10px;overflow:hidden;background:#0b0d12;border:1px solid var(--line);vertical-align:top;text-decoration:none}
+.attv video{width:100%;height:100%;object-fit:contain;display:block;pointer-events:none}
+.attv-play{position:absolute;left:50%;top:50%;width:48px;height:48px;margin:-24px 0 0 -24px;display:grid;place-items:center;padding-left:3px;border-radius:50%;background:rgba(0,0,0,.55);color:#fff;font-size:18px;box-shadow:0 0 0 1px rgba(255,255,255,.25);transition:transform .15s,background .15s}
+.attv:hover .attv-play{transform:scale(1.08);background:var(--accent)}
+.attv-n{position:absolute;left:0;right:0;bottom:0;padding:16px 10px 6px;font:500 11.5px "Geist",system-ui,sans-serif;color:#fff;background:linear-gradient(transparent,rgba(0,0,0,.7));white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gal .attv{width:auto;margin:0;aspect-ratio:1;border-radius:10px;background:#0b0d12}.gal .attv video{object-fit:cover}
+.imgview .ivbody video{max-width:100%;max-height:100%;outline:none;background:#000}
 .gfile{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:var(--mute);text-decoration:none}.gfile:hover{color:var(--accent)}
 .gext{font:600 11px/1 "JetBrains Mono","Geist Mono",ui-monospace,monospace;letter-spacing:.06em;color:var(--ink-2)}.gfile{gap:6px;padding:12px}.gname{max-width:100%;font-size:12px;line-height:1.35;color:var(--ink);text-align:center;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}.gsize{font-size:11px;color:var(--mute)}.gfile:hover .gname{color:var(--accent)}
 @media (max-width:640px){.gfile{padding:6px;gap:3px}.gfile .i{width:18px;height:18px}.gname{font-size:10.5px;-webkit-line-clamp:3}.gsize{font-size:10px}}
@@ -2410,27 +2419,31 @@ export const SCRIPT = `
   // An image in a message opens in a viewer over the page, not as its own page: the dashboard installed as an app on a
   // phone has no back button to come back from one. Close with ×, a tap beside it, Esc, or back (gesture or button).
   document.addEventListener("click", (e) => {
-    const a = e.target.closest && e.target.closest("a.att, a.attl");
+    const a = e.target.closest && e.target.closest("a.att, a.attl, a.attv");
     if (!a || e.metaKey || e.ctrlKey || e.shiftKey || e.button) return;
     e.preventDefault();
     let v = document.getElementById("imgview");
     if (!v) {
       v = document.createElement("dialog");
       v.id = "imgview"; v.className = "imgview"; v.setAttribute("autofocus", ""); v.tabIndex = -1;
-      v.innerHTML = '<div class="ivbar"><span class="ivname"></span><a class="btn ghost sm icon ivdl" title="Download" download>${icon("download", 18)}</a><button type="button" class="btn ghost sm icon ivx" title="Close">${icon("x", 22)}</button></div><div class="ivbody"><img alt=""></div>';
+      v.innerHTML = '<div class="ivbar"><span class="ivname"></span><a class="btn ghost sm icon ivdl" title="Download" download>${icon("download", 18)}</a><button type="button" class="btn ghost sm icon ivx" title="Close">${icon("x", 22)}</button></div><div class="ivbody"><img alt=""><video controls playsinline hidden></video></div>';
       document.body.appendChild(v);
       v.querySelector(".ivx").onclick = () => v.close();
-      v.querySelector(".ivbody").onclick = (ev) => { if (ev.target.tagName !== "IMG") v.close(); };
+      v.querySelector(".ivbody").onclick = (ev) => { if (ev.target.tagName !== "IMG" && ev.target.tagName !== "VIDEO") v.close(); };
+      v.addEventListener("close", () => { const vid = v.querySelector("video"); vid.pause(); vid.removeAttribute("src"); vid.load(); });
       v.addEventListener("close", () => { if (history.state && history.state.iv) { v._popping = true; history.back(); } });
       window.addEventListener("popstate", () => { if (v._popping) { setTimeout(() => (v._popping = false), 0); return; } if (v.open) { v._popping = true; v.close(); setTimeout(() => (v._popping = false), 0); } });
     }
     // From the files grid (gallery.ts), ← and → step through its images.
     const grid = a.closest("[data-gallery]");
-    v._list = grid ? [...grid.querySelectorAll("a.att")] : [a];
+    v._list = grid ? [...grid.querySelectorAll("a.att, a.attv")] : [a];
     v._at = v._list.indexOf(a);
     const show = (el) => {
       const href = el.getAttribute("href"), name = el.dataset.name || el.getAttribute("title") || el.textContent.trim() || "image";
-      v.querySelector("img").src = href; v.querySelector("img").alt = name;
+      const vid = v.querySelector("video"), img = v.querySelector("img"), isVid = "video" in el.dataset;
+      img.hidden = isVid; vid.hidden = !isVid;
+      if (isVid) { img.removeAttribute("src"); vid.src = href; vid.play().catch(() => {}); }
+      else { vid.pause(); vid.removeAttribute("src"); img.src = href; img.alt = name; }
       v.querySelector(".ivname").textContent = name + (v._list.length > 1 ? "  ·  " + (v._at + 1) + " / " + v._list.length : "");
       v.querySelector(".ivdl").href = href; v.querySelector(".ivdl").setAttribute("download", name);
     };

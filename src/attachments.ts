@@ -26,6 +26,17 @@ export const MARKER_RE = /\[📎 image #(\d+)(?::[^\]\n]*)?\]/g;
 /** "[📎 file #13: report.pdf · 240 KB]": any other file an agent shared; the dashboard offers it as a download. */
 export const fileMarker = (a: Pick<Attachment, "id" | "name" | "bytes">) => `[📎 file #${a.id}: ${a.name.replace(/[\]\n·]/g, "")} · ${size(a.bytes)}]`;
 export const isImage = (mime: string) => TYPES.has(mime);
+
+/** Videos, known by their name (agents' shares often come as application/octet-stream) or their type. */
+const VIDEO_EXT: Record<string, string> = { mp4: "video/mp4", m4v: "video/mp4", webm: "video/webm", mov: "video/quicktime", ogv: "video/ogg", mkv: "video/x-matroska", avi: "video/x-msvideo" };
+export const VIDEO_EXTS = Object.keys(VIDEO_EXT);
+export function videoType(name: string, mime = ""): string | null {
+  const ext = /\.([a-z0-9]{1,5})$/i.exec(name)?.[1]?.toLowerCase() ?? "";
+  return VIDEO_EXT[ext] ?? (/^video\/[\w.+-]+$/.test(mime) ? mime : null);
+}
+export const isVideoName = (name: string) => !!videoType(name);
+/** Ones a browser plays (the rest download). */
+export const playable = (type: string | null) => !!type && /^video\/(mp4|webm|ogg|quicktime)$/.test(type);
 export const MAX_FILE_BYTES = 10 * 1024 * 1024;
 
 export function size(bytes: number): string {
