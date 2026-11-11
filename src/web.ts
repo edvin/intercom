@@ -8,6 +8,7 @@ import { bargeIn, screenDialog } from "./screen";
 import { type Delivery, type Env, type Lock, deliveryMarks, issueToken, type Message, type Project, type Proposal, DELEGATE_PER_HOUR, LIVE, MAX_BODY, MEMBER_OF, RECEIVES, activeLocks, address, authenticate, coMembers, isAdmin, myProjects, normChannel, postMessage, roleIn, sha256, workingOn, newToken, HANDLE, limit, UserError, unsend, ago } from "./lib";
 import { agentsView } from "./agents";
 import { askBtw } from "./btw";
+import { parseSubs, subMessage } from "./subagents";
 import { linkImages, markerFor, storeImages } from "./attachments";
 import { type Decision, type Handoff, OPEN_HANDOFF, findDecisions, listHandoffs } from "./records";
 import { pendingApprovals } from "./approvals";
@@ -254,6 +255,12 @@ export async function handleAction(req: Request, env: Env, me: string, action: s
       u.searchParams.set("err", (e as Error).message.split("\n")[0]);
     }
     return redirect(u.pathname + u.search);
+  }
+  // To one of your agent's subagents (its tab in the chat): the agent gets it, saying which one, and passes it on.
+  if (action === "post" && f("sub") && f("session") && text.trim()) {
+    const row = await env.DB.prepare("SELECT subagents FROM sessions WHERE member = ? AND session_id = ?").bind(me, f("session")).first<{ subagents: string | null }>();
+    const sub = parseSubs(row?.subagents).find((x) => x.id === f("sub"));
+    if (sub) calls.post![1].message = subMessage(sub, text);
   }
   const call = calls[action];
   const tool = call && tools.find((t) => t.name === call[0]);

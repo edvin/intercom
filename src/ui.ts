@@ -818,6 +818,25 @@ body:has(.ide) .top .in{max-width:none;padding:8px 14px}
 .substeps{display:flex;flex-direction:column;max-height:260px;overflow:auto}.subresult{font-size:13px}
 .submore>summary{color:var(--mute);font-size:12px}
 .tsub{display:inline-flex;align-items:center;gap:2px;font-size:10.5px;font-weight:650;color:var(--accent)}
+/* tabs over an agent's chat: the agent, then each subagent (subview.ts, agents.ts) */
+.subtabs{flex:none;display:flex;gap:4px;padding:6px 14px;border-bottom:1px solid var(--line);overflow-x:auto;scrollbar-width:thin;background:var(--bg)}.subtabs[hidden]{display:none}
+.subtabs a{flex:none;display:inline-flex;align-items:center;gap:6px;max-width:260px;padding:4px 10px 4px 7px;border-radius:8px;border:1px solid transparent;font-size:12.5px;font-weight:560;color:var(--ink-2);text-decoration:none;white-space:nowrap}
+.subtabs a>span:last-child{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.subtabs a:hover{background:var(--surface-2);color:var(--ink)}
+.subtabs a.on{background:var(--surface);border-color:var(--line-strong);color:var(--ink);box-shadow:var(--shadow)}
+.subtabs .av{width:18px;height:18px;font-size:9px}
+.subhead{display:flex;align-items:center;gap:10px;padding:10px 12px;margin:2px 0 10px;border:1px solid var(--line);border-radius:12px;background:var(--surface);font-family:"Geist",system-ui,sans-serif}
+.subhead b{font-size:14px}.subhead .subspin,.subhead .subend{width:16px;height:16px}
+.bubble.subask,.bubble.subans{align-self:stretch;max-width:none}
+.bubble.subask .rhd,.bubble.subans .rhd{display:flex;align-items:center;gap:6px;font:600 12px "Geist",system-ui,sans-serif;color:var(--ink-2);margin-bottom:4px}
+.bubble .subav{display:inline-grid;place-items:center;width:18px;height:18px;border-radius:50%;background:var(--accent-soft);color:var(--accent)}
+.thread.term .bubble.subask{border-left:2px dashed color-mix(in srgb,var(--accent) 45%,transparent);padding-left:12px;margin:6px 0;background:color-mix(in srgb,var(--accent) 4%,transparent)}
+.thread.term .bubble.subans{border-left:2px solid color-mix(in srgb,var(--green) 55%,transparent);padding-left:12px;margin:8px 0}
+.thread.term .bubble.subask::before,.thread.term .bubble.subans::before{content:none}
+.subworking{padding:6px 0}.subworking .subspin{justify-self:center;margin-top:3px}
+.subto{display:inline-flex;align-items:center;gap:4px;margin:0 0 4px;padding:1px 7px;border-radius:6px;font:600 11.5px "Geist",system-ui,sans-serif;background:var(--accent-soft);color:var(--accent)!important;text-decoration:none!important}
+.subopen{align-self:flex-start;gap:5px}
+@media (max-width:640px){.subtabs{padding:6px 8px}.subtabs a{max-width:190px}}
 @media (max-width:640px){.subs{margin:8px 8px 0;max-height:36vh}.subhd{padding:7px 10px}.submeta{display:none}.subag[open] .submeta{display:inline}.subbody{padding-left:12px}}
 .scrfit{gap:5px}.scrfit[aria-pressed=true]{background:var(--accent-soft);color:var(--accent);border-color:color-mix(in srgb,var(--accent) 40%,transparent)}
 .scrlive{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--green)}.scrlive .dot{width:7px;height:7px;border-radius:50%;background:var(--green);animation:pulse 1.8s infinite}

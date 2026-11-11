@@ -20,7 +20,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const VERSION = "0.12.51"; // kept in step with .claude-plugin/plugin.json (a test checks)
+const VERSION = "0.12.52"; // kept in step with .claude-plugin/plugin.json (a test checks)
 const DIR = path.join(os.homedir(), ".claude", "intercom");
 const CONFIG = path.join(DIR, "config");
 function readConf() {
@@ -530,7 +530,7 @@ function summarizeLine(line, side = false) {
     const c = d.message.content;
     const blocks = typeof c === "string" ? [{ type: "text", text: c }] : Array.isArray(c) ? c : [];
     for (const b of blocks) {
-      if (b.type === "text" && b.text?.trim() && !isNoise(b.text)) out.push({ at, kind: d.type === "assistant" ? "text" : "prompt", text: clip(b.text, d.type === "assistant" ? TEXT_MAX : 240) });
+      if (b.type === "text" && b.text?.trim() && !isNoise(b.text)) out.push({ at, kind: d.type === "assistant" ? "text" : "prompt", text: clip(b.text, d.type === "assistant" ? TEXT_MAX : side ? 1500 : 240) });
       // Loops: the dashboard shows what the agent scheduled. A cron job's id comes in its tool result.
       // A command that runs in the background (asked for, or moved there after a while): a job until it ends.
       if (b.type === "tool_result" && bashCalls.has(b.tool_use_id)) {
@@ -656,7 +656,7 @@ function dirOf(line) {
 // a .meta.json with its type and description). Each is followed like the session's own: its start (with what it was
 // asked), its steps, and its end (with its answer), sent as activity items of kind "sub" (the hub's subagents.ts).
 const subs = { dir: null, first: true, files: new Map() };
-const SUB_STEPS = new Set(["text", "cmd", "edit", "read", "tool"]);
+const SUB_STEPS = new Set(["text", "cmd", "edit", "read", "tool", "prompt"]);
 const subItem = (at, ev) => ({ at, kind: "sub", text: JSON.stringify(ev) });
 const textOf = (c) => (typeof c === "string" ? c : Array.isArray(c) ? c.filter((b) => b.type === "text").map((b) => b.text ?? "").join("\n") : "");
 

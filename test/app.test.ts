@@ -1163,6 +1163,37 @@ describe("activity mirroring", () => {
     assert.doesNotMatch(theirs, /Find the retry logic|id="subs"/);
   });
 
+  test("subagent tabs: each subagent has its own view, and you can write to it through its agent", async () => {
+    const w = await standardWorld();
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=tab1&client=claude", { as: "bob" });
+    await w.ok("bob", "set_name", { name: "alder" }, { id: "tab1", project: "billing-api" });
+    const ev = (e: object, at: number) => ({ at, kind: "sub", text: JSON.stringify(e) });
+    const t0 = Date.now() - 5 * 60_000;
+    await w.request("/api/activity?session=tab1", { method: "POST", as: "bob", body: JSON.stringify({ items: [
+      ev({ op: "start", id: "a1", type: "Explore", desc: "Find the retry logic", prompt: "Where do we retry failed charges?" }, t0),
+      ev({ op: "step", id: "a1", kind: "cmd", text: "grep -rn retry src/" }, t0 + 1000),
+      ev({ op: "end", id: "a1", status: "done", result: "In **src/charge.ts**" }, t0 + 2000),
+    ] }) });
+    const page = (q = "") => w.request(`/dashboard?view=agents&agent=bob/alder${q}`, { as: "bob", cookie: true }).then((r) => r.text());
+    const main = await page();
+    assert.match(main, /<nav class="subtabs" id="subtabs" data-region[^>]*>[\s\S]*class="on"[\s\S]*href="[^"]*&amp;sub=a1|<nav class="subtabs" id="subtabs" data-region[^>]*>[\s\S]*class="on"[\s\S]*href="[^"]*&sub=a1/);
+    const tab = await page("&sub=a1");
+    assert.match(tab, /class="subhead"[\s\S]*Find the retry logic[\s\S]*Explore · done/);
+    assert.match(tab, /class="bubble md subask"[\s\S]*Where do we retry failed charges\?/);
+    assert.match(tab, /Its answer[\s\S]*<b>src\/charge\.ts<\/b>/);
+    assert.match(tab, /<input type="hidden" name="sub" value="a1">/);
+    // Written in its tab: the agent gets it, saying which subagent and how to pass it on; it shows in the tab and,
+    // tagged, in the agent's chat.
+    await w.form("/action/post", "bob", { to: "bob/alder", session: "tab1", sub: "a1", message: "Check the webhooks too", back: "/dashboard" });
+    const got = await (await w.request("/api/hook?event=UserPromptSubmit&project=billing-api&session=tab1", { as: "bob" })).text();
+    assert.match(got, /For your subagent “Find the retry logic” \(agent id a1\), from the dashboard:[\s\S]*Check the webhooks too[\s\S]*SendMessage \(to: \\?"a1\\?"\)/);
+    assert.match(await page("&sub=a1"), /class="bubble md mine"[^>]*><p>Check the webhooks too<\/p>[\s\S]*through alder/);
+    assert.match(await page(), /class="subto"[^>]*>[\s\S]*to Find the retry logic<\/a>/);
+    // A message after its answer: it's running again.
+    await w.request("/api/activity?session=tab1", { method: "POST", as: "bob", body: JSON.stringify({ items: [ev({ op: "step", id: "a1", kind: "prompt", text: "Also check the webhooks" }, Date.now())] }) });
+    assert.match(await page("&sub=a1"), /Explore · running/);
+  });
+
   test("stored for your own sessions, shown only to you, capped", async () => {
     const w = await standardWorld();
     await w.request("/api/hook?event=SessionStart&project=billing-api&session=mir1&client=claude", { as: "bob" });

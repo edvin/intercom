@@ -11,12 +11,12 @@ import { chatAsks } from "./asks";
 import { AUTO_UPDATE_SINCE, PLUGIN_VERSION, outdated } from "./version";
 import { activeLoops, describe, parseLoops } from "./loops";
 import { activeJobs, duration, jobName, parseJobs } from "./jobs";
-import { parseSubs, subSteps } from "./subagents";
+import { STEPS_KEEP, type Sub, parseSubMessage, parseSubs, subSteps } from "./subagents";
 import { commandStep, fileStep } from "./steps";
 import { getNote } from "./notes";
 import { NEW_AGENT_SINCE } from "./terminals";
 import { newer } from "./upkeep";
-import { subMark, subsRegion } from "./subview";
+import { subMark, subMarkOf, subsRegion, subWhen } from "./subview";
 import { trackedNeedsYou } from "./tracked";
 import { BTW_TIMEOUT, NO_MOD, btwFor, compactable, modAnswers } from "./btw";
 import { type Activity, type Env, type Message, DELEGATE_PER_HOUR, LIVE, address, ago, deliveryMarks, short, hostNames, myProjects } from "./lib";
@@ -401,7 +401,10 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
       const unsend = open
         ? `<span class="unsend">${st === "held" ? ub("send", "Send", "Send it as it is") : ""}${st === "waiting" && agent.screen === "keys" && agent.member === me ? ub("now", "Barge in", "Send it now: typed into its terminal and read at its next step, not after its turn") : ""}${ub("edit", "Edit", "Edit it: no agent gets it until you send it again")}${ub("cancel", "Cancel", "Take it back: it won't be delivered")}</span>`
         : "";
-      return `<div class="bubble md ${fromMe ? "mine" : ""}${st === "held" || st === "cancelled" ? ` ${st}` : ""}" data-mid="${m.id}"${open ? ` data-raw="${esc(m.body)}"` : ""} data-who="${esc(agent.label)}" style="--h:${agentHue(agent.member, agent.label)}">${md(m.body, fromMe ? agent.origin : originOf(m.sender, m.sender_agent), m.sender === me && m.sender_agent === agent.label ? files : null, fromMe ? null : codeOf(m.sender, m.sender_agent))}<span class="when">${m.via ? `<span class="via">via ${esc(m.via)}</span>` : ""}${time(m.created_at)}${mark}${speak}${unsend}</span></div>`;
+      return `<div class="bubble md ${fromMe ? "mine" : ""}${st === "held" || st === "cancelled" ? ` ${st}` : ""}" data-mid="${m.id}"${open ? ` data-raw="${esc(m.body)}"` : ""} data-who="${esc(agent.label)}" style="--h:${agentHue(agent.member, agent.label)}">${(() => {
+        const sm = fromMe ? parseSubMessage(m.body) : null;
+        return sm ? `<a class="subto" href="/dashboard?view=agents&amp;agent=${encodeURIComponent(key(agent))}&amp;sub=${encodeURIComponent(sm.id)}" title="Sent to its subagent, through ${esc(agent.label)}">${icon("users", 11)}to ${esc(sm.desc || "its subagent")}</a>${md(sm.text, agent.origin)}` : "";
+      })() || md(m.body, fromMe ? agent.origin : originOf(m.sender, m.sender_agent), m.sender === me && m.sender_agent === agent.label ? files : null, fromMe ? null : codeOf(m.sender, m.sender_agent))}<span class="when">${m.via ? `<span class="via">via ${esc(m.via)}</span>` : ""}${time(m.created_at)}${mark}${speak}${unsend}</span></div>`;
     });
   rows.forEach((m, i) =>
     items.push({
@@ -524,6 +527,54 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   // it stays as you left it, and opens by itself when a subagent starts.
   const subs = codeOn || !ownAgent ? [] : parseSubs(agent.subagents);
   const runningN = subs.filter((x) => x.status === "running").length;
+  // A subagent's own view (tabs over the chat): what it was asked, its steps folded like the agent's, what you sent
+  // it through the agent, and its answer.
+  const subSel = subs.find((x) => x.id === url.searchParams.get("sub")) ?? null;
+  const subHref = (id: string) => `${back}&sub=${encodeURIComponent(id)}`;
+  let subThread = "";
+  if (subSel) {
+    const steps = (await subSteps(env, me, agent.session_id, STEPS_KEEP, subSel.id)).get(subSel.id) ?? [];
+    const asked = (mid: string, text: string, at: number) =>
+      `<div class="bubble md subask" data-mid="${mid}"><div class="rhd">${agentAvatar(me, agent.label, "s")}<b>${esc(agent.label)}</b><span class="rarrow">→</span><span class="subav">${icon("users", 11)}</span><b>${esc(subSel.desc || "subagent")}</b></div>${md(text, agent.origin, null, files)}<span class="when">${time(at)}</span></div>`;
+    const sItems: { at: number; html: string; act?: Activity }[] = [];
+    if (subSel.prompt) sItems.push({ at: subSel.started, html: asked("sp0", subSel.prompt, subSel.started) });
+    for (const st of steps) {
+      const a: Activity = { id: st.rid ?? 0, session_id: agent.session_id, at: st.at, kind: st.kind, text: st.text };
+      sItems.push(st.kind === "prompt" ? { at: st.at, html: asked(`sp${a.id}`, st.text, st.at) } : { at: st.at, html: actRow(a), act: a });
+    }
+    for (const m of rows) {
+      const sm = m.sender === me && !m.sender_agent ? parseSubMessage(m.body) : null;
+      if (sm?.id === subSel.id)
+        sItems.push({ at: m.created_at, html: `<div class="bubble md mine" data-mid="${m.id}">${md(sm.text, agent.origin)}<span class="when"><span class="via">through ${esc(agent.label)}</span>${time(m.created_at)}${deliveryMark(marks.get(m.id))}</span></div>` });
+    }
+    if (subSel.result) sItems.push({ at: subSel.updated + 1, html: `<div class="bubble md subans" data-mid="sr${subSel.updated}" style="--h:${agentHue(agent.member, agent.label)}"><div class="rhd"><span class="subav">${icon("users", 11)}</span><b>Its answer</b><span class="muted"> to ${esc(agent.label)}</span></div>${md(subSel.result, agent.origin, null, files)}<span class="when">${time(subSel.updated)}</span></div>` });
+    sItems.sort((x, y) => x.at - y.at);
+    const sOut: string[] = [];
+    let sRun: Activity[] = [];
+    const sFlush = (tail: boolean) => {
+      if (sRun.length === 1) sOut.push(actRow(sRun[0]!));
+      else if (sRun.length) sOut.push(foldSteps(sRun, tail && subSel.status === "running", actRow));
+      sRun = [];
+    };
+    for (const it of sItems) {
+      if (it.act && STEP.has(it.act.kind)) sRun.push(it.act);
+      else {
+        sFlush(false);
+        sOut.push(it.html);
+      }
+    }
+    sFlush(true);
+    const tags = [subSel.type, subSel.bg ? "in the background" : "", subSel.depth > 1 ? "started by another subagent" : ""].filter(Boolean).map(esc).join(" · ");
+    subThread = `<div class="subhead" data-mid="subhd-${esc(subSel.id)}">${subMarkOf(subSel)}<div class="grow"><b>${esc(subSel.desc || "a subagent")}</b><div class="small muted">${tags ? `${tags} · ` : ""}${esc(subWhen(subSel))} · ${subSel.steps} step${subSel.steps === 1 ? "" : "s"}${subSel.steps > steps.length ? ` (the last ${steps.length} shown)` : ""}</div></div><a class="btn ghost xs" href="${back}">${icon("back", 12)}${esc(agent.label)}</a></div>${sOut.join("")}${
+      subSel.status === "running" ? `<div class="act subworking"><span class="subspin"></span><span class="atx muted">working…</span></div>` : ""
+    }`;
+  }
+  const subTabs = subs.length
+    ? `<nav class="subtabs" id="subtabs" data-region aria-label="The agent or one of its subagents"><a href="${back}"${subSel ? "" : ' class="on"'}>${agentAvatar(agent.member, agent.label, "s")}<span>${esc(agent.label)}</span></a>${[...subs]
+        .sort((a, b) => a.started - b.started)
+        .map((x: Sub) => `<a href="${subHref(x.id)}"${x === subSel ? ' class="on"' : ""} title="${esc(`${x.desc || "a subagent"}${x.type ? ` · ${x.type}` : ""} · ${subWhen(x)}`)}">${subMarkOf(x)}<span>${esc((x.desc || x.type || "subagent").slice(0, 34))}</span></a>`)
+        .join("")}</nav>`
+    : `<nav class="subtabs" id="subtabs" data-region hidden></nav>`;
   const inspOpen = /(?:^|;\s*)ic_insp=1/.test(cookie);
   const stateText = !on
     ? `<span class="cstate off">last seen ${ago(agent.last_seen)}</span>`
@@ -581,34 +632,35 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
           ${menu}
         </div>
       </header>
+      ${codeOn || !ownAgent ? "" : subTabs}
       ${on && agent.state === "waiting" && !pending.some((p) => p.session_id === agent.session_id) ? `<div class="cbanner"><i></i><span><b>${esc(agent.label)} is waiting${agent.state_at ? ` (asked ${ago(agent.state_at)})` : ""}:</b> ${esc(agent.state_detail || "for approval or input")}. Only its terminal can answer this.${canScreen ? "" : " Already answered? Claude Code doesn't say when, so this stays until the step has run."}</span>${canScreen ? `<button type="button" class="btn sm" ${screenAttrs(key(agent), agent.label, agent.screen ?? "", agent.client ?? "")}>${icon("terminal", 14)}Open its screen</button>` : ""}</div>` : ""}
       <div class="cbody"><div class="cmain">
-      ${codeOn ? codePane : `<div class="thread term${/(?:^|;\s*)ic_activity=off/.test(cookie) ? " noact" : ""}${/(?:^|;\s*)ic_relay=off/.test(cookie) ? " norelay" : ""}" id="thread" data-region>${thread || `<div class="empty" style="margin:auto">${icon("message", 28)}<div>No messages with ${esc(agent.label)} yet.</div><div class="small">${ownAgent ? "Ask a question or give it a new direction; it treats what you write here like a prompt you typed." : "Your message reaches this session; its owner's agent treats it as information from you."}</div></div>`}</div>
+      ${codeOn ? codePane : `<div class="thread term${/(?:^|;\s*)ic_activity=off/.test(cookie) ? " noact" : ""}${/(?:^|;\s*)ic_relay=off/.test(cookie) ? " norelay" : ""}" id="thread" data-region${subSel ? ` data-sub="${esc(subSel.id)}"` : ""}>${subSel ? subThread : thread || `<div class="empty" style="margin:auto">${icon("message", 28)}<div>No messages with ${esc(agent.label)} yet.</div><div class="small">${ownAgent ? "Ask a question or give it a new direction; it treats what you write here like a prompt you typed." : "Your message reaches this session; its owner's agent treats it as information from you."}</div></div>`}</div>
 ${ownAgent && !codeOn ? await chatAsks(env, me, agent.session_id, here) : ""}
 ${(() => {
         // While it works: its latest step and how long it has been at it, live, above the composer.
-        if (!on || agent.state !== "working" || codeOn) return `<div class="nowline" id="nowline" data-region hidden></div>`;
+        if (!on || agent.state !== "working" || codeOn || subSel) return `<div class="nowline" id="nowline" data-region hidden></div>`;
         const last = acts.find((x) => x.kind !== "prompt");
         const what = !last ? "Thinking" : last.kind === "cmd" ? commandStep(plainSpaces(last.text)).title : last.kind === "read" || last.kind === "edit" ? fileStep(last.kind, plainSpaces(last.text)).title : last.kind === "text" ? esc(plainSpaces(last.text).split("\n")[0]!.slice(0, 120)) : esc(plainSpaces(last.text).slice(0, 120));
         const since = last && last.at > (agent.state_at ?? 0) ? last.at : (agent.state_at ?? Date.now());
         return `<div class="nowline" id="nowline" data-region><span class="nowdot"></span><span class="nowtx">${what}</span><span class="nowt" data-elapsed="${since}"></span><span class="nowall" title="Working for">${agent.state_at ? `<span data-elapsed="${agent.state_at}"></span> in all` : ""}</span>${canScreen && agent.screen === "keys" ? `<button type="button" class="btn ghost xs nowstop" data-stopnow="${esc(key(agent))}" title="Interrupt it (Esc in its terminal)">${icon("square", 11)}Stop</button>` : ""}</div>`;
       })()}
-      <form method="post" action="/action/post" class="chatbox" id="chatform" data-region data-quiet data-images data-agent="${esc(key(agent))}" data-label="${esc(agent.label)}" data-client="${agent.client === "codex" ? "codex" : "claude"}"${canScreen && agent.screen === "keys" ? ' data-keys="1"' : ""}>${hidden({ back, to: key(agent), channel: agent.project || "", session: agent.session_id, mode: "", thread: "", edit: "" })}
+      <form method="post" action="/action/post" class="chatbox" id="chatform" data-region data-quiet data-images data-agent="${esc(key(agent))}" data-label="${esc(agent.label)}" data-client="${agent.client === "codex" ? "codex" : "claude"}"${canScreen && agent.screen === "keys" && !subSel ? ' data-keys="1"' : ""}${subSel ? ' data-sub="1"' : ""}>${hidden({ back: subSel ? subHref(subSel.id) : back, to: key(agent), channel: agent.project || "", session: agent.session_id, mode: "", thread: "", edit: "", ...(subSel ? { sub: subSel.id } : {}) })}
         <div class="imgtray" hidden></div>
         <div class="row" style="align-items:flex-end;flex-wrap:nowrap">
           <button type="button" class="btn ghost icon" style="height:48px" data-imgbtn title="Attach files or images (or paste / drop them here)">${icon("paperclip", 16)}</button><input type="file" multiple hidden data-imgpick>
-          <textarea id="chat-input" name="message" data-chat required maxlength="4000" class="grow" rows="2" enterkeyhint="send" aria-label="Message ${esc(agent.label)}"></textarea>
-          ${canBtw ? (btwOff ? `<button type="button" class="btn ghost btwbtn" style="height:48px" disabled title="${esc(btwOff)}">btw</button>` : `<button type="button" class="btn ghost btwbtn" style="height:48px" data-btwtoggle title="Ask on the side (like /btw): answered from its current context, without adding anything to it">btw</button>`) : ""}
+          <textarea id="chat-input" name="message" data-chat required maxlength="4000" class="grow" rows="2" enterkeyhint="send" aria-label="Message ${esc(subSel ? subSel.desc || "the subagent" : agent.label)}"${subSel ? ` placeholder="${esc(`To this subagent, through ${agent.label}`)}"` : ""}></textarea>
+          ${canBtw && !subSel ? (btwOff ? `<button type="button" class="btn ghost btwbtn" style="height:48px" disabled title="${esc(btwOff)}">btw</button>` : `<button type="button" class="btn ghost btwbtn" style="height:48px" data-btwtoggle title="Ask on the side (like /btw): answered from its current context, without adding anything to it">btw</button>`) : ""}
           <button class="btn primary" style="height:48px" title="${on ? (ownAgent ? "It picks this up right away if it's idle, or after its current step." : "It sees this on its next step.") : "Not connected: the next session with this name gets it."}">${icon("send", 15)}<span class="lbl">Send</span></button>
         </div>
         <div class="editbar tiny" hidden>${icon("pencil", 12)}<span>Editing your message: no agent gets it until you send it.</span><a href="#" data-editsend>Send it unchanged</a> · <a href="#" data-editcancel>Cancel it</a></div>
         <div class="btwbar tiny muted" hidden>Side question for ${esc(agent.label)}: answered from its current context, not added to it. Follow-ups continue the thread · <a href="#" data-btwnew>start a new side thread</a></div>
-        ${on ? "" : '<div class="tiny muted chatoff">Not connected: the next session with this name gets it.</div>'}
+        ${subSel ? `<div class="tiny muted chatoff">${icon("users", 11)} ${esc(agent.label)} gets this and passes it on to the subagent (SendMessage), ${subSel.status === "running" ? "which reads it at its next step" : "which carries on from where it ended"}; its answer shows here.</div>` : on ? "" : '<div class="tiny muted chatoff">Not connected: the next session with this name gets it.</div>'}
       </form>`}
       </div>
       <aside class="insp" id="insp" aria-label="Details">
         <div class="ihead"><b>${esc(agent.label)}</b><button type="button" class="btn ghost xs icon" data-insp title="Close">${icon("x", 14)}</button></div>
-        ${codeOn || !ownAgent ? "" : subsRegion(subs, subs.length ? await subSteps(env, me, agent.session_id) : new Map(), agent.origin ?? null)}
+        ${codeOn || !ownAgent ? "" : subsRegion(subs, subs.length ? await subSteps(env, me, agent.session_id) : new Map(), agent.origin ?? null, Date.now(), subHref)}
         ${session}
       </aside></div>
     </section>`;
