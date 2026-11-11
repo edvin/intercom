@@ -5,7 +5,7 @@ import { dismissStuck, moveStuck, releaseSenders, setNudge, wakeStuck } from "./
 import { CTX_STALE_MS, FIT_SINCE, compactAgent, compactOnStop, markCompacted, dismiss, myRows, newer, outOfUsage, restartAgent, setAuto, updateAgent, updateIdle } from "./upkeep";
 import { KEY_NAMES, type ScreenQuery, askScreen, drawScreen, screenReply, sendNow, stopAgent } from "./screen";
 import { answerBtw, pendingBtw } from "./btw";
-import { getAttachment, isImage, playable, readImage, readable, videoType } from "./attachments";
+import { POSTER_MAX, getAttachment, isImage, playable, readImage, readable, savePoster, thumbnail, videoType } from "./attachments";
 import { fetchLocalFile, fileReply } from "./localfiles";
 import { readerPage } from "./reader";
 import { type Outcome, type Review, askReview, decideReview, findingsOf, moveReview } from "./reviews";
@@ -914,6 +914,26 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
     if (!buf) return new Response(soloCard("File", `<h1>This file has expired</h1><p class="muted">Shared files are kept 30 days.</p>`), { status: 410, headers: { "content-type": "text/html; charset=utf-8" } });
     const agent = url.searchParams.get("agent");
     return readerPage(a, buf, { source: url.searchParams.has("source"), agent: agent?.startsWith(`${me}/`) ? agent : null }) ?? redirect(`/attachment/${a.id}`);
+  }
+  const thumb = url.pathname.match(/^\/attachment\/(\d+)\/thumb$/);
+  if (thumb) {
+    // A tile's small picture (attachments.ts thumbnail): an image's WebP, or a video's poster frame, which the
+    // dashboard sends the first time it shows the video without one.
+    const a = await getAttachment(env, me, Number(thumb[1]));
+    if (!a) return new Response("Not found", { status: 404 });
+    if (req.method === "POST") {
+      if (!sameOrigin(req) || env.authKind !== "web") return new Response("Cross-origin request refused", { status: 403 });
+      const n = Number(req.headers.get("content-length") ?? 0);
+      if (n > POSTER_MAX) return new Response("Too big", { status: 413 });
+      return new Response(null, { status: (await savePoster(env, a, await req.arrayBuffer())) ? 204 : 400 });
+    }
+    if (req.method !== "GET") return new Response("Method not allowed", { status: 405 });
+    const t = await thumbnail(env, a);
+    if (t === "original") return redirect(`/attachment/${a.id}`);
+    if (!t) return new Response(null, { status: 404, headers: { "cache-control": "no-store" } });
+    return new Response(t.body, {
+      headers: { "content-type": t.type, "cache-control": "private, max-age=2592000, immutable", "x-content-type-options": "nosniff", "content-security-policy": "default-src 'none'; sandbox" },
+    });
   }
   if (url.pathname.startsWith("/attachment/") && req.method === "GET") {
     // An image or file attached to a message, for whoever may read that message. Images show inline; any other

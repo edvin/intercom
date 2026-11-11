@@ -109,10 +109,10 @@ export async function galleryView(env: Env, me: string, url: URL): Promise<strin
     const from = `${who(`${f.sender}/${f.sender_agent}`)} · #${f.channel} · ${ago(f.created_at)}`;
     const tip = esc(`${f.name} · ${from}`);
     if (isImage(f.mime))
-      return `<a class="att gtile" href="/attachment/${f.id}" title="${tip}" data-name="${esc(f.name)}"><img src="/attachment/${f.id}" alt="${esc(f.name)}" loading="lazy" decoding="async"></a>`;
+      return `<a class="att gtile" href="/attachment/${f.id}" title="${tip}" data-name="${esc(f.name)}"><img src="/attachment/${f.id}/thumb" alt="${esc(f.name)}" loading="lazy" decoding="async"></a>`;
     // A video: its first frame, a play button and its length; it plays in the viewer (← → step through the grid).
     if (playable(videoType(f.name, f.mime)))
-      return `<a class="attv gtile gvid" href="/attachment/${f.id}" data-video data-name="${esc(f.name)}" title="${esc(`${f.name} · ${size(f.bytes)} · ${from}`)}"><video src="/attachment/${f.id}#t=0.1" preload="metadata" muted playsinline></video><span class="attv-play">▶</span><span class="attv-n">${esc(f.name)}</span></a>`;
+      return `<a class="attv gtile gvid" href="/attachment/${f.id}" data-video data-name="${esc(f.name)}" title="${esc(`${f.name} · ${size(f.bytes)} · ${from}`)}"><img src="/attachment/${f.id}/thumb" alt="" loading="lazy" decoding="async" data-poster><span class="attv-play">▶</span><span class="attv-n">${esc(f.name)}</span></a>`;
     const ext = (/\.([a-z0-9]{1,8})$/i.exec(f.name)?.[1] ?? "file").toUpperCase();
     const stem = f.name.replace(/\.[a-z0-9]{1,8}$/i, "");
     const href = readableName(f.name) ? `/attachment/${f.id}/view` : `/attachment/${f.id}`;

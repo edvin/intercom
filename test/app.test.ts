@@ -1667,7 +1667,7 @@ describe("images with messages", () => {
     assert.deepEqual([...Buffer.from(img.data!, "base64")], [...png]);
 
     // The dashboard shows a thumbnail; the image is served to the sender and recipient only.
-    assert.match(await (await w.request("/dashboard", { as: "bob", cookie: true })).text(), /<a class="att" href="\/attachment\/1"[^>]*><img src="\/attachment\/1"/);
+    assert.match(await (await w.request("/dashboard", { as: "bob", cookie: true })).text(), /<a class="att" href="\/attachment\/1"[^>]*><img src="\/attachment\/1\/thumb"/);
     assert.equal((await w.request("/attachment/1", { as: "alice", cookie: true })).status, 200);
     assert.equal((await w.request("/attachment/1", { as: "bob", cookie: true })).headers.get("content-type"), "image/png");
     assert.equal((await w.request("/attachment/1", { as: "carol", cookie: true })).status, 404);
@@ -1744,8 +1744,12 @@ describe("share_file", () => {
 
     const bob = await view("bob");
     assert.match(bob, /<h1>Files from agents<\/h1>/);
-    assert.match(bob, /<div class="gal" data-gallery><a class="att gtile" href="\/attachment\/3" title="shot\.png · core · #billing · [^"]*" data-name="shot\.png"><img src="\/attachment\/3"/);
+    assert.match(bob, /<div class="gal" data-gallery><a class="att gtile" href="\/attachment\/3" title="shot\.png · core · #billing · [^"]*" data-name="shot\.png"><img src="\/attachment\/3\/thumb"/);
     assert.doesNotMatch(bob, /class="gtile gfile"/); // images only by default; no message text around the tiles
+    // A small image is its own thumbnail (bigger ones are shrunk by Cloudflare Images, not bound in tests).
+    const th = await w.request("/attachment/3/thumb", { as: "bob", cookie: true, redirect: "manual" });
+    assert.match(String(th.status), /^30[1-8]$/);
+    assert.match(th.headers.get("location")!, /\/attachment\/3$/);
     const files = await view("bob", "&kind=files");
     assert.match(files, /href="\/attachment\/1\/view" target="_blank"[^>]*>.*<span class="gext">LOG<\/span><span class="gname">build<\/span><span class="gsize">1 B<\/span>/);
     assert.match(files, /href="\/attachment\/2" download="r\.zip"[^>]*>.*<span class="gext">ZIP<\/span>/);
@@ -1776,12 +1780,12 @@ describe("share_file", () => {
     await w.ok("bob", "share_file", { path: "/w/build.log", _file: { name: "build.log", mime: "text/plain", data } }, s); // #3
     const view = async (q: string) => (await w.request(`/dashboard?view=files${q}`, { as: "bob", cookie: true })).text();
     const vids = await view("&kind=videos");
-    assert.match(vids, /<a class="attv gtile gvid" href="\/attachment\/1" data-video data-name="intro\.mp4"[^>]*><video src="\/attachment\/1#t=0\.1" preload="metadata"/);
+    assert.match(vids, /<a class="attv gtile gvid" href="\/attachment\/1" data-video data-name="intro\.mp4"[^>]*><img src="\/attachment\/1\/thumb" alt="" loading="lazy" decoding="async" data-poster>/);
     assert.match(vids, /href="\/attachment\/2" download="raw\.mkv"/);
     assert.doesNotMatch(vids, /build\.log/);
     assert.match(vids, /0 images, 2 videos and 1 other file/);
     assert.doesNotMatch(await view("&kind=files"), /intro\.mp4|raw\.mkv/);
-    assert.match(await (await w.request("/dashboard?view=agents&agent=bob%2Fcore", { as: "bob", cookie: true })).text(), /<a class="attv" href="\/attachment\/1" data-video[^>]*><video/);
+    assert.match(await (await w.request("/dashboard?view=agents&agent=bob%2Fcore", { as: "bob", cookie: true })).text(), /<a class="attv" href="\/attachment\/1" data-video[^>]*><img src="\/attachment\/1\/thumb"[^>]*data-poster>/);
     const whole = await w.request("/attachment/1", { as: "bob", cookie: true });
     assert.equal(whole.headers.get("content-type"), "video/mp4");
     assert.match(whole.headers.get("content-disposition")!, /^inline/);
@@ -1793,6 +1797,19 @@ describe("share_file", () => {
     assert.equal((await w.request("/attachment/1", { as: "bob", cookie: true, headers: { range: "bytes=20-" } })).status, 416);
     // One a browser can't play only downloads.
     assert.equal((await w.request("/attachment/2", { as: "bob", cookie: true })).headers.get("content-type"), "application/octet-stream");
+    // Tiles show a thumbnail, not the file: a video has none until a dashboard sends its first frame (a JPEG, once).
+    const thumb = (init: RequestInit = {}) => w.request("/attachment/1/thumb", { as: "bob", cookie: true, ...init });
+    assert.equal((await thumb()).status, 404);
+    const jpeg = new Uint8Array(200).fill(7); jpeg.set([0xff, 0xd8, 0xff]);
+    const send = (body: Uint8Array, origin = "https://intercom.test") => thumb({ method: "POST", headers: { origin, "content-type": "image/jpeg" }, body });
+    assert.equal((await send(jpeg, "https://evil.example")).status, 403);
+    assert.equal((await send(new Uint8Array(200).fill(1))).status, 400);
+    assert.equal((await send(jpeg)).status, 204);
+    const got = await thumb();
+    assert.equal(got.headers.get("content-type"), "image/jpeg");
+    assert.equal((await got.arrayBuffer()).byteLength, 200);
+    assert.equal((await w.request("/attachment/2/thumb", { as: "bob", cookie: true, method: "POST", headers: { origin: "https://intercom.test" }, body: jpeg })).status, 400); // not one that plays
+    assert.equal((await w.request("/attachment/1/thumb", { as: "carol", cookie: true })).status, 404);
   });
 
   test("tickets & MRs: an agent publishes where its tickets and MRs stand with track, and the dashboard groups them by who they wait on", async () => {
@@ -2178,7 +2195,7 @@ describe("tickets", () => {
     assert.match(out, /Stored, not sent/);
     assert.doesNotMatch(await w.ok("bob", "inbox", {}, triage), /shot\.png/);
     await w.ok("bob", "ticket", { ...ticket, description: `It looks like this:\n\n${m[0]}` }, triage);
-    assert.match(await page(w, "/dashboard?view=ticket&id=1"), new RegExp(`<img src="/attachment/${m[1]}"`));
+    assert.match(await page(w, "/dashboard?view=ticket&id=1"), new RegExp(`<img src="/attachment/${m[1]}/thumb"`));
   });
 });
 

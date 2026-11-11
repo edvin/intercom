@@ -143,6 +143,8 @@ export interface WorkerEnv {
   GITHUB_CLIENT_SECRET?: string;
   /** Images attached to messages. */
   FILES?: R2Bucket;
+  /** Cloudflare Images: thumbnails of attached images. */
+  IMAGES?: ImagesBinding;
 }
 
 /**
@@ -233,6 +235,7 @@ export class TeamHub extends DurableObject<WorkerEnv> {
       askCode: (member, sessionId, req, q) => this.toSession(member, sessionId, { type: "code-request", req, q }),
       askScreen: (member, sessionId, req, q) => this.toSession(member, sessionId, { type: "screen-request", req, q }),
       files: this.env.FILES,
+      images: this.env.IMAGES,
       wake: (at) => this.wake(at),
       github: id && secret ? { client_id: id, client_secret: secret } : undefined,
     };

@@ -900,11 +900,11 @@ pre.term .b8{background:#555a6e}pre.term .b9{background:#d4505a}pre.term .b10{ba
 .gtile:hover{border-color:var(--line-strong)}.gtile:hover img{transform:scale(1.035)}.gtile:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 /* a video an agent shared: its first frame with a play button (markdown.ts, gallery.ts); it plays in the viewer */
 .attv{position:relative;display:inline-block;width:min(420px,100%);aspect-ratio:16/9;margin:6px 0;border-radius:10px;overflow:hidden;background:#0b0d12;border:1px solid var(--line);vertical-align:top;text-decoration:none}
-.attv video{width:100%;height:100%;object-fit:contain;display:block;pointer-events:none}
+.attv img{width:100%;height:100%;object-fit:contain;display:block;pointer-events:none;border:0}.attv img.nop{visibility:hidden}
 .attv-play{position:absolute;left:50%;top:50%;width:48px;height:48px;margin:-24px 0 0 -24px;display:grid;place-items:center;padding-left:3px;border-radius:50%;background:rgba(0,0,0,.55);color:#fff;font-size:18px;box-shadow:0 0 0 1px rgba(255,255,255,.25);transition:transform .15s,background .15s}
 .attv:hover .attv-play{transform:scale(1.08);background:var(--accent)}
 .attv-n{position:absolute;left:0;right:0;bottom:0;padding:16px 10px 6px;font:500 11.5px "Geist",system-ui,sans-serif;color:#fff;background:linear-gradient(transparent,rgba(0,0,0,.7));white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.gal .attv{width:auto;margin:0;aspect-ratio:1;border-radius:10px;background:#0b0d12}.gal .attv video{object-fit:cover}
+.gal .attv{width:auto;margin:0;aspect-ratio:1;border-radius:10px;background:#0b0d12}.gal .attv img{object-fit:cover}
 .imgview .ivbody video{max-width:100%;max-height:100%;outline:none;background:#000}
 .gfile{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:var(--mute);text-decoration:none}.gfile:hover{color:var(--accent)}
 .gext{font:600 11px/1 "JetBrains Mono","Geist Mono",ui-monospace,monospace;letter-spacing:.06em;color:var(--ink-2)}.gfile{gap:6px;padding:12px}.gname{max-width:100%;font-size:12px;line-height:1.35;color:var(--ink);text-align:center;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}.gsize{font-size:11px;color:var(--mute)}.gfile:hover .gname{color:var(--accent)}
@@ -2416,6 +2416,50 @@ export const SCRIPT = `
     let seen = null; try { seen = sessionStorage.getItem(k); sessionStorage.setItem(k, String(n)); } catch {}
     if (seen !== null && n > Number(seen) && !matchMedia("(max-width: 900px)").matches) inspSet(true);
   }
+  // A video's tile shows its poster frame (/attachment/N/thumb, attachments.ts). When it has none yet, this dashboard
+  // takes the first frame from the video (only its start, by byte ranges), shows it and sends it to the hub, so no one
+  // downloads the video again just to draw its tile. One video at a time.
+  const posterQ = [], posterSeen = new Set();
+  let posterBusy = false;
+  function posterMissing(img) {
+    const a = img.closest("a.attv"); if (!a) return;
+    img.classList.add("nop");
+    const href = a.getAttribute("href");
+    if (posterSeen.has(href)) return;
+    posterSeen.add(href); posterQ.push(href); posterNext();
+  }
+  function posterNext() {
+    if (posterBusy || !posterQ.length) return;
+    posterBusy = true;
+    const href = posterQ.shift(), vid = document.createElement("video");
+    let done = false, grabbed = false;
+    const finish = () => { if (done) return; done = true; clearTimeout(t); vid.removeAttribute("src"); vid.load(); posterBusy = false; posterNext(); };
+    const t = setTimeout(finish, 15000);
+    const grab = () => {
+      if (grabbed || done) return;
+      grabbed = true;
+      if (!vid.videoWidth) return finish();
+      const w = Math.min(640, vid.videoWidth), h = Math.round(vid.videoHeight * w / vid.videoWidth);
+      const c = document.createElement("canvas"); c.width = w; c.height = h;
+      try { c.getContext("2d").drawImage(vid, 0, 0, w, h); } catch { return finish(); }
+      c.toBlob((b) => {
+        if (b) {
+          const u = URL.createObjectURL(b);
+          $$('a.attv[href="' + href + '"] img[data-poster]').forEach((i) => { i.src = u; i.classList.remove("nop"); });
+          fetch(href + "/thumb", { method: "POST", body: b, headers: { "content-type": "image/jpeg" } }).catch(() => {});
+        }
+        finish();
+      }, "image/jpeg", 0.75);
+    };
+    vid.muted = true; vid.playsInline = true; vid.preload = "auto";
+    vid.addEventListener("error", finish);
+    vid.addEventListener("loadeddata", () => { if (vid.currentTime < 0.1 && vid.duration > 0.3) vid.currentTime = 0.1; else grab(); });
+    vid.addEventListener("seeked", grab);
+    vid.src = href;
+  }
+  document.addEventListener("error", (e) => { const i = e.target; if (i && i.tagName === "IMG" && i.hasAttribute("data-poster")) posterMissing(i); }, true);
+  // (one that failed before this script ran)
+  const postersNow = () => $$("img[data-poster]").forEach((i) => { if (i.complete && !i.naturalWidth && (i.getAttribute("src") || "").endsWith("/thumb")) posterMissing(i); });
   // An image in a message opens in a viewer over the page, not as its own page: the dashboard installed as an app on a
   // phone has no back button to come back from one. Close with ×, a tap beside it, Esc, or back (gesture or button).
   document.addEventListener("click", (e) => {
@@ -2493,6 +2537,7 @@ export const SCRIPT = `
     dayLines();
     msgActions();
     stepImages();
+    postersNow();
     if (picked) { const b = document.querySelector('.bubble[data-mid="' + picked + '"]'); if (b && b.querySelector('[data-unsend="edit"]')) b.classList.add("picked"); else picked = null; }
     trailBack();
     $$("#compose", root).forEach((t) => { if (!t.value) t.value = drafts.get(t); t.addEventListener("input", () => drafts.set(t)); });

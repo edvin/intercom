@@ -217,12 +217,12 @@ export function md(text: string, refs?: string | null, files?: string | null, co
   return out
     .join("")
     .replace(/\[📎 image #(\d+)(?::\s?([^\]<]*))?\]/g, (_, id: string, name = "") =>
-      `<a class="att" href="/attachment/${id}" target="_blank" rel="noopener" title="${name || `image #${id}`}"><img src="/attachment/${id}" alt="${name || `image #${id}`}" loading="lazy"></a>`,
+      `<a class="att" href="/attachment/${id}" target="_blank" rel="noopener" title="${name || `image #${id}`}"><img src="/attachment/${id}/thumb" alt="${name || `image #${id}`}" loading="lazy" decoding="async"></a>`,
     )
     .replace(/\[📎 file #(\d+):\s?([^\]<·]*?)\s*(?:·\s*([^\]<]*))?\]/g, (_, id: string, name: string, size = "") =>
       // A video: its first frame with a play button; it plays in the viewer.
       playable(videoType(name))
-        ? `<a class="attv" href="/attachment/${id}" data-video data-name="${name}" title="Play ${name}"><video src="/attachment/${id}#t=0.1" preload="metadata" muted playsinline></video><span class="attv-play">▶</span><span class="attv-n">${name}${size ? ` · ${size}` : ""}</span></a>`
+        ? `<a class="attv" href="/attachment/${id}" data-video data-name="${name}" title="Play ${name}"><img src="/attachment/${id}/thumb" alt="" loading="lazy" decoding="async" data-poster><span class="attv-play">▶</span><span class="attv-n">${name}${size ? ` · ${size}` : ""}</span></a>`
         : readableName(name)
         ? `<a class="attf" href="/attachment/${id}/view" target="_blank" rel="noopener" title="Read ${name}"><span class="attf-i">${ICON_FILE}</span><span class="attf-n">${name}</span>${size ? `<span class="attf-s">${size}</span>` : ""}</a>`
         : `<a class="attf" href="/attachment/${id}" download="${name}" title="Download ${name}"><span class="attf-i">⤓</span><span class="attf-n">${name}</span>${size ? `<span class="attf-s">${size}</span>` : ""}</a>`,

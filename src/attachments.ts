@@ -148,3 +148,42 @@ export const readableName = (name: string) => TEXT_EXT.test(name.trim());
 /** Whether this stored file can be shown as text. */
 export const readable = (a: Attachment) =>
   a.bytes <= MAX_READ && (readableName(a.name) || /^text\/|\/(json|xml|yaml|x-yaml|csv|x-sh|javascript|typescript|x-diff)$/.test(a.mime));
+
+/**
+ * Thumbnails, so the files grid and chats don't download whole files to show a tile (a phone on mobile data):
+ * an image's is a small WebP made once by Cloudflare Images and kept beside it in R2; a video's is its first frame,
+ * which the first dashboard to show it captures and sends (posters in ui.ts), as the hub can't decode video.
+ * "original": no smaller one (a small image, a GIF that should keep moving, Images not bound); null: none yet.
+ */
+export const THUMB_W = 640;
+const SMALL = 120_000;
+const thumbKey = (a: Attachment) => `thumb/${a.r2_key}`;
+
+export async function thumbnail(env: Env, a: Attachment): Promise<{ body: ReadableStream | ArrayBuffer; type: string } | "original" | null> {
+  const t = await env.files?.get(thumbKey(a));
+  if (t) return { body: t.body, type: t.httpMetadata?.contentType ?? "image/webp" };
+  if (!isImage(a.mime)) return null;
+  if (a.bytes < SMALL || a.mime === "image/gif" || !env.images || !env.files) return "original";
+  const obj = await env.files.get(a.r2_key);
+  if (!obj) return "original";
+  try {
+    const out = await env.images.input(obj.body).transform({ width: THUMB_W, fit: "scale-down" }).output({ format: "image/webp", quality: 72 });
+    const buf = await out.response().arrayBuffer();
+    if (buf.byteLength >= a.bytes) return "original";
+    await env.files.put(thumbKey(a), buf, { httpMetadata: { contentType: "image/webp" } });
+    return { body: buf, type: "image/webp" };
+  } catch (e) {
+    console.warn(`thumbnail of attachment ${a.id} failed: ${(e as Error).message}`);
+    return "original";
+  }
+}
+
+/** A video's poster frame from the dashboard: a JPEG, small, and only the first one sent counts. */
+export const POSTER_MAX = 400_000;
+export async function savePoster(env: Env, a: Attachment, buf: ArrayBuffer): Promise<boolean> {
+  const b = new Uint8Array(buf);
+  if (!env.files || !playable(videoType(a.name, a.mime)) || b.length < 100 || b.length > POSTER_MAX || b[0] !== 0xff || b[1] !== 0xd8 || b[2] !== 0xff) return false;
+  if (await env.files.head(thumbKey(a))) return true;
+  await env.files.put(thumbKey(a), buf, { httpMetadata: { contentType: "image/jpeg" } });
+  return true;
+}

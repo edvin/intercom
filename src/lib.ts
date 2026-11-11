@@ -34,6 +34,8 @@ export interface Env {
   askScreen?: (member: string, sessionId: string, req: string, q: object) => boolean;
   /** Where message images live (R2). */
   files?: R2Bucket;
+  /** Cloudflare Images, for thumbnails (attachments.ts). */
+  images?: ImagesBinding;
   /** Have the hub's alarm go off by `at` (to send a notification that's due then); undefined outside the hub. */
   wake?: (at: number) => Promise<void>;
 }
