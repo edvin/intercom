@@ -858,6 +858,19 @@ export async function renameSession(
   return { label, project: s.project, client: s.client, crew };
 }
 
+/**
+ * A local server that moved to another session id (Claude Code resumed a conversation after the server started):
+ * the session it spoke for (`was`) is the same agent, so it goes, and its name, if it was given one, passes to `sessionId`.
+ */
+export async function takeOver(env: Env, me: string, sessionId: string, was: string | null): Promise<string | null> {
+  if (!was || was === sessionId || was.length > 100) return null;
+  const prev = await env.DB.prepare("DELETE FROM sessions WHERE member = ? AND session_id = ? RETURNING label, project").bind(me, was).first<{ label: string; project: string }>();
+  if (!prev || prev.label.startsWith(`${prev.project || "session"}-`)) return null;
+  const cur = await env.DB.prepare("SELECT label FROM sessions WHERE member = ? AND session_id = ?").bind(me, sessionId).first<{ label: string }>();
+  if (!cur || cur.label === prev.label) return null;
+  return (await renameSession(env, me, sessionId, prev.label, { remember: false })).label;
+}
+
 /** The member's nicknames for their machines (host → name). */
 export async function hostNames(env: Env, me: string): Promise<Map<string, string>> {
   const { results } = await env.DB.prepare("SELECT host, name FROM host_names WHERE member = ?").bind(me).all<{ host: string; name: string }>();

@@ -7,7 +7,7 @@
 # lets the user decide to go ahead. It never blocks on its own in Claude Code.
 # Never fails: any error just means no intercom context this time.
 
-VERSION=0.12.50 # kept in step with .claude-plugin/plugin.json (a test checks)
+VERSION=0.12.51 # kept in step with .claude-plugin/plugin.json (a test checks)
 D="$HOME/.claude/intercom"
 event="${1:-UserPromptSubmit}"
 client="${2:-claude}"
@@ -72,6 +72,18 @@ fi
 workdir="${workdir:-${CLAUDE_PROJECT_DIR:-$PWD}}"
 # Heartbeat for `brief.sh doctor`: proves the agent runs this hook at all.
 mkdir -p "$D" 2>/dev/null && printf '%s %s %s\n' "$(date +%s)" "$event" "${session:-?}" > "$D/.hook-$client" 2>/dev/null
+# Which conversation this Claude Code runs now, for its local server: a session resumed after the server started
+# (claude, then /resume) has another id than the one the server was started with. No fork when nothing changed.
+if [ "$client" != "codex" ] && [ -n "$session" ] && [ -n "$key" ]; then
+  cs="$D/claude-sessions/$key"
+  if [ "$event" = "SessionEnd" ]; then
+    rm -f "$cs" 2>/dev/null
+  else
+    cur=""
+    [ -f "$cs" ] && read -r cur < "$cs" 2>/dev/null
+    [ "$cur" = "$session" ] || { mkdir -p "$D/claude-sessions" && printf '%s\n' "$session" > "$cs"; } 2>/dev/null
+  fi
+fi
 
 # State events: Claude Code's Notification (waiting for approval or input), Codex's PermissionRequest,
 # and Stop (the turn ends; the hub may hand back a message from the user to continue with).

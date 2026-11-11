@@ -6,7 +6,7 @@ import { pruneBtw } from "./btw";
 import { pruneTracked } from "./tracked";
 import { sendDuePushes } from "./push";
 import { SqlDb, splitStatements } from "./db";
-import { type Env, type Message, address, authenticate, cleanBranch, cleanClient, fmtMessage, prune, setHost, setVersion, projectFor, setPresence, setRepo, touchSession, unread } from "./lib";
+import { type Env, type Message, address, authenticate, cleanBranch, cleanClient, fmtMessage, prune, setHost, setVersion, projectFor, setPresence, setRepo, takeOver, touchSession, unread } from "./lib";
 import m0001 from "../migrations/0001_init.sql";
 import m0002 from "../migrations/0002_projects.sql";
 import m0003 from "../migrations/0003_sessions.sql";
@@ -256,6 +256,8 @@ export class TeamHub extends DurableObject<WorkerEnv> {
     const branch = cleanBranch(req.headers.get("x-intercom-branch"));
     await setPresence(env, me, project || null, null, project ? branch : null);
     const session = await touchSession(env, me, sessionId, project, branch, cleanClient(req.headers.get("x-intercom-client")), req.headers.get("x-intercom-name"));
+    const renamed = await takeOver(env, me, sessionId, req.headers.get("x-intercom-was"));
+    if (renamed) session.label = renamed;
     await setHost(env, me, sessionId, req.headers.get("x-intercom-host"));
     await setRepo(env, me, sessionId, raw);
     await setVersion(env, me, sessionId, req.headers.get("x-intercom-version"));

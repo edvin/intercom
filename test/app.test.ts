@@ -643,6 +643,26 @@ describe("named sessions", () => {
   });
 });
 
+describe("resumed sessions", () => {
+  test("a local server that moves to the session Claude Code resumed takes its name along, and the one it left goes", async () => {
+    const w = await standardWorld();
+    // The conversation as it ran before the restart, and the fresh process's server, named on start.
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=old-conv", { as: "bob" });
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=fresh1&name=cuttingedge", { as: "bob" });
+    const { takeOver } = await import("../src/lib.ts");
+    assert.equal(await takeOver(w.env(), "bob", "old-conv", "fresh1"), "cuttingedge");
+    const team = await w.ok("alice", "team");
+    assert.match(team, /bob\/cuttingedge/);
+    assert.doesNotMatch(team, /billing-api-oldc/);
+    // Again (a reconnect still says where it came from): nothing left to take.
+    assert.equal(await takeOver(w.env(), "bob", "old-conv", "fresh1"), null);
+    // Someone else's session isn't touched.
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=a9&name=core", { as: "alice" });
+    assert.equal(await takeOver(w.env(), "bob", "old-conv", "a9"), null);
+    assert.match(await w.ok("bob", "team"), /alice\/core/);
+  });
+});
+
 describe("renamed agents", () => {
   test("a DM or handoff to an old name goes to the agent's new name, the sender is told, and unread mail moves with the rename", async () => {
     const w = await standardWorld();

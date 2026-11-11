@@ -20,7 +20,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const VERSION = "0.12.50"; // kept in step with .claude-plugin/plugin.json (a test checks)
+const VERSION = "0.12.51"; // kept in step with .claude-plugin/plugin.json (a test checks)
 const DIR = path.join(os.homedir(), ".claude", "intercom");
 const CONFIG = path.join(DIR, "config");
 function readConf() {
@@ -165,6 +165,39 @@ function refreshSession() {
   });
 }
 const unbound = () => headers["x-intercom-client"] === "codex" && SESSION.startsWith("pid-");
+
+/**
+ * Claude Code: follow the conversation it really runs. Started plainly and then resumed (/resume, or a restart that
+ * resumes), Claude Code works in the resumed session while we were started with a new one: its hooks report under
+ * the resumed id and its transcript grows there, so we'd mirror an empty one and speak for a session nobody runs.
+ * The hooks leave the id they're given in claude-sessions/<pid>; we move to it and reconnect, telling the hub which id
+ * we had (x-intercom-was), so the agent keeps its name.
+ */
+function followClaudeSession() {
+  if (headers["x-intercom-client"] !== "claude") return;
+  const file = path.join(DIR, "claude-sessions", String(process.ppid));
+  let found;
+  try {
+    // Written for this Claude process (not a former one with the same pid).
+    if (fs.statSync(file).mtimeMs < STARTED * 1000 - 60_000) return;
+    found = fs.readFileSync(file, "utf8").trim();
+  } catch {
+    return;
+  }
+  if (!/^[\w-]{8,}$/.test(found) || found === SESSION) return;
+  const was = SESSION;
+  for (const f of allMarkers()) fs.rmSync(f, { force: true });
+  SESSION = found;
+  headers["x-intercom-session"] = found;
+  headers["x-intercom-was"] = was;
+  log(`claude session ${was} → ${found} (resumed)`);
+  locate().finally(() => {
+    if (!ws) return connect();
+    try {
+      ws.close();
+    } catch {}
+  });
+}
 
 const touch = (file, content = "") => {
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -778,6 +811,7 @@ function mirrorTick() {
 }
 setInterval(() => {
   try {
+    followClaudeSession();
     mirrorTick();
   } catch (e) {
     log("mirror:", e.message);
