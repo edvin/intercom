@@ -20,7 +20,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const VERSION = "0.12.52"; // kept in step with .claude-plugin/plugin.json (a test checks)
+const VERSION = "0.12.53"; // kept in step with .claude-plugin/plugin.json (a test checks)
 const DIR = path.join(os.homedir(), ".claude", "intercom");
 const CONFIG = path.join(DIR, "config");
 function readConf() {
@@ -273,6 +273,11 @@ async function shareFile(params) {
 // a message or the hub asks. (Your user can still attach such a file from the dashboard themself.)
 const HOME = os.homedir();
 const SECRET_DIRS = [".ssh", ".aws", ".gnupg", ".kube", ".docker", ".azure", ".config/gcloud", ".config/gh", ".claude/intercom", ".codex", "Library/Keychains"].map((d) => path.join(HOME, d));
+// Codex keeps its sign-in in its home folder, but also the worktrees its agents work in and the images it makes:
+// those are ordinary work (the other rules below still hold inside them).
+const CODEX_HOMES = [path.join(HOME, ".codex"), process.env.CODEX_HOME].filter(Boolean).map((d) => path.resolve(d));
+const CODEX_WORK = CODEX_HOMES.flatMap((d) => ["worktrees", "generated_images"].map((w) => path.join(d, w)));
+if (process.env.CODEX_HOME) SECRET_DIRS.push(path.resolve(process.env.CODEX_HOME));
 const SECRET_FILES = [".netrc", ".npmrc", ".pypirc", ".git-credentials", ".claude/.credentials.json", ".claude.json"].map((f) => path.join(HOME, f));
 function real(file) {
   try {
@@ -284,7 +289,8 @@ function real(file) {
 function secret(file) {
   const r = real(file);
   const base = path.basename(r);
-  if (SECRET_DIRS.some((d) => r === d || r.startsWith(d + path.sep)) || SECRET_FILES.includes(r)) return true;
+  const work = CODEX_WORK.some((d) => r.startsWith(d + path.sep));
+  if ((!work && SECRET_DIRS.some((d) => r === d || r.startsWith(d + path.sep))) || SECRET_FILES.includes(r)) return true;
   if (/^\.env(\..+)?$/.test(base) && !/\.(example|sample|template|dist)$/.test(base)) return true;
   return /\.(pem|key|p12|pfx|keystore|jks)$/i.test(base) || /^id_[a-z0-9]+$/.test(base) || /^(credentials|secrets?)\.(json|ya?ml|toml)$/i.test(base);
 }
