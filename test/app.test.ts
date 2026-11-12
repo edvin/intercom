@@ -1181,9 +1181,12 @@ describe("activity mirroring", () => {
       ev({ op: "end", id: "a1", status: "done", result: "In **src/charge.ts**" }, t0 + 2000),
     ] }) });
     const page = (q = "") => w.request(`/dashboard?view=agents&agent=bob/alder${q}`, { as: "bob", cookie: true }).then((r) => r.text());
+    // A finished subagent has no tab (the inspector lists it); opened, it has one, closed with its ×.
     const main = await page();
-    assert.match(main, /<nav class="subtabs" id="subtabs" data-region[^>]*>[\s\S]*class="on"[\s\S]*href="[^"]*&amp;sub=a1|<nav class="subtabs" id="subtabs" data-region[^>]*>[\s\S]*class="on"[\s\S]*href="[^"]*&sub=a1/);
+    assert.match(main, /<nav class="subtabs" id="subtabs" data-region hidden><\/nav>/);
+    assert.match(main, /id="sub-a1"/);
     const tab = await page("&sub=a1");
+    assert.match(tab, /<nav class="subtabs" id="subtabs" data-region aria-label[^>]*>[\s\S]*class="on"[\s\S]*<a class="subx" href="\/dashboard\?view=agents&(?:amp;)?agent=bob%2Falder" title="Close: back to the agent(?:&#39;|')s chat"/);
     assert.match(tab, /class="subhead"[\s\S]*Find the retry logic[\s\S]*Explore · done/);
     assert.match(tab, /class="bubble md subask"[\s\S]*Where do we retry failed charges\?/);
     assert.match(tab, /Its answer[\s\S]*<b>src\/charge\.ts<\/b>/);

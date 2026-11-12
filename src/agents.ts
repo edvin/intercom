@@ -582,10 +582,12 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
       subSel.status === "running" ? `<div class="act subworking"><span class="subspin"></span><span class="atx muted">working…</span></div>` : ""
     }`;
   }
-  const subTabs = subs.length
-    ? `<nav class="subtabs" id="subtabs" data-region aria-label="The agent or one of its subagents"><a href="${back}"${subSel ? "" : ' class="on"'}>${agentAvatar(agent.member, agent.label, "s")}<span>${esc(agent.label)}</span></a>${[...subs]
-        .sort((a, b) => a.started - b.started)
-        .map((x: Sub) => `<a href="${subHref(x.id)}"${x === subSel ? ' class="on"' : ""} title="${esc(`${x.desc || "a subagent"}${x.type ? ` · ${x.type}` : ""} · ${subWhen(x)}`)}">${subMarkOf(x)}<span>${esc((x.desc || x.type || "subagent").slice(0, 34))}</span></a>`)
+  // Tabs for the subagents running now and the one you opened; finished ones are in the inspector's list. A tab you
+  // opened closes with its ×, back to the agent's chat (one still running keeps its tab until it's done).
+  const tabbed = subs.filter((x) => x.status === "running" || x === subSel).sort((a, b) => a.started - b.started);
+  const subTabs = tabbed.length
+    ? `<nav class="subtabs" id="subtabs" data-region aria-label="The agent or one of its subagents"><a href="${back}"${subSel ? "" : ' class="on"'}>${agentAvatar(agent.member, agent.label, "s")}<span>${esc(agent.label)}</span></a>${tabbed
+        .map((x: Sub) => `<a href="${subHref(x.id)}"${x === subSel ? ' class="on"' : ""} title="${esc(`${x.desc || "a subagent"}${x.type ? ` · ${x.type}` : ""} · ${subWhen(x)}`)}">${subMarkOf(x)}<span>${esc((x.desc || x.type || "subagent").slice(0, 34))}</span></a>${x === subSel ? `<a class="subx" href="${back}" title="${x.status === "running" ? "Back to the agent's chat (its tab stays while it runs)" : "Close: back to the agent's chat"}" aria-label="Close this tab">${icon("x", 12)}</a>` : ""}`)
         .join("")}</nav>`
     : `<nav class="subtabs" id="subtabs" data-region hidden></nav>`;
   const inspOpen = /(?:^|;\s*)ic_insp=1/.test(cookie);

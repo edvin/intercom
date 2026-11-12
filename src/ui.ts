@@ -825,6 +825,7 @@ body:has(.ide) .top .in{max-width:none;padding:8px 14px}
 .subtabs a>span:last-child{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .subtabs a:hover{background:var(--surface-2);color:var(--ink)}
 .subtabs a.on{background:var(--surface);border-color:var(--line-strong);color:var(--ink);box-shadow:var(--shadow)}
+.subtabs a.on:has(+ .subx){padding-right:30px}.subtabs a.subx{position:relative;z-index:1;align-self:center;margin-left:-32px;margin-right:2px;padding:4px;border-radius:6px;color:var(--ink-3);box-shadow:none}.subtabs a.subx:hover{background:var(--surface-2);color:var(--ink)}
 .subtabs .av{width:18px;height:18px;font-size:9px}
 .subhead{display:flex;align-items:center;gap:10px;padding:10px 12px;margin:2px 0 10px;border:1px solid var(--line);border-radius:12px;background:var(--surface);font-family:"Geist",system-ui,sans-serif}
 .subhead b{font-size:14px}.subhead .subspin,.subhead .subend{width:16px;height:16px}
