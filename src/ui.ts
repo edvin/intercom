@@ -432,6 +432,7 @@ form.dropping{outline:2px dashed var(--accent);outline-offset:4px;border-radius:
 .ivbar .btn{color:#e8e9ef;width:44px;height:44px;justify-content:center}.ivbar .btn:hover{background:rgba(255,255,255,.1);color:#fff}
 .ivbody{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;padding:8px 8px max(16px,env(safe-area-inset-bottom));overflow:auto;touch-action:pinch-zoom pan-x pan-y}
 .ivbody img{max-width:100%;max-height:100%;object-fit:contain;border-radius:6px;box-shadow:0 10px 40px rgba(0,0,0,.5)}
+.ivbody{position:relative}.ivbody.loading img{visibility:hidden}.ivbody.loading::after{content:"";position:absolute;top:50%;left:50%;width:28px;height:28px;margin:-14px 0 0 -14px;border:2.5px solid rgba(255,255,255,.18);border-top-color:#e8e9ef;border-radius:50%;animation:spin .8s linear infinite}
 .act-loop .aic,.act-loop .atx{color:var(--accent)}
 .looprow{color:var(--accent);margin-top:2px}.looprow svg{vertical-align:-2px;margin-right:5px}.tloop{display:inline-grid;place-items:center;color:var(--accent)}
 .jobrow{color:var(--ink-2);margin-top:2px}.act-job .aic{color:var(--amber)}.act-job .atx{color:var(--ink-2)}
@@ -2594,8 +2595,21 @@ export const SCRIPT = `
       const href = el.getAttribute("href"), name = el.dataset.name || el.getAttribute("title") || el.textContent.trim() || "image";
       const vid = v.querySelector("video"), img = v.querySelector("img"), isVid = "video" in el.dataset;
       img.hidden = isVid; vid.hidden = !isVid;
-      if (isVid) { img.removeAttribute("src"); vid.src = href; vid.play().catch(() => {}); }
-      else { vid.pause(); vid.removeAttribute("src"); img.src = href; img.alt = name; }
+      const body = v.querySelector(".ivbody");
+      if (isVid) { img.removeAttribute("src"); body.classList.remove("loading"); vid.src = href; vid.play().catch(() => {}); }
+      else {
+        // A fresh image each time: the browser keeps showing the last one until the next has loaded, which looks like
+        // you opened the wrong one. Until it's in, a spinner.
+        vid.pause(); vid.removeAttribute("src");
+        const fresh = document.createElement("img");
+        fresh.alt = name;
+        body.classList.add("loading");
+        const done = () => { if (body.querySelector("img") === fresh) body.classList.remove("loading"); };
+        fresh.addEventListener("load", done); fresh.addEventListener("error", done);
+        img.replaceWith(fresh);
+        fresh.src = href;
+        if (fresh.complete) done();
+      }
       v.querySelector(".ivname").textContent = name + (v._list.length > 1 ? "  ·  " + (v._at + 1) + " / " + v._list.length : "");
       v.querySelector(".ivdl").href = href; v.querySelector(".ivdl").setAttribute("download", name);
     };
