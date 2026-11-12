@@ -1516,6 +1516,11 @@ tr.dh td{background:var(--diff-hunk)}
 .nowstop{flex:none;height:24px;gap:4px;color:var(--ink-2)}.nowstop:hover{color:var(--red);background:var(--red-soft)}
 .newag{gap:4px;padding:0 7px;color:var(--ink-2)!important;font-size:12px}
 .chatasks{flex:none;width:calc(100% - 56px);max-width:860px;margin:6px auto;display:flex;flex-direction:column;gap:8px}.chatasks[hidden]{display:none}
+/* A long ask (several questions with long options) scrolls inside its own box, so the chat's header and composer stay
+   on screen, and its Send / Skip stay pinned to the box's bottom edge. */
+.chatasks{max-height:min(62vh,calc(100dvh - 240px));overflow-y:auto;overscroll-behavior:contain;border-radius:12px}
+.chatasks .askact,.asklist .askact{position:sticky;bottom:-14px;z-index:1;margin:10px -14px -14px;padding:10px 14px 14px;background:var(--surface-2);border-radius:0 0 12px 12px}.chatasks .askact{background:var(--surface)}
+.chatasks .ask:has(fieldset.askq+fieldset.askq) .askact,.asklist .ask:has(fieldset.askq+fieldset.askq) .askact{border-top:1px solid var(--line)}
 .chatasks .ask{border:1px solid color-mix(in srgb,var(--amber) 40%,var(--line));border-radius:12px;background:var(--surface);box-shadow:var(--shadow-lg)}
 @media (max-width:900px){.chatasks{width:calc(100% - 16px)}}
 
