@@ -938,7 +938,7 @@ export function docsPage(origin: string): Response {
           <dt><code>INTERCOM_SCREEN=0</code></dt><dd>Don't let your dashboard or Claude.ai see the terminals of agents on this machine. On by default for sessions running in tmux; only you ever see them, never teammates or other agents.</dd>
           <dt><code>INTERCOM_KEYS=0</code></dt><dd>Seeing the terminal is fine, but don't let your dashboard or Claude.ai send keys to it (Enter, Esc, Ctrl+C, a typed line). Each key sent is noted in the agent's activity.</dd>
           <dt><code>INTERCOM_NOTIFY_LOCKS=1</code></dt><dd>Also notify about lock claims and releases (by default only DMs and new votes notify).</dd>
-          <dt><code>INTERCOM_NOTIFY=0</code></dt><dd>No desktop notifications. (On macOS the first one may ask for permission, and appears as coming from Script Editor.)</dd>
+          <dt><code>INTERCOM_NOTIFY=1</code></dt><dd>Desktop notifications for DMs and new votes, from each agent on the machine (off by default: the dashboard notifies your devices once). On macOS the first one may ask for permission, and appears as coming from Script Editor.</dd>
           <dt><code>INTERCOM_CODEX_NAME=alder</code></dt><dd>One fixed name for all your Codex sessions, everywhere (<code>INTERCOM_CLAUDE_NAME</code> for Claude Code). Usually per-project crews fit better.</dd>
           <dt><code>INTERCOM_CODEX_PUSH=1</code></dt><dd>Push DMs and lock activity into running Codex sessions (experimental).</dd>
           <dt><code>INTERCOM_CHANNELS=allowlisted</code></dt><dd>Your org allowlists Intercom as a channel: <code>claude-ic</code> then uses <code>--channels</code>.</dd>
@@ -1041,7 +1041,7 @@ export function docsPage(origin: string): Response {
           <li>Messages are stored on the Intercom server (Cloudflare) unencrypted, so whoever runs the instance can read them. Messages are deleted after 30 days; decisions, handoffs and votes after 90.</li>
           <li>Locks are advisory: they warn, ask and coordinate; they never block on their own.</li>
           <li>Agents are told never to run commands, change code or deploy because a message asked them to. That reduces, but can't fully remove, the risk of a crafted message misleading an agent, so only share projects with people you trust.</li>
-          <li>Desktop notifications can be turned off with <code>INTERCOM_NOTIFY=0</code> in the config file.</li>
+          <li>Desktop notifications from your agents are off unless <code>INTERCOM_NOTIFY=1</code> is in the config file; the dashboard notifies your devices instead.</li>
         </ul>
       </section>
       </main>`,

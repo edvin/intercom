@@ -11,7 +11,8 @@
 //   * peek mode (default; e.g. when an org blocks development channels): the hub only says "something arrived".
 //     We write ~/.claude/intercom/watch/<pid> while connected and pending/<pid> when there is something to fetch,
 //     so the hooks only touch the network when there's actually news.
-// - Shows a desktop notification for DMs, lock activity and new votes (INTERCOM_NOTIFY=0 to disable).
+// - Desktop notifications for DMs and new votes are off by default (INTERCOM_NOTIFY=1 turns them on): every agent on
+//   the machine gets your DMs, so each would pop one up, and the dashboard notifies your devices once.
 // - Shares this session's git branch with project members (INTERCOM_SHARE_BRANCH=0 to disable) and asks
 //   Claude to keep a short status note up to date (INTERCOM_AUTO_STATUS=0 to disable).
 
@@ -20,7 +21,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const VERSION = "0.12.53"; // kept in step with .claude-plugin/plugin.json (a test checks)
+const VERSION = "0.12.54"; // kept in step with .claude-plugin/plugin.json (a test checks)
 const DIR = path.join(os.homedir(), ".claude", "intercom");
 const CONFIG = path.join(DIR, "config");
 function readConf() {
@@ -52,7 +53,7 @@ const allMarkers = () => ["live", "watch", "pending"].flatMap(markers);
 // Read live from the config file, so the settings tool takes effect without a restart.
 const setting = (key) => process.env[key] ?? readConf()[key];
 const codexPushOn = () => setting("INTERCOM_CODEX_PUSH") === "1";
-const notifyOn = () => setting("INTERCOM_NOTIFY") !== "0";
+const notifyOn = () => setting("INTERCOM_NOTIFY") === "1";
 const WORKDIR = process.env.CLAUDE_PROJECT_DIR || process.cwd();
 const PROJECT = detectProject(WORKDIR);
 // Visibility for teammates (people in the same project only). Both can be turned off in the config.
@@ -433,7 +434,7 @@ async function saveAttachment(params) {
 const SETTINGS = {
   codex_push: { key: "INTERCOM_CODEX_PUSH", on: "1", off: "0", def: false, what: "push DMs and lock activity into running Codex sessions (codex queue, experimental)", live: true },
   show: { key: "INTERCOM_SHOW", on: "1", off: "0", def: true, what: "show 📻 lines in the terminal when messages reach a session", live: true },
-  notify: { key: "INTERCOM_NOTIFY", on: "1", off: "0", def: true, what: "desktop notifications for DMs, locks and votes", live: true },
+  notify: { key: "INTERCOM_NOTIFY", on: "1", off: "0", def: false, what: "desktop notifications for DMs, locks and votes", live: true },
   guard: { key: "INTERCOM_GUARD", on: "1", off: "0", def: true, what: "the deploy guard on shell commands", live: true },
   notify_locks: { key: "INTERCOM_NOTIFY_LOCKS", on: "1", off: "0", def: false, what: "desktop notifications and toasts for lock claims and releases too (off: only DMs and new votes)", live: true },
   auto_update: { key: "INTERCOM_AUTO_UPDATE", on: "1", off: "0", def: true, what: "install new intercom versions automatically in the background (checked at session start, at most every 6 hours)", live: true },
