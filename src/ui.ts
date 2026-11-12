@@ -1872,13 +1872,76 @@ export const SCRIPT = `
   const span = (ms) => { const s = Math.max(0, Math.floor(ms / 1000)); return s < 60 ? s + "s" : s < 3600 ? Math.floor(s / 60) + "m " + String(s % 60).padStart(2, "0") + "s" : Math.floor(s / 3600) + "h " + Math.floor((s % 3600) / 60) + "m"; };
   setInterval(() => $$("[data-elapsed]").forEach((e) => (e.textContent = span(Date.now() - Number(e.dataset.elapsed)))), 1000);
   // On a message: Copy, Quote (into the composer) and Ask about it (a side question, like /btw).
+  // Copy for Slack: the reply as rich text, which Slack keeps when you paste it (bold, links, lists, quotes, code), and
+  // as Slack's own markup (*bold*, _italic_, ~struck~, code fences, • lists) for anywhere that only takes plain text.
+  // Tables become aligned text in a code block and images links to them, as Slack can't paste either. A selection
+  // inside the reply copies just that.
+  const BT = String.fromCharCode(96), FENCE = BT + BT + BT;
+  function slackBox(b) {
+    const box = document.createElement("div"), sel = getSelection();
+    if (sel && !sel.isCollapsed && b.contains(sel.anchorNode) && b.contains(sel.focusNode)) box.append(sel.getRangeAt(0).cloneContents());
+    else [...b.childNodes].filter((n) => !(n.classList && (n.classList.contains("when") || n.classList.contains("bact") || n.classList.contains("rhd")))).forEach((n) => box.append(n.cloneNode(true)));
+    box.querySelectorAll("script,style,button,svg,summary,.bact,.when,.rhd,.mdcodehd").forEach((x) => x.remove());
+    box.querySelectorAll(".mdh").forEach((h) => { const n = document.createElement("h3"); n.innerHTML = h.innerHTML; h.replaceWith(n); });
+    box.querySelectorAll("a.att, a.attv, a.attl").forEach((a) => { const l = document.createElement("a"); l.href = a.href; l.textContent = a.dataset.name || a.getAttribute("title") || a.textContent.trim() || "file"; a.replaceWith(l); });
+    box.querySelectorAll("img").forEach((i) => { const l = document.createElement("a"); l.href = i.src; l.textContent = i.alt || "image"; i.replaceWith(l); });
+    box.querySelectorAll("table").forEach((t) => {
+      const rows = [...t.rows].map((r) => [...r.cells].map((c) => c.textContent.trim().replace(/\\s+/g, " "))), w = [];
+      rows.forEach((r) => r.forEach((c, i) => (w[i] = Math.max(w[i] || 0, c.length))));
+      const pre = document.createElement("pre");
+      pre.textContent = rows.map((r, n) => r.map((c, i) => c.padEnd(w[i])).join("  ").trimEnd() + (n === 0 && rows.length > 1 ? "\\n" + w.map((x) => "-".repeat(x)).join("  ") : "")).join("\\n");
+      t.replaceWith(pre);
+    });
+    // List levels are drawn with an indent (markdown.ts); in Slack they need to be lists inside lists.
+    box.querySelectorAll("ul,ol").forEach((list) => {
+      const items = [...list.children];
+      if (!items.some((li) => parseFloat(li.style.marginLeft) > 0)) return;
+      const stack = [list];
+      items.forEach((li) => {
+        const d = Math.round((parseFloat(li.style.marginLeft) || 0) / 1.4);
+        while (stack.length - 1 > d) stack.pop();
+        while (stack.length - 1 < d) { const up = stack[stack.length - 1].lastElementChild; if (!up) break; const sub = document.createElement(list.tagName); up.append(sub); stack.push(sub); }
+        stack[stack.length - 1].append(li);
+      });
+    });
+    const hb = () => box.querySelectorAll("h1,h2,h3,h4,h5,h6").forEach((h) => { const p = document.createElement("p"), bb = document.createElement("b"); bb.innerHTML = h.innerHTML; p.append(bb); h.replaceWith(p); });
+    hb();
+    box.querySelectorAll("*").forEach((el) => { for (const at of [...el.attributes]) if (!(el.tagName === "A" && at.name === "href")) el.removeAttribute(at.name); if (el.tagName === "A") el.setAttribute("href", el.href); });
+    return box;
+  }
+  function slackText(n, depth) {
+    if (n.nodeType === 3) return n.data.replace(/\\s+/g, " ");
+    if (n.nodeType !== 1) return "";
+    const t = n.tagName, kids = () => [...n.childNodes].map((k) => slackText(k, depth)).join("");
+    const wrap = (m) => { const x = kids(); return x.trim() ? (/^\\s/.test(x) ? " " : "") + m + x.trim() + m + (/\\s$/.test(x) ? " " : "") : x; };
+    if (t === "BR") return "\\n";
+    if (t === "STRONG" || t === "B" || /^H[1-6]$/.test(t)) return /^H/.test(t) ? "\\n*" + kids().trim() + "*\\n" : wrap("*");
+    if (t === "EM" || t === "I") return wrap("_");
+    if (t === "DEL" || t === "S") return wrap("~");
+    if (t === "PRE") return "\\n" + FENCE + "\\n" + n.textContent.replace(/\\n+$/, "") + "\\n" + FENCE + "\\n";
+    if (t === "CODE") return BT + n.textContent + BT;
+    if (t === "A") { const x = kids().trim(), h = n.getAttribute("href") || ""; return !h || x === h ? h || x : x + " (" + h + ")"; }
+    if (t === "UL" || t === "OL") return "\\n" + [...n.children].map((li, i) => "    ".repeat(depth) + (t === "OL" ? i + 1 + ". " : "• ") + [...li.childNodes].map((k) => slackText(k, depth + 1)).join("").trim()).join("\\n") + "\\n";
+    if (t === "BLOCKQUOTE") return "\\n" + kids().trim().split("\\n").map((l) => "> " + l).join("\\n") + "\\n";
+    if (t === "HR") return "\\n———\\n";
+    if (t === "P" || t === "DIV" || t === "DETAILS") return "\\n" + kids().trim() + "\\n";
+    return kids();
+  }
+  async function slackCopy(b) {
+    const box = slackBox(b);
+    const text = slackText(box, 0).replace(/[ \\t]+\\n/g, "\\n").replace(/\\n{3,}/g, "\\n\\n").trim();
+    try {
+      await navigator.clipboard.write([new ClipboardItem({ "text/html": new Blob([box.innerHTML], { type: "text/html" }), "text/plain": new Blob([text], { type: "text/plain" }) })]);
+    } catch { try { await navigator.clipboard.writeText(text); } catch { return icToast("Couldn't copy", true); } }
+    icToast("Copied for Slack");
+  }
   function msgActions() {
     const form = document.getElementById("chatform"), field = document.getElementById("chat-input");
     const canAsk = !!document.querySelector("[data-btwtoggle]");
     $$("#thread .bubble[data-mid]").forEach((b) => {
       if (b.querySelector(".bact")) return;
       const bar = document.createElement("span"); bar.className = "bact";
-      bar.innerHTML = '<button type="button" data-a="copy" title="Copy">${icon("copy", 13)}</button>' + (field ? '<button type="button" data-a="quote" title="Quote in your reply">${icon("message", 13)}</button>' : "") + (canAsk && !b.classList.contains("mine") ? '<button type="button" data-a="ask" title="Ask about this on the side (btw)">${icon("sparkles", 13)}</button>' : "");
+      bar.innerHTML = '<button type="button" data-a="copy" title="Copy">${icon("copy", 13)}</button>' + '<button type="button" data-a="slack" title="Copy for Slack (keeps bold, links, lists and code when you paste it there)">${icon("hash", 13)}</button>' + (field ? '<button type="button" data-a="quote" title="Quote in your reply">${icon("message", 13)}</button>' : "") + (canAsk && !b.classList.contains("mine") ? '<button type="button" data-a="ask" title="Ask about this on the side (btw)">${icon("sparkles", 13)}</button>' : "");
       b.append(bar);
     });
     if (form && !form._bact) {
@@ -1888,6 +1951,7 @@ export const SCRIPT = `
         const b = btn.closest(".bubble"), sel = String(getSelection() || "").trim();
         const text = sel && b.contains(getSelection().anchorNode) ? sel : [...b.childNodes].filter((n) => !(n.classList && (n.classList.contains("when") || n.classList.contains("bact") || n.classList.contains("rhd")))).map((n) => n.textContent).join("\\n").trim();
         if (btn.dataset.a === "copy") { try { await navigator.clipboard.writeText(text); icToast("Copied"); } catch {} return; }
+        if (btn.dataset.a === "slack") { slackCopy(b); return; }
         const f = document.getElementById("chat-input"); if (!f) return;
         const quoted = text.slice(0, 600).split("\\n").map((l) => "> " + l).join("\\n") + "\\n\\n";
         if (btn.dataset.a === "ask") { const t = document.querySelector("[data-btwtoggle]"); if (t && !t.classList.contains("on")) t.click(); }
