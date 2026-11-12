@@ -1620,6 +1620,20 @@ describe("loops", () => {
     assert.match(page, /Stopped self-paced loop<\/b>/);
   });
 
+  test("after a compaction, an agent whose self-paced loop was armed is told to re-arm it", async () => {
+    const w = await standardWorld();
+    const start = () => w.request("/api/hook?event=SessionStart&project=billing-api&session=lc&name=looper", { as: "bob" }).then((r) => r.json() as Promise<{ hookSpecificOutput: { additionalContext: string } }>);
+    assert.doesNotMatch((await start()).hookSpecificOutput.additionalContext, /self-paced loop/);
+    const post = (o: object) =>
+      w.request("/api/activity?session=lc", { as: "bob", method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ items: [{ at: Date.now(), kind: "loop", text: JSON.stringify(o) }] }) });
+    await post({ op: "wakeup", delay: 600, prompt: "<<autonomous-loop-dynamic>>" });
+    const ctx = (await start()).hookSpecificOutput.additionalContext;
+    assert.match(ctx, /running a self-paced loop \(\/loop\).*autonomous loop/);
+    assert.match(ctx, /call ScheduleWakeup again before this turn ends with the prompt <<autonomous-loop-dynamic>>/);
+    await post({ op: "wakeup_stop" });
+    assert.doesNotMatch((await start()).hookSpecificOutput.additionalContext, /self-paced loop/);
+  });
+
   test("describing schedules, and a self-paced loop that stopped re-arming expires", async () => {
     const { describeCron, activeLoops } = await import("../src/loops.ts");
     assert.equal(describeCron("*/5 * * * *"), "every 5m");

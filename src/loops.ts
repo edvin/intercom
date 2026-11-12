@@ -99,3 +99,15 @@ export const parseLoops = (raw: string | null | undefined): Loop[] => {
     return [];
   }
 };
+
+/** For a session starting again (a compaction) while its self-paced loop was armed: re-arm it. */
+export function loopReminder(l: Loop, now = Date.now()): string {
+  const auto = /^<<autonomous-loop/.test(l.prompt);
+  const mins = Math.max(0, Math.round((now - l.at) / 60_000));
+  return (
+    `You were running a self-paced loop (/loop) in this session; you last re-armed it ${mins ? `${mins}m ago` : "just now"}` +
+    (auto ? " as an autonomous loop" : l.prompt ? ` with the prompt: ${l.prompt}${l.prompt.length >= 200 ? "…" : ""}` : "") +
+    `. A compaction drops it unless you re-arm it: unless the loop's work is done or your user stopped it, call ScheduleWakeup again before this turn ends` +
+    (auto ? ` with the prompt <<autonomous-loop-dynamic>>.` : l.prompt.length >= 200 ? ", with the loop's prompt as the user gave it (shortened above)." : ", with that same prompt.")
+  );
+}

@@ -4,6 +4,7 @@ import { recordsBrief } from "./records";
 import { saveWorkSettings, workCsv } from "./work";
 import { dismissStuck, moveStuck, releaseSenders, setNudge, wakeStuck } from "./stuck";
 import { CTX_STALE_MS, FIT_SINCE, compactAgent, compactOnStop, markCompacted, dismiss, myRows, newer, outOfUsage, restartAgent, setAuto, updateAgent, updateIdle } from "./upkeep";
+import { activeLoops, loopReminder, parseLoops } from "./loops";
 import { KEY_NAMES, type ScreenQuery, askScreen, drawScreen, screenReply, sendNow, stopAgent } from "./screen";
 import { answerBtw, pendingBtw } from "./btw";
 import { POSTER_MAX, getAttachment, isImage, playable, readImage, readable, savePoster, thumbnail, videoType } from "./attachments";
@@ -350,6 +351,13 @@ async function handleHook(url: URL, env: Env, me: string, input: { last_assistan
     sections.push(scopedLocks(locks, me, project?.name, "", session?.label));
     if (project) sections.push(...(await recordsBrief(env, me, project.name)));
     if (project) sections.push(...(await notesBrief(env, me, project.name, session?.label ?? null)));
+    // A self-paced /loop lives only in the conversation: each turn re-arms it with ScheduleWakeup, and after a compaction
+    // (the same session starting again) the agent tends to forget to. The hub saw it armed (loops.ts), so it says so.
+    if (session) {
+      const lr = await env.DB.prepare("SELECT loops FROM sessions WHERE member = ? AND session_id = ?").bind(me, session.session_id).first<{ loops: string | null }>();
+      const w = activeLoops(parseLoops(lr?.loops)).find((l) => l.kind === "wakeup");
+      if (w) sections.push(loopReminder(w));
+    }
     if (open.length) sections.push(`Open proposals:\n${(await Promise.all(open.map((p) => tally(env, p, me)))).join("\n")}`);
     const others = locks.filter((l) => !isMyLock(l, me, session?.label) && lockIn(l, project?.name));
     // How a session loads a newer intercom: Claude Code in place; Codex by starting it again on the same session.
