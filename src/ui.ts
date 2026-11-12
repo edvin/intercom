@@ -1445,6 +1445,7 @@ body:has(#asks:not([hidden]):not(.min)) .toasts{right:16px;left:auto}
 @media (max-width:900px){.nowline{width:calc(100% - 16px)}.nowall{display:none}}
 /* Message actions, on hover. */
 .thread .bubble{position:relative}
+.selslack{position:fixed;z-index:60;display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;border:1px solid var(--line-strong);border-radius:9px;background:var(--surface);color:var(--ink);font:500 12.5px Geist,system-ui,sans-serif;box-shadow:var(--shadow-lg);cursor:pointer;animation:pop .14s ease-out}.selslack:hover{color:var(--accent);border-color:var(--accent)}.selslack[hidden]{display:none}
 .bact{position:absolute;top:-14px;right:0;z-index:2;display:none;gap:2px;padding:2px;border:1px solid var(--line);border-radius:8px;background:var(--surface);box-shadow:var(--shadow-lg)}
 .thread .bubble:hover>.bact{display:flex}.thread .bubble.mine>.bact{top:-14px;right:8px}
 .bact button{display:grid;place-items:center;width:26px;height:24px;border:0;border-radius:6px;background:none;color:var(--ink-2);cursor:pointer}.bact button:hover{background:var(--hover);color:var(--ink)}
@@ -1877,9 +1878,18 @@ export const SCRIPT = `
   // Tables become aligned text in a code block and images and files their names, as Slack can't paste either. A selection
   // inside the reply copies just that.
   const BT = String.fromCharCode(96), FENCE = BT + BT + BT;
+  // What's selected in the chat (in one message or across several), or null.
+  function selInThread() {
+    const s = getSelection(), t = document.getElementById("thread");
+    if (!s || s.isCollapsed || !s.rangeCount || !t || !String(s).trim()) return null;
+    const r = s.getRangeAt(0), c = r.commonAncestorContainer, el = c.nodeType === 1 ? c : c.parentElement;
+    if (!t.contains(el) || !(el.closest(".bubble[data-mid]") || el.querySelector(".bubble[data-mid]"))) return null;
+    return r;
+  }
   function slackBox(b) {
     const box = document.createElement("div"), sel = getSelection();
-    if (sel && !sel.isCollapsed && b.contains(sel.anchorNode) && b.contains(sel.focusNode)) box.append(sel.getRangeAt(0).cloneContents());
+    if (!b) box.append(selInThread().cloneContents());
+    else if (sel && !sel.isCollapsed && b.contains(sel.anchorNode) && b.contains(sel.focusNode)) box.append(sel.getRangeAt(0).cloneContents());
     else [...b.childNodes].filter((n) => !(n.classList && (n.classList.contains("when") || n.classList.contains("bact") || n.classList.contains("rhd")))).forEach((n) => box.append(n.cloneNode(true)));
     box.querySelectorAll("script,style,button,svg,summary,.bact,.when,.rhd,.mdcodehd").forEach((x) => x.remove());
     box.querySelectorAll(".mdh").forEach((h) => { const n = document.createElement("h3"); n.innerHTML = h.innerHTML; h.replaceWith(n); });
@@ -1939,6 +1949,29 @@ export const SCRIPT = `
     } catch { try { await navigator.clipboard.writeText(text); } catch { return icToast("Couldn't copy", true); } }
     icToast("Copied for Slack");
   }
+  // Select text in the chat and a "Copy for Slack" button shows by it (below it on a touch screen, clear of the
+  // phone's own menu); it copies just the selection, as the # on a message does for the whole message.
+  let selChip = null, selDown = false, selT = 0;
+  function selChipShow() {
+    const r = selInThread();
+    if (!r || selDown) { if (selChip) selChip.hidden = true; return; }
+    if (!selChip) {
+      selChip = document.createElement("button");
+      selChip.type = "button"; selChip.className = "selslack"; selChip.title = "Copy the selection, formatted for Slack";
+      selChip.innerHTML = '${icon("hash", 13)}<span>Copy for Slack</span>';
+      selChip.addEventListener("mousedown", (e) => e.preventDefault());
+      selChip.onclick = async () => { if (selInThread()) await slackCopy(null); selChip.hidden = true; };
+      document.body.append(selChip);
+    }
+    selChip.hidden = false;
+    const rect = r.getBoundingClientRect(), w = selChip.offsetWidth, below = matchMedia("(pointer: coarse)").matches || rect.top < 56;
+    selChip.style.left = Math.max(8, Math.min(innerWidth - w - 8, rect.left + rect.width / 2 - w / 2)) + "px";
+    selChip.style.top = Math.min(innerHeight - 44, below ? rect.bottom + 10 : rect.top - 40) + "px";
+  }
+  document.addEventListener("selectionchange", () => { clearTimeout(selT); selT = setTimeout(selChipShow, 150); });
+  document.addEventListener("pointerdown", (e) => { if (e.target !== selChip && !(selChip && selChip.contains(e.target))) selDown = true; }, true);
+  document.addEventListener("pointerup", () => { if (!selDown) return; selDown = false; clearTimeout(selT); selT = setTimeout(selChipShow, 10); }, true);
+  document.addEventListener("scroll", () => { if (selChip && !selChip.hidden) selChipShow(); }, true);
   function msgActions() {
     const form = document.getElementById("chatform"), field = document.getElementById("chat-input");
     const canAsk = !!document.querySelector("[data-btwtoggle]");
