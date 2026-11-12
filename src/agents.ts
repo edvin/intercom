@@ -542,6 +542,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   // A subagent's own view (tabs over the chat): what it was asked, its steps folded like the agent's, what you sent
   // it through the agent, and its answer.
   const subSel = subs.find((x) => x.id === url.searchParams.get("sub")) ?? null;
+  const asksHere = ownAgent && !codeOn ? await chatAsks(env, me, agent.session_id, here) : "";
   const subHref = (id: string) => `${back}&sub=${encodeURIComponent(id)}`;
   let subThread = "";
   if (subSel) {
@@ -645,10 +646,10 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
         </div>
       </header>
       ${codeOn || !ownAgent ? "" : subTabs}
-      ${on && agent.state === "waiting" && !pending.some((p) => p.session_id === agent.session_id) ? `<div class="cbanner"><i></i><span><b>${esc(agent.label)} is waiting${agent.state_at ? ` (asked ${ago(agent.state_at)})` : ""}:</b> ${esc(agent.state_detail || "for approval or input")}. Only its terminal can answer this.${canScreen ? "" : " Already answered? Claude Code doesn't say when, so this stays until the step has run."}</span>${canScreen ? `<button type="button" class="btn sm" ${screenAttrs(key(agent), agent.label, agent.screen ?? "", agent.client ?? "")}>${icon("terminal", 14)}Open its screen</button>` : ""}</div>` : ""}
+      ${on && agent.state === "waiting" && !pending.some((p) => p.session_id === agent.session_id) && !asksHere.includes('data-mid="w') ? `<div class="cbanner"><i></i><span><b>${esc(agent.label)} is waiting${agent.state_at ? ` (asked ${ago(agent.state_at)})` : ""}:</b> ${esc(agent.state_detail || "for approval or input")}. Only its terminal can answer this.${canScreen ? "" : " Already answered? Claude Code doesn't say when, so this stays until the step has run."}</span>${canScreen ? `<button type="button" class="btn sm" ${screenAttrs(key(agent), agent.label, agent.screen ?? "", agent.client ?? "")}>${icon("terminal", 14)}Open its screen</button>` : ""}</div>` : ""}
       <div class="cbody"><div class="cmain">
       ${codeOn ? codePane : `<div class="thread term${/(?:^|;\s*)ic_activity=off/.test(cookie) ? " noact" : ""}${/(?:^|;\s*)ic_relay=off/.test(cookie) ? " norelay" : ""}" id="thread" data-region${subSel ? ` data-sub="${esc(subSel.id)}"` : ""}>${subSel ? subThread : thread || `<div class="empty" style="margin:auto">${icon("message", 28)}<div>No messages with ${esc(agent.label)} yet.</div><div class="small">${ownAgent ? "Ask a question or give it a new direction; it treats what you write here like a prompt you typed." : "Your message reaches this session; its owner's agent treats it as information from you."}</div></div>`}</div>
-${ownAgent && !codeOn ? await chatAsks(env, me, agent.session_id, here) : ""}
+${asksHere}
 ${(() => {
         // While it works: its latest step and how long it has been at it, live, above the composer.
         if (!on || agent.state !== "working" || codeOn || subSel) return `<div class="nowline" id="nowline" data-region hidden></div>`;

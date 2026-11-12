@@ -1,4 +1,5 @@
 import { queueReset, resetHost, setResets } from "./resets";
+import { pickPrompt, queuePromptLook } from "./prompts";
 import { recordsBrief } from "./records";
 import { saveWorkSettings, workCsv } from "./work";
 import { dismissStuck, moveStuck, releaseSenders, setNudge, wakeStuck } from "./stuck";
@@ -230,7 +231,11 @@ async function handleHook(url: URL, env: Env, me: string, input: { last_assistan
   if (event === "Notification" || event === "PermissionRequest") {
     // Claude Code also notifies after a minute of plain idleness; that isn't waiting on anyone.
     if (url.searchParams.get("kind") === "idle_prompt") await setState("idle", "", false);
-    else await setState("waiting", url.searchParams.get("detail") || (event === "PermissionRequest" ? "needs approval" : "waiting for input"));
+    else {
+      await setState("waiting", url.searchParams.get("detail") || (event === "PermissionRequest" ? "needs approval" : "waiting for input"));
+      // What it asks may have no card here (prompts.ts): its screen is read in a moment.
+      if (session) await queuePromptLook(env, me, session.session_id);
+    }
     return new Response("", { status: 200 });
   }
   if (event === "StopFailure") {
@@ -800,6 +805,7 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
       else if (op === "resets-on" || op === "resets-off") ok = await setResets(env, me, op === "resets-on");
       else if (op === "reset-now") ok = await resetHost(env, me, f("host"), { force: true });
       else if (op === "restart") ok = await restartAgent(env, me, f("session"));
+      else if (op === "pick") ok = await pickPrompt(env, me, f("session"), Number(f("n")));
       else if (op === "compact" || op === "compact-now") ok = await compactAgent(env, me, f("session"), { rightAway: op === "compact-now" });
       else ok = await dismiss(env, me, f("key"), Number(f("value")) || 1);
       u.searchParams.set("ok", ok);

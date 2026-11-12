@@ -9,6 +9,7 @@ import { getSetting, setSetting } from "./github";
 import { type Env, UserError, ago } from "./lib";
 import { outdated } from "./version";
 import { APPROVAL_DELAY, queuePush } from "./push";
+import { queuePromptLook } from "./prompts";
 
 /** Plugin versions whose hook closes a card answered in the terminal, so asking here while at the desk is fine. */
 export const ASK_ALWAYS_SINCE = "0.12.30";
@@ -87,8 +88,17 @@ export async function requestApproval(env: Env, me: string, session: { session_i
   const { away, waitMin } = await awayState(env, me);
   if (!session) return null;
   // At the desk, only hooks that close a card you answered in the terminal ask here too.
-  if (!away && (client !== "claude" || outdated(session.version, ASK_ALWAYS_SINCE))) return null;
   const tool = String(body.tool_name ?? "tool").slice(0, 80);
+  if (!away && (client !== "claude" || outdated(session.version, ASK_ALWAYS_SINCE))) {
+    // It asks in its terminal alone: it shows as waiting (not working), and what it asks is read off its screen
+    // (prompts.ts) for the card in Waiting for you.
+    await env.DB.prepare("UPDATE sessions SET state = 'waiting', state_detail = ?, state_at = ?, active_at = ?2 WHERE member = ? AND session_id = ?")
+      .bind(`needs approval: ${summarize(tool, body.tool_input).slice(0, 120)}`, Date.now(), me, session.session_id)
+      .run();
+    await queuePromptLook(env, me, session.session_id);
+    env.refreshWeb?.(me);
+    return null;
+  }
   const questions = tool === "AskUserQuestion" ? questionsOf(body.tool_input) : null;
   const plan = tool === "ExitPlanMode" ? str((body.tool_input as { plan?: unknown })?.plan, 40_000) : "";
   const kind = questions ? "question" : plan ? "plan" : "permission";

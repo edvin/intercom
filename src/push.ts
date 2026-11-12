@@ -7,6 +7,7 @@
 // and it never reaches your phone. When a notification is due it's built from the item as it is then, so anything
 // answered, decided or withdrawn meanwhile is skipped.
 
+import { lookForPrompt } from "./prompts";
 import { daySummary, scheduleSummary } from "./work";
 import { NUDGE_WAIT_MS, nudgeStuck, stuckNote, stuckSessions } from "./stuck";
 import { compactDue } from "./upkeep";
@@ -252,6 +253,16 @@ export async function sendDuePushes(env: Env, now = Date.now()): Promise<number 
         await compactDue(env, q.member, q.extra);
       } catch (e) {
         console.log("compact", q.ref, String(e));
+      }
+      continue;
+    }
+    if (q.ref[0] === "p") {
+      // An agent waiting on a question in its terminal (prompts.ts): read it, and tell you once it's found.
+      try {
+        const got = await lookForPrompt(env, q.member, q.extra);
+        if (got) await sendNote(env, q.member, { title: `${got.label} asks in its terminal`, body: clip(got.prompt.question.split("\n").filter(Boolean).pop() ?? "", 180), tag: q.ref, url: `/dashboard?view=agents&agent=${encodeURIComponent(`${q.member}/${got.label}`)}`, count: await waitingCount(env, q.member), ttl: 3600 });
+      } catch (e) {
+        console.log("prompt", q.ref, String(e));
       }
       continue;
     }

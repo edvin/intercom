@@ -3712,6 +3712,70 @@ test("a long chat shows its latest stretch, and all of it with Show earlier (liv
   assert.doesNotMatch(all, /Show earlier/);
 });
 
+describe("a question an agent asks in its terminal alone", () => {
+  const CLAUDE = "╭──────────────────────────────────────────────╮\n│ Bash command                                 │\n│                                              │\n│   rm -rf build/                              │\n│   Remove the old build                       │\n│                                              │\n│ Do you want to proceed?                      │\n│ ❯ 1. Yes                                     │\n│   2. Yes, and don't ask again for rm         │\n│   3. No, and tell Claude what to do differently (esc) │\n╰──────────────────────────────────────────────╯\n";
+  const CODEX = "• Ran ls\n\n  Would you like to run the following command?\n\n  $ git push --force origin main\n\n› 1. Yes, proceed (y)\n  2. Yes, and don't ask again for this command (a)\n  3. No, and tell Codex what to do differently (esc)\n\n  Press enter to confirm or esc to cancel\n";
+
+  test("its dialog is read off the screen: the question and the options, in Claude Code's box or Codex's list; a numbered list in its answer isn't one", async () => {
+    const { screenPrompt } = await import("../src/prompts.ts");
+    assert.deepEqual(screenPrompt(CLAUDE), { question: "Bash command\n\nrm -rf build/\nRemove the old build\n\nDo you want to proceed?", options: ["Yes", "Yes, and don't ask again for rm", "No, and tell Claude what to do differently"], on: 1 });
+    assert.deepEqual(screenPrompt(CODEX), { question: "Would you like to run the following command?\n\n$ git push --force origin main", options: ["Yes, proceed", "Yes, and don't ask again for this command", "No, and tell Codex what to do differently"], on: 1 });
+    assert.equal(screenPrompt("Here's the plan:\n1. Build it\n2. Test it\n\n> \n"), null);
+    assert.equal(screenPrompt("Which one?\n1. Red\n2. Blue\n" + "\n".repeat(3) + "more output\nand more\nand more\nand more\nand more\nand more\nand more\n"), null);
+  });
+
+  test("a Codex approval at your desk: it shows as waiting, the card has its options, and picking one presses the keys once the screen still asks it", async () => {
+    const w = await standardWorld();
+    await w.request(`/api/hook?event=SessionStart&project=billing-api&session=tq1&name=pusher&client=codex&version=${PLUGIN_VERSION}`, { as: "bob" });
+    await w.db.prepare("UPDATE sessions SET screen = 'keys', pane = '%3' WHERE session_id = 'tq1'").run();
+    const r = await w.request("/api/approval?session=tq1&client=codex", { method: "POST", as: "bob", body: JSON.stringify({ tool_name: "Bash", tool_input: { command: "git push --force origin main" } }) });
+    assert.ok(r.ok);
+    const row = await w.db.prepare("SELECT state, state_detail FROM sessions WHERE session_id = 'tq1'").first<{ state: string; state_detail: string }>();
+    assert.equal(row!.state, "waiting");
+    assert.match(row!.state_detail, /needs approval: Bash: git push --force/);
+    // The alarm reads its screen (answered here as its machine would).
+    let screen = CODEX;
+    const keys: unknown[] = [];
+    let stop = false;
+    const answer = (async () => {
+      let seen = 0;
+      while (!stop) {
+        while (w.screenAsked.length > seen) {
+          const ask = w.screenAsked[seen++]!;
+          if (ask.q.op === "keys") { keys.push(ask.q.keys); screen = "• Pushed\n"; }
+          await w.request("/api/screen-reply", { as: ask.member, method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ req: ask.req, data: { text: screen, cols: 80, rows: 24, cursor: null, keys: true } }) });
+        }
+        await new Promise((ok) => setTimeout(ok, 5));
+      }
+    })();
+    try {
+    const { sendDuePushes } = await import("../src/push.ts");
+    await sendDuePushes(w.env(), Date.now() + 60_000);
+    await w.db.prepare("UPDATE sessions SET state_at = state_at - 30000 WHERE session_id = 'tq1'").run();
+    const dash = await (await w.request("/dashboard?view=agents", { as: "bob", cookie: true })).text();
+    assert.match(dash, /Would you like to run the following command\?\n\n\$ git push --force origin main/);
+    assert.match(dash, /name="n" value="2"><span class="askoptx"><b>Yes, and don&#39;t ask again for this command<\/b>/);
+    // The screen changed meanwhile: nothing is pressed.
+    screen = "• something else\n";
+    const changed = await w.form("/upkeep", "bob", { op: "pick", session: "tq1", n: "3", back: "/dashboard" });
+    assert.match(decodeURIComponent(changed.headers.get("location") ?? "").replace(/\+/g, " "), /doesn't show that question any more/);
+    assert.deepEqual(keys, []);
+    // Asked again, and answered: the arrows to the option, then Enter.
+    screen = CODEX;
+    await w.db.prepare("UPDATE sessions SET prompt = NULL WHERE session_id = 'tq1'").run();
+    const { lookForPrompt } = await import("../src/prompts.ts");
+    assert.ok(await lookForPrompt(w.env(), "bob", "tq1 1"));
+    await w.db.prepare("UPDATE sessions SET state_at = state_at - 1000 WHERE session_id = 'tq1'").run();
+    const picked = await w.form("/upkeep", "bob", { op: "pick", session: "tq1", n: "3", back: "/dashboard" });
+    assert.match(decodeURIComponent(picked.headers.get("location") ?? "").replace(/\+/g, " "), /Picked “No, and tell Codex what to do differently” in pusher/);
+    assert.deepEqual(keys, [["down", "down", "enter"]]);
+    } finally {
+      stop = true;
+      await answer;
+    }
+  });
+});
+
 describe("an agent's screen", () => {
   const SCREEN = "\x1b[1m\x1b[32m✻ Welcome\x1b[0m\n\x1b[38;5;208mDo you want to proceed?\x1b[39m\n❯ 1. Yes\n  2. No\n";
   const setup = async () => {

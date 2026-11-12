@@ -8,6 +8,7 @@ import { type Btw, BTW_TIMEOUT, modAnswers } from "./btw";
 import { type Review, OUTCOMES, agentOnline, findingsOf, onlineAgents, pendingReviews, threadOf } from "./reviews";
 import { type Stuck, nudgeIsOn, stuckSessions } from "./stuck";
 import { screenAttrs } from "./screen";
+import { promptOf } from "./prompts";
 import { type Row as UpRow, exitedAgents, frozenAgents, fullAgents, myRows, outOfUsage, since, staleAgents, upkeepOf } from "./upkeep";
 import { type ResetTry, RESET_GAP_MS, resetsOf } from "./resets";
 import { PLUGIN_VERSION } from "./version";
@@ -174,8 +175,16 @@ function reviewCard(r: Review, me: string, back: string, online: boolean, others
 
 /** An agent waiting on its terminal (a question or a prompt it shows there, Codex's own approval dialog) with no card of
  * its own: what it says it waits for, and its screen to answer it. */
-function waitCard(w: { session_id: string; label: string; screen: string; client: string; state_detail: string; state_at: number | null }, me: string): string {
+function waitCard(w: { session_id: string; label: string; screen: string; client: string; state: string; state_detail: string; state_at: number | null; prompt: string | null }, me: string, back: string): string {
   const agent = `/dashboard?view=agents&agent=${encodeURIComponent(`${me}/${w.label}`)}`;
+  const p = w.screen === "keys" ? promptOf(w) : null;
+  if (p)
+    return `<article class="ask k-wait" data-mid="w${esc(w.session_id)}">
+    <header class="askwho">${agentAvatar(me, w.label, "s")}<a href="${esc(agent)}" class="askname">${esc(w.label)}</a><span class="askk">In its terminal</span><span class="grow"></span>${time(p.at)}${lookBtn(me, w, "Terminal")}</header>
+    <pre class="askcode">${esc(p.question)}</pre>
+    <p class="stkwhy">Read off its screen. Picking one checks the screen still asks this, then presses the keys for it.</p>
+    ${upkeepForm(back, { session: w.session_id, op: "pick" }, `<div class="askopts">${p.options.map((o, i) => `<button class="askopt" name="n" value="${i + 1}"><span class="askoptx"><b>${esc(o)}</b></span>${icon("arrow", 14)}</button>`).join("")}</div>`)}
+  </article>`;
   return `<article class="ask k-wait" data-mid="w${esc(w.session_id)}">
     <header class="askwho">${agentAvatar(me, w.label, "s")}<a href="${esc(agent)}" class="askname">${esc(w.label)}</a><span class="askk">In its terminal</span><span class="grow"></span>${w.state_at ? time(w.state_at) : ""}</header>
     <p class="stkhead">${esc(w.label)} is waiting: ${esc(w.state_detail || "for input")}.</p>
@@ -300,6 +309,13 @@ function stuckCard(st: Stuck, me: string, back: string, online: { label: string;
 /** What one agent asks you, as cards in its own chat (the same cards as in Waiting for you). */
 export async function chatAsks(env: Env, me: string, sessionId: string, back: string): Promise<string> {
   const pending = (await pendingApprovals(env, me)).filter((p) => p.session_id === sessionId);
+  // A question it asks in its terminal alone, read off its screen (prompts.ts).
+  const w = pending.length
+    ? null
+    : await env.DB.prepare("SELECT session_id, label, screen, client, state, state_detail, state_at, prompt FROM sessions WHERE member = ? AND session_id = ? AND screen = 'keys'")
+        .bind(me, sessionId)
+        .first<{ session_id: string; label: string; screen: string; client: string; state: string; state_detail: string; state_at: number | null; prompt: string | null }>();
+  if (w && promptOf(w)) return `<div class="chatasks" id="chatasks" data-region>${waitCard(w, me, back)}</div>`;
   if (!pending.length) return `<div class="chatasks" id="chatasks" data-region hidden></div>`;
   const leads = await leadUps(env, me, pending);
   const { results: seen } = await env.DB.prepare("SELECT session_id, label, screen, client FROM sessions WHERE member = ? AND session_id = ? AND screen != ''")
@@ -320,10 +336,10 @@ export async function asksDock(env: Env, me: string, back: string): Promise<stri
   // Your agents whose terminal can be seen from here (screen.ts): for a look at what they're asking, and for the ones
   // waiting there with no card of their own.
   const { results: seen } = await env.DB.prepare(
-    "SELECT session_id, label, screen, client, state, state_detail, state_at FROM sessions WHERE member = ? AND screen != '' AND last_seen > ?",
+    "SELECT session_id, label, screen, client, state, state_detail, state_at, prompt FROM sessions WHERE member = ? AND screen != '' AND last_seen > ?",
   )
     .bind(me, Date.now() - 10 * 60_000)
-    .all<{ session_id: string; label: string; screen: string; client: string; state: string; state_detail: string; state_at: number | null }>();
+    .all<{ session_id: string; label: string; screen: string; client: string; state: string; state_detail: string; state_at: number | null; prompt: string | null }>();
   const screens: Screens = new Map(seen.map((x) => [x.session_id, x]));
   const carded = new Set([...pending.map((p) => p.session_id), ...stuck.map((x) => x.agent)]);
   const waits = seen.filter((x) => x.state === "waiting" && !carded.has(x.session_id) && !carded.has(x.label) && !/limit|login|account/i.test(x.state_detail) && Date.now() - (x.state_at ?? 0) > 20_000);
@@ -351,7 +367,7 @@ export async function asksDock(env: Env, me: string, back: string): Promise<stri
     <button type="button" class="askpill" data-askstoggle title="Show what your agents are waiting on"><span class="askdot"></span><b>${n}</b> waiting for you${icon("chevron", 14)}</button>
     <div class="askpanel">
       <div class="askhd"><span class="askdot"></span><b>Waiting for you</b><span class="badge amber">${n}</span><span class="grow"></span><button type="button" class="btn ghost xs askpush" data-pushon hidden title="Get a notification on this device when something is waiting for you">${icon("bell", 13)}Notify me</button><button type="button" class="btn ghost xs icon" data-askstoggle title="Minimize">${icon("chevron", 14)}</button></div>
-      <div class="asklist">${pending.map((p) => card(p, me, back, now, screens, leads.get(p.id))).join("")}${waits.map((w) => waitCard(w, me)).join("")}${reviews
+      <div class="asklist">${pending.map((p) => card(p, me, back, now, screens, leads.get(p.id))).join("")}${waits.map((w) => waitCard(w, me, back)).join("")}${reviews
         .map((r) => reviewCard(r, me, back, agentOnline(env, r, agents), names.filter((l) => l !== r.label)))
         .join("")}${tickets.map((t) => ticketCard(t, me, back)).join("")}${stuck.map((st) => stuckCard(st, me, back, agents, nudgeOn)).join("")}${upkeepCards.join("")}</div>
     </div>
