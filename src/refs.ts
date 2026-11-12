@@ -38,19 +38,21 @@ function refUrl(base: string | null, ref: string, code?: string | null): string 
   return null;
 }
 
-const anchor = (url: string, text: string) =>
-  url.startsWith("/") ? `<a class="ref" href="${url}" title="Open in its code view">${text}</a>` : `<a class="ref" href="${url}" target="_blank" rel="noopener noreferrer">${text}</a>`;
+/** A commit on the forge, for a link that opens in the code view: copied for Slack, it links there (ui.ts slackBox). */
+const forgeUrl = (base: string | null, ref: string) => (base && isCommit(ref) ? refUrl(base, ref) : null);
+const anchor = (url: string, text: string, web?: string | null) =>
+  url.startsWith("/") ? `<a class="ref" href="${url}"${web ? ` data-web="${web}"` : ""} title="Open in its code view">${text}</a>` : `<a class="ref" href="${url}" target="_blank" rel="noopener noreferrer">${text}</a>`;
 
 /** Link references in already-escaped HTML text (no tags inside `text`). */
 export function linkRefs(text: string, base: string | null, code?: string | null): string {
   return text.replace(/(^|[\s(\[,;:])((?:[\w.-]+(?:\/[\w.-]+)+)?[!#]\d+|[0-9a-f]{7,40})(?=$|[\s).,;:!?\]])/g, (all, pre: string, ref: string) => {
     const url = refUrl(base, ref, code);
-    return url ? `${pre}${anchor(url, ref)}` : all;
+    return url ? `${pre}${anchor(url, ref, forgeUrl(base, ref))}` : all;
   });
 }
 
 /** A `code` span that is exactly a reference (`a91c2e0`, `!3742`) becomes a link too. */
 export function linkCode(code: string, base: string | null, agent?: string | null): string | null {
   const url = refUrl(base, code.trim(), agent);
-  return url ? anchor(url, `<code>${code}</code>`) : null;
+  return url ? anchor(url, `<code>${code}</code>`, forgeUrl(base, code.trim())) : null;
 }

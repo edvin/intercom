@@ -2915,8 +2915,8 @@ describe("the code view", () => {
       body: JSON.stringify({ items: [{ at: Date.now(), kind: "text", text: "Pushed a91c2e0 and `b72d3f1`." }] }),
     });
     const chat = await (await w.request("/dashboard?view=agents&agent=bob/core", { as: "bob", cookie: true })).text();
-    assert.match(chat, /<a class="ref" href="\/dashboard\?view=agents&amp;agent=bob%2Fcore&amp;code=commit&amp;sha=a91c2e0" title="Open in its code view">a91c2e0<\/a>/);
-    assert.match(chat, /code=commit&amp;sha=b72d3f1" title="Open in its code view"><code>b72d3f1<\/code><\/a>/);
+    assert.match(chat, /<a class="ref" href="\/dashboard\?view=agents&amp;agent=bob%2Fcore&amp;code=commit&amp;sha=a91c2e0" data-web="https:\/\/[^"]+\/-?\/?commit\/a91c2e0" title="Open in its code view">a91c2e0<\/a>/); // data-web: its forge, for Copy for Slack
+    assert.match(chat, /code=commit&amp;sha=b72d3f1"[^>]* title="Open in its code view"><code>b72d3f1<\/code><\/a>/);
     // core ends; core-2 runs in the same repo and reads it instead.
     await w.request("/api/hook?event=SessionStart&project=billing-api&session=cv2&name=core-2", { as: "bob" });
     await w.db.prepare("UPDATE sessions SET version = ?, origin = 'https://git.example.com/team/app' WHERE session_id = 'cv2'").bind(CODE_SINCE).run();

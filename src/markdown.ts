@@ -75,7 +75,7 @@ function inline(s: string, refs?: string | null, files?: string | null, code?: s
   if (files) s = s.replace(PATH_IN, (_, pre: string, p: string) => pre + keep(fileLink(p, files)));
   s = s
     .replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
-    .replace(/(^|[\s(])(https?:\/\/[^\s<)]+)/g, '$1<a href="$2" target="_blank" rel="noopener noreferrer">$2</a>')
+    .replace(/(^|[\s(])(https?:\/\/[^\s<)]*[^\s<).,;:!?'"])/g, '$1<a href="$2" target="_blank" rel="noopener noreferrer">$2</a>') // a full stop or comma after a URL ends the sentence, not the URL
     .replace(/\*\*\*([^*\n]+)\*\*\*/g, "<b><i>$1</i></b>")
     .replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>")
     .replace(/__([^_\n]+)__/g, "<b>$1</b>")

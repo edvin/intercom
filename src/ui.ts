@@ -1874,7 +1874,7 @@ export const SCRIPT = `
   // On a message: Copy, Quote (into the composer) and Ask about it (a side question, like /btw).
   // Copy for Slack: the reply as rich text, which Slack keeps when you paste it (bold, links, lists, quotes, code), and
   // as Slack's own markup (*bold*, _italic_, ~struck~, code fences, • lists) for anywhere that only takes plain text.
-  // Tables become aligned text in a code block and images links to them, as Slack can't paste either. A selection
+  // Tables become aligned text in a code block and images and files their names, as Slack can't paste either. A selection
   // inside the reply copies just that.
   const BT = String.fromCharCode(96), FENCE = BT + BT + BT;
   function slackBox(b) {
@@ -1883,8 +1883,12 @@ export const SCRIPT = `
     else [...b.childNodes].filter((n) => !(n.classList && (n.classList.contains("when") || n.classList.contains("bact") || n.classList.contains("rhd")))).forEach((n) => box.append(n.cloneNode(true)));
     box.querySelectorAll("script,style,button,svg,summary,.bact,.when,.rhd,.mdcodehd").forEach((x) => x.remove());
     box.querySelectorAll(".mdh").forEach((h) => { const n = document.createElement("h3"); n.innerHTML = h.innerHTML; h.replaceWith(n); });
-    box.querySelectorAll("a.att, a.attv, a.attl").forEach((a) => { const l = document.createElement("a"); l.href = a.href; l.textContent = a.dataset.name || a.getAttribute("title") || a.textContent.trim() || "file"; a.replaceWith(l); });
-    box.querySelectorAll("img").forEach((i) => { const l = document.createElement("a"); l.href = i.src; l.textContent = i.alt || "image"; i.replaceWith(l); });
+    box.querySelectorAll("a.att, a.attv, a.attl").forEach((a) => { const l = document.createElement("span"); l.textContent = a.dataset.name || a.getAttribute("title") || a.textContent.trim() || "file"; a.replaceWith(l); });
+    box.querySelectorAll("img").forEach((i) => { const l = document.createElement("span"); l.textContent = i.alt || "image"; i.replaceWith(l); });
+    // Links into this dashboard (a commit or file in an agent's code view, a file on its machine) only open for you:
+    // in Slack they stay as their text, a commit linking to its forge when the repo's known. Links elsewhere (an MR like !874, a ticket, a page) are kept.
+    box.querySelectorAll("a[data-web]").forEach((a) => a.setAttribute("href", a.dataset.web));
+    box.querySelectorAll("a[href]").forEach((a) => { let u; try { u = new URL(a.getAttribute("href"), location.href); } catch { return; } if (u.origin === location.origin || !/^https?:$/.test(u.protocol)) a.replaceWith(...a.childNodes); });
     box.querySelectorAll("table").forEach((t) => {
       const rows = [...t.rows].map((r) => [...r.cells].map((c) => c.textContent.trim().replace(/\\s+/g, " "))), w = [];
       rows.forEach((r) => r.forEach((c, i) => (w[i] = Math.max(w[i] || 0, c.length))));
