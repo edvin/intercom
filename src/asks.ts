@@ -250,13 +250,13 @@ function exitedCard(r: UpRow, me: string, back: string): string {
 }
 
 function fullCard(r: UpRow, me: string, back: string): string {
-  const bucket = Math.floor((r.ctx_pct ?? 0) / 5) * 5;
+  const bucket = Math.floor((r.ctx_pct ?? 0) / 10) * 10;
   return `<article class="ask k-wait" data-mid="c${esc(r.session_id)}">
     <header class="askwho">${agentAvatar(me, r.label, "s")}<span class="askname">${esc(r.label)}</span><span class="askk">Context ${r.ctx_pct}%</span></header>
     <p class="stkhead">${esc(r.label)}'s context is ${r.ctx_pct}% full.</p>
     ${r.compact_err ? `<p class="stknudged">The last compaction from here didn't run: ${esc(r.compact_err)}</p>` : ""}
     <p class="stkwhy">Near the limit it compacts by itself, in the middle of whatever it does. Compacting now, between turns, keeps that on your terms.</p>
-    ${upkeepForm(back, { session: r.session_id, key: `full:${r.session_id}`, value: String(bucket) }, `<div class="askopts">${uopt("compact", "Compact it", "It's told first, saves what it would lose and says what the summary must keep; then it's compacted.", true)}${uopt("compact-now", "Compact right away", r.state === "working" ? "When its current turn ends, without a warning." : "Now, without a warning.")}${uopt("dismiss", "Not now", "Asks again at 5% more.")}</div>`)}
+    ${upkeepForm(back, { session: r.session_id, key: `full:${r.session_id}`, value: String(bucket) }, `<div class="askopts">${uopt("compact", "Compact it", "It's told first, saves what it would lose and says what the summary must keep; then it's compacted.", true)}${uopt("compact-now", "Compact right away", r.state === "working" ? "When its current turn ends, without a warning." : "Now, without a warning.")}${uopt("dismiss", "Not now", "Asks again at 10% more.")}</div>`)}
   </article>`;
 }
 
@@ -333,7 +333,7 @@ export async function asksDock(env: Env, me: string, back: string): Promise<stri
   const stale = dismissed[`upd:${PLUGIN_VERSION}`] ? [] : staleAgents(ups, upLive, true);
   const frozen = frozenAgents(ups, upLive).filter((r) => (dismissed[`frozen:${r.session_id}`] ?? -1) < Math.max(r.active_at ?? 0, r.state_at ?? 0));
   const exited = exitedAgents(ups, upLive).filter((r) => (dismissed[`exited:${r.session_id}`] ?? -1) < r.last_seen);
-  const full = fullAgents(ups, upLive).filter((r) => (dismissed[`full:${r.session_id}`] ?? -1) < Math.floor((r.ctx_pct ?? 0) / 5) * 5);
+  const full = fullAgents(ups, upLive).filter((r) => (dismissed[`full:${r.session_id}`] ?? -1) < Math.floor((r.ctx_pct ?? 0) / 10) * 10);
   // Out of usage, by machine.
   const { on: resetsOn, log: resetLog } = await resetsOf(env, me);
   const outBy = new Map<string, UpRow[]>();

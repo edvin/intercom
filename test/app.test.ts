@@ -3909,6 +3909,17 @@ describe("keeping agents running and current", () => {
     const dash = await page(w);
     assert.match(dash, /data-mid="fup2"[\s\S]*triage has been working for 30m with nothing new/);
     assert.match(dash, /data-mid="cup2"[\s\S]*triage(?:'|&#39;)s context is 90% full/);
+    // Offered from 70%; after "Not now" it asks again at the next 10%.
+    const ctx = (pct: number) => w.db.prepare("UPDATE sessions SET ctx_pct = ? WHERE session_id = 'up2'").bind(pct).run();
+    await ctx(69);
+    assert.doesNotMatch(await page(w), /data-mid="cup2"/);
+    await ctx(72);
+    assert.match(await page(w), /data-mid="cup2"[\s\S]*Asks again at 10% more/);
+    await w.form("/upkeep", "bob", { op: "dismiss", key: "full:up2", value: "70", back: "/dashboard" });
+    await ctx(79);
+    assert.doesNotMatch(await page(w), /data-mid="cup2"/);
+    await ctx(80);
+    assert.match(await page(w), /data-mid="cup2"/);
   });
 
   test("a page of your agents and versions, by machine, updating one at a time", async () => {

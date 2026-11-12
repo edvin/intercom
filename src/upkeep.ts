@@ -16,7 +16,7 @@ import { PLUGIN_VERSION } from "./version";
 export const HELPER_SINCE = "0.12.34";
 export const FIT_SINCE = "0.12.35"; // "Fit to this screen" (code.mjs fitPane)
 const FROZEN_MS = 20 * 60_000;
-const FULL_PCT = 85;
+const FULL_PCT = 70;
 const TICK_MS = 20 * 60_000;
 const IDLE_FOR_MS = 10 * 60_000;
 
