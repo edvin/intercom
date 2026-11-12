@@ -9,6 +9,7 @@ import briefSh from "../plugins/intercom/brief.sh";
 import codexSkill from "../client/codex/SKILL.md";
 import { TeamHub, type WorkerEnv } from "./hub";
 import { docsPage } from "./web";
+import { BUILD, SCRIPT, STYLE } from "./ui";
 import geist from "../assets/geist.woff2";
 import geistMono from "../assets/geist-mono.woff2";
 import jetbrainsMono from "../assets/jetbrains-mono.woff2";
@@ -102,6 +103,15 @@ export default {
     if (CLIENT_FILES[url.pathname]) return text(CLIENT_FILES[url.pathname]);
     if (FONTS[url.pathname]) {
       return new Response(FONTS[url.pathname], { headers: { "content-type": "font/woff2", "cache-control": "public, max-age=31536000, immutable", "access-control-allow-origin": "*" } });
+    }
+    // The dashboard's styles and script, named by their build so a page keeps them cached until they change. A page
+    // drawn by the previous build (the hub takes a few minutes to switch over) gets these, uncached.
+    const ui = url.pathname.match(/^\/assets\/ui-([a-z0-9]+)\.(css|js)$/);
+    if (ui) {
+      const css = ui[2] === "css";
+      return new Response(css ? STYLE : SCRIPT, {
+        headers: { "content-type": css ? "text/css; charset=utf-8" : "text/javascript; charset=utf-8", "cache-control": ui[1] === BUILD ? "public, max-age=31536000, immutable" : "no-store" },
+      });
     }
     if (ICONS[url.pathname]) return new Response(ICONS[url.pathname], { headers: { "content-type": "image/png", "cache-control": "public, max-age=86400" } });
     if (url.pathname === "/manifest.webmanifest") return new Response(MANIFEST, { headers: { "content-type": "application/manifest+json", "cache-control": "public, max-age=3600" } });

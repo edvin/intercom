@@ -356,8 +356,18 @@ export class TeamHub extends DurableObject<WorkerEnv> {
     return out;
   }
 
+  private webPoked = new Map<string, number>();
+  private webPending = new Map<string, ReturnType<typeof setTimeout>>();
+
   /** Tell a member's open dashboards to redraw (approvals, away mode). */
   private refreshWeb(member: string): void {
+    // Busy agents report activity every few seconds each: dashboards hear at most one poke a second.
+    const last = this.webPoked.get(member) ?? 0, wait = last + 1000 - Date.now();
+    if (wait > 0) {
+      if (!this.webPending.has(member)) this.webPending.set(member, setTimeout(() => (this.webPending.delete(member), this.refreshWeb(member)), wait));
+      return;
+    }
+    this.webPoked.set(member, Date.now());
     for (const ws of this.ctx.getWebSockets(member)) {
       const s = ws.deserializeAttachment() as SocketInfo | null;
       if (s?.mode === "web") this.safeSend(ws, '{"type":"refresh"}');

@@ -156,7 +156,7 @@ export { md, plainSpaces } from "./markdown";
 export const codeBlock = (s: string) =>
   `<div class="code"><pre>${esc(s)}</pre><button type="button" class="btn ghost xs copy" data-copy="${esc(s)}" title="Copy">${icon("copy", 14)}<span>Copy</span></button></div>`;
 
-const STYLE = `
+export const STYLE = `
 @font-face{font-family:Geist;src:url(/assets/geist.woff2) format("woff2");font-weight:100 900;font-display:swap}
 @font-face{font-family:"Geist Mono";src:url(/assets/geist-mono.woff2) format("woff2");font-weight:100 900;font-display:swap}
 @font-face{font-family:"JetBrains Mono";src:url(/assets/jetbrains-mono.woff2) format("woff2");font-weight:100 800;font-display:swap}
@@ -2895,17 +2895,29 @@ export const SCRIPT = `
   ["touchend", "touchcancel"].forEach((ev) => addEventListener(ev, () => { touching = false; moved(); }, { passive: true, capture: true }));
   const settled = () => !touching && Date.now() - movedAt > 900;
   window.icRefresh = () => refresh(); // a redraw now, as a live update would (also for tests)
+  // Busy agents poke the page every few seconds each: the redraws are spaced (one at a time, 1.5 s apart at most
+  // once a second's worth of pokes came in) and none is fetched for a tab you can't see (it redraws when shown).
+  let refreshing = false, refreshAgain = false, lastRefresh = 0;
   async function refresh() {
-    clearTimeout(refreshTimer);
+    if (refreshing) { refreshAgain = true; return; }
+    if (refreshTimer) return; // one is already on its way: a steady stream of pokes doesn't keep pushing it back
     refreshTimer = setTimeout(async function go() {
+      refreshTimer = 0;
+      if (document.hidden) return;
       if (!settled()) { refreshTimer = setTimeout(go, 400); return; }
+      const wait = lastRefresh + 1500 - Date.now();
+      if (wait > 0) { refreshTimer = setTimeout(go, wait); return; }
+      refreshing = true; refreshAgain = false; lastRefresh = Date.now();
       try {
         const r = await fetch(location.href, { credentials: "same-origin" });
-        if (!r.ok || r.url !== location.href) return;
-        const text = await r.text();
-        if (!settled()) { refreshTimer = setTimeout(go, 400); return; } // you started scrolling meanwhile: fetch again after
-        swap(text);
+        if (r.ok && r.url === location.href) {
+          const text = await r.text();
+          if (!settled()) refreshAgain = true; // you started scrolling meanwhile: fetch again after
+          else swap(text);
+        }
       } catch {}
+      refreshing = false;
+      if (refreshAgain) refresh();
     }, 250);
   }
   function connect(delay = 1000) {
@@ -3305,9 +3317,9 @@ export function page(title: string, body: string, opts: { top?: string } = {}): 
 <link rel="manifest" href="/manifest.webmanifest"><link rel="apple-touch-icon" href="/assets/icon-180.png">
 <meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="Intercom"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="ic-build" content="${BUILD}"><link rel="preload" href="/assets/geist.woff2" as="font" type="font/woff2" crossorigin>
-<style>${STYLE}</style></head><body>
+<link rel="stylesheet" href="/assets/ui-${BUILD}.css"></head><body>
 ${opts.top ?? `<header class="top"><div class="in"><a class="brand" href="/">${LOGO}<span>Intercom</span></a><span class="grow"></span><a class="btn ghost sm" href="/docs">${icon("book", 15)}Docs</a></div></header>`}
 ${body}
 <dialog id="confirm"><div class="hd"><h2>Are you sure?</h2></div><div class="bd"><p id="confirm-text" class="muted"></p></div><div class="ft"><button class="btn ghost" data-close type="button">Cancel</button><button class="btn danger" id="confirm-yes" type="button">Yes, continue</button></div></dialog>
-<script>${SCRIPT}</script></body></html>`;
+<script src="/assets/ui-${BUILD}.js"></script></body></html>`;
 }
