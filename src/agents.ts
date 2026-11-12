@@ -298,7 +298,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
     return { tree, main: `${updateBar}<section class="card chat"><div class="empty" style="margin:auto">${icon("radio", 30)}<div>There's no agent ${esc(picked)} (any more).</div><div class="small">Pick one in the tree, or <a href="/dashboard?view=agents">show your agents</a>.</div></div></section>` };
   if (!agent) return { tree, main: `${updateBar}<section class="card chat"><div class="empty" style="margin:auto">${icon("radio", 30)}<div>No agents to talk to yet.</div><div class="small">Start Claude Code or Codex in a repo; its session shows up in the tree.</div></div></section>` };
 
-  const { results: rows } = await env.DB.prepare(
+  const { results: allRows } = await env.DB.prepare(
     // You (or your agents) → it, it → you (or your agents); for your own agents also every DM it sent or got,
     // so agent-to-agent conversations can be followed. A teammate's agent only ever shows what involves you.
     // Held or cancelled messages (unsend) only ever show to the person who wrote them.
@@ -313,13 +313,24 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
     .bind(me, agent.member, agent.label, agent.project || "\u0000", ...mine)
     .all<Message>();
   // What the agent is doing, mirrored from its transcript: only ever for your own agents.
-  const { results: acts } =
+  const { results: allActs } =
     agent.member === me
       ? await env.DB.prepare(
           // Its latest steps, and its latest texts on their own (they'd fall out of a busy agent's step window).
           "SELECT * FROM (SELECT * FROM activity WHERE member = ?1 AND session_id = ?2 AND kind != 'text' ORDER BY id DESC LIMIT 200) UNION ALL SELECT * FROM (SELECT * FROM activity WHERE member = ?1 AND session_id = ?2 AND kind = 'text' ORDER BY id DESC LIMIT 60) ORDER BY id DESC",
         ).bind(me, agent.session_id).all<Activity>()
       : { results: [] as Activity[] };
+  // The chat redraws on every few steps a busy agent takes, sent whole each time: it shows the latest stretch (from
+  // where the first of its messages, steps or texts runs out), and everything kept with "Show earlier".
+  const earlier = url.searchParams.has("earlier");
+  const nth = (ats: number[], n: number) => (ats.length > n ? ats[n - 1]! : 0); // newest first
+  // The conversation (messages and the agent's texts) from where the first of those runs out; its commands, reads and
+  // edits only within that and their own window, so hundreds of them never push what it wrote out of view.
+  const base = earlier ? 0 : Math.max(nth(allRows.map((m) => m.created_at), 50), nth(allActs.filter((a) => a.kind === "text").map((a) => a.at), 25));
+  const stepCut = earlier ? 0 : Math.max(base, nth(allActs.filter((a) => a.kind !== "text").map((a) => a.at), 100));
+  const rows = base ? allRows.filter((m) => m.created_at >= base) : allRows;
+  const acts = allActs.filter((a) => a.at >= (a.kind === "text" ? base : stepCut));
+  const cut = rows.length < allRows.length || acts.length < allActs.length;
   const marks = await deliveryMarks(env, me, rows);
   // Each writer's repo, so their !MR / #issue / commit refs link where they belong.
   const origins = new Map(agents.map((a) => [`${a.member}/${a.label}`, a.origin ?? ""]));
@@ -489,6 +500,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   }
   flushRel();
   flush(true);
+  if (cut) out.unshift(`<div class="earlier" data-gid="earlier"><a class="btn ghost xs" href="/dashboard?view=agents&amp;agent=${encodeURIComponent(key(agent))}&amp;earlier=1">${icon("clock", 13)}Show earlier</a></div>`);
   const thread = out.join("");
   const on = isOn(agent);
   const ownAgent = agent.member === me;

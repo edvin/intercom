@@ -11,7 +11,7 @@ export const html = (body: string, status = 200, headers: Record<string, string>
     headers: {
       "content-type": "text/html; charset=utf-8",
       "content-security-policy":
-        "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline' 'self'; worker-src 'self'; manifest-src 'self'; font-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+        "default-src 'none'; style-src 'unsafe-inline' 'self'; script-src 'unsafe-inline' 'self'; worker-src 'self'; manifest-src 'self'; font-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
       "x-content-type-options": "nosniff",
       "referrer-policy": "same-origin",
       ...headers,
@@ -1516,6 +1516,7 @@ tr.dh td{background:var(--diff-hunk)}
 .watchbtn.on{color:var(--accent)!important;background:var(--accent-soft)}
 .nowstop{flex:none;height:24px;gap:4px;color:var(--ink-2)}.nowstop:hover{color:var(--red);background:var(--red-soft)}
 .newag{gap:4px;padding:0 7px;color:var(--ink-2)!important;font-size:12px}
+.thread .earlier{display:flex;justify-content:center;padding:4px 0 10px}
 .chatasks{flex:none;width:calc(100% - 56px);max-width:860px;margin:6px auto;display:flex;flex-direction:column;gap:8px}.chatasks[hidden]{display:none}
 /* A long ask (several questions with long options) scrolls inside its own box, so the chat's header and composer stay
    on screen, and its Send / Skip stay pinned to the box's bottom edge. */
@@ -2865,7 +2866,11 @@ export const SCRIPT = `
       // The chat is updated in place: a message or step that didn't change keeps its very node (a drawn diagram, a
       // folded message, an image), only new and changed ones come in, so nothing on screen moves for nothing.
       if (th) {
+        // Scrolled up, what you're reading stays put, also when older rows leave the top (the chat shows its latest stretch).
+        const seen = stick ? null : [...el.children].find((c) => (c.dataset.mid || c.dataset.gid) && c.getBoundingClientRect().bottom > el.getBoundingClientRect().top);
+        const seenTop = seen ? seen.getBoundingClientRect().top : 0;
         morphThread(el, next); el._src = src;
+        if (seen && seen.isConnected) el.scrollTop += seen.getBoundingClientRect().top - seenTop;
         if (known.size) $$("[data-mid]", el).forEach((m) => !known.has(m.dataset.mid) && m.classList.add("fresh"));
         if (!stick) el.dataset.stuck = "no";
         bind(el); days(el);

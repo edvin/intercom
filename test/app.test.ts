@@ -3693,6 +3693,25 @@ describe("agents that don't take their messages", () => {
   });
 });
 
+test("a long chat shows its latest stretch, and all of it with Show earlier (live redraws send it whole each time)", async () => {
+  const w = await standardWorld();
+  await w.request(`/api/hook?event=SessionStart&project=billing-api&session=lc1&name=core&client=claude&version=${PLUGIN_VERSION}`, { as: "bob" });
+  for (let i = 1; i <= 60; i++) await w.ok("bob", "post", { to: "bob", message: `Reply number ${i} done` }, { id: "lc1", project: "billing-api" });
+  await w.db.prepare("UPDATE messages SET created_at = created_at - (1000 - id) * 1000 WHERE body LIKE 'Reply number %'").run();
+  const res = await w.request("/dashboard?view=agents&agent=bob/core", { as: "bob", cookie: true });
+  // Its styles and script are files of the site's own, which the page's policy lets in.
+  assert.match(res.headers.get("content-security-policy") ?? "", /style-src[^;]*'self'/);
+  const latest = await res.text();
+  assert.match(latest, /<link rel="stylesheet" href="\/assets\/ui-\w+\.css">/);
+  assert.match(latest, /Reply number 60 done/);
+  assert.match(latest, /Reply number 11 done/);
+  assert.doesNotMatch(latest, /Reply number 10 done/);
+  assert.match(latest, /href="\/dashboard\?view=agents&amp;agent=bob%2Fcore&amp;earlier=1"[^>]*>.*Show earlier/);
+  const all = await (await w.request("/dashboard?view=agents&agent=bob/core&earlier=1", { as: "bob", cookie: true })).text();
+  assert.match(all, /Reply number 1 done/);
+  assert.doesNotMatch(all, /Show earlier/);
+});
+
 describe("an agent's screen", () => {
   const SCREEN = "\x1b[1m\x1b[32m✻ Welcome\x1b[0m\n\x1b[38;5;208mDo you want to proceed?\x1b[39m\n❯ 1. Yes\n  2. No\n";
   const setup = async () => {
