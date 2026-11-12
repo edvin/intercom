@@ -82,10 +82,20 @@ function riskyName(word: string): boolean {
 }
 
 /** Does this shell command look like it deploys, migrates or changes infrastructure? Conservative on purpose. */
+/**
+ * Separators inside quotes don't split a command: `rg 'preview.*url|deploy.*url' docs` is one search, not a search and
+ * a deploy script called deploy.*url. Inside single quotes nothing runs; inside double quotes $(…) and `…` still do.
+ */
+function unquoteSeparators(command: string): string {
+  return command
+    .replace(/'[^']*'/g, (q) => q.replace(/[|;&\n`]|\$\(/g, " "))
+    .replace(/"(?:[^"\\]|\\.)*"/g, (q) => q.replace(/[|;&\n]/g, " "));
+}
+
 export function riskyCommand(command: string): RiskyCommand | null {
-  const segments = command.split(/&&|\|\||[;|\n]|\$\(|`/);
+  const segments = unquoteSeparators(command).split(/&&|\|\||[;|\n]|\$\(|`/);
   for (const seg of segments) {
-    const words = seg.trim().split(/\s+/).filter(Boolean);
+    const words = seg.trim().split(/\s+/).map((w) => w.replace(/[)"'`]+$/, "")).filter(Boolean);
     while (words.length && (/^[A-Za-z_][A-Za-z0-9_]*=/.test(words[0]) || WRAPPERS.test(words[0]))) words.shift();
     if (!words.length) continue;
     const bin = words[0].replace(/^.*\//, "");

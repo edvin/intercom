@@ -120,10 +120,16 @@ describe("deploy guard", () => {
       "./scripts/prod-release.sh",
       "./release.sh",
       "python3 scripts/publish-docs.py",
+      "rg -n 'x' docs; ./deploy.sh prod", // a real separator after a quoted one
+      'echo "$(npx wrangler deploy)"', // runs, even inside double quotes
     ]) {
       assert.ok(riskyCommand(c), c);
     }
-    for (const c of ["ls -la", "cat deploy.yaml", "grep -r deploy src", "git log --grep deploy", "npm install", "kubectl get pods", "helm list", "npm test", "vim scripts/deploy.sh", "python3 scripts/screen-release-sequencer-a09.py --no-plot", "./scripts/check-deploy-config-lint.sh", "python3 scripts/screen-captive-roof-release.py --plot", "./tools/spring-latch-rollout.sh"]) {
+    for (const c of ["ls -la", "cat deploy.yaml", "grep -r deploy src", "git log --grep deploy", "npm install", "kubectl get pods", "helm list", "npm test", "vim scripts/deploy.sh", "python3 scripts/screen-release-sequencer-a09.py --no-plot", "./scripts/check-deploy-config-lint.sh", "python3 scripts/screen-captive-roof-release.py --plot", "./tools/spring-latch-rollout.sh",
+      // Searches whose pattern has | or ; in quotes: one read-only command, not a pipe into a "deploy" script.
+      "rg -n 'https://.*pages.dev|preview.*url|deploy.*url' docs tooling -g '*.json' -g '*.txt' | head -15",
+      "rg --files /home/x/fabricate-workholding-c23 | rg 'wrangler|deploy.*(sh|py)|Justfile|justfile' | head -25",
+      'grep -E "release;deploy|migrate" notes.md']) {
       assert.equal(riskyCommand(c), null, c);
     }
     assert.equal(riskyCommand("helm upgrade billing ./chart --set env=production")?.env, "prod");
