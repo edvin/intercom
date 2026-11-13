@@ -8,7 +8,6 @@ import statuslineSh from "../plugins/intercom/statusline.sh";
 import briefSh from "../plugins/intercom/brief.sh";
 import codexSkill from "../client/codex/SKILL.md";
 import { TeamHub, type WorkerEnv } from "./hub";
-import { docsPage } from "./web";
 import { BUILD, SCRIPT, STYLE } from "./ui";
 import geist from "../assets/geist.woff2";
 import geistMono from "../assets/geist-mono.woff2";
@@ -21,6 +20,9 @@ const FONTS: Record<string, ArrayBuffer> = { "/assets/geist.woff2": geist, "/ass
 const ICONS: Record<string, ArrayBuffer> = { "/assets/icon-180.png": icon180, "/assets/icon-192.png": icon192, "/assets/icon-512.png": icon512 };
 
 // Added to a phone's home screen, the dashboard opens as an app of its own: full screen, on the agents.
+// Served without its comments, which describe the product to anyone who opens the file.
+const CSS = STYLE.replace(/\/\*[\s\S]*?\*\//g, "");
+
 const MANIFEST = JSON.stringify({
   name: "Intercom",
   short_name: "Intercom",
@@ -95,7 +97,7 @@ export default {
   async fetch(req: Request, env: WorkerEnv): Promise<Response> {
     const url = new URL(req.url);
     // Stateless routes are answered at the edge; everything else is one hop to the team hub.
-    if (url.pathname === "/health") return text("intercom ok\n");
+    if (url.pathname === "/health") return text("ok\n");
     if (url.pathname === "/install.sh" || url.pathname === "/setup.sh") {
       const script = url.pathname === "/install.sh" ? installSh : setupSh;
       return text(script.replaceAll("__INTERCOM_URL_HOST__", url.host).replaceAll("__INTERCOM_URL__", url.origin));
@@ -109,14 +111,14 @@ export default {
     const ui = url.pathname.match(/^\/assets\/ui-([a-z0-9]+)\.(css|js)$/);
     if (ui) {
       const css = ui[2] === "css";
-      return new Response(css ? STYLE : SCRIPT, {
+      return new Response(css ? CSS : SCRIPT, {
         headers: { "content-type": css ? "text/css; charset=utf-8" : "text/javascript; charset=utf-8", "cache-control": ui[1] === BUILD ? "public, max-age=31536000, immutable" : "no-store" },
       });
     }
     if (ICONS[url.pathname]) return new Response(ICONS[url.pathname], { headers: { "content-type": "image/png", "cache-control": "public, max-age=86400" } });
     if (url.pathname === "/manifest.webmanifest") return new Response(MANIFEST, { headers: { "content-type": "application/manifest+json", "cache-control": "public, max-age=3600" } });
     if (url.pathname === "/sw.js") return new Response(SERVICE_WORKER, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": "no-cache" } });
-    if (url.pathname === "/docs") return docsPage(url.origin);
+    if (url.pathname === "/robots.txt") return text("User-agent: *\nDisallow: /\n");
     // Bodies are read whole inside the one hub object: a huge one could take it down for everyone. Messages with
     // attachments (4 × 10 MB) and files from agents may be large; nothing else needs more than a little.
     const big = /^\/(action\/post|api\/file-reply|api\/code-reply|mcp)$/.test(url.pathname);

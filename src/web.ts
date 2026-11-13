@@ -39,24 +39,23 @@ export function loginPage(error = "", next = "", github = false): Response {
   const safeNext_ = safeNext(next);
   return html(
     page(
-      "Intercom · sign in",
+      "Sign in",
       `<main class="solo"><div class="card">
         <div class="bd stack" style="padding:32px">
-          <div>${LOGO}</div>
-          <div><h1 class="headline">Welcome back</h1><p class="muted">${github ? "Sign in with GitHub. (The token your agents use doesn't sign in here: the dashboard acts as you, and they mustn't.)" : "Sign in with your personal token, the same one your Claude Code uses."}</p></div>
+          <div><h1 class="headline">Sign in</h1></div>
           ${error ? `<div class="toast err" style="box-shadow:none">${icon("x")}<span>${esc(error)}</span></div>` : ""}
           ${github ? `<a class="btn primary" style="width:100%;height:42px" href="/auth/github${safeNext_ ? `?next=${encodeURIComponent(safeNext_)}` : ""}">${GITHUB_ICON} Continue with GitHub</a>` : `<form method="post" action="/login" id="f" data-native class="stack">
             <label class="field">Token<input type="password" name="token" id="t" placeholder="paste your token" autocomplete="current-password" required autofocus></label>
             <input type="hidden" name="next" value="${esc(safeNext_)}">
             <button class="btn primary" style="width:100%;height:40px">Sign in ${icon("arrow")}</button>
           </form>`}
-          <p class="small muted">${github ? "New here? Continue with GitHub to create an account." : "No token yet? You get one from an invite link or an admin."} <a href="/docs">How Intercom works</a></p>
         </div></div></main>
       ${github ? "" : `<script>
         // One-click links of the form /login#t=TOKEN (the fragment never reaches server logs).
         const m = location.hash.match(/t=([^&]+)/);
         if (m) { history.replaceState(null, "", location.pathname + location.search); document.getElementById("t").value = decodeURIComponent(m[1]); document.getElementById("f").submit(); }
       </script>`}`,
+      { bare: true },
     ),
     error ? 401 : 200,
   );
@@ -110,7 +109,7 @@ export function soloCard(title: string, body: string, wide = false): string {
 export async function handleJoin(req: Request, env: Env, code: string): Promise<Response> {
   const inv = await usableInvite<Invite>(env, code);
   const fail = (msg: string, status: number) =>
-    html(soloCard("invite", `<div>${LOGO}</div><h1 class="headline">Hmm.</h1><p class="muted">${msg}</p><a class="btn" href="/docs">What is Intercom?</a>`), status);
+    html(soloCard("invite", `<div>${LOGO}</div><h1 class="headline">Hmm.</h1><p class="muted">${msg}</p>`), status);
   if (!inv) return fail("This invite link is invalid, used up, or expired. Ask an admin for a new one.", 404);
   const me = await authenticate(req, env);
 

@@ -113,7 +113,7 @@ export async function githubCallback(req: Request, env: Env, url: URL): Promise<
     return redirect(`${next || "/dashboard"}${(next || "/dashboard").includes("?") ? "&" : "?"}${err ? "err" : "ok"}=${encodeURIComponent(err ?? `Connected GitHub (@${gh.login})`)}`, clear);
   }
   const invited = next.startsWith("/join/") && !!(await usableInvite(env, next.slice(6)));
-  if (!invited && !(await openSignup(env))) return loginPage("This intercom is invite-only. Open the invite link an admin sent you and continue with GitHub from there.", next, true);
+  if (!invited && !(await openSignup(env))) return loginPage("This site is invite-only. Open the invite link an admin sent you and continue with GitHub from there.", next, true);
   if (!(await rateLimit(env, `signup:ip:${env.ip ?? "?"}`, 5, 60 * MIN)) || !(await rateLimit(env, "signup:all", 200, 24 * 60 * MIN))) {
     return loginPage("Too many new accounts right now. Try again later.", next, true);
   }
@@ -147,7 +147,7 @@ export async function githubCreate(req: Request, env: Env): Promise<Response> {
   if (taken) return signedIn(env, taken.name, next || "/dashboard", {});
   // Checked again at creation: the invite may have been used up meanwhile.
   if (!(await openSignup(env)) && !(next.startsWith("/join/") && (await usableInvite(env, next.slice(6))))) {
-    return loginPage("This intercom is invite-only. Open the invite link an admin sent you and continue with GitHub from there.", next, true);
+    return loginPage("This site is invite-only. Open the invite link an admin sent you and continue with GitHub from there.", next, true);
   }
   const name = await freeHandle(env, login);
   await env.DB.prepare("INSERT INTO members (name, token_hash, created_at, org, github_id, github_login) VALUES (?, ?, ?, '', ?, ?)")

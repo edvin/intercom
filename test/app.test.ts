@@ -236,11 +236,13 @@ describe("web security", () => {
     const w = await standardWorld();
     const res = await w.request("/account", { redirect: "manual" });
     assert.equal(res.status, 303);
-    assert.match(await (await w.request("/")).text(), /finally talking/);
-    // Signed in, the overview is still at /welcome, pointing to the dashboard.
-    const welcome = await (await w.request("/", { as: "alice", cookie: true })).text();
-    assert.match(welcome, /finally talking/);
-    assert.match(welcome, /Open your dashboard/);
+    // No public site: signed out, "/" is a bare sign-in page that doesn't say what this is; the docs need sign-in.
+    const home = await (await w.request("/")).text();
+    assert.match(home, /<title>Sign in<\/title>/);
+    assert.doesNotMatch(home.replace(/<head>[\s\S]*?<\/head>/, ""), /intercom|claude|agent/i);
+    assert.match((await w.request("/docs", { redirect: "manual" })).headers.get("location") ?? "", /\/login\?next=%2Fdocs/);
+    assert.equal((await w.request("/", { as: "alice", cookie: true, redirect: "manual" })).headers.get("location"), "/dashboard");
+    assert.equal((await w.request("/docs", { as: "alice", cookie: true })).status, 200);
     // Old dashboard links move to /dashboard; /dashboard needs sign-in.
     const old = await w.request("/?channel=billing", { as: "alice", cookie: true, redirect: "manual" });
     assert.equal(old.headers.get("location"), "/dashboard?channel=billing");

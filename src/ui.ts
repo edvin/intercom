@@ -3421,9 +3421,16 @@ export const BUILD = (() => {
 })();
 
 /** Full HTML document. */
-export function page(title: string, body: string, opts: { top?: string } = {}): string {
+/** `bare`: a page for anyone (the sign-in page) that says nothing about what runs here: no name, logo, app manifest or script. */
+export function page(title: string, body: string, opts: { top?: string; bare?: boolean } = {}): string {
+  if (opts.bare)
+    return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>${esc(title)}</title><meta name="robots" content="noindex,nofollow"><link rel="icon" href="data:,">
+<link rel="stylesheet" href="/assets/ui-${BUILD}.css"></head><body>
+${body}
+</body></html>`;
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>${esc(title)}</title><meta name="theme-color" content="#141416" media="(prefers-color-scheme: dark)"><meta name="theme-color" content="#f4f4f6" media="(prefers-color-scheme: light)">
+<title>${esc(title)}</title><meta name="robots" content="noindex,nofollow"><meta name="theme-color" content="#141416" media="(prefers-color-scheme: dark)"><meta name="theme-color" content="#f4f4f6" media="(prefers-color-scheme: light)">
 <script>(function(){var t=(document.cookie.match(/(?:^|; )ic_theme=(light|dark)/)||[])[1];if(t){document.documentElement.dataset.theme=t;document.querySelectorAll('meta[name=theme-color]').forEach(function(m){m.content=t==="dark"?"#141416":"#f4f4f6";m.removeAttribute("media")})}})()</script>
 <link rel="icon" href="data:image/svg+xml,${encodeURIComponent(LOGO.replace('width="28" height="28" ', ""))}">
 <link rel="manifest" href="/manifest.webmanifest"><link rel="apple-touch-icon" href="/assets/icon-180.png">

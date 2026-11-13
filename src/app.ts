@@ -25,10 +25,9 @@ import { cliPoll, cliStart, connectPage, discoverJoin, discoverPage, discoverReq
 import { type Approval, answersFrom, approvalStatus, closeApproval, closeSessionApprovals, decide, questionsOf, requestApproval, setAway } from "./approvals";
 import { guard } from "./guard";
 import { PLUGIN_VERSION, outdated, replyHow } from "./version";
-import { getSetting, githubRepo, openSignup, setSetting } from "./github";
-import { landingPage } from "./landing";
+import { getSetting, githubRepo, setSetting } from "./github";
 import { BUILD, esc, icon, md, redirect } from "./ui";
-import { accountPage, dashboard, soloCard, exportProject, localPath, sameOrigin, handleAction, handleAdminAction, handleJoin, handleLogin, handleLogout, loginPage } from "./web";
+import { accountPage, dashboard, docsPage, soloCard, exportProject, localPath, sameOrigin, handleAction, handleAdminAction, handleJoin, handleLogin, handleLogout, loginPage } from "./web";
 import { phoneReport, publicKey, sendNote, sendTest, subscribe, unsubscribe } from "./push";
 import { plainSpaces } from "./markdown";
 
@@ -669,12 +668,11 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
   if (me && asYou && who?.kind !== "web" && env.github)
     return new Response("This needs the dashboard, signed in with GitHub (an agent's or terminal's token can't do it).", { status: 403 });
   if (url.pathname === "/oauth/authorize") return authorize(req, env, me, url);
-  // "/" is the overview for everyone; the dashboard lives at /dashboard. Old dashboard links (/?channel=…) still work.
-  if (url.pathname === "/welcome") return redirect("/");
-  if (url.pathname === "/" && me && /(^|&)(channel|view|ok|err|welcome)=/.test(url.search.slice(1))) return redirect(`/dashboard${url.search}`);
-  if (url.pathname === "/") return landingPage(url.origin, { github: !!env.github, open: await openSignup(env), signedIn: !!me });
+  // No public site: the address says nothing about what runs here. Signed in, "/" is the dashboard (old links like
+  // /?channel=… keep their place); signed out, it's the plain sign-in page.
+  if (url.pathname === "/" || url.pathname === "/welcome") return me ? redirect(`/dashboard${url.search}`) : loginPage("", "", !!env.github);
   if (!me) {
-    if (["/account", "/connect", "/discover", "/dashboard"].includes(url.pathname) && req.method === "GET") {
+    if (["/account", "/connect", "/discover", "/dashboard", "/docs"].includes(url.pathname) && req.method === "GET") {
       return Response.redirect(new URL(`/login?next=${encodeURIComponent(url.pathname + url.search)}`, url).toString(), 303);
     }
     return json({ error: "unauthorized" }, 401);
@@ -699,6 +697,7 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
     await setVersion(env, me, sid, req.headers.get("x-intercom-version"));
   }
 
+  if (url.pathname === "/docs") return docsPage(url.origin);
   if (url.pathname === "/dashboard") return dashboard(url, env, me, req.headers.get("cookie") ?? "");
   if (url.pathname === "/account") return accountPage(req, env, me);
   if (url.pathname === "/connect") return connectPage(req, env, me, url);
