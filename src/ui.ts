@@ -2820,9 +2820,28 @@ export const SCRIPT = `
     within(".thread").forEach((th) => {
       if (th._pinned) return; th._pinned = true;
       let atEnd = th.dataset.stuck !== "no";
-      th.addEventListener("scroll", () => { atEnd = th.scrollHeight - th.scrollTop - th.clientHeight < 80; jumpShow(); }, { passive: true });
-      const keep = () => { if (atEnd) th.scrollTop = th.scrollHeight; };
-      new ResizeObserver(keep).observe(th); th.addEventListener("load", keep, true); document.fonts?.ready.then(keep);
+      // Scrolled up, the message at the top of the view is held where it is when anything changes size or comes and
+      // goes (a redraw, the day lines, an image or a diagram drawing, the text above folding). Chrome does this by itself;
+      // Safari (an iPhone) doesn't, and every live update moved what you were reading.
+      let anchor = null, aOff = 0;
+      const mark = () => {
+        anchor = null; if (atEnd) return;
+        const top = th.getBoundingClientRect().top;
+        anchor = [...th.children].find((c) => (c.dataset.mid || c.dataset.gid) && c.dataset.gid !== "earlier" && c.getBoundingClientRect().bottom > top) || null;
+        aOff = anchor ? anchor.getBoundingClientRect().top - top : 0;
+      };
+      const hold = () => {
+        if (atEnd || !anchor || !anchor.isConnected) return;
+        const d = anchor.getBoundingClientRect().top - th.getBoundingClientRect().top - aOff;
+        scrollFix(th, d);
+      };
+      th._mark = mark; th._hold = hold;
+      th.addEventListener("scroll", () => { atEnd = th.scrollHeight - th.scrollTop - th.clientHeight < 80; mark(); jumpShow(); }, { passive: true });
+      const keep = () => { if (atEnd) th.scrollTop = th.scrollHeight; else hold(); };
+      const ro = new ResizeObserver(keep); ro.observe(th); [...th.children].forEach((c) => ro.observe(c));
+      new MutationObserver((ms) => { ms.forEach((m) => m.addedNodes.forEach((n) => n.nodeType === 1 && ro.observe(n))); keep(); }).observe(th, { childList: true });
+      th.addEventListener("load", keep, true); document.fonts?.ready.then(keep);
+      mark();
     });
     within(".thread").forEach((th) => { th.classList.toggle("noact", !acts); th.classList.toggle("norelay", !relay); th.style.scrollBehavior = "auto"; if (th.dataset.stuck !== "no") th.scrollTop = th.scrollHeight; });
     $$("[data-dismiss]", root).forEach((b) => b.onclick = () => { const [k, v] = b.dataset.dismiss.split("="); setCookie(k, v); b.closest("[data-region]")?.remove(); });
@@ -2920,6 +2939,8 @@ export const SCRIPT = `
   // A chat item's server markup, without its relative times ("2m ago" ticks by on its own), as it came.
   const rawSig = (n) => sig(n.outerHTML.replace(/(<time[^>]*>)[^<]*(<[/]time>)/g, "$1$2"));
   function markRaw(root) { [...root.children].forEach((c) => { if (c._raw === undefined && !c.matches(".tday, .newmark")) c._raw = rawSig(c); }); }
+  // Scrolling by a distance measured on screen: a chat with its text size changed (CSS zoom) scrolls in unzoomed pixels.
+  const scrollFix = (el, d) => { if (Math.abs(d) > 0.5) el.scrollTop += d / ((el.getBoundingClientRect().height / el.offsetHeight) || 1); };
   // keepTop: you're scrolled up reading, so rows that left the top of the chat's latest stretch (newer ones came in)
   // stay until you're back at the bottom.
   function morphThread(el, next, keepTop) {
@@ -2961,8 +2982,9 @@ export const SCRIPT = `
       history.replaceState(history.state, "", a.href);
       th.dataset.stuck = "no";
       th._src = sig(next.outerHTML); morphThread(th, next);
-      if (seen && seen.isConnected) th.scrollTop += seen.getBoundingClientRect().top - seenTop;
       bind(th); days(th);
+      if (seen && seen.isConnected) scrollFix(th, seen.getBoundingClientRect().top - seenTop);
+      if (th._mark) th._mark();
     } catch { location.href = a.href; }
   });
   async function swap(text) {
@@ -3005,10 +3027,12 @@ export const SCRIPT = `
         const seen = stick ? null : [...el.children].find((c) => (c.dataset.mid || c.dataset.gid) && c.getBoundingClientRect().bottom > el.getBoundingClientRect().top);
         const seenTop = seen ? seen.getBoundingClientRect().top : 0;
         morphThread(el, next, !stick); el._src = src;
-        if (seen && seen.isConnected) el.scrollTop += seen.getBoundingClientRect().top - seenTop;
         if (known.size) $$("[data-mid]", el).forEach((m) => !known.has(m.dataset.mid) && m.classList.add("fresh"));
         if (!stick) el.dataset.stuck = "no";
         bind(el); days(el);
+        // (after the day lines and everything bind does have come back above it)
+        if (seen && seen.isConnected) scrollFix(el, seen.getBoundingClientRect().top - seenTop);
+        if (el._mark) el._mark();
         if (!stick && known.size && $$("[data-mid]", el).some((m) => !known.has(m.dataset.mid))) jumpNew = true;
         return;
       }
@@ -3376,7 +3400,7 @@ export const SCRIPT = `
   try {
     const spot = JSON.parse(sessionStorage.getItem("ic_spot") || "null"); sessionStorage.removeItem("ic_spot");
     const th = document.getElementById("thread"), m = spot && spot.url === location.href && th && th.querySelector(':scope > [data-mid="' + CSS.escape(spot.mid) + '"]');
-    if (m) { th.dataset.stuck = "no"; const go = () => (th.scrollTop += m.getBoundingClientRect().top - th.getBoundingClientRect().top - spot.off); go(); requestAnimationFrame(go); }
+    if (m) { th.dataset.stuck = "no"; const go = () => scrollFix(th, m.getBoundingClientRect().top - th.getBoundingClientRect().top - spot.off); go(); requestAnimationFrame(go); }
   } catch {}
   document.addEventListener("visibilitychange", async () => {
     if (document.hidden || !build) return;
