@@ -2920,11 +2920,13 @@ export const SCRIPT = `
   // A chat item's server markup, without its relative times ("2m ago" ticks by on its own), as it came.
   const rawSig = (n) => sig(n.outerHTML.replace(/(<time[^>]*>)[^<]*(<[/]time>)/g, "$1$2"));
   function markRaw(root) { [...root.children].forEach((c) => { if (c._raw === undefined && !c.matches(".tday, .newmark")) c._raw = rawSig(c); }); }
-  function morphThread(el, next) {
+  // keepTop: you're scrolled up reading, so rows that left the top of the chat's latest stretch (newer ones came in)
+  // stay until you're back at the bottom.
+  function morphThread(el, next, keepTop) {
     el.querySelectorAll(":scope > .tday, :scope > .newmark").forEach((n) => n.remove());
     const keyOf = (n) => n.dataset.mid || n.dataset.gid || "";
     const old = new Map(); [...el.children].forEach((c) => { const k = keyOf(c); if (k) old.set(k, c); });
-    const want = [...next.children].map((n) => {
+    let want = [...next.children].map((n) => {
       const k = keyOf(n), was = k && old.get(k), raw = rawSig(n);
       if (was && was._raw === raw) {
         // Kept as it is; only its times are brought up to date.
@@ -2934,9 +2936,35 @@ export const SCRIPT = `
       }
       n._raw = raw; return n;
     });
+    if (keepTop) {
+      const keys = new Set(want.map(keyOf)), firstKept = want.find((n) => n.parentNode === el && keyOf(n) !== "earlier");
+      const gone = [];
+      for (const c of el.children) { if (c === firstKept) break; const k = keyOf(c); if (k && k !== "earlier" && !keys.has(k)) gone.push(c); }
+      if (firstKept && gone.length) { const head = want.length && keyOf(want[0]) === "earlier" ? [want[0]] : []; want = [...head, ...gone, ...want.slice(head.length)]; }
+    }
     want.forEach((n, i) => { if (el.children[i] !== n) el.insertBefore(n, el.children[i] || null); });
     while (el.children.length > want.length) el.lastElementChild.remove();
   }
+  // Show earlier loads the older messages into the chat where you are, instead of opening the page again at the bottom.
+  document.addEventListener("click", async (e) => {
+    const a = e.target.closest && e.target.closest("#thread .earlier a[href]");
+    if (!a || e.metaKey || e.ctrlKey || e.shiftKey || e.button) return;
+    e.preventDefault();
+    const th = document.getElementById("thread"); if (!th || a.dataset.busy) return;
+    a.dataset.busy = "1"; a.style.opacity = ".5";
+    try {
+      const r = await fetch(a.href, { credentials: "same-origin" });
+      const next = r.ok && new DOMParser().parseFromString(await r.text(), "text/html").getElementById("thread");
+      if (!next) { location.href = a.href; return; }
+      const seen = [...th.children].find((c) => (c.dataset.mid || c.dataset.gid) && c.dataset.gid !== "earlier" && c.getBoundingClientRect().bottom > th.getBoundingClientRect().top);
+      const seenTop = seen ? seen.getBoundingClientRect().top : 0;
+      history.replaceState(history.state, "", a.href);
+      th.dataset.stuck = "no";
+      th._src = sig(next.outerHTML); morphThread(th, next);
+      if (seen && seen.isConnected) th.scrollTop += seen.getBoundingClientRect().top - seenTop;
+      bind(th); days(th);
+    } catch { location.href = a.href; }
+  });
   async function swap(text) {
     const doc = new DOMParser().parseFromString(text, "text/html");
     // What you're reading stays where it is on screen: the first message or row in view, found again after the redraw.
@@ -2976,7 +3004,7 @@ export const SCRIPT = `
         // Scrolled up, what you're reading stays put, also when older rows leave the top (the chat shows its latest stretch).
         const seen = stick ? null : [...el.children].find((c) => (c.dataset.mid || c.dataset.gid) && c.getBoundingClientRect().bottom > el.getBoundingClientRect().top);
         const seenTop = seen ? seen.getBoundingClientRect().top : 0;
-        morphThread(el, next); el._src = src;
+        morphThread(el, next, !stick); el._src = src;
         if (seen && seen.isConnected) el.scrollTop += seen.getBoundingClientRect().top - seenTop;
         if (known.size) $$("[data-mid]", el).forEach((m) => !known.has(m.dataset.mid) && m.classList.add("fresh"));
         if (!stick) el.dataset.stuck = "no";
@@ -3339,12 +3367,23 @@ export const SCRIPT = `
   // itself: when it comes back into view, it reloads if the hub serves different styles or script, unless something
   // is typed or attached.
   const build = document.querySelector("meta[name=ic-build]")?.content;
+  // A chat you'd scrolled up in opens at the same message after that reload, not at the bottom.
+  function keepSpot() {
+    const th = document.getElementById("thread"); if (!th || th.scrollHeight - th.scrollTop - th.clientHeight < 80) return;
+    const top = th.getBoundingClientRect().top, m = [...th.querySelectorAll(":scope > [data-mid]")].find((c) => c.getBoundingClientRect().bottom > top);
+    if (m) try { sessionStorage.setItem("ic_spot", JSON.stringify({ url: location.href, mid: m.dataset.mid, off: m.getBoundingClientRect().top - top })); } catch {}
+  }
+  try {
+    const spot = JSON.parse(sessionStorage.getItem("ic_spot") || "null"); sessionStorage.removeItem("ic_spot");
+    const th = document.getElementById("thread"), m = spot && spot.url === location.href && th && th.querySelector(':scope > [data-mid="' + CSS.escape(spot.mid) + '"]');
+    if (m) { th.dataset.stuck = "no"; const go = () => (th.scrollTop += m.getBoundingClientRect().top - th.getBoundingClientRect().top - spot.off); go(); requestAnimationFrame(go); }
+  } catch {}
   document.addEventListener("visibilitychange", async () => {
     if (document.hidden || !build) return;
     try {
       const now = (await (await fetch("/api/build", { cache: "no-store" })).json()).build;
       const busy = $$("textarea, input[type=text]").some((t) => t.value) || $$("form").some((f) => (f._imgs && f._imgs.length) || Date.now() - (f._picking || 0) < 120000);
-      if (now && now !== build && !busy) location.reload();
+      if (now && now !== build && !busy) { keepSpot(); location.reload(); }
     } catch {}
   });
   // Notifications on this device (push.ts): a service worker shows them, the subscription goes to the hub. Offered in
