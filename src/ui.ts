@@ -1540,7 +1540,8 @@ tr.dh td{background:var(--diff-hunk)}
 /* While an image (or a dialog) is open, what's behind it stays put: a swipe on a phone doesn't scroll the chat. */
 html:has(dialog[open]),html:has(dialog[open]) body{overflow:hidden;overscroll-behavior:none}
 body:has(dialog[open]) .thread,body:has(dialog[open]) .pane,body:has(dialog[open]) .tbody,body:has(dialog[open]) .insp{overflow:hidden!important}
-.imgview,.imgview .ivbody{overscroll-behavior:contain}.imgview .ivbody{touch-action:pinch-zoom}
+.imgview,.imgview .ivbody{overscroll-behavior:contain}.imgview .ivbody{touch-action:pinch-zoom}.imgview .ivbody.pic{touch-action:none;overflow:hidden;user-select:none;-webkit-user-select:none}
+.ivbody.pic img{cursor:zoom-in;-webkit-user-drag:none;will-change:transform}.ivbody.pic.zoomed img{cursor:grab}.ivbody.pic.zoomed img:active{cursor:grabbing}
 
 /* Editing in the code view. */
 .fedit{display:flex;flex-direction:column;gap:8px;margin:8px 0 12px}.fedit[hidden]{display:none}
@@ -2569,6 +2570,92 @@ export const SCRIPT = `
   document.addEventListener("error", (e) => { const i = e.target; if (i && i.tagName === "IMG" && i.hasAttribute("data-poster")) posterMissing(i); }, true);
   // (one that failed before this script ran)
   const postersNow = () => $$("img[data-poster]").forEach((i) => { if (i.complete && !i.naturalWidth && (i.getAttribute("src") || "").endsWith("/thumb")) posterMissing(i); });
+  // Zoom and pan in the image viewer, by hand rather than the browser's page zoom (which zoomed the whole page and
+  // then wouldn't pan): pinch or double-tap to zoom, drag to move around a zoomed image, the wheel on a desktop.
+  // Not zoomed, a sideways swipe steps through the files grid's images.
+  function zoomable(v) {
+    const body = v.querySelector(".ivbody");
+    const pts = new Map();
+    let s = 1, x = 0, y = 0, start = null, lastTap = 0, kind = "mouse";
+    const img = () => body.querySelector("img");
+    const clamp = () => {
+      const i = img(); if (!i) return;
+      const mx = Math.max(0, (i.offsetWidth * s - body.clientWidth) / 2), my = Math.max(0, (i.offsetHeight * s - body.clientHeight) / 2);
+      x = Math.min(mx, Math.max(-mx, x)); y = Math.min(my, Math.max(-my, y));
+    };
+    const apply = (anim) => {
+      const i = img(); if (!i) return;
+      if (s <= 1.01) { s = 1; x = 0; y = 0; }
+      clamp();
+      i.style.transition = anim ? "transform .2s ease" : "none";
+      i.style.transform = s === 1 ? "" : "translate(" + x + "px," + y + "px) scale(" + s + ")";
+      body.classList.toggle("zoomed", s > 1);
+    };
+    // The point (px, py), from the body's centre, stays where it is while the scale goes to "to".
+    const zoomAt = (to, px, py, anim) => { to = Math.min(6, Math.max(1, to)); x = px - (px - x) * (to / s); y = py - (py - y) * (to / s); s = to; apply(anim); };
+    const rel = (e) => { const r = body.getBoundingClientRect(); return [e.clientX - r.left - r.width / 2, e.clientY - r.top - r.height / 2]; };
+    v._zoom = (to) => { s = to; x = 0; y = 0; apply(false); };
+    const begin = () => {
+      const p = [...pts.values()];
+      start = { s, x, y, p0: p.map((q) => ({ ...q })), moved: start ? start.moved : false };
+    };
+    body.addEventListener("pointerdown", (e) => {
+      if (!body.classList.contains("pic") || e.button) return;
+      kind = e.pointerType;
+      pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      try { body.setPointerCapture(e.pointerId); } catch {}
+      if (pts.size === 1) start = null;
+      begin();
+    });
+    body.addEventListener("pointermove", (e) => {
+      if (!pts.has(e.pointerId) || !start) return;
+      pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      const p = [...pts.values()], p0 = start.p0;
+      if (p.length >= 2 && p0.length >= 2) {
+        const d = Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y), d0 = Math.hypot(p0[0].x - p0[1].x, p0[0].y - p0[1].y) || 1;
+        const r = body.getBoundingClientRect();
+        const mx = (p[0].x + p[1].x) / 2 - r.left - r.width / 2, my = (p[0].y + p[1].y) / 2 - r.top - r.height / 2;
+        const m0x = (p0[0].x + p0[1].x) / 2 - r.left - r.width / 2, m0y = (p0[0].y + p0[1].y) / 2 - r.top - r.height / 2;
+        const to = Math.min(6, Math.max(1, start.s * d / d0));
+        x = mx - (m0x - start.x) * (to / start.s); y = my - (m0y - start.y) * (to / start.s); s = to;
+        start.moved = true;
+        apply(false);
+      } else if (p.length === 1) {
+        const dx = p[0].x - p0[0].x, dy = p[0].y - p0[0].y;
+        if (Math.abs(dx) + Math.abs(dy) > 6) start.moved = true;
+        if (s > 1) { x = start.x + dx; y = start.y + dy; apply(false); }
+      }
+    });
+    const end = (e) => {
+      if (!pts.has(e.pointerId)) return;
+      const p0 = start ? start.p0 : [], moved = start && start.moved, was = pts.get(e.pointerId);
+      pts.delete(e.pointerId);
+      if (moved) v._dragged = true;
+      if (pts.size) { begin(); return; }
+      // A swipe sideways on an image that isn't zoomed: the next or previous one.
+      if (s === 1 && p0.length === 1 && moved) {
+        const dx = was.x - p0[0].x, dy = was.y - p0[0].y;
+        if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) v._step(dx < 0 ? 1 : -1);
+      } else if (!moved && p0.length === 1 && e.pointerType !== "mouse") {
+        // Double-tap: zoom in where you tapped, or back out.
+        const now = Date.now();
+        if (now - lastTap < 300) { const [px, py] = rel(e); if (s > 1) { s = 1; apply(true); } else zoomAt(2.5, px, py, true); v._dragged = true; lastTap = 0; }
+        else lastTap = now;
+      }
+      start = null;
+    };
+    body.addEventListener("pointerup", end);
+    body.addEventListener("pointercancel", end);
+    body.addEventListener("dblclick", (e) => { if (!body.classList.contains("pic") || kind !== "mouse") return; /* a touch double-tap is handled above */ const [px, py] = rel(e); if (s > 1) { s = 1; apply(true); } else zoomAt(2.5, px, py, true); });
+    body.addEventListener("wheel", (e) => {
+      if (!body.classList.contains("pic")) return;
+      e.preventDefault();
+      const [px, py] = rel(e);
+      if (e.ctrlKey || !(s > 1)) zoomAt(s * Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.002)), px, py, false);
+      else { x -= e.deltaX; y -= e.deltaY; apply(false); }
+    }, { passive: false });
+    v.addEventListener("close", () => { pts.clear(); start = null; v._zoom(1); });
+  }
   // An image in a message opens in a viewer over the page, not as its own page: the dashboard installed as an app on a
   // phone has no back button to come back from one. Close with ×, a tap beside it, Esc, or back (gesture or button).
   document.addEventListener("click", (e) => {
@@ -2582,7 +2669,8 @@ export const SCRIPT = `
       v.innerHTML = '<div class="ivbar"><span class="ivname"></span><a class="btn ghost sm icon ivdl" title="Download" download>${icon("download", 18)}</a><button type="button" class="btn ghost sm icon ivx" title="Close">${icon("x", 22)}</button></div><div class="ivbody"><img alt=""><video controls playsinline hidden></video></div>';
       document.body.appendChild(v);
       v.querySelector(".ivx").onclick = () => v.close();
-      v.querySelector(".ivbody").onclick = (ev) => { if (ev.target.tagName !== "IMG" && ev.target.tagName !== "VIDEO") v.close(); };
+      v.querySelector(".ivbody").onclick = (ev) => { if (v._dragged) { v._dragged = false; return; } if (ev.target.tagName !== "IMG" && ev.target.tagName !== "VIDEO") v.close(); };
+      zoomable(v);
       v.addEventListener("close", () => { const vid = v.querySelector("video"); vid.pause(); vid.removeAttribute("src"); vid.load(); });
       v.addEventListener("close", () => { if (history.state && history.state.iv) { v._popping = true; history.back(); } });
       window.addEventListener("popstate", () => { if (v._popping) { setTimeout(() => (v._popping = false), 0); return; } if (v.open) { v._popping = true; v.close(); setTimeout(() => (v._popping = false), 0); } });
@@ -2596,6 +2684,7 @@ export const SCRIPT = `
       const vid = v.querySelector("video"), img = v.querySelector("img"), isVid = "video" in el.dataset;
       img.hidden = isVid; vid.hidden = !isVid;
       const body = v.querySelector(".ivbody");
+      body.classList.toggle("pic", !isVid); v._zoom(1);
       if (isVid) { img.removeAttribute("src"); body.classList.remove("loading"); vid.src = href; vid.play().catch(() => {}); }
       else {
         // A fresh image each time: the browser keeps showing the last one until the next has loaded, which looks like
@@ -2613,12 +2702,15 @@ export const SCRIPT = `
       v.querySelector(".ivname").textContent = name + (v._list.length > 1 ? "  ·  " + (v._at + 1) + " / " + v._list.length : "");
       v.querySelector(".ivdl").href = href; v.querySelector(".ivdl").setAttribute("download", name);
     };
-    v.onkeydown = (ev) => {
-      const step = ev.key === "ArrowRight" ? 1 : ev.key === "ArrowLeft" ? -1 : 0;
-      if (!step || v._list.length < 2) return;
-      ev.preventDefault();
+    v._step = (step) => {
+      if (v._list.length < 2) return false;
       v._at = (v._at + step + v._list.length) % v._list.length;
       show(v._list[v._at]);
+      return true;
+    };
+    v.onkeydown = (ev) => {
+      const step = ev.key === "ArrowRight" ? 1 : ev.key === "ArrowLeft" ? -1 : 0;
+      if (step && v._step(step)) ev.preventDefault();
     };
     show(a);
     v.showModal(); v.focus();
