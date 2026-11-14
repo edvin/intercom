@@ -3,6 +3,7 @@ import { pickPrompt, queuePromptLook } from "./prompts";
 import { recordsBrief } from "./records";
 import { saveWorkSettings, workCsv } from "./work";
 import { dismissStuck, moveStuck, releaseSenders, setNudge, wakeStuck } from "./stuck";
+import { askModel } from "./models";
 import { CTX_STALE_MS, FIT_SINCE, compactAgent, compactOnStop, markCompacted, dismiss, myRows, newer, outOfUsage, restartAgent, setAuto, updateAgent, updateIdle } from "./upkeep";
 import { activeLoops, loopReminder, parseLoops } from "./loops";
 import { KEY_NAMES, type ScreenQuery, askScreen, drawScreen, screenReply, sendNow, stopAgent } from "./screen";
@@ -485,7 +486,7 @@ async function handleUi(url: URL, env: Env, me: string): Promise<Response> {
   const cursor = cursorRow?.last_read_id ?? 0;
   const sid = url.searchParams.get("session");
   const mySession = sid
-    ? await env.DB.prepare("SELECT session_id, label, project, cursor, version, compact_req, started_at FROM sessions WHERE member = ? AND session_id = ?").bind(me, sid).first<Session & { cursor: number; version: string; compact_req: string | null }>()
+    ? await env.DB.prepare("SELECT session_id, label, project, cursor, version, compact_req, model, model_req, started_at FROM sessions WHERE member = ? AND session_id = ?").bind(me, sid).first<Session & { cursor: number; version: string; compact_req: string | null; model: string | null; model_req: string | null }>()
     : null;
   // The mod polling for this session: side questions can go to it.
   if (mySession) {
@@ -506,6 +507,9 @@ async function handleUi(url: URL, env: Env, me: string): Promise<Response> {
       .bind(p, int("tok"), int("win"), Date.now(), me, mySession.session_id, p, Date.now() - CTX_STALE_MS)
       .run();
   }
+  // The model it runs, as the mod reads it (/model in its terminal changes it too): shown on the agent.
+  const model = (url.searchParams.get("model") ?? "").slice(0, 100);
+  if (mySession && model && model !== mySession.model) await env.DB.prepare("UPDATE sessions SET model = ? WHERE member = ? AND session_id = ?").bind(model, me, mySession.session_id).run();
   // A session counts what it receives (its project's posts and its DMs); without one, the person's view.
   const pending = mySession ? (await unread(env, me, 99, false, mySession)).messages : null;
   const recent = pending
@@ -540,6 +544,8 @@ async function handleUi(url: URL, env: Env, me: string): Promise<Response> {
     prompts,
     // A compaction you asked for from the dashboard: the mod runs it once the session is idle.
     compact: mySession?.compact_req ? (JSON.parse(mySession.compact_req) as { id: string; instructions: string }) : null,
+    // A model switch you asked for from the dashboard: the mod runs /model <model> once the session is idle (models.ts).
+    model: mySession?.model_req ? (JSON.parse(mySession.model_req) as { id: string; model: string }) : null,
     // How to answer them (it depends on the session's plugin version); the mod adds it to the prompt it submits.
     reply: replyHow(mySession?.version, me),
     // Side questions for the mod to answer with a fork of this session's context.
@@ -1214,6 +1220,40 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
       }
     }
     return redirect(back.pathname + back.search);
+  }
+  if (url.pathname === "/agent/model" && req.method === "POST") {
+    // Switch one of your agents' model from the dashboard: its intercom-ui mod runs /model between turns (models.ts).
+    if (!sameOrigin(req)) return new Response("Cross-origin request refused", { status: 403 });
+    const form = await req.formData();
+    const back = new URL(localPath(form.get("back"), "/dashboard?view=agents"), url);
+    const sid = String(form.get("session") ?? "");
+    if (form.get("cancel")) {
+      const done = await env.DB.prepare("UPDATE sessions SET model_req = NULL WHERE member = ? AND session_id = ? RETURNING label").bind(me, sid).first<{ label: string }>();
+      back.searchParams.set(done ? "ok" : "err", done ? "Model switch called off" : "No such agent of yours");
+    } else {
+      const pick = String(form.get("model") ?? "");
+      try {
+        back.searchParams.set("ok", await askModel(env, me, sid, pick === "other" ? String(form.get("other") ?? "") : pick));
+      } catch (e) {
+        if (!(e instanceof UserError)) throw e;
+        back.searchParams.set("err", e.message);
+      }
+    }
+    env.refreshWeb?.(me);
+    return redirect(back.pathname + back.search);
+  }
+  if (url.pathname.startsWith("/api/model/") && req.method === "POST") {
+    // The mod ran the switch: the model it runs now, or Claude Code's answer when it didn't take.
+    const id = decodeURIComponent(url.pathname.slice(11));
+    const body = (await req.json().catch(() => ({}))) as { session?: unknown; model?: unknown; error?: unknown };
+    const sid = String(body.session ?? "");
+    const model = typeof body.model === "string" ? body.model.slice(0, 100) : null;
+    const error = typeof body.error === "string" && body.error ? body.error.slice(0, 300) : null;
+    await env.DB.prepare("UPDATE sessions SET model_req = NULL, model_err = ?, model = COALESCE(?, model) WHERE member = ? AND session_id = ? AND json_extract(model_req, '$.id') = ?")
+      .bind(error, model, me, sid, id)
+      .run();
+    env.refreshWeb?.(me);
+    return json({ ok: true });
   }
   if (url.pathname.startsWith("/api/compact/") && req.method === "POST") {
     // The mod ran (or couldn't run) the compaction: the request is done either way, and the dashboard redraws.

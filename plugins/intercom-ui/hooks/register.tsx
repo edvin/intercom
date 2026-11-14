@@ -17,7 +17,7 @@ const error = atom({ plugin: 'intercom-ui', key: 'error' } as const, null)
 const hidden = atom({ plugin: 'intercom-ui', key: 'hidden' } as const, [])
 
 const POLL_MS = 8_000
-const MOD_VERSION = '0.2.10' // kept in step with ../.claude-plugin/plugin.json; the hub knows from it that this session answers side questions
+const MOD_VERSION = '0.2.11' // kept in step with ../.claude-plugin/plugin.json; the hub knows from it that this session answers side questions
 
 type Conf = { url: string; token: string }
 
@@ -35,7 +35,7 @@ const left = (ts: number, now: number) => {
 const short = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s)
 
 /** Module state; a reload starts it over (the snapshot itself lives in $.state). */
-const ctx = { conf: null as Conf | null, repo: '', sessionId: '', seen: -1, busy: false, turning: false, submitted: new Set<number>(), ownLine: false, btwBusy: false, btwDone: new Set<number>(), compacting: false, compacted: new Set<string>() }
+const ctx = { conf: null as Conf | null, repo: '', sessionId: '', seen: -1, busy: false, turning: false, submitted: new Set<number>(), ownLine: false, btwBusy: false, btwDone: new Set<number>(), compacting: false, compacted: new Set<string>(), switching: false, switched: new Set<string>() }
 
 /** Claude Code's own status line already shows the intercom (the setup sets it): then the mod adds no line of its own. */
 async function hasOwnLine($: Engine): Promise<boolean> {
@@ -108,7 +108,9 @@ async function refresh($: Engine): Promise<void> {
     const usage = await $.session.usage().catch(() => null)
     const c = usage?.context
     const fill = c && c.percent != null ? `&ctx=${c.percent}&tok=${c.tokens ?? ''}&win=${c.window}` : ''
-    const res = await $.http.fetch(`${ctx.conf.url}/api/ui?project=${encodeURIComponent(ctx.repo)}&session=${encodeURIComponent(ctx.sessionId)}&mod=${MOD_VERSION}${fill}`, {
+    // And the model it runs (shown on the agent; /model in the terminal changes it too).
+    const model = await $.session.model().catch(() => '')
+    const res = await $.http.fetch(`${ctx.conf.url}/api/ui?project=${encodeURIComponent(ctx.repo)}&session=${encodeURIComponent(ctx.sessionId)}&mod=${MOD_VERSION}${fill}${model ? `&model=${encodeURIComponent(model)}` : ''}`, {
       headers: { authorization: `Bearer ${ctx.conf.token}` },
     })
     if (!res.ok) {
@@ -140,6 +142,39 @@ async function refresh($: Engine): Promise<void> {
   // After the poll, so a slow answer doesn't hold up the next one.
   if (got) await sideQuestions($, got)
   if (got) await compactIfAsked($, got)
+  if (got) await modelIfAsked($, got)
+}
+
+/**
+ * A model switch asked for from the dashboard: /model <name> between turns, for this session only, then the model
+ * it runs reported back, or Claude Code's answer when it didn't take (an unknown name leaves the model as it was).
+ * Each request once.
+ */
+async function modelIfAsked($: Engine, s: Snapshot): Promise<void> {
+  const want = s.model
+  if (!ctx.conf || !want || ctx.turning || ctx.compacting || ctx.switching || ctx.switched.has(want.id)) return
+  ctx.switching = true
+  ctx.switched.add(want.id)
+  let error: string | undefined
+  let model = ''
+  try {
+    const before = await $.session.model()
+    const { text } = await $.command.run({ command: 'model', args: want.model })
+    model = await $.session.model()
+    const said = (text ?? '').replace(/`/g, '').trim()
+    if (model === before && /not found|invalid|unknown|not available|isn't available|unavailable|can't|cannot|not allowed|error/i.test(said)) error = said.slice(0, 300) || 'it didn\'t switch'
+    else $.ui.toast(`📻 ${s.label ?? 'intercom'}: ${said || `now on ${model}`}, as asked from the dashboard`)
+  } catch (e) {
+    error = e instanceof Error ? e.message : String(e)
+  } finally {
+    ctx.switching = false
+  }
+  await $.http.fetch(`${ctx.conf.url}/api/model/${encodeURIComponent(want.id)}`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${ctx.conf.token}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ session: ctx.sessionId, model: model || undefined, error }),
+  })
+  void refresh($)
 }
 
 /**

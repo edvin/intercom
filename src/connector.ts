@@ -4,6 +4,7 @@
 // URL), never the agents' tools or the dashboard, so a connector can list, read and message your agents but can't
 // invite people, change rules, claim locks or vote.
 
+import { MODELS, askModel, modelName } from "./models";
 import { type Env, LIVE, UserError, ago, hostNames, issueToken, limit, liveIds, newToken, postMessage, rateLimit, sha256 } from "./lib";
 import type { McpServer } from "./app";
 import { type Tool, num, str, tools } from "./tools";
@@ -435,6 +436,39 @@ const connectorTools: Tool[] = [
         return r ? `Called off: ${agent.label} won't be compacted.` : `${agent.label} has no compaction waiting.`;
       }
       return compactAgent(env, me, agent.session_id, { rightAway: args.right_away === true, instructions: str(args, "instructions") ?? "" });
+    },
+  },
+  {
+    name: "model",
+    description:
+      "See or switch the model one of the user's agents runs, like /model in its terminal (for that session only). Without model: which model it runs now and the choices (the aliases default, opus, sonnet, haiku, fable, or a full model id such as claude-opus-5-5, with [1m] for the long context). With model: it switches when its current turn ends (right away if it's idle); the conversation carries on. cancel: true calls off a switch that hasn't run yet. Codex sessions, and Claude Code sessions without the intercom-ui mod 0.2.11, can only switch in their terminal; the answer says so.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        agent: agentProp,
+        model: { type: "string", description: "The model to switch to: default, opus, sonnet, haiku, fable, or a full model id. Leave out to see the current model and the choices." },
+        cancel: { type: "boolean", description: "Call off a switch that's waiting to run." },
+      },
+      required: ["agent"],
+    },
+    annotations: { openWorldHint: false },
+    async run(env, me, args) {
+      const { agent } = await findAgent(env, me, str(args, "agent", true));
+      const row = await env.DB.prepare("SELECT model, model_req, model_err FROM sessions WHERE member = ? AND session_id = ?").bind(me, agent.session_id).first<{ model: string | null; model_req: string | null; model_err: string | null }>();
+      if (args.cancel === true) {
+        const r = await env.DB.prepare("UPDATE sessions SET model_req = NULL WHERE member = ? AND session_id = ? AND model_req IS NOT NULL RETURNING label").bind(me, agent.session_id).first();
+        env.refreshWeb?.(me);
+        return r ? `Called off: ${agent.label} keeps its model.` : `${agent.label} has no model switch waiting.`;
+      }
+      const want = str(args, "model");
+      if (want) return askModel(env, me, agent.session_id, want);
+      const pending = row?.model_req ? (JSON.parse(row.model_req) as { model: string }).model : "";
+      return [
+        `${agent.label} runs ${row?.model ? `${modelName(row.model)} (${row.model})` : "a model the intercom hasn't heard yet (its intercom-ui mod reports it)"}.`,
+        pending ? `Switching to ${modelName(pending)} when its turn ends.` : "",
+        row?.model_err && !pending ? `The last switch didn't take: ${row.model_err}` : "",
+        `Choices: ${MODELS.map((m) => `${m.value}${m.hint ? ` (${m.hint})` : ""}`).join(", ")}, or a full model id.`,
+      ].filter(Boolean).join("\n");
     },
   },
   {

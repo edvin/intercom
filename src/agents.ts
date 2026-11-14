@@ -19,6 +19,7 @@ import { newer } from "./upkeep";
 import { subMark, subMarkOf, subsRegion, subWhen } from "./subview";
 import { trackedNeedsYou } from "./tracked";
 import { BTW_TIMEOUT, NO_MOD, btwFor, compactable, modAnswers } from "./btw";
+import { MODELS, modelName, switchable } from "./models";
 import { type Activity, type Env, type Message, DELEGATE_PER_HOUR, LIVE, address, ago, deliveryMarks, short, hostNames, myProjects } from "./lib";
 import { LOGO, agentAvatar, agentHue, agentLink, agentName, avatar, deliveryMark, esc, hidden, icon, md, plainSpaces, time } from "./ui";
 
@@ -52,6 +53,9 @@ interface Agent {
   ctx_at?: number | null;
   compact_req?: string | null;
   compact_prep?: string | null;
+  model?: string | null;
+  model_req?: string | null;
+  model_err?: string | null;
   screen?: string;
 }
 
@@ -108,7 +112,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   const ph = (n: number) => Array.from({ length: n }, () => "?").join(",") || "NULL";
   const everyone = people.includes(me) ? people : [...people, me];
   const { results: agents } = await env.DB.prepare(
-    `SELECT member, session_id, label, project, project_pin, repo, loops, jobs, subagents, origin, branch, note, client, host, version, last_seen, state, state_detail, state_at, active_at, cwd, ui_at, ui_version, ctx_pct, ctx_tokens, ctx_window, ctx_at, compact_req, compact_prep, screen FROM sessions
+    `SELECT member, session_id, label, project, project_pin, repo, loops, jobs, subagents, origin, branch, note, client, host, version, last_seen, state, state_detail, state_at, active_at, cwd, ui_at, ui_version, ctx_pct, ctx_tokens, ctx_window, ctx_at, compact_req, compact_prep, model, model_req, model_err, screen FROM sessions
      WHERE member IN (${ph(everyone.length)}) AND (member = ? OR project IN (${ph(mine.length)})) AND last_seen > ?
      ORDER BY member = ? DESC, last_seen DESC`,
   )
@@ -162,7 +166,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
     const [pm = "", pl = ""] = picked.split("/");
     agent =
       (await env.DB.prepare(
-        `SELECT member, session_id, label, project, project_pin, repo, loops, jobs, subagents, origin, branch, note, client, host, version, last_seen, state, state_detail, state_at, active_at, cwd, ui_at, ui_version, ctx_pct, ctx_tokens, ctx_window, ctx_at, compact_req, compact_prep, screen FROM sessions
+        `SELECT member, session_id, label, project, project_pin, repo, loops, jobs, subagents, origin, branch, note, client, host, version, last_seen, state, state_detail, state_at, active_at, cwd, ui_at, ui_version, ctx_pct, ctx_tokens, ctx_window, ctx_at, compact_req, compact_prep, model, model_req, model_err, screen FROM sessions
          WHERE member = ? AND label = ? AND (member = ? OR project IN (${ph(mine.length)})) ORDER BY last_seen DESC LIMIT 1`,
       )
         .bind(pm, pl, me, ...mine)
@@ -516,6 +520,14 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
     : agent.compact_req || agent.compact_prep
       ? `<form method="post" action="/agent/compact" class="compacting" data-native>${hidden({ session: agent.session_id, back: here, cancel: "1" })}<span class="badge amber" title="${agent.compact_prep ? "It was told to save its state; it's compacted when that turn ends" : "Its intercom-ui mod compacts it when the current turn ends"}">${agent.compact_prep ? "saving its state, then compacting…" : "compacting when idle…"}</span><button class="btn ghost xs">Call off</button></form>`
       : `<button type="button" class="btn ghost xs compactbtn" data-open="dlg-compact" title="Compact its context (like /compact)">Compact</button>`;
+  // Its model, switched from here: its mod runs /model between turns (models.ts; Claude Code only).
+  const canModel = ownAgent && !switchable(agent, isOn(agent));
+  const modelWant = agent.model_req ? (JSON.parse(agent.model_req) as { model: string }).model : "";
+  const modelRow = !agent.model && !canModel ? "" : `<dt>Model</dt><dd>${agent.model ? `<span title="${esc(agent.model)}">${esc(modelName(agent.model))}</span>` : `<span class="muted">not known yet</span>`}${
+    modelWant
+      ? `<form method="post" action="/agent/model" class="compacting" data-native>${hidden({ session: agent.session_id, back: here, cancel: "1" })}<span class="badge amber" title="Its intercom-ui mod runs /model ${esc(modelWant)} when the current turn ends">to ${esc(modelName(modelWant))} when idle…</span><button class="btn ghost xs">Call off</button></form>`
+      : canModel ? `<button type="button" class="btn ghost xs compactbtn" data-open="dlg-model" title="Switch its model (like /model)">Switch</button>` : ""
+  }${agent.model_err && !modelWant ? `<div class="small muted">Last switch didn't take: ${esc(agent.model_err)}</div>` : ""}</dd>`;
   // Whether it takes work your other agents hand it (lib.ts delegatedTo): a switch on your own agents.
   const takesWork = ownAgent && !(await env.DB.prepare("SELECT 1 FROM agent_prefs WHERE member = ? AND label = ? AND takes_work = 0").bind(me, agent.label).first());
   const takesCtl = ownAgent
@@ -608,6 +620,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   const session = `<section class="ipart" id="isess" data-region><h3>Session</h3><dl class="kv">
       <dt>State</dt><dd>${stateText}${on && agent.state === "waiting" && agent.state_detail ? `<div class="small muted">${esc(agent.state_detail)}</div>` : ""}</dd>
       ${ctxRow}
+      ${modelRow}
       ${agent.note ? `<dt>Role</dt><dd>${esc(plainSpaces(agent.note))}</dd>` : ""}
       <dt>Project</dt><dd>${agent.project ? `<a href="/dashboard?channel=${encodeURIComponent(agent.project)}">#${esc(agent.project)}</a>` : "none"}${ownAgent && agent.project_pin ? ` <span class="badge" title="Set from the dashboard for this session; its repo would put it in ${esc(agent.repo ? `whatever ${agent.repo} maps to` : "no project")}">pinned</span>` : ""}${ownAgent ? `<button type="button" class="btn ghost xs icon" data-open="dlg-project" title="Choose its project">${icon("pencil", 11)}</button>` : ""}</dd>
       ${agent.branch ? `<dt>Branch</dt><dd class="mono">${esc(agent.branch)}</dd>` : ""}
@@ -628,7 +641,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
       <button type="button" class="mi ttog" data-relaytoggle>${icon("messages", 15)}<span>Messages between agents</span><span class="mchk">${icon("check", 13)}</span></button>
       ${ownAgent ? `<button type="button" class="mi ttog" data-acttoggle>${icon("eye", 15)}<span>What it's doing</span><span class="mchk">${icon("check", 13)}</span></button>` : ""}
       <a class="mi" href="/dashboard?view=files&amp;agent=${encodeURIComponent(key(agent))}">${icon("image", 15)}<span>Files from ${esc(agent.label)}</span></a>
-      ${ownAgent ? `<hr><button type="button" class="mi" data-open="dlg-rename">${icon("pencil", 15)}<span>Rename…</span></button><button type="button" class="mi" data-open="dlg-project">${icon("hash", 15)}<span>Change project…</span></button>${canCompact && !agent.compact_req && !agent.compact_prep ? `<button type="button" class="mi" data-open="dlg-compact">${icon("layers", 15)}<span>Compact…</span></button>` : ""}` : ""}
+      ${ownAgent ? `<hr><button type="button" class="mi" data-open="dlg-rename">${icon("pencil", 15)}<span>Rename…</span></button><button type="button" class="mi" data-open="dlg-project">${icon("hash", 15)}<span>Change project…</span></button>${canCompact && !agent.compact_req && !agent.compact_prep ? `<button type="button" class="mi" data-open="dlg-compact">${icon("layers", 15)}<span>Compact…</span></button>` : ""}${canModel && !modelWant ? `<button type="button" class="mi" data-open="dlg-model">${icon("cpu", 15)}<span>Model…</span></button>` : ""}` : ""}
     </div>`;
   const chat = `<section class="chat${codeOn ? " codemode" : ""}${inspOpen ? " inspon" : ""}">
       <header class="chd" id="chathd" data-region data-subs="${runningN}" data-agent="${esc(key(agent))}" data-state="${on ? esc(agent.state ?? "") : "off"}">
@@ -686,6 +699,16 @@ ${(() => {
           <label class="field">What the summary should keep (optional)<textarea name="instructions" rows="3" maxlength="500" placeholder="e.g. the deploy plan and the open review comments"></textarea></label>
           <label class="check"><input type="checkbox" name="first" value="1" checked> Tell it first, so it can save its state and say what to keep (one more turn)</label>
         </div><div class="ft"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary">${icon("layers", 14)}Compact</button></div></form></dialog>` : ""}
+      ${canModel ? (() => {
+        // The one it runs is picked: an alias that names it (opus for claude-opus-…), else Other with its id.
+        const now = (agent.model ?? "").toLowerCase(), fam = MODELS.find((m) => m.value !== "default" && now.startsWith(`claude-${m.value}-`))?.value ?? "";
+        return `<dialog id="dlg-model"><div class="hd">${icon("cpu", 18)}<h2>Model for ${esc(agent.label)}</h2></div>
+        <form method="post" action="/agent/model" data-native>${hidden({ session: agent.session_id, back: here })}<div class="bd stack">
+          <p class="small muted" style="margin:0">Like /model in its terminal, for this session only${agent.model ? `; it runs ${esc(modelName(agent.model))} now` : ""}. It switches ${agent.state === "working" ? "when its current turn ends" : "right away"}, and the conversation carries on.</p>
+          <div class="mdlpick">${MODELS.map((m) => `<label class="mdlopt"><input type="radio" name="model" value="${m.value}"${m.value === fam ? " checked autofocus" : ""} required><b>${m.label}</b>${m.hint ? `<span class="muted">${m.hint}</span>` : ""}</label>`).join("")}
+            <label class="mdlopt mdlother"><input type="radio" name="model" value="other"${!fam && now ? " checked autofocus" : ""}><b>Other</b><input name="other" placeholder="a model id, e.g. claude-opus-5-5[1m]" value="${!fam && now ? esc(agent.model ?? "") : ""}" autocomplete="off" spellcheck="false" maxlength="80"></label></div>
+        </div><div class="ft"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary">${icon("check", 14)}Switch</button></div></form></dialog>`;
+      })() : ""}
       <dialog id="dlg-rename"><div class="hd">${icon("pencil", 18)}<h2>Rename ${esc(agent.label)}</h2></div>
         <form method="post" action="/agent/rename" data-native>${hidden({ session: agent.session_id, back: "/dashboard?view=agents" })}<div class="bd stack">
           <label class="field">Name<input name="name" required value="${esc(agent.label)}" pattern="[A-Za-z][A-Za-z0-9-]{0,23}" autocomplete="off"></label>

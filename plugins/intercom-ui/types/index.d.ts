@@ -42,6 +42,8 @@ export type Snapshot = {
   reply?: string
   /** A compaction its user asked for from the dashboard: run between turns, then reported back. */
   compact?: { id: string; instructions: string } | null
+  /** A model switch its user asked for from the dashboard: /model <model> between turns, then reported back. */
+  model?: { id: string; model: string } | null
   /** Side questions (/btw) from the dashboard: answered with a fork of this session's context, then posted back. */
   btw?: { id: number; prompt: string }[]
   project: string | null

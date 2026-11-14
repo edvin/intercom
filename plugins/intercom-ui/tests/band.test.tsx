@@ -54,7 +54,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     const clock = world(on, SNAP, urls)
     await $.session.start({ cwd: '/work/billing-api', surface } as never)
     await clock.advance(1) // the first snapshot loads in the background
-    expect(urls[0]).toBe('https://hub.example/api/ui?project=billing-api&session=sess-1&mod=0.2.8')
+    expect(urls[0]).toBe('https://hub.example/api/ui?project=billing-api&session=sess-1&mod=0.2.11')
     const ui = await $.ui.mount({ plugin: 'intercom-ui', surface, component: 'AbovePrompt', props: { hasSurvey: false } as never })
     expect(await ui.findAll({ type: 'Text', text: /deploy:billing:prod/ })).toHaveLength(1)
     // A lock on another project stays out of the band.
@@ -129,4 +129,45 @@ test('the poll reports how full the context is, and a compaction asked for from 
   // Still listed until the hub has cleared it: not compacted twice.
   await clock.advance(8_000)
   expect(compactions).toHaveLength(1)
+})
+
+test('the poll reports the model, and a switch asked for from the dashboard runs /model once', async ($, on) => {
+  let model = 'claude-sonnet-5-5'
+  on('session.model', async () => ({ value: model }) as never)
+  const runs: string[] = []
+  on('command.run', { command: 'model' }, async (_$, e) => {
+    const args = (e as { args: string }).args
+    runs.push(args)
+    if (args === 'haiku') {
+      model = 'claude-haiku-5-5'
+      return { text: 'Set model to `Haiku 5.5` for this session only' }
+    }
+    return { text: `Model '${args}' not found` }
+  })
+  on('ui.toast', async () => ({ value: undefined }) as never)
+  const seen: string[] = []
+  const clock = world(on, { ...SNAP, locks: [], votes: [], model: { id: 'm1', model: 'haiku' } }, seen)
+  await $.session.start({ cwd: '/work/billing-api', surface: 'terminal' } as never)
+  await clock.advance(1)
+  expect(seen[0]).toContain('&model=claude-sonnet-5-5')
+  expect(runs).toEqual(['haiku'])
+  const done = seen.filter(u => u.startsWith('POST https://hub.example/api/model/m1'))
+  expect(done).toHaveLength(1)
+  expect(done[0]).toContain('"model":"claude-haiku-5-5"')
+  expect(done[0]).not.toContain('error')
+  // Still listed until the hub has cleared it: not run twice.
+  await clock.advance(8_000)
+  expect(runs).toHaveLength(1)
+})
+
+test('a switch to a model Claude Code does not know reports its answer', async ($, on) => {
+  on('session.model', async () => ({ value: 'claude-sonnet-5-5' }) as never)
+  on('command.run', { command: 'model' }, async (_$, e) => ({ text: `Model '${(e as { args: string }).args}' not found` }))
+  const seen: string[] = []
+  const clock = world(on, { ...SNAP, locks: [], votes: [], model: { id: 'm2', model: 'nonsense' } }, seen)
+  await $.session.start({ cwd: '/work/billing-api', surface: 'terminal' } as never)
+  await clock.advance(1)
+  const done = seen.filter(u => u.startsWith('POST https://hub.example/api/model/m2'))
+  expect(done).toHaveLength(1)
+  expect(done[0]).toContain("Model 'nonsense' not found")
 })

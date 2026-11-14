@@ -23,6 +23,7 @@ export const redirect = (to: string, headers: Record<string, string> = {}) => ne
 // Icons: 24×24 stroke paths (Lucide-style, ISC licensed shapes).
 const ICONS: Record<string, string> = {
   user: '<circle cx="12" cy="8" r="5"/><path d="M20 21a8 8 0 0 0-16 0"/>',
+  cpu: '<rect x="5" y="5" width="14" height="14" rx="2"/><rect x="9" y="9" width="6" height="6" rx="1"/><path d="M9 2v3m6-3v3M9 19v3m6-3v3M2 9h3m-3 6h3m14-6h3m-3 6h3"/>',
   search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
   volume: '<path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z"/><path d="M16 9a5 5 0 0 1 0 6"/><path d="M19.364 18.364a9 9 0 0 0 0-12.728"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2m-7.07-2.93 1.41-1.41m11.32-11.32 1.41-1.41M2 12h2m16 0h2M4.93 4.93l1.41 1.41m11.32 11.32 1.41 1.41"/>',
@@ -1278,6 +1279,7 @@ h1{font-size:22px;font-weight:620;letter-spacing:-.02em}
 .kv dt{color:var(--mute)}.kv dd{margin:0;color:var(--ink-2);min-width:0;overflow-wrap:anywhere;display:block}.kv dd .btn.icon{width:22px;height:20px;vertical-align:-5px;margin-left:2px;opacity:.6}.kv dd .btn.icon:hover{opacity:1}
 .kv .mono{font-size:12px}.kv .client{font-weight:500}.kv .badge{font-size:10.5px}
 .ctxv{font-weight:600;color:var(--ink)}.ctxv.amber{color:var(--amber)}.ctxv.red{color:var(--red)}
+.mdlpick{display:grid;gap:6px}.mdlopt{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--line-strong);border-radius:10px;cursor:pointer;font-size:13.5px}.mdlopt:hover{border-color:var(--accent)}.mdlopt:has(input[type=radio]:checked){border-color:var(--accent);background:var(--accent-soft)}.mdlopt input[type=radio]{margin:0;flex:none;accent-color:var(--accent);outline:none;box-shadow:none}.mdlopt:has(input[type=radio]:focus-visible){outline:2px solid var(--accent);outline-offset:2px}.mdlopt .muted{font-size:12.5px}.mdlother{flex-wrap:wrap}.mdlother input[name=other]{flex:1 1 180px;min-width:0;height:32px;font:12.5px var(--mono,ui-monospace),monospace}
 .kv .compactbtn,.kv .compacting{margin-left:6px;vertical-align:middle}.kv .compactbtn{height:22px;padding:0 8px;border:1px solid var(--line-strong);font-size:11.5px}
 .meter{height:4px;margin-top:7px;border-radius:9px;background:var(--line-strong);overflow:hidden}.meter i{display:block;height:100%;border-radius:9px;background:var(--ink-2)}.meter.amber i{background:var(--amber)}.meter.red i{background:var(--red)}
 .kv .takeswork{display:inline}.kv .takeswork .badge{cursor:pointer;border:0;font:inherit;font-size:11.5px;height:22px;padding:0 9px}
@@ -1833,6 +1835,8 @@ export const SCRIPT = `
       }
     }).catch(() => els.forEach((el) => el.classList.add("done", "err")));
   }
+  // The model picker: typing a model id picks Other.
+  document.addEventListener("focusin", (e) => { const t = e.target; if (t && t.matches && t.matches(".mdlother input[name=other]")) { const r = t.parentNode.querySelector("input[type=radio]"); if (r) r.checked = true; } });
   // ---- Reading aids ----
   // What you've seen of each agent (the latest message it sent you that you had open): the tree dots the others,
   // and an agent's chat draws a "New" line where you left off. Kept in this browser.

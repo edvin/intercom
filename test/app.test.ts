@@ -3252,11 +3252,11 @@ describe("Claude.ai connector", () => {
     // Refused elsewhere: not the plugin's tools, not the dashboard. Added with /mcp, Claude gets the connector there.
     const viaMcp = await w.request("/mcp", { method: "POST", headers: { authorization: `Bearer ${access_token}`, "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }) });
     const mcpNames = ((await viaMcp.json()) as { result: { tools: { name: string }[] } }).result.tools.map((t) => t.name);
-    assert.deepEqual(mcpNames, ["agents", "agent_status", "ask", "compact", "screen", "keys", "stop", "conversation", "locks", "decisions", "proposals", "handoffs"]);
+    assert.deepEqual(mcpNames, ["agents", "agent_status", "ask", "compact", "model", "screen", "keys", "stop", "conversation", "locks", "decisions", "proposals", "handoffs"]);
     assert.equal((await w.request("/mcp", { method: "POST", headers: { authorization: "Bearer nope" }, body: "{}" })).status, 401);
     assert.equal((await w.request("/api/whoami", { headers: { authorization: `Bearer ${access_token}` } })).status, 401);
     const names = (await rpc(w, access_token, "tools/list")).body.result.tools.map((t: { name: string }) => t.name);
-    assert.deepEqual(names, ["agents", "agent_status", "ask", "compact", "screen", "keys", "stop", "conversation", "locks", "decisions", "proposals", "handoffs"]);
+    assert.deepEqual(names, ["agents", "agent_status", "ask", "compact", "model", "screen", "keys", "stop", "conversation", "locks", "decisions", "proposals", "handoffs"]);
     assert.equal((await rpc(w, access_token, "tools/call", { name: "invite", arguments: {} })).body.error.code, -32602);
     const ask = (await rpc(w, access_token, "tools/list")).body.result.tools.find((t: { name: string }) => t.name === "ask");
     assert.equal(ask.annotations.destructiveHint, true);
@@ -3337,6 +3337,51 @@ describe("Claude.ai connector", () => {
     const ui2 = (await (await w.request("/api/ui?project=billing-api&session=c1&mod=0.2.10", { as: "bob" })).json()) as { compact: { instructions: string } | null };
     assert.equal(ui2.compact?.instructions, "flange stage 2, the 3 failing tests, next: fix the bend relief. the deploy plan");
     assert.match(await call(w, t, "compact", { agent: "docs", right_away: true }), /docs can't be compacted from here: type \/compact in its terminal/);
+  });
+
+  test("an agent's model is shown, switched from the dashboard or the connector through its mod, and a bad name says why", async () => {
+    const w = await standardWorld();
+    const { client_id, params, verifier } = await connect(w);
+    const code = new URL((await w.form("/oauth/authorize", "bob", { ...params, action: "allow" })).headers.get("location")!).searchParams.get("code")!;
+    const { access_token: t } = (await (await w.request("/oauth/token", { method: "POST", body: new URLSearchParams({ grant_type: "authorization_code", code, client_id, redirect_uri: params.redirect_uri, code_verifier: verifier }) })).json()) as { access_token: string };
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=m1&name=kernel", { as: "bob" });
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=m2&name=alder&client=codex", { as: "bob" });
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=m3&name=docs", { as: "bob" });
+    type Ui = { model: { id: string; model: string } | null };
+    const poll = async (q = "") => (await (await w.request(`/api/ui?project=billing-api&session=m1&mod=0.2.11${q}`, { as: "bob" })).json()) as Ui;
+    await poll("&model=claude-sonnet-5-5");
+    const page = async () => (await w.request("/dashboard?view=agents&agent=bob/kernel", { as: "bob", cookie: true })).text();
+    let html = await page();
+    assert.match(html, /<dt>Model<\/dt><dd><span title="claude-sonnet-5-5">Sonnet 5\.5<\/span>/);
+    assert.match(html, /id="dlg-model"[\s\S]*value="sonnet" checked/);
+    // Asked from the dashboard: the mod gets it, runs it and reports back.
+    const r = await w.form("/agent/model", "bob", { session: "m1", model: "opus", back: "/dashboard?view=agents&agent=bob%2Fkernel" });
+    assert.match(decodeURIComponent(r.headers.get("location")!).replace(/\+/g, " "), /kernel switches to Opus now/);
+    const ui = await poll();
+    assert.equal(ui.model?.model, "opus");
+    assert.match(await page(), /to Opus when idle/);
+    await w.request(`/api/model/${ui.model!.id}`, { as: "bob", method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ session: "m1", model: "claude-opus-5-5" }) });
+    assert.equal((await poll()).model, null);
+    assert.match(await page(), /title="claude-opus-5-5">Opus 5\.5</);
+    // Other: a model id typed in; Claude Code's answer when it doesn't know it.
+    await w.form("/agent/model", "bob", { session: "m1", model: "other", other: "claude-nonsense-9", back: "/dashboard?view=agents" });
+    const ui2 = await poll();
+    assert.equal(ui2.model?.model, "claude-nonsense-9");
+    await w.request(`/api/model/${ui2.model!.id}`, { as: "bob", method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ session: "m1", model: "claude-opus-5-5", error: "Model 'claude-nonsense-9' not found" }) });
+    assert.match(await page(), /Last switch didn(?:'|&#39;|’)t take: Model (?:'|&#39;)claude-nonsense-9(?:'|&#39;) not found/);
+    const bad = await w.form("/agent/model", "bob", { session: "m1", model: "other", other: "rm -rf /", back: "/dashboard?view=agents" });
+    assert.match(decodeURIComponent(bad.headers.get("location")!).replace(/\+/g, " "), /err=That isn(?:'|’)t a model name/);
+    // The connector: the current model and the choices, then a switch and calling it off.
+    assert.match(await call(w, t, "model", { agent: "kernel" }), /kernel runs Opus 5\.5 \(claude-opus-5-5\)[\s\S]*The last switch didn't take[\s\S]*Choices: default \(what its settings say\), opus/);
+    assert.match(await call(w, t, "model", { agent: "kernel", model: "haiku" }), /kernel switches to Haiku now/);
+    assert.match(await call(w, t, "model", { agent: "kernel", cancel: true }), /Called off: kernel keeps its model\./);
+    assert.equal((await poll()).model, null);
+    // Codex, and a session whose mod is too old (or not running), switch in their terminal.
+    assert.match(await call(w, t, "model", { agent: "alder", model: "opus" }), /alder is a Codex session: its model is chosen in its terminal/);
+    await w.request("/api/ui?project=billing-api&session=m3&mod=0.2.10", { as: "bob" });
+    assert.match(await call(w, t, "model", { agent: "docs", model: "opus" }), /intercom-ui mod \(0\.2\.11 or newer\) isn(?:'|’)t running/);
+    html = await (await w.request("/dashboard?view=agents&agent=bob/docs", { as: "bob", cookie: true })).text();
+    assert.doesNotMatch(html, /dlg-model/);
   });
 });
 
