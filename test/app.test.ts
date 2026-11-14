@@ -1443,6 +1443,66 @@ describe("decision log and handoffs", () => {
     assert.match(page, /id="handoffs"[\s\S]*5df5034 on \/tmp\/alder-3[\s\S]*integrated as a91c2e0/);
     assert.match(page, /id="decisionlog"[\s\S]*FnCell 1cb2e05/);
   });
+
+  test("a handoff's obligations are a checklist the receiver ticks off before it can be integrated; gates carry a result each", async () => {
+    const w = await standardWorld();
+    const hook = async (event: string, sid: string, extra = "") => {
+      const t = await (await w.request(`/api/hook?event=${event}&project=billing-api&session=${sid}${extra}`, { as: "bob" })).text();
+      return t.startsWith("{") ? ((JSON.parse(t) as { hookSpecificOutput?: { additionalContext?: string } }).hookSpecificOutput?.additionalContext ?? t) : t;
+    };
+    await hook("SessionStart", "h1", "&name=alder");
+    await hook("SessionStart", "h2", "&name=core");
+    const alder = { id: "h1", project: "billing-api" };
+    const core = { id: "h2", project: "billing-api" };
+    await w.ok(
+      "bob",
+      "handoff",
+      {
+        ref: "f2bd8ac on cam/roughing",
+        summary: "adaptive roughing, 13x faster planning",
+        obligations: ["Re-run the shape gallery on the merged tip", "Keep the module detached until the contract lands", "Tell UAT before publishing"],
+        gates: [{ name: "unit", result: "passed", detail: "11/11" }, { name: "clippy", result: "pass" }, { name: "e2e", result: "skipped", detail: "no GPU" }],
+        evidence: "docs/roughing-plan.md",
+        to: "bob/core",
+      },
+      alder,
+    );
+    // The receiver gets the obligations numbered, apart from the summary, and the gates with their results.
+    const got = await hook("UserPromptSubmit", "h2");
+    assert.match(got, /gates: unit passed \(11\/11\) · clippy passed · e2e not run \(no GPU\)/);
+    assert.match(got, /You must \(all 3; tick each off[^\n]*\n +\[ \] 1\. Re-run the shape gallery on the merged tip\n +\[ \] 2\. Keep the module detached until the contract lands\n +\[ \] 3\. Tell UAT before publishing/);
+
+    // Not integrated while one is open: the refusal names them and how to tick.
+    const early = await w.tool("bob", "update_handoff", { id: 1, status: "integrated", result: "a91c2e0", obligations: [{ n: 1, state: "done", note: "15/15 clean" }] }, core);
+    assert.match(early.text, /H1 can't be integrated yet: obligations 2, 3 aren't ticked off\.\n  2\. Keep the module detached[\s\S]*"n": 2/);
+    assert.match(await w.ok("alice", "handoffs", { channel: "billing" }), /H1 PENDING/); // nothing was changed
+    // Waived needs its reason; numbers are checked.
+    assert.match((await w.tool("bob", "update_handoff", { id: 1, status: "held", obligations: [{ n: 3, state: "waived" }] }, core)).text, /Obligation 3 is waived: say why/);
+    assert.match((await w.tool("bob", "update_handoff", { id: 1, status: "held", obligations: [{ n: 4, state: "done" }] }, core)).text, /No obligation 4: this handoff has 3/);
+    // Ticks along the way, then the rest with the outcome.
+    await w.ok("bob", "update_handoff", { id: 1, status: "held", note: "gallery running", obligations: [{ n: 1, state: "done", note: "15/15 clean" }] }, core);
+    const done = await w.ok(
+      "bob",
+      "update_handoff",
+      { id: 1, status: "integrated", result: "a91c2e0", obligations: [{ n: 2, state: "na", note: "the contract landed first" }, { n: 3, state: "waived", note: "UAT is off today; told Edvin" }] },
+      core,
+    );
+    assert.match(done, /INTEGRATED as a91c2e0[\s\S]*obligations:\n      \[x\] 1\. Re-run the shape gallery on the merged tip — 15\/15 clean\n      \[n\/a\] 2\.[^\n]*— the contract landed first\n      \[waived\] 3\. Tell UAT before publishing — UAT is off today/);
+    // The sender hears how each was met; a waived one goes into the decision log with its reason.
+    assert.match(await hook("UserPromptSubmit", "h1"), /is now integrated as a91c2e0\.\n +Obligations:\n +\[x\] 1\.[\s\S]*\[waived\] 3\./);
+    assert.match(await w.ok("alice", "decisions", { query: "a91c2e0" }), /obligation 3 waived \(Tell UAT before publishing\): UAT is off today/);
+
+    // The card shows the gates as chips and the checklist.
+    const page = await (await w.request("/dashboard?channel=billing", { as: "alice", cookie: true })).text();
+    assert.match(page, /class="hogates"[\s\S]*?unit[\s\S]*?e2e · not run/);
+    assert.match(page, /Obligations · 3 of 3 ticked off[\s\S]*?<li class="done">[\s\S]*?15\/15 clean[\s\S]*?<li class="na">[\s\S]*?<li class="waived">/);
+
+    // Bad input is refused with what to send instead; an older agent's text gates still work.
+    assert.match((await w.tool("bob", "handoff", { ref: "x", summary: "y", gates: [{ name: "unit", result: "meh" }] }, alder)).text, /result is passed, failed or not run/);
+    assert.match((await w.tool("bob", "handoff", { ref: "x", summary: "y", obligations: Array(13).fill("do it") }, alder)).text, /At most 12 obligations/);
+    await w.ok("bob", "handoff", { ref: "old1234", summary: "an older agent", gates: "unit: green", to: "bob/core" }, alder);
+    assert.match(await w.ok("bob", "update_handoff", { id: 2, status: "integrated", result: "b1" }, core), /gates: unit: green/);
+  });
 });
 
 describe("choosing an agent's project from the dashboard", () => {

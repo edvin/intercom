@@ -597,7 +597,13 @@ button.opt.mine .pick{background:var(--grad);border-color:transparent;color:#fff
 .comment{font-size:13px;color:var(--ink-2);display:flex;gap:8px;align-items:center;margin-top:6px}
 
 /* locks */
-.recc{padding:12px 18px;border-top:1px solid var(--line)}.recc .res{font-family:"Geist Mono",monospace;font-size:13px;font-weight:600;color:var(--ink);overflow-wrap:anywhere}.recc.old{opacity:.55}.recc .md p{margin:0}
+.recc{padding:12px 18px;border-top:1px solid var(--line)}
+.recc .hogates{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}.recc .hogates .badge{display:inline-flex;align-items:center;gap:3px}
+.recc .hoobl{margin:8px 0 6px}.recc .hoobl ol{list-style:none;margin:4px 0 0;padding:0;display:grid;gap:5px}
+.recc .hoobl li{display:flex;gap:7px;align-items:flex-start;font-size:13px;line-height:1.4}.recc .hotxt{min-width:0;overflow-wrap:anywhere}
+.recc .hochk{flex:none;width:15px;height:15px;margin-top:2px;border-radius:4px;border:1.5px solid var(--line-2,var(--line));display:inline-flex;align-items:center;justify-content:center}
+.recc .hoobl li.done .hochk{background:var(--green);border-color:var(--green);color:var(--bg)}.recc .hoobl li.na .hochk,.recc .hoobl li.waived .hochk{color:var(--ink-3,var(--muted))}
+.recc .hoobl li.waived .hochk{border-color:var(--amber);color:var(--amber)}.recc .hond{display:block;margin-top:1px}.recc .res{font-family:"Geist Mono",monospace;font-size:13px;font-weight:600;color:var(--ink);overflow-wrap:anywhere}.recc.old{opacity:.55}.recc .md p{margin:0}
 .logsearch{padding:0 18px 10px}.logsearch input{height:30px;font-size:12.5px}
 .lockc{padding:14px 18px;border-top:1px solid var(--line)}.lockc:first-child{border-top:0}
 .lockc .res{font-family:"Geist Mono",monospace;font-size:13.5px;font-weight:600;display:flex;align-items:center;gap:8px;color:var(--amber)}

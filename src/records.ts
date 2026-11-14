@@ -38,6 +38,108 @@ export interface Handoff {
   updated_by: string | null;
   created_at: number;
   updated_at: number;
+  /** JSON: Obligation[] (the receiver's checklist). */
+  obligations: string;
+  /** JSON: Gate[] (older handoffs have their gates as text in `gates`). */
+  gate_list: string;
+}
+
+/** Something the receiver must do or keep to, ticked off when it records the outcome. */
+export interface Obligation {
+  text: string;
+  state: "open" | "done" | "na" | "waived";
+  note: string;
+  by?: string;
+  at?: number;
+}
+export const TICKS = ["done", "na", "waived"] as const;
+
+/** A gate the sender ran, and how it came out. */
+export interface Gate {
+  name: string;
+  result: "passed" | "failed" | "not run";
+  detail: string;
+}
+
+export const MAX_OBLIGATIONS = 12;
+const MAX_GATES = 20;
+
+const parsed = <T>(json: string | null | undefined): T[] => {
+  try {
+    const v = JSON.parse(json || "[]");
+    return Array.isArray(v) ? v : [];
+  } catch {
+    return [];
+  }
+};
+export const obligationsOf = (h: Pick<Handoff, "obligations">): Obligation[] => parsed<Obligation>(h.obligations);
+export const gatesOf = (h: Pick<Handoff, "gate_list">): Gate[] => parsed<Gate>(h.gate_list);
+
+/** The obligations a handoff is given, one short line each. */
+export function readObligations(raw: unknown): Obligation[] {
+  if (raw === undefined || raw === null || raw === "") return [];
+  const list = Array.isArray(raw) ? raw : [raw];
+  if (list.some((o) => typeof o !== "string")) throw new UserError("obligations is a list of short texts, one thing the receiver must do or keep to each.");
+  const out = (list as string[]).map((o) => o.trim().replace(/\s+/g, " ")).filter(Boolean);
+  if (out.length > MAX_OBLIGATIONS) throw new UserError(`At most ${MAX_OBLIGATIONS} obligations: merge the small ones, or put the detail in the summary.`);
+  const long = out.find((o) => o.length > 300);
+  if (long) throw new UserError(`An obligation is one requirement in up to 300 characters: "${long.slice(0, 60)}…" is ${long.length}. Split it, or move the background to the summary.`);
+  return out.map((text) => ({ text, state: "open", note: "" }));
+}
+
+const RESULTS: Record<string, Gate["result"]> = {
+  passed: "passed", pass: "passed", green: "passed", ok: "passed", success: "passed",
+  failed: "failed", fail: "failed", red: "failed", error: "failed",
+  "not run": "not run", "not-run": "not run", skipped: "not run", skip: "not run", "n/a": "not run",
+};
+
+/** The gates a handoff is given: a list with a result each, or (older agents) one text. */
+export function readGates(raw: unknown): { list: Gate[]; text: string } {
+  if (raw === undefined || raw === null || raw === "") return { list: [], text: "" };
+  if (typeof raw === "string") return { list: [], text: raw.trim().slice(0, 1000) };
+  if (!Array.isArray(raw)) throw new UserError('gates is a list: [{"name": "unit", "result": "passed"}, …].');
+  if (raw.length > MAX_GATES) throw new UserError(`At most ${MAX_GATES} gates.`);
+  const list = raw.map((g): Gate => {
+    if (!g || typeof g !== "object" || typeof (g as Gate).name !== "string" || !(g as Gate).name.trim())
+      throw new UserError('Each gate has a name and a result, e.g. {"name": "unit", "result": "passed"}.');
+    const result = RESULTS[String((g as Gate).result ?? "").trim().toLowerCase()];
+    if (!result) throw new UserError(`Gate "${(g as Gate).name.trim().slice(0, 60)}": result is passed, failed or not run.`);
+    const detail = typeof (g as Gate).detail === "string" ? (g as Gate).detail.trim().slice(0, 300) : "";
+    return { name: (g as Gate).name.trim().slice(0, 120), result, detail };
+  });
+  return { list, text: "" };
+}
+
+/** "unit passed · e2e FAILED (login flaky) · corpus not run" */
+export function fmtGates(h: Pick<Handoff, "gates" | "gate_list">): string {
+  const list = gatesOf(h);
+  if (!list.length) return h.gates;
+  return list.map((g) => `${g.name} ${g.result === "failed" ? "FAILED" : g.result}${g.detail ? ` (${g.detail})` : ""}`).join(" · ");
+}
+
+const MARK: Record<Obligation["state"], string> = { open: "[ ]", done: "[x]", na: "[n/a]", waived: "[waived]" };
+
+/** The checklist, one line each: "  [x] 2. Re-run the gallery on the merged tip — 15/15 clean". */
+export function fmtObligations(list: Obligation[], indent = "    "): string {
+  return list.map((o, i) => `${indent}${MARK[o.state] ?? "[ ]"} ${i + 1}. ${o.text}${o.note ? ` — ${o.note}` : ""}`).join("\n");
+}
+
+/** The receiver's ticks, merged into the checklist: [{n: 2, state: "done", note: "…"}]. */
+export function applyTicks(list: Obligation[], raw: unknown, by: string): Obligation[] {
+  if (raw === undefined || raw === null) return list;
+  if (!Array.isArray(raw)) throw new UserError('obligations is a list of ticks: [{"n": 1, "state": "done", "note": "what you did"}].');
+  const out = list.map((o) => ({ ...o }));
+  for (const t of raw as { n?: unknown; state?: unknown; note?: unknown }[]) {
+    const n = Number(t?.n);
+    if (!Number.isInteger(n) || n < 1 || n > out.length)
+      throw new UserError(out.length ? `No obligation ${String(t?.n)}: this handoff has ${out.length} (1–${out.length}).` : "This handoff has no obligations to tick.");
+    const state = String(t.state ?? "").trim().toLowerCase().replace("n/a", "na");
+    if (!(TICKS as readonly string[]).includes(state)) throw new UserError(`Obligation ${n}: state is done, na (doesn't apply) or waived.`);
+    const note = typeof t.note === "string" ? t.note.trim().slice(0, 300) : "";
+    if (state === "waived" && !note) throw new UserError(`Obligation ${n} is waived: say why in its note.`);
+    out[n - 1] = { ...out[n - 1]!, state: state as Obligation["state"], note, by, at: Date.now() };
+  }
+  return out;
 }
 
 const MEMBER_PROJECTS = "project IN (SELECT project FROM project_members WHERE member = ?)";
@@ -55,14 +157,17 @@ export function fmtDecision(d: Decision, withProject = true): string {
     .join(" · ");
 }
 
-/** A handoff on one line, then its evidence and gates indented. */
+/** A handoff on one line, then its evidence, gates and the receiver's checklist indented. */
 export function fmtHandoff(h: Handoff, withProject = true): string {
   const to = h.to_member ? ` → ${address(h.to_member, h.to_agent)}` : "";
   const state = `${h.status.toUpperCase()}${h.status === "integrated" && h.result ? ` as ${h.result}` : ""}`;
+  const gates = fmtGates(h);
+  const obligations = obligationsOf(h);
   return [
     `H${h.id}${withProject ? ` [#${h.project}]` : ""} ${state} · ${h.ref} — ${h.summary} · ${address(h.author, h.author_agent)}${to}, ${ago(h.created_at)}`,
     h.evidence ? `    evidence: ${h.evidence}` : "",
-    h.gates ? `    gates: ${h.gates}` : "",
+    gates ? `    gates: ${gates}` : "",
+    obligations.length ? `    obligations:\n${fmtObligations(obligations, "      ")}` : "",
     h.note ? `    note${h.updated_by ? ` (${h.updated_by})` : ""}: ${h.note}` : "",
   ]
     .filter(Boolean)
@@ -128,12 +233,14 @@ export async function decisionById(env: Env, me: string, id: number): Promise<De
 export async function createHandoff(
   env: Env,
   me: string,
-  h: { project: string; ref: string; summary: string; evidence?: string; gates?: string; to_member?: string | null; to_agent?: string | null },
+  h: { project: string; ref: string; summary: string; evidence?: string; gates?: unknown; obligations?: unknown; to_member?: string | null; to_agent?: string | null },
 ): Promise<Handoff> {
   const now = Date.now();
+  const gates = readGates(h.gates);
+  const obligations = readObligations(h.obligations);
   const row = await env.DB.prepare(
-    `INSERT INTO handoffs (project, author, author_agent, to_member, to_agent, ref, summary, evidence, gates, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
+    `INSERT INTO handoffs (project, author, author_agent, to_member, to_agent, ref, summary, evidence, gates, gate_list, obligations, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
   )
     .bind(
       h.project,
@@ -144,12 +251,18 @@ export async function createHandoff(
       h.ref.trim().slice(0, 300),
       h.summary.trim().slice(0, 1000),
       (h.evidence ?? "").trim().slice(0, 1000),
-      (h.gates ?? "").trim().slice(0, 1000),
+      gates.text,
+      JSON.stringify(gates.list),
+      JSON.stringify(obligations),
       now,
       now,
     )
     .first<Handoff>();
-  const text = `handed off H${row!.id}: ${row!.ref} — ${row!.summary}${row!.evidence ? `\nevidence: ${row!.evidence}` : ""}${row!.gates ? `\ngates: ${row!.gates}` : ""}\nRecord the outcome with update_handoff (id ${row!.id}).`;
+  const g = fmtGates(row!);
+  const must = obligations.length
+    ? `\nYou must (${obligations.length === 1 ? "this" : `all ${obligations.length}`}; tick each off in update_handoff's obligations when you record the outcome: done, na or waived with a reason):\n${fmtObligations(obligations, "  ")}`
+    : "";
+  const text = `handed off H${row!.id}: ${row!.ref} — ${row!.summary}${row!.evidence ? `\nevidence: ${row!.evidence}` : ""}${g ? `\ngates: ${g}` : ""}${must}\nRecord the outcome with update_handoff (id ${row!.id}).`;
   if (h.to_member) await postMessage(env, { channel: h.project, sender: me, recipient: h.to_member, recipient_agent: h.to_agent ?? null, body: text });
   else await postMessage(env, { channel: h.project, sender: me, kind: "event", body: `handed off H${row!.id}: ${row!.ref} — ${row!.summary.split("\n")[0]!.slice(0, 160)}` });
   return row!;
@@ -165,20 +278,37 @@ export async function getHandoff(env: Env, me: string, id: number): Promise<Hand
  * Record what became of a handoff. Its author hears about it (in their agent's context); integrated, held and
  * rejected outcomes also go into the decision log, so nobody re-proposes the same work unaware.
  */
-export async function updateHandoff(env: Env, me: string, id: number, status: string, result = "", note = ""): Promise<{ handoff: Handoff; decision: Decision | null }> {
+export async function updateHandoff(
+  env: Env,
+  me: string,
+  id: number,
+  status: string,
+  result = "",
+  note = "",
+  ticks?: unknown,
+): Promise<{ handoff: Handoff; decision: Decision | null }> {
   if (!(HANDOFF_STATES as readonly string[]).includes(status)) throw new UserError(`status must be one of: ${HANDOFF_STATES.join(", ")}`);
   const h = await getHandoff(env, me, id);
   if (status === "withdrawn" && h.author !== me) throw new UserError("Only the author can withdraw a handoff.");
-  const row = await env.DB.prepare("UPDATE handoffs SET status = ?, result = ?, note = ?, updated_by = ?, updated_at = ? WHERE id = ? RETURNING *")
-    .bind(status, result.trim().slice(0, 200) || h.result, note.trim().slice(0, 1000) || h.note, address(me, env.session?.label), Date.now(), id)
+  const by = address(me, env.session?.label);
+  const obligations = applyTicks(obligationsOf(h), ticks, by);
+  // Integrated means every obligation was met, or said not to apply, or waived with a reason.
+  const open = obligations.map((o, i) => ({ o, n: i + 1 })).filter(({ o }) => o.state === "open");
+  if (status === "integrated" && open.length)
+    throw new UserError(
+      `H${h.id} can't be integrated yet: ${open.length === 1 ? "obligation" : "obligations"} ${open.map((x) => x.n).join(", ")} ${open.length === 1 ? "isn't" : "aren't"} ticked off.\n${open.map(({ o, n }) => `  ${n}. ${o.text}`).join("\n")}\nTick each in obligations: [{"n": ${open[0]!.n}, "state": "done", "note": "what you did"}] (done; na when it doesn't apply; waived with the reason). Or record it held while you work on them.`,
+    );
+  const row = await env.DB.prepare("UPDATE handoffs SET status = ?, result = ?, note = ?, obligations = ?, updated_by = ?, updated_at = ? WHERE id = ? RETURNING *")
+    .bind(status, result.trim().slice(0, 200) || h.result, note.trim().slice(0, 1000) || h.note, JSON.stringify(obligations), by, Date.now(), id)
     .first<Handoff>();
+  const waived = obligations.map((o, i) => ({ o, n: i + 1 })).filter(({ o }) => o.state === "waived");
   const verdict = status === "integrated" ? "approved" : status === "held" || status === "rejected" ? status : null;
   const decision = verdict
     ? await logDecision(env, me, {
         project: h.project,
         subject: `H${h.id} ${h.ref}${status === "integrated" && row!.result ? ` (integrated as ${row!.result})` : ""}`,
         verdict,
-        reason: note || h.summary,
+        reason: [note || h.summary, ...waived.map(({ o, n }) => `obligation ${n} waived (${o.text.slice(0, 80)}): ${o.note}`)].join("\n"),
         refs: [h.ref, row!.result].filter(Boolean).join(" "),
         handoff_id: h.id,
       })
@@ -190,7 +320,7 @@ export async function updateHandoff(env: Env, me: string, id: number, status: st
       sender: me,
       recipient: h.author,
       recipient_agent: h.author_agent,
-      body: `Your handoff H${h.id} (${h.ref}) is now ${outcome}${note ? `: ${note}` : "."}`,
+      body: `Your handoff H${h.id} (${h.ref}) is now ${outcome}${note ? `: ${note}` : "."}${obligations.length ? `\nObligations:\n${fmtObligations(obligations, "  ")}` : ""}`,
     });
   }
   return { handoff: row!, decision };

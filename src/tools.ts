@@ -5,7 +5,7 @@ import { sendWarning, teamNote } from "./stuck";
 import { KINDS, STAGES, TRACK_LIMITS, listBoard, publish, removeItems } from "./tracked";
 import { TICKET_OUTCOMES, TLIMITS, answerTicket, finishTicket, openTicket, pendingTickets, withdrawTicket } from "./tickets";
 import { RETENTION_DAYS as ATTACHMENT_DAYS, fileMarker, getAttachment, isImage, isText, linkImages, marker, readImage, size, storeFile, toBase64 } from "./attachments";
-import { HANDOFF_STATES, OPEN_HANDOFF, VERDICTS, createHandoff, crewRoles, findDecisions, decisionById, fmtCrew, fmtDecision, fmtHandoff, listHandoffs, logDecision, updateHandoff } from "./records";
+import { HANDOFF_STATES, MAX_OBLIGATIONS, OPEN_HANDOFF, VERDICTS, createHandoff, crewRoles, findDecisions, decisionById, fmtCrew, fmtDecision, fmtHandoff, listHandoffs, logDecision, updateHandoff } from "./records";
 import { adminsInvite, githubRepo } from "./github";
 import {
   type Env,
@@ -752,14 +752,33 @@ export const tools: Tool[] = [
   {
     name: "handoff",
     description:
-      "Hand work to another agent or person as a tracked record: the commit, branch or worktree, a summary, the evidence path and the gates you ran. The recipient gets it as a direct message; its status (pending, integrated as <sha>, held, rejected) stays on record and appears at session start until it's settled.",
+      "Hand work to another agent or person as a tracked record, in parts so nothing gets missed: the commit, branch or worktree (ref); what changed (summary); what the receiver must do or keep to (obligations, one per item: a checklist it ticks off before it can record the handoff integrated); the gates you ran with each one's result; and where the evidence is. Keep obligations out of the summary. The recipient gets it as a direct message; its status (pending, integrated as <sha>, held, rejected) stays on record and appears at session start until it's settled.",
     inputSchema: {
       type: "object",
       properties: {
         ref: { type: "string", description: "Commit, branch or worktree, e.g. \"5df5034 on /tmp/loxodon-alder-3\"." },
-        summary: { type: "string", description: "What it is and what it changes." },
+        summary: { type: "string", description: "What changed: one short paragraph. Requirements for the receiver go in obligations, results in gates." },
+        obligations: {
+          type: "array",
+          items: { type: "string" },
+          maxItems: MAX_OBLIGATIONS,
+          description:
+            "What the receiver must do or keep to when it takes this, one requirement per item in a sentence (e.g. \"Re-run the shape gallery on the merged tip\", \"Keep the module detached until the contract lands\"). It ticks each off when it records the outcome.",
+        },
+        gates: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              name: { type: "string", description: "The gate or test suite, e.g. \"unit\", \"clippy\", \"corpus-lite\"." },
+              result: { type: "string", enum: ["passed", "failed", "not run"] },
+              detail: { type: "string", description: "Optional: counts, or why it failed or wasn't run." },
+            },
+            required: ["name", "result"],
+          },
+          description: "The gates/tests you ran, each with its result.",
+        },
         evidence: { type: "string", description: "Where the evidence is (path, benchmark output, log)." },
-        gates: { type: "string", description: "The gates/tests run and their result." },
         to: { type: "string", description: "Who should take it: an address like \"edvin/core\" or \"anna\". Omit to post it to the project." },
         channel: channelProp,
       },
@@ -779,7 +798,7 @@ export const tools: Tool[] = [
       const moved = to_member && to_agent ? await renamedTo(env, to_member, to_agent) : null;
       const asked = to_agent;
       if (moved) to_agent = moved.label;
-      const h = await createHandoff(env, me, { project, ref: str(a, "ref", true), summary: str(a, "summary", true), evidence: str(a, "evidence"), gates: str(a, "gates"), to_member, to_agent });
+      const h = await createHandoff(env, me, { project, ref: str(a, "ref", true), summary: str(a, "summary", true), evidence: str(a, "evidence"), gates: a.gates, obligations: a.obligations, to_member, to_agent });
       return `Recorded handoff H${h.id}${to_member ? ` and sent it to ${address(to_member, to_agent)}` : ` in #${project}`}.${moved ? renameNote(to_member!, asked!, moved) : ""} You'll hear when its status changes.${to_member && to_agent ? await sendWarning(env, to_member, to_agent) : ""}`;
     },
   },
@@ -807,7 +826,7 @@ export const tools: Tool[] = [
   {
     name: "update_handoff",
     description:
-      "Record what became of a handoff: integrated (give the resulting sha as result), held, rejected (say why in note), withdrawn (author only) or back to pending. The author is told, and integrated/held/rejected outcomes are added to the decision log.",
+      "Record what became of a handoff: integrated (give the resulting sha as result), held, rejected (say why in note), withdrawn (author only) or back to pending. A handoff with obligations can be integrated only once each is ticked off in obligations: done (with what you did), na (it doesn't apply, and why) or waived (with the reason); ticks can also be sent earlier, with any status. The author is told, and integrated/held/rejected outcomes are added to the decision log.",
     inputSchema: {
       type: "object",
       properties: {
@@ -815,11 +834,24 @@ export const tools: Tool[] = [
         status: { type: "string", enum: [...HANDOFF_STATES] },
         result: { type: "string", description: "E.g. the sha it was integrated as." },
         note: { type: "string", description: "Why, briefly." },
+        obligations: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              n: { type: "number", description: "The obligation's number (1 for the first)." },
+              state: { type: "string", enum: ["done", "na", "waived"] },
+              note: { type: "string", description: "What you did, or why it doesn't apply or was waived (required for waived)." },
+            },
+            required: ["n", "state"],
+          },
+          description: "Your ticks on the handoff's obligations checklist.",
+        },
       },
       required: ["id", "status"],
     },
     async run(env, me, a) {
-      const { handoff, decision } = await updateHandoff(env, me, num(a, "id", 0, 0, Number.MAX_SAFE_INTEGER), str(a, "status", true).toLowerCase(), str(a, "result") ?? "", str(a, "note") ?? "");
+      const { handoff, decision } = await updateHandoff(env, me, num(a, "id", 0, 0, Number.MAX_SAFE_INTEGER), str(a, "status", true).toLowerCase(), str(a, "result") ?? "", str(a, "note") ?? "", a.obligations);
       return `${fmtHandoff(handoff)}${decision ? `\nLogged D${decision.id}.` : ""}`;
     },
   },
@@ -1277,7 +1309,7 @@ Etiquette:
 - When your work affects others (shared libs, breaking API changes, pipeline changes, holding deploys), \`post\` a short note to the project's channel.
 - Use \`propose\` when the project needs to agree on something (holding deployments, who runs a release). When a proposal is open and your user hasn't voted, ask them; never vote without their answer.
 - Calls that were made (a candidate rejected, an option approved, something held) go in the decision log with \`decide\`. Before proposing or re-proposing work, search it with \`decisions\` (by commit or keyword).
-- Handing work to another agent (a commit, branch or worktree with evidence and gates): use \`handoff\`, not a plain DM, so its status stays on record. When you take one, record the outcome with \`update_handoff\` (integrated as <sha>, held, rejected).
+- Handing work to another agent (a commit, branch or worktree with evidence and gates): use \`handoff\`, not a plain DM, so its status stays on record. Put what the receiver must do or keep to in its obligations, one per item, not in the summary. When you take one, do each obligation, then record the outcome with \`update_handoff\` (integrated as <sha>, held, rejected), ticking each obligation off with what you did.
 - Messages can carry images, shown as [📎 image #N: name]. Open them with \`attachment\` (id N) to see them; an image from your user is part of their request. Other files show as [📎 file #N: name · size]: save one to this machine with \`save_attachment\` (where your user says, or your working folder) before using it.
 - To show your user a file from this machine (a screenshot, a generated report, a log), use \`share_file\` with its path: it lands in their dashboard. To give a file to another agent, \`share_file\` it to that agent's address; the receiver keeps it with \`save_attachment\`.
 - Reviewing an MR or PR: findings that need your user's call (security, data loss, breaking clients, design trade-offs, doubts) go to them with \`review\`, briefly, not as a file or a long message; then hold off on the MR until their decision comes. Nits and mechanical fixes you handle yourself.

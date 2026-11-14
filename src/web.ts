@@ -10,7 +10,7 @@ import { agentsView } from "./agents";
 import { askBtw } from "./btw";
 import { parseSubs, subMessage } from "./subagents";
 import { linkImages, markerFor, storeImages } from "./attachments";
-import { type Decision, type Handoff, OPEN_HANDOFF, findDecisions, listHandoffs } from "./records";
+import { type Decision, type Handoff, OPEN_HANDOFF, findDecisions, gatesOf, listHandoffs, obligationsOf } from "./records";
 import { pendingApprovals } from "./approvals";
 import { asksDock } from "./asks";
 import { subscriptions } from "./push";
@@ -397,13 +397,41 @@ function messageRow(m: Message, me: string, showChannel: boolean, d?: Delivery, 
 const HANDOFF_PILL: Record<string, string> = { pending: "accent", integrated: "green", held: "amber", rejected: "red", withdrawn: "" };
 const VERDICT_PILL: Record<string, string> = { approved: "green", rejected: "red", held: "amber", noted: "" };
 
+const GATE_PILL: Record<string, string> = { passed: "green", failed: "red", "not run": "" };
+const GATE_ICON: Record<string, string> = { passed: "check", failed: "x", "not run": "dots" };
+
+/** The gates as chips with their results (older handoffs: the text they were given). */
+function handoffGates(h: Handoff): string {
+  const list = gatesOf(h);
+  if (!list.length) return h.gates ? `<div class="tiny muted">gates: ${esc(h.gates)}</div>` : "";
+  return `<div class="hogates" aria-label="Gates">${list
+    .map((g) => `<span class="badge ${GATE_PILL[g.result] ?? ""}"${g.detail ? ` title="${esc(g.detail)}"` : ""}>${icon(GATE_ICON[g.result] ?? "dots", 11)}${esc(g.name)}${g.result === "passed" ? "" : ` · ${esc(g.result)}`}</span>`)
+    .join("")}</div>`;
+}
+
+const TICK_LABEL: Record<string, string> = { open: "not yet", done: "done", na: "doesn't apply", waived: "waived" };
+
+/** The receiver's obligations, with how each was ticked off. */
+function handoffChecklist(h: Handoff): string {
+  const list = obligationsOf(h);
+  if (!list.length) return "";
+  const met = list.filter((o) => o.state !== "open").length;
+  return `<div class="hoobl"><div class="tiny muted">Obligations · ${met} of ${list.length} ticked off</div><ol>${list
+    .map(
+      (o) =>
+        `<li class="${o.state}"><span class="hochk" title="${TICK_LABEL[o.state] ?? ""}">${o.state === "open" ? "" : icon(o.state === "done" ? "check" : o.state === "waived" ? "x" : "dots", 11)}</span><span class="hotxt">${esc(o.text)}${o.state !== "open" && o.state !== "done" ? ` <span class="tiny muted">(${TICK_LABEL[o.state]})</span>` : ""}${o.note ? `<span class="tiny muted hond">${esc(o.note)}${o.by ? ` — ${esc(o.by)}` : ""}</span>` : ""}</span></li>`,
+    )
+    .join("")}</ol></div>`;
+}
+
 function handoffCard(h: Handoff, showProject: boolean): string {
   const state = h.status === "integrated" && h.result ? `integrated as ${h.result}` : h.status;
   return `<div class="recc">
     <div class="row" style="gap:8px;flex-wrap:wrap"><span class="tiny muted">H${h.id}</span><span class="res">${esc(h.ref)}</span><span class="badge ${HANDOFF_PILL[h.status] ?? ""}">${esc(state)}</span>${showProject ? `<a class="tag" href="/dashboard?channel=${encodeURIComponent(h.project)}">#${esc(h.project)}</a>` : ""}</div>
     <div class="md small" style="margin-top:4px">${md(h.summary)}</div>
+    ${handoffGates(h)}
+    ${handoffChecklist(h)}
     ${h.evidence ? `<div class="tiny muted">evidence: <span class="mono">${esc(h.evidence)}</span></div>` : ""}
-    ${h.gates ? `<div class="tiny muted">gates: ${esc(h.gates)}</div>` : ""}
     ${h.note ? `<div class="tiny" style="margin-top:2px">${esc(h.note)}${h.updated_by ? ` <span class="muted">— ${esc(h.updated_by)}</span>` : ""}</div>` : ""}
     <div class="tiny muted" style="margin-top:4px">${esc(address(h.author, h.author_agent))}${h.to_member ? ` → ${esc(address(h.to_member, h.to_agent))}` : ""} · ${time(h.created_at)}</div>
   </div>`;
@@ -908,7 +936,7 @@ export function docsPage(origin: string): Response {
         <p>Two records that outlive a chat thread, kept per project and shown on its dashboard page:</p>
         <ul>
           <li><b>Decision log.</b> Calls that were made, e.g. “candidate 5df5034 rejected: regression on unshared +=” or “option X approved”: ask your agent to <i>log that</i> (<code>decide</code>). Agents see the latest at session start and search the log (<code>decisions</code>, by commit or keyword) before proposing work again. A newer decision can replace an older one. Team-wide questions still go to a vote.</li>
-          <li><b>Handoffs.</b> An agent hands work over with <code>handoff</code>: the commit, branch or worktree, a summary, the evidence path and the gates run, addressed to whoever takes it (say <code>edvin/core</code>). The taker records what became of it with <code>update_handoff</code>: <i>integrated as &lt;sha&gt;</i>, held or rejected. The author hears about it, settled outcomes go into the decision log, and open handoffs show at every session start until they're settled.</li>
+          <li><b>Handoffs.</b> An agent hands work over with <code>handoff</code>: the commit, branch or worktree, what changed, the taker's obligations (one requirement each), the gates run with each one's result, and the evidence path, addressed to whoever takes it (say <code>edvin/core</code>). The taker records what became of it with <code>update_handoff</code>: <i>integrated as &lt;sha&gt;</i>, held or rejected, and ticks off each obligation (done, doesn't apply, or waived with the reason): a handoff can't be recorded integrated while one is open. The card shows the gates and the checklist. The author hears about it, settled outcomes go into the decision log, and open handoffs show at every session start until they're settled.</li>
           <li><b>Roles.</b> Give a named agent a role (“call yourself alder; you work in isolated worktrees and hand over commits”); the project's crew and their roles are shown with its rules.</li>
         </ul>
         <h2>Who's working on what</h2>
