@@ -5,6 +5,9 @@
 #   curl -fsSL https://__INTERCOM_URL_HOST__/setup.sh | INTERCOM_PASTE_TOKEN=1 sh   # paste a token instead
 # It checks node, installs the Claude Code plugin (if the claude CLI is on PATH), and stores your token.
 # Windows: run it in Git Bash (Git for Windows), which is also what Claude Code runs the intercom's hooks in.
+# Read whole before anything runs: piped into sh (curl … | sh), a command that reads its input (a browser opener,
+# the claude CLI) would otherwise eat the rest of this script, and sh would stop with a syntax error.
+{
 set -e
 
 URL="__INTERCOM_URL__"
@@ -52,7 +55,8 @@ if [ -z "$TOKEN" ] && [ -z "$INTERCOM_PASTE_TOKEN" ]; then
   if [ -n "$CODE" ]; then
     LINK=$(json "$START" url)
     printf '  Approve this terminal in your browser (code \033[1m%s\033[0m):\n    %s\n' "$(json "$START" user_code)" "$LINK"
-    if command -v open >/dev/null 2>&1; then open "$LINK" >/dev/null 2>&1 || true; elif command -v xdg-open >/dev/null 2>&1; then xdg-open "$LINK" >/dev/null 2>&1 || true; elif command -v start >/dev/null 2>&1; then start "$LINK" >/dev/null 2>&1 || true; fi
+    # (a Linux machine without a desktop, over SSH: no browser to open, open the link elsewhere)
+    if command -v open >/dev/null 2>&1; then open "$LINK" </dev/null >/dev/null 2>&1 || true; elif command -v xdg-open >/dev/null 2>&1 && [ -n "$DISPLAY$WAYLAND_DISPLAY" ]; then xdg-open "$LINK" </dev/null >/dev/null 2>&1 || true; elif command -v start >/dev/null 2>&1; then start "$LINK" </dev/null >/dev/null 2>&1 || true; fi
     printf '  Waiting for approval'
     i=0
     while [ $i -lt 300 ]; do
@@ -220,7 +224,9 @@ chmod +x "$DIR/claude-ic"
 # An update (brief.sh update) says what to do next itself.
 if [ -z "$INTERCOM_UPDATE" ]; then
   echo
-  echo "Done. Restart Claude Code (and Codex), then type /intercom (Codex: \$intercom) to see your team."
+  echo "Done. New Claude Code sessions have it; in one already running, type /reload-plugins (Codex: start it again). Then /intercom (Codex: \$intercom) shows your team."
   echo "  Dashboard:  /intercom dashboard   (or $URL/dashboard)"
   echo "  Live push:  $DIR/claude-ic   (optional; see $URL/docs)"
 fi
+exit 0
+}

@@ -2,6 +2,9 @@
 # Team intercom installer for Claude Code.
 #   curl -fsSL https://__INTERCOM_URL_HOST__/install.sh | sh
 # Prompts for your personal token (or pass it: ... | sh -s -- <token>). Safe to re-run.
+# Read whole before anything runs: piped into sh (curl … | sh), a command that reads its input (a browser opener,
+# the claude CLI) would otherwise eat the rest of this script, and sh would stop with a syntax error.
+{
 set -e
 
 URL="__INTERCOM_URL__"
@@ -78,8 +81,10 @@ os.replace(tmp, path)
 PY
 
 echo
-echo "Installed. Restart Claude Code sessions to pick it up."
+echo "Installed. New Claude Code sessions have it; in one already running, type /reload-plugins."
 echo "  • claude-ic          start Claude with live intercom push (alias it: alias claude-ic=$DIR/claude-ic)"
 echo "  • /intercom          briefing inside Claude Code"
 echo "  • $URL               your dashboard (sign in with the same token)"
 echo "  • Optional status line: $DIR/statusline.sh"
+exit 0
+}
