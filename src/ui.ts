@@ -1259,7 +1259,7 @@ h1{font-size:22px;font-weight:620;letter-spacing:-.02em}
 .chd.menu .cmenu{display:block}
 .cmenu .mi{display:flex;align-items:center;gap:10px;width:100%;height:34px;padding:0 10px;border:0;border-radius:7px;background:none;color:var(--ink-2);font:inherit;font-size:13px;text-align:left;cursor:pointer;text-decoration:none!important}
 .cmenu .mi:hover{background:var(--hover);color:var(--ink)}.cmenu .mi>span:not(.mchk){flex:1}
-.cmenu .mchk{display:none;color:var(--accent)}.cmenu .ttog.on .mchk{display:inline-flex}.cmenu .ttog{opacity:1}.cmenu .ttog .i{display:inline}
+.cmenu .mchk{display:none;color:var(--accent)}.cmenu .ttog.on .mchk,.cmenu .mwatch.on .mchk{display:inline-flex}.cmenu .ttog{opacity:1}.cmenu .ttog .i{display:inline}
 .cmenu .mrow{display:flex;align-items:center;justify-content:space-between;height:36px;padding:0 4px 0 10px;font-size:13px;color:var(--ink-2)}
 .cmenu .fsz{border:0;margin:0;padding:0}.cmenu .fsz .btn{width:30px;height:28px}
 .cmenu hr{border:0;border-top:1px solid var(--line);margin:5px 4px}
@@ -1296,6 +1296,12 @@ h1{font-size:22px;font-weight:620;letter-spacing:-.02em}
   .chd{padding:0 6px 0 4px;gap:6px}.chd .presence{display:none}.ctitle{gap:8px}.csub{display:none}.ctitle h2{max-width:none;flex:0 1 auto}
   .ctools .seg span{display:none}.ctools .seg{margin-right:2px}.inspbtn{display:none}
   .chat.inspon .cbody{grid-template-columns:minmax(0,1fr)}
+}
+/* A phone: the header keeps who it is and what it's doing; Chat/Code, its screen and the bell move into ⋯ */
+.cmenu .mnarrow{display:none}
+@media (max-width:560px){
+  .ctools .seg,.ctools .scrbtn,.ctools .watchbtn{display:none}.cmenu .mnarrow{display:block}
+  .ctitle h2{flex:0 1 auto;min-width:3em}.chd .rvbadge{display:none}
   .chat.inspon .insp{position:fixed;z-index:35;inset:0 0 0 auto;width:min(360px,100vw);box-shadow:var(--shadow-lg);padding-top:env(safe-area-inset-top)}
 }
 
