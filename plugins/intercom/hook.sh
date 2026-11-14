@@ -7,7 +7,7 @@
 # lets the user decide to go ahead. It never blocks on its own in Claude Code.
 # Never fails: any error just means no intercom context this time.
 
-VERSION=0.12.55 # kept in step with .claude-plugin/plugin.json (a test checks)
+VERSION=0.12.56 # kept in step with .claude-plugin/plugin.json (a test checks)
 D="$HOME/.claude/intercom"
 event="${1:-UserPromptSubmit}"
 client="${2:-claude}"
@@ -151,6 +151,14 @@ if [ "$event" = "PostToolUse" ] && [ -n "$session" ]; then
       break
     fi
   done
+fi
+
+# A subagent's tool call (Claude Code names the subagent in the input: "agent_id"): what's added here goes into that
+# subagent's context, not the agent's, so a DM to the agent would land in its helper and the agent never see it.
+# Leave the mail (and the pending flag) for the agent's own next tool call, prompt or stop.
+if [ "$event" = "PostToolUse" ] && [ "$client" != "codex" ]; then
+  [ -n "$input" ] || input=$(cat)
+  case "$input" in *'"agent_id":'*) exit 0 ;; esac
 fi
 
 # Fast paths (a few milliseconds, no network), using marker files kept by the local intercom server:

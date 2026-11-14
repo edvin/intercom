@@ -8,7 +8,7 @@ import { PLUGIN_VERSION } from "../src/version.ts";
 import { CODE_SINCE, SEARCH_SINCE } from "../src/code.ts";
 import { codeRequest } from "../plugins/intercom/code.mjs";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { timing } from "../src/codexterm.ts";
@@ -1056,6 +1056,26 @@ describe("answering agents from the dashboard, whoever answers first", () => {
     assert.equal(run(allow, { answers: { "Other?": "x" } }, input), "");
     // Other tools: passed through untouched.
     assert.deepEqual(JSON.parse(run(allow, { answers: { a: "b" } }, { tool_name: "Bash", tool_input: { command: "ls" } })), allow);
+  });
+
+  test("a subagent's tool call leaves the agent's mail for the agent: its hook doesn't fetch it into the subagent", () => {
+    const home = mkdtempSync(join(tmpdir(), "ic-sub-"));
+    const d = join(home, ".claude", "intercom");
+    for (const sub of ["watch", "pending"]) mkdirSync(join(d, sub), { recursive: true });
+    // Nothing listens on port 9: a fetch (main agent) just finds nothing, but it clears the flag first.
+    writeFileSync(join(d, "config"), "INTERCOM_URL=http://127.0.0.1:9\nINTERCOM_TOKEN=t\n");
+    writeFileSync(join(d, "watch", "4242"), "");
+    const hook = new URL("../plugins/intercom/hook.sh", import.meta.url).pathname;
+    const run = (input: object) => {
+      writeFileSync(join(d, "pending", "4242"), "");
+      return execFileSync("sh", [hook, "PostToolUse"], { input: JSON.stringify(input), env: { ...process.env, HOME: home, CLAUDE_PID: "4242", CLAUDE_CODE_SESSION_ID: "s1", INTERCOM_POLL_SECONDS: "0" }, encoding: "utf8" });
+    };
+    const call = { session_id: "s1", hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command: 'grep "agent_id": x' }, tool_response: { stdout: '"agent_id":"q"' } };
+    assert.equal(run({ ...call, agent_id: "afad177913e52393b", agent_type: "general-purpose" }), "");
+    assert.ok(existsSync(join(d, "pending", "4242")), "the flag stays for the agent");
+    // The agent's own call (the same text in its command and output doesn't count): it fetches.
+    run(call);
+    assert.ok(!existsSync(join(d, "pending", "4242")));
   });
 });
 
