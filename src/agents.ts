@@ -694,9 +694,17 @@ ${asksHere}
 ${(() => {
         // While it works: its latest step and how long it has been at it, live, above the composer.
         if (!on || agent.state !== "working" || codeOn || subSel) return `<div class="nowline" id="nowline" data-region hidden></div>`;
-        const last = acts.find((x) => x.kind !== "prompt");
-        const what = !last ? "Thinking" : last.kind === "cmd" ? commandStep(plainSpaces(last.text)).title : last.kind === "read" || last.kind === "edit" ? fileStep(last.kind, plainSpaces(last.text)).title : last.kind === "text" ? esc(plainSpaces(last.text).split("\n")[0]!.slice(0, 120)) : esc(plainSpaces(last.text).slice(0, 120));
-        const since = last && last.at > (agent.state_at ?? 0) ? last.at : (agent.state_at ?? Date.now());
+        // What it last said it's doing this turn leads (its own words); the step it's on follows, quieter.
+        const turn = agent.state_at ?? 0;
+        const said = acts.find((x) => x.kind === "text" && x.at >= turn);
+        const last = acts.find((x) => x.kind !== "prompt" && x.kind !== "text");
+        const step = !last || last.at < (said?.at ?? turn) ? "" : last.kind === "cmd" ? commandStep(plainSpaces(last.text)).title : last.kind === "read" || last.kind === "edit" ? fileStep(last.kind, plainSpaces(last.text)).title : esc(plainSpaces(last.text).slice(0, 120));
+        const line = said ? plainSpaces(said.text).split("\n").map((l) => l.trim()).find(Boolean)!.replace(/[*_`#>]+/g, "").replace(/\[([^\]]*)\]\([^)]*\)/g, "$1").trim().replace(/[:,;]$/, "") : "";
+        const what = said
+          ? `<span class="nowsaid" title="${esc(line)}">${esc(line.slice(0, 160))}</span>${step ? `<span class="nowstep"> · ${step}</span>` : ""}`
+          : step || "Thinking";
+        const at = step ? last!.at : said ? said.at : 0;
+        const since = at > turn ? at : (agent.state_at ?? Date.now());
         return `<div class="nowline" id="nowline" data-region><span class="nowdot"></span><span class="nowtx">${what}</span><span class="nowt" data-elapsed="${since}"></span><span class="nowall" title="Working for">${agent.state_at ? `<span data-elapsed="${agent.state_at}"></span> in all` : ""}</span>${canScreen && agent.screen === "keys" ? `<button type="button" class="btn ghost xs nowstop" data-stopnow="${esc(key(agent))}" title="Interrupt it (Esc in its terminal)">${icon("square", 11)}Stop</button>` : ""}</div>`;
       })()}
       <form method="post" action="/action/post" class="chatbox" id="chatform" data-region data-quiet data-images data-agent="${esc(key(agent))}" data-label="${esc(agent.label)}" data-client="${agent.client === "codex" ? "codex" : "claude"}"${canScreen && agent.screen === "keys" && !subSel ? ' data-keys="1"' : ""}${subSel ? ' data-sub="1"' : ""}>${hidden({ back: subSel ? subHref(subSel.id) : back, to: key(agent), channel: agent.project || "", session: agent.session_id, mode: "", thread: "", edit: "", ...(subSel ? { sub: subSel.id } : {}) })}

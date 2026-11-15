@@ -1470,6 +1470,7 @@ body:has(#asks:not([hidden]):not(.min)) .toasts{right:16px;left:auto}
 .nowline[hidden]{display:none}
 .nowdot{width:8px;height:8px;flex:none;border-radius:50%;background:var(--green);animation:pulse 1.6s infinite}
 .nowtx{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.nowtx b{font-weight:560;color:var(--ink)}.nowtx code{font-size:11.5px;background:none;border:0;padding:0}
+.nowsaid{color:var(--ink)}.nowstep{color:var(--mute)}.nowstep b{color:var(--ink-2)!important;font-weight:500!important}
 .nowt{flex:none;font-variant-numeric:tabular-nums;font-weight:600;color:var(--ink)}.nowall{flex:none;color:var(--mute);font-variant-numeric:tabular-nums}
 @media (max-width:900px){.nowline{width:calc(100% - 16px)}.nowall{display:none}}
 /* Message actions, on hover. */
