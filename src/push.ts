@@ -8,6 +8,7 @@
 // answered, decided or withdrawn meanwhile is skipped.
 
 import { lookForPrompt } from "./prompts";
+import { fableDue } from "./fable";
 import { daySummary, scheduleSummary } from "./work";
 import { NUDGE_WAIT_MS, nudgeStuck, stuckNote, stuckSessions } from "./stuck";
 import { compactDue } from "./upkeep";
@@ -263,6 +264,15 @@ export async function sendDuePushes(env: Env, now = Date.now()): Promise<number 
         if (got) await sendNote(env, q.member, { title: `${got.label} asks in its terminal`, body: clip(got.prompt.question.split("\n").filter(Boolean).pop() ?? "", 180), tag: q.ref, url: `/dashboard?view=agents&agent=${encodeURIComponent(`${q.member}/${got.label}`)}`, count: await waitingCount(env, q.member), ttl: 3600 });
       } catch (e) {
         console.log("prompt", q.ref, String(e));
+      }
+      continue;
+    }
+    if (q.ref[0] === "f") {
+      // An agent on Fable that may have run out of Fable's weekly limit (fable.ts): switch it to Opus.
+      try {
+        console.log("fable", q.member, q.extra, await fableDue(env, q.member, q.extra));
+      } catch (e) {
+        console.log("fable", q.ref, String(e));
       }
       continue;
     }

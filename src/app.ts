@@ -1,5 +1,6 @@
 import { sqlCtx, sqlStatsText } from "./db";
 import { queueReset, resetHost, setResets } from "./resets";
+import { isFable, maybeFableLook, queueFableLook, setFableOpus } from "./fable";
 import { pickPrompt, queuePromptLook } from "./prompts";
 import { recordsBrief } from "./records";
 import { saveWorkSettings, workCsv } from "./work";
@@ -152,6 +153,9 @@ async function replyFromTurn(env: Env, me: string, session: Session & { cursor: 
     await postMessage(env, { channel: session.project || "dm", sender: me, sender_agent: session.label, recipient: me, body: reply, max: 20_000 });
 }
 
+const modelOf = async (env: Env, me: string, sessionId: string) =>
+  (await env.DB.prepare("SELECT model FROM sessions WHERE member = ? AND session_id = ?").bind(me, sessionId).first<{ model: string | null }>())?.model ?? null;
+
 /** The dashboard state for a failed turn (StopFailure hook input): waiting with the reason, or idle. */
 export function stopFailure(input: { error?: unknown; error_details?: unknown; last_assistant_message?: unknown }): [string, string] {
   const text = [input.error_details, input.last_assistant_message].filter((t) => typeof t === "string").join(" ");
@@ -247,11 +251,16 @@ async function handleHook(url: URL, env: Env, me: string, input: { last_assistan
     const [state, detail] = stopFailure(input);
     await setState(state, detail);
     if (session && /^usage limit/.test(detail)) await queueReset(env, me, session.session_id);
+    // On Fable: if it was Fable's weekly limit, it's switched to Opus and carries on (fable.ts).
+    if (session && isFable(await modelOf(env, me, session.session_id))) await queueFableLook(env, me, session.session_id, 4000);
     return new Response("", { status: 200 });
   }
   if (event === "Stop") {
     // A turn that ended isn't waiting on anything any more.
     if (session) await closeSessionApprovals(env, me, session.session_id);
+    // Stopped by Fable's weekly limit (the dialog went unanswered): switched to Opus and told to carry on (fable.ts).
+    if (session && /Fable/i.test(typeof input.last_assistant_message === "string" ? input.last_assistant_message.slice(-400) : "") && isFable(await modelOf(env, me, session.session_id)))
+      await queueFableLook(env, me, session.session_id, 4000);
     // Told it'd be compacted and it has saved its state: compacted now, with what it said to keep (upkeep.ts).
     if (session) await compactOnStop(env, me, session.session_id, typeof input.last_assistant_message === "string" ? input.last_assistant_message : "");
     // The turn answered what you wrote from the dashboard: its final message is the reply (unless the agent posted one).
@@ -487,7 +496,7 @@ async function handleUi(url: URL, env: Env, me: string): Promise<Response> {
   const cursor = cursorRow?.last_read_id ?? 0;
   const sid = url.searchParams.get("session");
   const mySession = sid
-    ? await env.DB.prepare("SELECT session_id, label, project, cursor, version, compact_req, model, model_req, started_at FROM sessions WHERE member = ? AND session_id = ?").bind(me, sid).first<Session & { cursor: number; version: string; compact_req: string | null; model: string | null; model_req: string | null }>()
+    ? await env.DB.prepare("SELECT session_id, label, project, cursor, version, compact_req, model, model_req, started_at, state, last_seen FROM sessions WHERE member = ? AND session_id = ?").bind(me, sid).first<Session & { cursor: number; version: string; compact_req: string | null; model: string | null; model_req: string | null; state: string | null; last_seen: number }>()
     : null;
   // The mod polling for this session: side questions can go to it.
   if (mySession) {
@@ -527,6 +536,8 @@ async function handleUi(url: URL, env: Env, me: string): Promise<Response> {
   // The model it runs, as the mod reads it (/model in its terminal changes it too): shown on the agent.
   const model = (url.searchParams.get("model") ?? "").slice(0, 100);
   if (mySession && model && model !== mySession.model) await env.DB.prepare("UPDATE sessions SET model = ? WHERE member = ? AND session_id = ?").bind(model, me, mySession.session_id).run();
+  // On Fable, mid-turn and quiet: it may be sitting on the Fable-limit dialog (fable.ts), so its screen gets a look.
+  if (mySession) await maybeFableLook(env, me, { session_id: mySession.session_id, model: model || mySession.model, state: mySession.state, last_seen: mySession.last_seen });
   // A session counts what it receives (its project's posts and its DMs); without one, the person's view.
   const pending = mySession ? (await unread(env, me, 99, false, mySession)).messages : null;
   const recent = pending
@@ -837,6 +848,7 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
       } else if (op === "auto-on" || op === "auto-off") ok = await setAuto(env, me, op === "auto-on");
       else if (op === "nudge-on" || op === "nudge-off") ok = await setNudge(env, me, op === "nudge-on");
       else if (op === "resets-on" || op === "resets-off") ok = await setResets(env, me, op === "resets-on");
+      else if (op === "fable-on" || op === "fable-off") ok = await setFableOpus(env, me, op === "fable-on");
       else if (op === "reset-now") ok = await resetHost(env, me, f("host"), { force: true });
       else if (op === "restart") ok = await restartAgent(env, me, f("session"));
       else if (op === "pick") ok = await pickPrompt(env, me, f("session"), Number(f("n")));

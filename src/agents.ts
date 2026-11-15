@@ -380,7 +380,8 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
     }
     if (a.kind === "loop") {
       // "started a self-paced loop: /loop Keep going on …": what kind of loop as the line, its prompt beneath (it opens).
-      const m = plainSpaces(a.text).match(/^(started|stopped)\s+(?:its\s+)?([^:]+?)(?::\s*([\s\S]*))?$/);
+      // Split at the first colon followed by a space, so "hourly at :37" stays in the line.
+      const m = plainSpaces(a.text).match(/^(started|stopped)\s+(?:its\s+)?(.+?)(?::\s+([\s\S]*))?$/);
       if (m) {
         const what = m[2]!.replace(/^an?\s+/, "").replace(/^self-paced loop/, "self-paced loop");
         const prompt = (m[3] ?? "").replace(/^\/loop\s+/, "").trim();

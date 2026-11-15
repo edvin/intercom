@@ -1700,6 +1700,8 @@ describe("loops", () => {
     assert.match(page, /<b>Self-paced<\/b><span class="loopnx" data-next="\d+"><\/span><\/div><div class="looppr" title="check the deploy">check the deploy<\/div>/);
     assert.match(page, /data-k="bob\/[^"]+"[^>]*title="[^"]*running a loop/); // marked in the tree
     assert.equal((page.match(/Started self-paced loop<\/b><span class="lpq">check the deploy/g) ?? []).length, 1); // re-arming isn't news
+    await post([ev({ op: "cron", id: "job9", cron: "37 * * * *", prompt: "Auto-reply to new mail", recurring: true })]);
+    assert.match(await view("bob"), /Started loop hourly at :37<\/b><span class="lpq">Auto-reply to new mail/); // the minute's colon stays in the line
     assert.doesNotMatch(await view("alice"), /babysit-prs/); // only the owner
 
     await post([ev({ op: "cron_delete", id: "job7" }), ev({ op: "wakeup_stop" })]);
@@ -4021,6 +4023,64 @@ describe("a question an agent asks in its terminal alone", () => {
     const picked = await w.form("/upkeep", "bob", { op: "pick", session: "tq1", n: "3", back: "/dashboard" });
     assert.match(decodeURIComponent(picked.headers.get("location") ?? "").replace(/\+/g, " "), /Picked “No, and tell Codex what to do differently” in pusher/);
     assert.deepEqual(keys, [["down", "down", "enter"]]);
+    } finally {
+      stop = true;
+      await answer;
+    }
+  });
+});
+
+describe("Fable's weekly limit", () => {
+  const ASKS = "⏺ Working on the parser…\n\n╭──────────────────────────────────────────────────────────────╮\n│ Credits                                                      │\n│                                                              │\n│ You've reached your Fable limit for this week. Switch models? │\n│                                                              │\n│ ❯ 1. Switch to Opus 5.5   For this session                   │\n│   2. Not now   Fable 5.2 needs usage credits                 │\n╰──────────────────────────────────────────────────────────────╯\n";
+
+  test("the dialog is read off the screen, and Switch to … is picked wherever the cursor is", async () => {
+    const { fableSwitchKeys, fableStopped } = await import("../src/fable.ts");
+    assert.deepEqual(fableSwitchKeys(ASKS), { keys: ["enter"], option: "Switch to Opus 5.5" });
+    assert.deepEqual(fableSwitchKeys(ASKS.replace("❯ 1.", "  1.").replace("  2. Not", "❯ 2. Not")), { keys: ["up", "enter"], option: "Switch to Opus 5.5" });
+    assert.equal(fableSwitchKeys("│ Do you want to proceed?\n│ ❯ 1. Yes\n│   2. No\n"), null);
+    assert.ok(fableStopped("⏺ Fable limit reached · Claude stopped here · send a message to be asked again, or switch models\n\n> \n"));
+    assert.ok(!fableStopped("⏺ Done.\n\n> \n"));
+  });
+
+  test("an agent on Fable gone quiet mid-turn: its screen is looked at, Switch to Opus is picked, and it's told why; off, it's left alone", async () => {
+    const w = await standardWorld();
+    await w.request(`/api/hook?event=SessionStart&project=billing-api&session=fb1&name=writer&version=${PLUGIN_VERSION}`, { as: "bob" });
+    await w.db.prepare("UPDATE sessions SET screen = 'keys', pane = '%4' WHERE session_id = 'fb1'").run();
+    await w.request("/api/hook?event=UserPromptSubmit&project=billing-api&session=fb1", { as: "bob" });
+    const poll = () => w.request("/api/ui?project=billing-api&session=fb1&mod=0.2.12&model=claude-fable-5-2", { as: "bob" });
+    const queued = () => w.db.prepare("SELECT COUNT(*) AS n FROM push_queue WHERE ref = 'ffb1'").first<{ n: number }>().then((r) => r!.n);
+    // Busy with hooks coming in: nothing to look at.
+    await poll();
+    assert.equal(await queued(), 0);
+    // Quiet for a minute in the middle of a turn: a look is due.
+    await w.db.prepare("UPDATE sessions SET last_seen = last_seen - 60000 WHERE session_id = 'fb1'").run();
+    await poll();
+    assert.equal(await queued(), 1);
+    let screen = ASKS;
+    const keys: unknown[] = [];
+    let stop = false;
+    const answer = (async () => {
+      let seen = 0;
+      while (!stop) {
+        while (w.screenAsked.length > seen) {
+          const ask = w.screenAsked[seen++]!;
+          if (ask.q.op === "keys") { keys.push(ask.q.keys); screen = "⏺ Working on the parser…\n✻ Thinking… (esc to interrupt)\n"; }
+          await w.request("/api/screen-reply", { as: ask.member, method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ req: ask.req, data: { text: screen, cols: 80, rows: 24, cursor: null, keys: true } }) });
+        }
+        await new Promise((ok) => setTimeout(ok, 5));
+      }
+    })();
+    try {
+      const { sendDuePushes } = await import("../src/push.ts");
+      await sendDuePushes(w.env(), Date.now() + 1000);
+      assert.deepEqual(keys, [["enter"]]);
+      const told = await w.db.prepare("SELECT body FROM messages WHERE recipient_agent = 'writer' AND kind = 'event' ORDER BY id DESC LIMIT 1").first<{ body: string }>();
+      assert.match(told!.body, /Fable's weekly limit ran out, so intercom picked “Switch to Opus 5\.5” in your terminal/);
+      // Turned off in Agents and versions: no more looks.
+      assert.match(await (await w.request("/dashboard?view=fleet", { as: "bob", cookie: true })).text(), /value="fable-off"[^]*?checked[^>]*><span>Switch Fable agents to Opus/);
+      await w.form("/upkeep", "bob", { op: "fable-off", back: "/dashboard?view=fleet" });
+      const { fableDue } = await import("../src/fable.ts");
+      assert.equal(await fableDue(w.env(), "bob", "fb1"), "off");
     } finally {
       stop = true;
       await answer;

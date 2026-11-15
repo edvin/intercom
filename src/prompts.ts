@@ -7,6 +7,7 @@
 import { type Env, UserError } from "./lib";
 import { plainScreen } from "./screen";
 import { type Row, myRows, termFor } from "./upkeep";
+import { FABLE_ASKS, fableDue, fableOpusOn } from "./fable";
 
 export interface ScreenPrompt {
   at: number;
@@ -86,6 +87,11 @@ export async function lookForPrompt(env: Env, me: string, extra: string): Promis
   const found = screenPrompt((await term({ op: "capture" })).text);
   if (!found) {
     if (Number(n) > 1) await queuePromptLook(env, me, sessionId, Number(n) - 1);
+    return null;
+  }
+  // Fable's weekly limit: answered by itself, with Switch to Opus (fable.ts), when that's on.
+  if (FABLE_ASKS.test(found.question) && (await fableOpusOn(env, me))) {
+    await fableDue(env, me, sessionId);
     return null;
   }
   const prompt: ScreenPrompt = { at: Date.now(), ...found };
