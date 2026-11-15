@@ -1949,6 +1949,19 @@ describe("share_file", () => {
     assert.equal((await w.request("/attachment/1/thumb", { as: "carol", cookie: true })).status, 404);
   });
 
+  test("a stuck check on a message that's old but doesn't count (an agent's own) isn't queued again at once, which looped the alarm", async () => {
+    const w = await standardWorld();
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=sl1&name=core", { as: "bob" });
+    await w.db.prepare("INSERT INTO messages (channel, sender, sender_agent, recipient, recipient_agent, kind, body, created_at) VALUES ('billing-api', 'bob', 'core', 'bob', 'core', 'chat', 'note to self', ?)").bind(Date.now() - 3600_000).run();
+    await w.db.prepare("INSERT INTO push_queue (member, ref, due_at, extra) VALUES ('bob', 'ucore', ?, '')").bind(Date.now() - 1000).run();
+    const { sendDuePushes } = await import("../src/push.ts");
+    const { stuckNote } = await import("../src/stuck.ts");
+    assert.equal(await stuckNote(w.env(), "bob", "core"), null);
+    await sendDuePushes(w.env());
+    const left = await w.db.prepare("SELECT due_at FROM push_queue WHERE ref = 'ucore'").all<{ due_at: number }>();
+    assert.ok(left.results.every((r) => r.due_at > Date.now() + 30_000), JSON.stringify(left.results));
+  });
+
   test("files from agents: Delete older removes your own agents' files past the days you keep, with the filters, and leaves teammates' files", async () => {
     const w = await standardWorld();
     await w.request("/api/hook?event=SessionStart&project=billing-api&session=gp1&name=core", { as: "bob" });

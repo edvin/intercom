@@ -124,7 +124,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   // The latest message each agent sent you (the last week): the tree marks agents with one you haven't opened (the
   // browser remembers what you've seen).
   const { results: lastRows } = await env.DB.prepare(
-    "SELECT sender || '/' || sender_agent AS k, MAX(id) AS id FROM messages WHERE recipient = ? AND sender_agent IS NOT NULL AND kind != 'event' AND created_at > ? GROUP BY sender, sender_agent",
+    "SELECT sender || '/' || sender_agent AS k, MAX(id) AS id FROM messages INDEXED BY messages_to_when WHERE recipient = ? AND sender_agent IS NOT NULL AND kind != 'event' AND created_at > ? GROUP BY sender, sender_agent",
   )
     .bind(me, Date.now() - 7 * 86400_000)
     .all<{ k: string; id: number }>();

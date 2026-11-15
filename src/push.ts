@@ -282,7 +282,7 @@ export async function sendDuePushes(env: Env, now = Date.now()): Promise<number 
         const st = await stuckNote(env, q.member, q.ref.slice(1));
         if (st?.title) await sendNote(env, q.member, { title: st.title, body: clip(st.body, 240), tag: q.ref, url: "/dashboard?view=agents", count: await waitingCount(env, q.member), ttl: 86400 });
         else if (st?.again) {
-          await env.DB.prepare("INSERT INTO push_queue (member, ref, due_at, extra) VALUES (?, ?, ?, '')").bind(q.member, q.ref, st.again).run();
+          await env.DB.prepare("INSERT INTO push_queue (member, ref, due_at, extra) VALUES (?, ?, ?, '')").bind(q.member, q.ref, Math.max(st.again, Date.now() + 60_000)).run();
         }
       } catch (e) {
         console.log("push", q.ref, String(e));

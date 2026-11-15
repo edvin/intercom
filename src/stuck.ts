@@ -87,7 +87,7 @@ export async function cantTake(env: Env, member: string, agent: string): Promise
 export async function stuckSessions(env: Env, me: string, now = Date.now()): Promise<Stuck[]> {
   const since = Number((await env.DB.prepare("SELECT value FROM settings WHERE key = 'deliveries_since'").first<{ value: string }>())?.value ?? 0);
   const { results } = await env.DB.prepare(
-    `SELECT m.id, m.channel, m.sender, m.sender_agent, m.recipient_agent, m.kind, m.body, m.created_at, m.from_user, m.delegated, m.via FROM messages m
+    `SELECT m.id, m.channel, m.sender, m.sender_agent, m.recipient_agent, m.kind, m.body, m.created_at, m.from_user, m.delegated, m.via FROM messages m INDEXED BY messages_to_when
      WHERE m.recipient = ?1 AND m.recipient_agent IS NOT NULL AND +m.id > ?2 AND m.created_at > ?3 AND m.kind != 'event'
        AND m.cancelled_at IS NULL AND m.held_at IS NULL
        AND NOT (m.sender = ?1 AND m.sender_agent = m.recipient_agent)
@@ -237,13 +237,15 @@ export async function stuckNote(env: Env, me: string, agent: string): Promise<{ 
   const all = await stuckSessions(env, me);
   const s = all.find((x) => x.agent === agent);
   if (!s) {
-    // Not stuck yet: look again when the oldest waiting message would be.
+    // Not stuck yet: look again when the oldest waiting message would be. One that's already old enough and still not
+    // stuck doesn't count (its own message, dismissed): looking again at once looped the alarm several times a second.
     const w = await env.DB.prepare(
-      "SELECT MIN(m.created_at) AS at FROM messages m WHERE m.recipient = ? AND m.recipient_agent = ? AND m.kind != 'event' AND m.cancelled_at IS NULL AND m.held_at IS NULL AND m.created_at > ? AND NOT EXISTS (SELECT 1 FROM deliveries d WHERE d.message_id = m.id)",
+      "SELECT MIN(m.created_at) AS at FROM messages m WHERE m.recipient = ? AND m.recipient_agent = ? AND m.kind != 'event' AND m.cancelled_at IS NULL AND m.held_at IS NULL AND m.created_at > ? AND NOT (m.sender = ? AND m.sender_agent = m.recipient_agent) AND NOT EXISTS (SELECT 1 FROM deliveries d WHERE d.message_id = m.id)",
     )
-      .bind(me, agent, Date.now() - WINDOW_MS)
+      .bind(me, agent, Date.now() - WINDOW_MS, me)
       .first<{ at: number | null }>();
-    return w?.at ? { title: "", body: "", again: w.at + STUCK_MS + 60_000 } : null;
+    const again = w?.at ? w.at + STUCK_MS + 60_000 : 0;
+    return again > Date.now() ? { title: "", body: "", again } : null;
   }
   const first = s.messages[0]!.id;
   const prev = await env.DB.prepare("SELECT notified_oldest FROM stuck_marks WHERE member = ? AND agent = ?").bind(me, agent).first<{ notified_oldest: number }>();

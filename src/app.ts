@@ -521,8 +521,10 @@ async function handleUi(url: URL, env: Env, me: string): Promise<Response> {
     : (await env.DB.prepare(`SELECT COUNT(*) AS n FROM messages NOT INDEXED WHERE id > ?1 AND sender != ?2 AND ${RECEIVES}`).bind(cursor, me).first<{ n: number }>())!.n;
   // The mod toasts what's newer than the newest it has seen: that must cover everything in `recent`, including
   // DMs from your own other agents (sent as you), or it toasts them again on every poll.
+  // Among the latest 3000 messages only: from the newest back to one from someone else read the whole table for a
+  // person whose recent messages are all their own agents'. It's only the mod's starting point; `recent` covers the rest.
   const latest = Math.max(
-    (await env.DB.prepare(`SELECT COALESCE((SELECT id FROM messages NOT INDEXED WHERE sender != ?2 AND ${RECEIVES} AND ?1 IS NULL ORDER BY id DESC LIMIT 1), 0) AS id`).bind(null, me).first<{ id: number }>())!.id,
+    (await env.DB.prepare(`SELECT COALESCE((SELECT id FROM messages NOT INDEXED WHERE id > (SELECT MAX(id) FROM messages) - 3000 AND sender != ?2 AND ${RECEIVES} AND ?1 IS NULL ORDER BY id DESC LIMIT 1), 0) AS id`).bind(null, me).first<{ id: number }>())!.id,
     ...recent.map((m) => m.id),
   );
   // What the user typed to this session in the dashboard and it hasn't read: the mod submits these when it's idle.
