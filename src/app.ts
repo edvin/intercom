@@ -1,3 +1,4 @@
+import { sqlCtx, sqlStatsText } from "./db";
 import { queueReset, resetHost, setResets } from "./resets";
 import { pickPrompt, queuePromptLook } from "./prompts";
 import { recordsBrief } from "./records";
@@ -19,7 +20,7 @@ import { notesBrief, setNote } from "./notes";
 import { search } from "./search";
 import { updateSummary } from "./upkeep";
 import { closeTerm, newTerm, termsPanel } from "./terminals";
-import { type Env, type Message, type Proposal, type Session, LIVE, MEMBER_OF, postMessage, RECEIVES, UserError, activeLocks, address, isMyLock, ago, addActivity, lockIn, scopedLocks, cleanBranch, cleanClient, fromOwnUser, fromOwnAgent, DELEGATED_NOTE, staleFor, renameSession, setHost, setVersion, workingOn, authenticate, coMembers, fmtLock, fmtMessage, myProjects, moveSession, projectFor, resolveProject, setCwd, setOrigin, setPresence, setRepo, signedIn, tally, touchSession, unread } from "./lib";
+import { type Env, type Message, type Proposal, type Session, LIVE, MEMBER_OF, isAdmin, postMessage, RECEIVES, UserError, activeLocks, address, isMyLock, ago, addActivity, lockIn, scopedLocks, cleanBranch, cleanClient, fromOwnUser, fromOwnAgent, DELEGATED_NOTE, staleFor, renameSession, setHost, setVersion, workingOn, authenticate, coMembers, fmtLock, fmtMessage, myProjects, moveSession, projectFor, resolveProject, setCwd, setOrigin, setPresence, setRepo, signedIn, tally, touchSession, unread } from "./lib";
 import { type Tool, instructions, tools } from "./tools";
 import { CONNECTOR, authorize, connectorMember, preflight, register, resourceMetadata, serverMetadata, token, unauthorized } from "./connector";
 import { cliPoll, cliStart, connectPage, discoverJoin, discoverPage, discoverRequest, githubCallback, githubCreate, githubStart, signOut } from "./accounts";
@@ -627,6 +628,7 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
     if (!adminToken || given !== adminToken) return json({ error: "unauthorized" }, 401);
     return handleAdmin(req, url, env);
   }
+  sqlCtx.at = url.pathname === "/api/hook" ? `hook ${url.searchParams.get("event")}` : url.pathname.startsWith("/attachment/") ? "/attachment" : url.pathname;
   env.origin = url.origin;
   env.ip = req.headers.get("cf-connecting-ip") ?? undefined;
   if (url.pathname === "/login") return req.method === "POST" ? handleLogin(req, env) : loginPage(url.searchParams.get("err") ?? "", url.searchParams.get("next") ?? "", !!env.github);
@@ -666,6 +668,7 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
   }
   const me = who?.name ?? null;
   env.authKind = who?.kind;
+  if (url.pathname === "/api/sqlstats" && me && (await isAdmin(env, me))) return new Response(sqlStatsText(Number(url.searchParams.get("top")) || 40), { headers: { "content-type": "text/plain; charset=utf-8" } });
   // Acting as you in the dashboard (writing as you, approving, switches, reading code and files off your machines)
   // takes a browser signed in with GitHub: the token your agents and terminals carry can't, so a hijacked agent can't
   // pose as you or reach your other machines through it.

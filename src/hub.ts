@@ -5,7 +5,7 @@ import { pruneAttachments } from "./attachments";
 import { pruneBtw } from "./btw";
 import { pruneTracked } from "./tracked";
 import { sendDuePushes } from "./push";
-import { SqlDb, splitStatements } from "./db";
+import { SqlDb, splitStatements, sqlCtx } from "./db";
 import { type Env, type Message, address, authenticate, cleanBranch, cleanClient, fmtMessage, prune, setHost, setVersion, projectFor, setPresence, setRepo, takeOver, touchSession, unread } from "./lib";
 import m0001 from "../migrations/0001_init.sql";
 import m0002 from "../migrations/0002_projects.sql";
@@ -189,6 +189,7 @@ export class TeamHub extends DurableObject<WorkerEnv> {
 
   /** Notifications that are due (push.ts), and daily housekeeping: message retention, expired locks, invites and stale sessions. */
   async alarm(): Promise<void> {
+    sqlCtx.at = "alarm";
     const now = Date.now();
     let pruneAt = (await this.ctx.storage.get<number>("prune_at")) ?? 0;
     if (now >= pruneAt) {
@@ -426,6 +427,7 @@ export class TeamHub extends DurableObject<WorkerEnv> {
 
   /** Channel servers report their git branch when it changes; tool calls go over HTTP. "ping" is auto-answered. */
   async webSocketMessage(ws: WebSocket, data: string | ArrayBuffer): Promise<void> {
+    sqlCtx.at = "ws";
     const s = ws.deserializeAttachment() as SocketInfo | null;
     if (!s || s.mode === "web" || typeof data !== "string") return;
     let f: { type?: string; branch?: unknown };
