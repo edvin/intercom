@@ -2193,19 +2193,27 @@ ${markupScript()}
   const openSteps = new Set();
   document.addEventListener("toggle", (e) => { const d = e.target; if (d.matches && d.matches("details.step")) { if (d.open) openSteps.add(d.dataset.mid); else openSteps.delete(d.dataset.mid); } }, true);
   function reopenSteps() { openSteps.forEach((m) => { const d = document.querySelector('details.step[data-mid="' + m + '"]'); if (d) d.open = true; }); }
-  // Long messages fold to their start (not the latest one, and not one you opened).
-  const unfolded = new Set();
+  // Long messages fold to their start: those there when the chat opens (or older ones Show earlier brings in), not the
+  // latest one, and not one you opened. A message you've already seen open never folds afterwards: one that arrives
+  // live, or was the latest until a newer one came in, stays as it is while you read it.
+  const unfolded = new Set(), folded = new Set();
+  let foldsRan = false;
   function longFolds() {
     const all = $$("#thread .bubble"); const last = all[all.length - 1];
-    for (const b of all) {
-      if (b === last || unfolded.has(b.dataset.mid) || b.dataset.folded) continue;
+    const firstKnown = all.findIndex((b) => b.dataset.folded || unfolded.has(b.dataset.mid) || folded.has(b.dataset.mid));
+    all.forEach((b, i) => {
+      if (b.dataset.folded) return;
       b.dataset.folded = "1";
-      if (b.scrollHeight < 760) continue;
+      const m = b.dataset.mid;
+      const older = !foldsRan || (firstKnown >= 0 && i < firstKnown); // first view, or loaded above what you had
+      if (!folded.has(m) && (b === last || unfolded.has(m) || !older || b.scrollHeight < 760)) { if (m) unfolded.add(m); return; }
+      if (m) folded.add(m);
       b.classList.add("fold");
       const btn = document.createElement("button"); btn.type = "button"; btn.className = "foldbtn"; btn.textContent = "Show all";
-      btn.onclick = () => { b.classList.remove("fold"); unfolded.add(b.dataset.mid); };
+      btn.onclick = () => { b.classList.remove("fold"); folded.delete(m); unfolded.add(m); };
       b.append(btn);
-    }
+    });
+    if (all.length) foldsRan = true;
   }
   function toggleTree() {
     const ide = document.getElementById("ide"); if (!ide) return;
