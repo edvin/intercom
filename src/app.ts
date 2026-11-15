@@ -704,7 +704,7 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
   }
 
   if (url.pathname === "/docs") return docsPage(url.origin);
-  if (url.pathname === "/dashboard") return dashboard(url, env, me, req.headers.get("cookie") ?? "");
+  if (url.pathname === "/dashboard") return timed(env, (e) => dashboard(url, e, me, req.headers.get("cookie") ?? ""));
   if (url.pathname === "/account") return accountPage(req, env, me);
   if (url.pathname === "/connect") return connectPage(req, env, me, url);
   if (url.pathname === "/discover") return discoverPage(env, me, url);
@@ -1331,4 +1331,58 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
   }
   if (url.pathname.startsWith("/export/")) return exportProject(env, me, decodeURIComponent(url.pathname.slice(8)).replace(/\.md$/, ""));
   return json({ error: "not found" }, 404);
+}
+
+/**
+ * A page's time on the server, as a Server-Timing header (the browser's network panel shows it): how many database
+ * queries it made, how many rounds of them ran one after another, and the time spent waiting on them.
+ */
+async function timed(env: Env, page: (env: Env) => Promise<Response>): Promise<Response> {
+  const t0 = Date.now();
+  const spans: [number, number][] = [];
+  const wrapStmt = (st: D1PreparedStatement): D1PreparedStatement =>
+    new Proxy(st, {
+      get(target, k) {
+        const v = Reflect.get(target, k);
+        if (typeof v !== "function") return v;
+        if (k === "bind") return (...a: unknown[]) => wrapStmt(v.apply(target, a));
+        if (k === "first" || k === "all" || k === "run" || k === "raw")
+          return async (...a: unknown[]) => {
+            const s0 = Date.now();
+            try {
+              return await v.apply(target, a);
+            } finally {
+              spans.push([s0, Date.now()]);
+            }
+          };
+        return v.bind(target);
+      },
+    });
+  const db = new Proxy(env.DB, {
+    get(target, k) {
+      const v = Reflect.get(target, k);
+      if (k === "prepare") return (q: string) => wrapStmt(v.call(target, q));
+      if (k === "batch")
+        return async (...a: unknown[]) => {
+          const s0 = Date.now();
+          try {
+            return await v.apply(target, a);
+          } finally {
+            spans.push([s0, Date.now()]);
+          }
+        };
+      return typeof v === "function" ? v.bind(target) : v;
+    },
+  });
+  const res = await page({ ...env, DB: db });
+  // Rounds: queries that didn't overlap the one before ran after it.
+  spans.sort((a, b) => a[0] - b[0]);
+  let rounds = 0, end = -1, wait = 0;
+  for (const [a, b] of spans) {
+    if (a >= end) { rounds++; wait += b - a; end = b; }
+    else if (b > end) { wait += b - end; end = b; }
+  }
+  const out = new Response(res.body, res);
+  out.headers.append("server-timing", `db;dur=${wait};desc="${spans.length} queries in ${rounds} rounds", total;dur=${Date.now() - t0}`);
+  return out;
 }
