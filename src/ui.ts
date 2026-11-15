@@ -2931,6 +2931,13 @@ ${markupScript()}
         scrollFix(th, d);
       };
       th._mark = mark; th._hold = hold;
+      // Opening something in the chat (agents' dialog, a run of steps, a long message's Show all) opens it downwards:
+      // its head stays where it is, also at the bottom of the chat, so it reads from the top.
+      th.addEventListener("click", (e) => {
+        const head = e.target.closest && e.target.closest("summary, .foldbtn"); if (!head || !th.contains(head)) return;
+        const box = head.matches("summary") ? head.parentElement : head.closest(".bubble"); if (!box) return;
+        atEnd = false; anchor = box; aOff = box.getBoundingClientRect().top - th.getBoundingClientRect().top;
+      }, true);
       th.addEventListener("scroll", () => { atEnd = th.scrollHeight - th.scrollTop - th.clientHeight < 80; mark(); jumpShow(); }, { passive: true });
       const keep = () => { if (atEnd) th.scrollTop = th.scrollHeight; else hold(); };
       const ro = new ResizeObserver(keep); ro.observe(th); [...th.children].forEach((c) => ro.observe(c));
