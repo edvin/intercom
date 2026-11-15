@@ -49,7 +49,7 @@ export const MARKUP_STYLE = `
 .mkcv.loading{visibility:hidden}
 .mktext{position:absolute;z-index:2;min-width:120px;border:1.5px dashed var(--accent);border-radius:4px;background:color-mix(in srgb,var(--surface) 75%,transparent);padding:0 4px;font-family:"Geist",system-ui,sans-serif;font-weight:650;outline:none;box-sizing:content-box}
 .mkhint{flex:none;margin:8px 18px 0}
-.mksend{flex:none;padding:10px 18px 0}.mksend[hidden]{display:none}.mksend label{display:block;font-weight:600;margin-bottom:5px}.mksend textarea{width:100%;box-sizing:border-box;resize:vertical;min-height:52px}.mkto{margin:6px 0 0}
+.mksend{flex:none;padding:10px 18px 0}.mksend[hidden]{display:none}.mksend label{display:block;font-weight:600;margin-bottom:5px}.mksend textarea{width:100%;box-sizing:border-box;resize:vertical;min-height:52px}.mkto{margin:6px 0 0;display:flex;align-items:center;gap:6px;flex-wrap:wrap}.mkto label{display:inline;margin:0;font-weight:500}.mkto select{height:28px;font-size:12.5px;padding:0 6px;max-width:100%}
 .mkft{flex:none;display:flex;justify-content:flex-end;gap:8px;padding:12px 18px 16px}
 .imgthumb .mkbtn{position:absolute;top:auto;right:auto;left:-6px;bottom:-6px;width:22px;height:22px;border-radius:50%;border:0;background:var(--ink);color:var(--bg);display:grid;place-items:center;padding:0;cursor:pointer}
 .imgthumb .mkbtn svg{width:13px;height:13px}
@@ -89,7 +89,7 @@ export function markupScript(): string {
     .map(([k, n, d]) => `<button type="button" class="mksz" data-size="${k}" title="${n}" aria-label="${n}"><i style="width:${d}px;height:${d}px"></i></button>`)
     .join("");
   const bar = `${tools}<span class="mksep"></span>${colors}<span class="mksep"></span>${sizes}<span class="mksep"></span><button type="button" data-mk="undo" title="Undo (Ctrl+Z)" aria-label="Undo">${svg("undo")}</button><button type="button" data-mk="redo" title="Redo (Ctrl+Shift+Z)" aria-label="Redo">${svg("redo")}</button><button type="button" data-mk="del" title="Delete the selected mark (Delete)" aria-label="Delete the selected mark">${svg("trash")}</button><button type="button" class="mkclear" data-mk="clear">Clear all</button><button type="button" class="mkzoom" data-mk="fit" title="Fit the image to the window">100%</button>`;
-  const html = `<div class="mkhd"><b class="mktitle"></b><button type="button" class="btn ghost sm icon" data-mk="cancel" title="Cancel">${svg("x", 18)}</button></div><div class="mkbar" role="toolbar" aria-label="Mark-up tools">${bar}</div><div class="mkstage"><div class="mkpad"><canvas class="mkcv"></canvas><input class="mktext" type="text" maxlength="200" aria-label="Text" hidden></div></div><p class="mkhint tiny muted">Ctrl + scroll zooms (pinch on a phone), and the scroll bars or a drag with the select tool move around. Delete removes the selected mark; Ctrl+Z undoes, Ctrl+Shift+Z redoes.</p><div class="mksend" hidden><label class="tiny" for="mkmsg">What looks off?</label><textarea id="mkmsg" rows="2" maxlength="4000"></textarea><p class="tiny muted mkto"></p></div><div class="mkft"><button type="button" class="btn" data-mk="cancel">Cancel</button><button type="button" class="btn primary" data-mk="ok"></button></div>`;
+  const html = `<div class="mkhd"><b class="mktitle"></b><button type="button" class="btn ghost sm icon" data-mk="cancel" title="Cancel">${svg("x", 18)}</button></div><div class="mkbar" role="toolbar" aria-label="Mark-up tools">${bar}</div><div class="mkstage"><div class="mkpad"><canvas class="mkcv"></canvas><input class="mktext" type="text" maxlength="200" aria-label="Text" hidden></div></div><p class="mkhint tiny muted">Ctrl + scroll zooms (pinch on a phone), and the scroll bars or a drag with the select tool move around. Delete removes the selected mark; Ctrl+Z undoes, Ctrl+Shift+Z redoes.</p><div class="mksend" hidden><label class="tiny" for="mkmsg">What looks off?</label><textarea id="mkmsg" rows="2" maxlength="4000"></textarea><p class="tiny muted mkto"><label for="mksel">Goes to</label><select id="mksel" aria-label="Send it to"></select><span>with the marked-up image and what you write here.</span></p></div><div class="mkft"><button type="button" class="btn" data-mk="cancel">Cancel</button><button type="button" class="btn primary" data-mk="ok"></button></div>`;
 
   return `
   // ---- Mark up an image (markup.ts)
@@ -431,8 +431,8 @@ export function markupScript(): string {
     E.opts = opts; E.shapes = JSON.parse(JSON.stringify(opts.shapes || [])); E.sel = -1; E.hist = []; E.fut = []; E.dirty = false; E.z = 1; E.img = null;
     d.querySelector(".mktitle").textContent = "Mark up: " + (opts.name || "image");
     d.querySelector(".mksend").hidden = !opts.send;
-    d.querySelector(".mkto").textContent = opts.send ? opts.send + " gets the marked-up image and what you write here." : "";
     E.msg.value = ""; E.ok.textContent = opts.okLabel || "Done"; E.ok.disabled = false;
+    if (opts.to) mkTargets(E);
     if (!d.open) d.showModal();
     E.sync();
     try {
@@ -446,6 +446,35 @@ export function markupScript(): string {
     requestAnimationFrame(() => { const st = E.stage; const w = st.clientWidth - 24, h = st.clientHeight - 24; E.fit = Math.max(0.05, Math.min(w / E.W, h / E.H, 2)); E.cv.style.width = Math.round(E.W * E.fit) + "px"; E.cv.style.height = Math.round(E.H * E.fit) + "px"; E.sync(); d.querySelector(".mktool.on")?.focus(); });
   }
   window.icMarkUp = markUp;
+  // Who a marked-up image can go to: the agent it came from first, then every agent in the tree, by project (an image
+  // from one agent, marked and sent to another). Picking one changes where it goes.
+  function mkTargets(E) {
+    const sel = E.d.querySelector("#mksel"), first = E.opts.to;
+    const groups = new Map();
+    $$("#tree a.ta").forEach((a) => {
+      const k = a.dataset.k; if (!k) return;
+      const p = a.closest("details.tp"), proj = p && p.querySelector(".tpn") ? p.querySelector(".tpn").textContent.trim() : "";
+      const name = (a.querySelector(".tn") || a).textContent.trim() || k.split("/").pop();
+      if (!groups.has(proj)) groups.set(proj, []);
+      groups.get(proj).push({ address: k, label: name, project: proj, gone: a.classList.contains("gone") });
+    });
+    const all = [...groups.values()].flat();
+    if (!all.some((t) => t.address === first.address)) all.unshift(first);
+    sel.textContent = "";
+    const opt = (t) => { const o = document.createElement("option"); o.value = t.address; o.textContent = t.label + (t.gone ? " (not connected)" : ""); return o; };
+    if (!groups.size) sel.append(opt(first));
+    else {
+      if (![...groups.values()].flat().some((t) => t.address === first.address)) sel.append(opt(first));
+      for (const [proj, list] of groups) { const g = document.createElement("optgroup"); g.label = proj ? "#" + proj : "Agents"; list.forEach((t) => g.append(opt(t))); sel.append(g); }
+    }
+    sel.value = first.address;
+    sel.onchange = () => {
+      const t = all.find((x) => x.address === sel.value) || first;
+      // its project from the tree; the one it came with when that's the same agent
+      E.opts.to = t.address === first.address ? first : { address: t.address, label: t.label, project: t.project };
+      E.opts.send = E.opts.to.label; E.ok.textContent = "Send to " + E.opts.to.label;
+    };
+  }
   // Mark up an image waiting in a composer: the marked one takes its place; opening it again brings the marks back.
   function markTrayImage(f, it) {
     markUp({ name: (it.orig || it.file).name, file: it.orig || it.file, shapes: it.shapes, okLabel: "Done", done: async (file, E) => {
