@@ -206,7 +206,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
         (isOn(a) && ctxLevel(a) ? `<span class="tctx ${ctxLevel(a)}" title="Context ${a.ctx_pct}% full">${a.ctx_pct}%</span>` : "") ||
         since(a);
   const tRow = (a: Agent) => `<a class="ta${sel(a) ? " on" : ""}${isOn(a) ? "" : " gone"}" data-k="${esc(key(a))}"${lastTo.has(key(a)) ? ` data-last="${lastTo.get(key(a))}"` : ""}${isOn(a) && a.state === "waiting" ? " data-w" : ""} href="/dashboard?view=agents&agent=${encodeURIComponent(key(a))}" title="${esc(tip(a))}">
-      <span class="tdot ${dot(a)}"></span><span class="tn">${agentName(a.member, a.label, a.member === me ? a.label : `${a.member}/${a.label}`)}</span>
+      <span class="tdot ic ${a.client === "codex" ? "cx" : "cl"} ${dot(a)}">${a.client === "codex" ? CODEX_MARK : CLAUDE_MARK}</span><span class="tn">${agentName(a.member, a.label, a.member === me ? a.label : `${a.member}/${a.label}`)}</span>
       <span class="tb">${rowTag(a)}</span></a>`;
   const branch = (id: string, title: string, href: string | null, list: Agent[], badges: string, on: boolean) => {
     // Needs you, then working, then the rest by when they last did something. Live redraws keep the order the

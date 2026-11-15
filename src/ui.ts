@@ -1231,6 +1231,16 @@ h1{font-size:22px;font-weight:620;letter-spacing:-.02em}
 .tdot{position:static;flex:none;width:7px;height:7px;background:var(--mute);opacity:.55}
 .tdot.idle{background:var(--ink-2);opacity:.5}.tdot.work{background:var(--green);opacity:1;animation:none;box-shadow:0 0 0 3px var(--green-soft)}.tdot.wait{background:var(--amber);opacity:1;box-shadow:0 0 0 3px var(--amber-soft)}.tdot.off{background:transparent;box-shadow:inset 0 0 0 1.5px var(--mute);opacity:.6}
 .tn{font-family:inherit;font-size:13.5px;font-weight:500}.tn .an{color:inherit!important;font-weight:inherit}
+/* In the tree, each agent shows its tool's mark (Claude's spark, Codex's prompt) for its state: still when idle, Claude's
+   turning and Codex's breathing while it works, an amber ring when it needs you, greyed out when it isn't connected. */
+.tdot.ic{width:18px;height:18px;margin:-1px;border-radius:6px;background:none;opacity:1;box-shadow:none;animation:none;display:grid;place-items:center}
+.tdot.ic svg{width:15px;height:15px;display:block}.tdot.ic.cx{color:var(--ink)}
+.tdot.ic.idle{opacity:.85}.tdot.ic.off{opacity:.4;filter:grayscale(1)}
+.tdot.ic.wait{box-shadow:0 0 0 2px var(--amber);background:var(--amber-soft)}
+.tdot.ic{position:relative;left:auto}.tdot.ic.work::after{content:"";position:absolute;right:-2px;bottom:-2px;width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 0 2px var(--side)}
+.tdot.ic.work.cl svg{animation:spin 2.8s linear infinite}.tdot.ic.work.cx svg{animation:tbreathe 1.6s ease-in-out infinite}
+@keyframes tbreathe{50%{transform:scale(.78);opacity:.55}}
+@media (prefers-reduced-motion:reduce){.tdot.ic.work svg{animation:none!important}}
 .tb{gap:6px;color:var(--mute);font-size:11.5px}.tb .tloop,.tb>span{display:inline-flex;align-items:center}
 .tw{width:auto;height:18px;padding:0 6px;border-radius:99px;background:var(--amber);color:#1c1204;font-size:10.5px;font-weight:650}
 .tt{font-size:11px}
