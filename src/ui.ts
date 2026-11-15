@@ -1232,16 +1232,16 @@ h1{font-size:22px;font-weight:620;letter-spacing:-.02em}
 .tdot.idle{background:var(--ink-2);opacity:.5}.tdot.work{background:var(--green);opacity:1;animation:none;box-shadow:0 0 0 3px var(--green-soft)}.tdot.wait{background:var(--amber);opacity:1;box-shadow:0 0 0 3px var(--amber-soft)}.tdot.off{background:transparent;box-shadow:inset 0 0 0 1.5px var(--mute);opacity:.6}
 .tn{font-family:inherit;font-size:13.5px;font-weight:500}.tn .an{color:inherit!important;font-weight:inherit}
 /* In the tree, each agent's tool mark (Claude's spark, Codex's prompt) is also its state: full colour and moving while it
-   works (Claude's turning, Codex's breathing), faded and still when idle, an amber ring when it needs you, grey when it
+   works (Claude's spark turning, Codex's cursor blinking), faded and still when idle, an amber ring when it needs you, grey when it
    isn't connected. */
 .tdot.ic{width:18px;height:18px;margin:-1px;border-radius:6px;background:none;opacity:1;box-shadow:none;animation:none;display:grid;place-items:center}
 .tdot.ic svg{width:15px;height:15px;display:block}.tdot.ic.cx{color:var(--ink)}
 .tdot.ic.idle{opacity:.5;filter:saturate(.6)}.tdot.ic.off{opacity:.3;filter:grayscale(1)}
 .tdot.ic.wait{box-shadow:0 0 0 2px var(--amber);background:var(--amber-soft)}
 
-.tdot.ic.work.cl svg{animation:spin 2.8s linear infinite}.tdot.ic.work.cx svg{animation:tbreathe 1.6s ease-in-out infinite}
-@keyframes tbreathe{50%{transform:scale(.8)}}
-@media (prefers-reduced-motion:reduce){.tdot.ic.work svg{animation:none!important}}
+.tdot.ic.work.cl svg{animation:spin 2.8s linear infinite}.tdot.ic.work.cx .cxcur{animation:tblink 1.05s steps(1) infinite}
+@keyframes tblink{50%{opacity:0}}
+@media (prefers-reduced-motion:reduce){.tdot.ic.work svg,.tdot.ic.work .cxcur{animation:none!important}}
 .tb{gap:6px;color:var(--mute);font-size:11.5px}.tb .tloop,.tb>span{display:inline-flex;align-items:center}
 .tw{width:auto;height:18px;padding:0 6px;border-radius:99px;background:var(--amber);color:#1c1204;font-size:10.5px;font-weight:650}
 .tt{font-size:11px}
