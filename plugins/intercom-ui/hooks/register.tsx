@@ -17,7 +17,7 @@ const error = atom({ plugin: 'intercom-ui', key: 'error' } as const, null)
 const hidden = atom({ plugin: 'intercom-ui', key: 'hidden' } as const, [])
 
 const POLL_MS = 8_000
-const MOD_VERSION = '0.2.11' // kept in step with ../.claude-plugin/plugin.json; the hub knows from it that this session answers side questions
+const MOD_VERSION = '0.2.12' // kept in step with ../.claude-plugin/plugin.json; the hub knows from it that this session answers side questions
 
 type Conf = { url: string; token: string }
 
@@ -108,9 +108,12 @@ async function refresh($: Engine): Promise<void> {
     const usage = await $.session.usage().catch(() => null)
     const c = usage?.context
     const fill = c && c.percent != null ? `&ctx=${c.percent}&tok=${c.tokens ?? ''}&win=${c.window}` : ''
+    // Its plan's limits (5-hour, weekly: empty off a subscription) and its cost so far, shown on the agent.
+    const rl = (usage?.rateLimits ?? []).map(r => `${r.kind}|${r.percentUsed}|${r.resetsAt ?? ''}`).join(',')
+    const spend = `${rl ? `&rl=${encodeURIComponent(rl)}` : ''}${usage?.cost ? `&usd=${usage.cost.usd.toFixed(2)}` : ''}`
     // And the model it runs (shown on the agent; /model in the terminal changes it too).
     const model = await $.session.model().catch(() => '')
-    const res = await $.http.fetch(`${ctx.conf.url}/api/ui?project=${encodeURIComponent(ctx.repo)}&session=${encodeURIComponent(ctx.sessionId)}&mod=${MOD_VERSION}${fill}${model ? `&model=${encodeURIComponent(model)}` : ''}`, {
+    const res = await $.http.fetch(`${ctx.conf.url}/api/ui?project=${encodeURIComponent(ctx.repo)}&session=${encodeURIComponent(ctx.sessionId)}&mod=${MOD_VERSION}${fill}${spend}${model ? `&model=${encodeURIComponent(model)}` : ''}`, {
       headers: { authorization: `Bearer ${ctx.conf.token}` },
     })
     if (!res.ok) {

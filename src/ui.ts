@@ -1317,6 +1317,8 @@ h1{font-size:22px;font-weight:620;letter-spacing:-.02em}
 .mdlpick{display:grid;gap:6px}.mdlopt{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--line-strong);border-radius:10px;cursor:pointer;font-size:13.5px}.mdlopt:hover{border-color:var(--accent)}.mdlopt:has(input[type=radio]:checked){border-color:var(--accent);background:var(--accent-soft)}.mdlopt input[type=radio]{margin:0;flex:none;accent-color:var(--accent);outline:none;box-shadow:none}.mdlopt:has(input[type=radio]:focus-visible){outline:2px solid var(--accent);outline-offset:2px}.mdlopt .muted{font-size:12.5px}.mdlother{flex-wrap:wrap}.mdlother input[name=other]{flex:1 1 180px;min-width:0;height:32px;font:12.5px var(--mono,ui-monospace),monospace}
 .kv .compactbtn,.kv .compacting{margin-left:6px;vertical-align:middle}.kv .compactbtn{height:22px;padding:0 8px;border:1px solid var(--line-strong);font-size:11.5px}
 .meter{height:4px;margin-top:7px;border-radius:9px;background:var(--line-strong);overflow:hidden}.meter i{display:block;height:100%;border-radius:9px;background:var(--ink-2)}.meter.amber i{background:var(--amber)}.meter.red i{background:var(--red)}
+.usage{display:flex;flex-direction:column;gap:7px}.urow{display:grid;grid-template-columns:auto auto minmax(0,1fr);align-items:baseline;column-gap:6px}.uk,.uv{white-space:nowrap}.ur{min-width:0;overflow:hidden;text-overflow:ellipsis}.urow .meter{grid-column:1/-1;margin-top:4px}
+.uk{color:var(--ink-2)}.uv{font-weight:600;font-variant-numeric:tabular-nums}.ur{justify-self:end;font-size:11.5px;color:var(--mute);white-space:nowrap}.ucost .uv{font-weight:500}
 .kv .takeswork{display:inline}.kv .takeswork .badge{cursor:pointer;border:0;font:inherit;font-size:11.5px;height:22px;padding:0 9px}
 .irow{display:flex;align-items:center;gap:8px;margin:0 2px 6px;font-size:12.5px;color:var(--ink-2)}.irow form{margin:0}
 /* the agent's loops (loops.ts loopCard): schedule and next run on top, the prompt under it, three lines until clicked */
@@ -1711,9 +1713,12 @@ export const SCRIPT = `
       const dm = D.has(d.getDate()), dw = W.has(d.getDay()); if (both ? dm || dw : dm && dw) return d.getTime(); }
     return 0; };
   document.addEventListener("click", (e) => { const p = e.target.closest && e.target.closest(".looppr"); if (p && !getSelection().toString()) p.classList.toggle("open"); });
+  // A time coming up, short: "23:33" today, "Wed 19:15" within the week, else the date.
+  const soonAt = (ts) => { const d = new Date(ts), hm = d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+    return d.toDateString() === new Date().toDateString() ? hm : ts - Date.now() < 6 * 86400_000 ? d.toLocaleDateString(undefined, { weekday: "short" }) + " " + hm : d.toLocaleDateString(undefined, { day: "numeric", month: "short" }); };
   const left = (ts) => { const m = Math.max(0, Math.round((ts - Date.now()) / 60000)); return m < 60 ? m + "m left" : Math.floor(m / 60) + "h " + (m % 60) + "m left"; };
   function tick() {
-    $$("time[data-ts]").forEach((t) => (t.textContent = "short" in t.dataset ? short(+t.dataset.ts) : "date" in t.dataset ? stamp(+t.dataset.ts) : rel(+t.dataset.ts)));
+    $$("time[data-ts]").forEach((t) => (t.textContent = "short" in t.dataset ? short(+t.dataset.ts) : "date" in t.dataset ? stamp(+t.dataset.ts) : "at" in t.dataset ? soonAt(+t.dataset.ts) : rel(+t.dataset.ts)));
     $$("[data-until]").forEach((t) => (t.textContent = left(+t.dataset.until)));
     $$(".loopnx[data-cron], .loopnx[data-next]").forEach((t) => { const at = t.dataset.next ? +t.dataset.next : cronNext(t.dataset.cron, Date.now()); const m = Math.round((at - Date.now()) / 60000);
       t.textContent = !at ? "" : m <= 0 ? "due now" : m < 60 ? "next in " + m + "m" : "next " + stamp(at).replace("Today ", ""); t.classList.toggle("soon", at > 0 && m < 5); });

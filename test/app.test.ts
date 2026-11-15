@@ -3500,6 +3500,25 @@ describe("Claude.ai connector", () => {
     assert.match(await call(w, t, "compact", { agent: "docs", right_away: true }), /docs can't be compacted from here: type \/compact in its terminal/);
   });
 
+  test("an agent's plan limits and cost, as its mod reports them, show in its info panel for its owner only", async () => {
+    const w = await standardWorld();
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=u1&name=kernel", { as: "bob" });
+    const soon = new Date(Date.now() + 3 * 3600_000).toISOString(), gone = new Date(Date.now() - 60_000).toISOString();
+    const poll = (rl: string, usd: string) => w.request(`/api/ui?project=billing-api&session=u1&mod=0.2.12&rl=${encodeURIComponent(rl)}&usd=${usd}`, { as: "bob" });
+    await poll(`five_hour|41.6|${soon},seven_day|93|${soon},seven_day_opus|12|${gone}`, "3.46");
+    const page = async (as: string) => (await w.request("/dashboard?view=agents&agent=bob/kernel", { as, cookie: true })).text();
+    const html = await page("bob");
+    assert.match(html, /<dt>Usage<\/dt><dd class="usage"><div class="urow"><span class="uk">5-hour<\/span><span class="uv">42%<\/span><span class="ur">resets <time data-ts="\d+" data-at/);
+    assert.match(html, /<span class="uk">Week<\/span><span class="uv">93%<\/span>[\s\S]*?<div class="meter red"><i style="width:93%">/);
+    assert.doesNotMatch(html, /Week \(Opus\)/); // that window has reset since
+    assert.match(html, /<span class="uk">This session<\/span><span class="uv">\$3\.46<\/span>/);
+    assert.doesNotMatch(await page("alice"), /<dt>Usage<\/dt>/);
+    // The same figures again: nothing written.
+    const before = w.db.db.prepare("SELECT usage FROM sessions WHERE session_id = 'u1'").get() as { usage: string };
+    await poll(`five_hour|41.6|${soon},seven_day|93|${soon},seven_day_opus|12|${gone}`, "3.46");
+    assert.deepEqual(w.db.db.prepare("SELECT usage FROM sessions WHERE session_id = 'u1'").get(), before);
+  });
+
   test("an agent's model is shown, switched from the dashboard or the connector through its mod, and a bad name says why", async () => {
     const w = await standardWorld();
     const { client_id, params, verifier } = await connect(w);

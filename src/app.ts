@@ -508,6 +508,22 @@ async function handleUi(url: URL, env: Env, me: string): Promise<Response> {
       .bind(p, int("tok"), int("win"), Date.now(), me, mySession.session_id, p, Date.now() - CTX_STALE_MS)
       .run();
   }
+  // Its plan's rate-limit windows and its cost so far (mod 0.2.12+): shown in the agent's info panel. Whole percents
+  // and cents, and only written when they change.
+  if (mySession && (url.searchParams.has("rl") || url.searchParams.has("usd"))) {
+    const rl = (url.searchParams.get("rl") ?? "")
+      .split(",")
+      .filter(Boolean)
+      .slice(0, 4)
+      .map((x) => {
+        const [k = "", p = "", r = ""] = x.split("|");
+        return { k: k.replace(/[^a-z_]/g, "").slice(0, 24), p: Math.round(Number(p)), r: Date.parse(r) || null };
+      })
+      .filter((x) => x.k && Number.isFinite(x.p) && x.p >= 0);
+    const usd = Number(url.searchParams.get("usd"));
+    const usage = JSON.stringify({ rl, usd: url.searchParams.has("usd") && Number.isFinite(usd) ? Math.round(usd * 100) / 100 : null });
+    await env.DB.prepare("UPDATE sessions SET usage = ?1 WHERE member = ?2 AND session_id = ?3 AND usage IS NOT ?1").bind(usage, me, mySession.session_id).run();
+  }
   // The model it runs, as the mod reads it (/model in its terminal changes it too): shown on the agent.
   const model = (url.searchParams.get("model") ?? "").slice(0, 100);
   if (mySession && model && model !== mySession.model) await env.DB.prepare("UPDATE sessions SET model = ? WHERE member = ? AND session_id = ?").bind(model, me, mySession.session_id).run();

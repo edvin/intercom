@@ -10,6 +10,17 @@ import { pendingTickets } from "./tickets";
 import { chatAsks } from "./asks";
 import { AUTO_UPDATE_SINCE, PLUGIN_VERSION, outdated } from "./version";
 import { activeLoops, loopCard, parseLoops } from "./loops";
+
+const WINDOWS: Record<string, string> = { five_hour: "5-hour", seven_day: "Week", seven_day_opus: "Week (Opus)", spend_limit: "Spend" };
+/** What an agent's mod reported of its usage (app.ts handleUi), without windows that have reset since. */
+export function usageOf(raw: string | null | undefined, now = Date.now()): { rl: { k: string; p: number; r: number | null }[]; usd: number | null } | null {
+  try {
+    const u = JSON.parse(raw ?? "null") as { rl?: { k: string; p: number; r: number | null }[]; usd?: number | null } | null;
+    return u ? { rl: (u.rl ?? []).filter((w) => !w.r || w.r > now), usd: u.usd ?? null } : null;
+  } catch {
+    return null;
+  }
+}
 import { activeJobs, duration, jobName, parseJobs } from "./jobs";
 import { STEPS_KEEP, type Sub, parseSubMessage, parseSubs, shownSubs, subSteps } from "./subagents";
 import { commandStep, fileStep } from "./steps";
@@ -57,6 +68,7 @@ interface Agent {
   model_req?: string | null;
   model_err?: string | null;
   screen?: string;
+  usage?: string | null;
 }
 
 /** Which agent runs the session, in each tool's own colours. */
@@ -112,7 +124,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   const ph = (n: number) => Array.from({ length: n }, () => "?").join(",") || "NULL";
   const everyone = people.includes(me) ? people : [...people, me];
   const { results: agents } = await env.DB.prepare(
-    `SELECT member, session_id, label, project, project_pin, repo, loops, jobs, subagents, origin, branch, note, client, host, version, last_seen, state, state_detail, state_at, active_at, cwd, ui_at, ui_version, ctx_pct, ctx_tokens, ctx_window, ctx_at, compact_req, compact_prep, model, model_req, model_err, screen FROM sessions
+    `SELECT member, session_id, label, project, project_pin, repo, loops, jobs, subagents, origin, branch, note, client, host, version, last_seen, state, state_detail, state_at, active_at, cwd, ui_at, ui_version, ctx_pct, ctx_tokens, ctx_window, ctx_at, compact_req, compact_prep, model, model_req, model_err, screen, usage FROM sessions
      WHERE member IN (${ph(everyone.length)}) AND (member = ? OR project IN (${ph(mine.length)})) AND last_seen > ?
      ORDER BY member = ? DESC, last_seen DESC`,
   )
@@ -166,7 +178,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
     const [pm = "", pl = ""] = picked.split("/");
     agent =
       (await env.DB.prepare(
-        `SELECT member, session_id, label, project, project_pin, repo, loops, jobs, subagents, origin, branch, note, client, host, version, last_seen, state, state_detail, state_at, active_at, cwd, ui_at, ui_version, ctx_pct, ctx_tokens, ctx_window, ctx_at, compact_req, compact_prep, model, model_req, model_err, screen FROM sessions
+        `SELECT member, session_id, label, project, project_pin, repo, loops, jobs, subagents, origin, branch, note, client, host, version, last_seen, state, state_detail, state_at, active_at, cwd, ui_at, ui_version, ctx_pct, ctx_tokens, ctx_window, ctx_at, compact_req, compact_prep, model, model_req, model_err, screen, usage FROM sessions
          WHERE member = ? AND label = ? AND (member = ? OR project IN (${ph(mine.length)})) ORDER BY last_seen DESC LIMIT 1`,
       )
         .bind(pm, pl, me, ...mine)
@@ -640,11 +652,20 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
     agent.ctx_pct != null && agent.client !== "codex"
       ? `<dt>Context</dt><dd><span class="ctxv ${ctxLevel(agent) ?? ""}" title="Context: ${kTok(agent.ctx_tokens)} of ${kTok(agent.ctx_window)} tokens · ${ago(agent.ctx_at ?? 0)}">${agent.ctx_pct}%</span>${agent.ctx_window ? `<span class="muted"> of ${kTok(agent.ctx_window)}</span>` : ""}${compactCtl}<div class="meter ${ctxLevel(agent) ?? ""}"><i style="width:${Math.min(100, agent.ctx_pct)}%"></i></div></dd>`
       : canCompact ? `<dt>Context</dt><dd>${compactCtl}</dd>` : "";
+  // Its plan's limits (5-hour and weekly windows, from the last answer Claude Code got) and what it has cost: what its
+  // mod reads off the status line's figures. Your own agents only; a window whose reset has passed is left out.
+  const usage = ownAgent ? usageOf(agent.usage) : null;
+  const usageRow = usage && (usage.rl.length || usage.usd != null)
+    ? `<dt>Usage</dt><dd class="usage">${usage.rl
+        .map((w) => `<div class="urow"><span class="uk">${esc(WINDOWS[w.k] ?? w.k.replace(/_/g, " "))}</span><span class="uv">${w.p}%</span>${w.r ? `<span class="ur">resets <time data-ts="${w.r}" data-at title="${new Date(w.r).toISOString()}">${esc(ago(w.r))}</time></span>` : ""}<div class="meter ${w.p >= 90 ? "red" : w.p >= 70 ? "amber" : ""}"><i style="width:${Math.min(100, w.p)}%"></i></div></div>`)
+        .join("")}${usage.usd != null ? `<div class="urow ucost"><span class="uk">This session</span><span class="uv">$${usage.usd.toFixed(2)}</span></div>` : ""}</dd>`
+    : "";
   const note = ownAgent && agent.project ? await getNote(env, me, agent.project, agent.label) : null;
   const watching = ownAgent && !!(await env.DB.prepare("SELECT 1 FROM agent_watch WHERE member = ? AND label = ?").bind(me, agent.label).first());
   const session = `<section class="ipart" id="isess" data-region><h3>Session</h3><dl class="kv">
       <dt>State</dt><dd>${stateText}${on && agent.state === "waiting" && agent.state_detail ? `<div class="small muted">${esc(agent.state_detail)}</div>` : ""}</dd>
       ${ctxRow}
+      ${usageRow}
       ${modelRow}
       ${agent.note ? `<dt>Role</dt><dd>${esc(plainSpaces(agent.note))}</dd>` : ""}
       <dt>Project</dt><dd>${agent.project ? `<a href="/dashboard?channel=${encodeURIComponent(agent.project)}">#${esc(agent.project)}</a>` : "none"}${ownAgent && agent.project_pin ? ` <span class="badge" title="Set from the dashboard for this session; its repo would put it in ${esc(agent.repo ? `whatever ${agent.repo} maps to` : "no project")}">pinned</span>` : ""}${ownAgent ? `<button type="button" class="btn ghost xs icon" data-open="dlg-project" title="Choose its project">${icon("pencil", 11)}</button>` : ""}</dd>
