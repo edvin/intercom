@@ -8,7 +8,7 @@ import { esc, html, icon, page } from "./ui";
 const MD_EXT = /\.(md|markdown|mdx)$/i;
 
 /** The reader page, or null when the bytes aren't text after all (the caller then offers the download). */
-export function readerPage(a: Attachment, buf: ArrayBuffer, opts: { source: boolean; agent?: string | null }): Response | null {
+export function readerPage(a: Attachment, buf: ArrayBuffer, opts: { source: boolean; agent?: string | null; frag?: boolean }): Response | null {
   let text: string;
   try {
     text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(buf);
@@ -26,6 +26,9 @@ export function readerPage(a: Attachment, buf: ArrayBuffer, opts: { source: bool
   const body = source
     ? `<pre class="rdsrc"><code>${esc(text)}</code></pre>`
     : `<article class="md rdmd">${md(text, null, opts.agent ?? null, null)}</article>`;
+  // Just the text, for the dashboard's viewer (← → step from an image to this file and on).
+  if (opts.frag)
+    return new Response(`<div class="ivdocin">${body}</div>`, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "private, no-store", "content-security-policy": "default-src 'none'; frame-ancestors 'none'" } });
   const top = `<header class="top rdtop"><div class="in">
     <a class="btn ghost sm icon" href="/dashboard" data-rdback title="Back">${icon("back", 16)}</a>
     <div class="rdname"><b title="${esc(a.name)}">${esc(a.name)}</b><span class="tiny muted">${size(a.bytes)} · ${lines} line${lines === 1 ? "" : "s"}</span></div>

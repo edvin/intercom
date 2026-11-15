@@ -1470,6 +1470,11 @@ body:has(#asks:not([hidden]):not(.min)) .toasts{right:16px;left:auto}
 .nowline[hidden]{display:none}
 .nowdot{width:8px;height:8px;flex:none;border-radius:50%;background:var(--green);animation:pulse 1.6s infinite}
 .nowtx{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.nowtx b{font-weight:560;color:var(--ink)}.nowtx code{font-size:11.5px;background:none;border:0;padding:0}
+.imgview .ivdoc{width:min(860px,100%);max-height:100%;overflow:auto;align-self:stretch;margin:0 auto;padding:20px 26px;border-radius:12px;background:var(--surface);color:var(--ink);text-align:left;position:relative}
+.imgview .ivdoc[hidden]{display:none}.imgview .ivdoc pre.rdsrc{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;font:12.5px/1.55 "Geist Mono",ui-monospace,monospace;background:none;border:0;padding:0}
+.imgview .ivdoc .ivopen{position:sticky;top:0;float:right;margin:-8px -12px 0 8px;background:var(--surface)}
+.imgview .ivbody.file{align-items:stretch}.imgview .ivdoc:has(.ivcard){align-self:center;width:auto;background:none;padding:0}
+.ivcard{display:flex;flex-direction:column;align-items:center;gap:8px;padding:34px 44px;border-radius:14px;background:var(--surface);color:var(--ink-2);text-align:center}.ivcard b{color:var(--ink);font-weight:600;overflow-wrap:anywhere;max-width:60vw}.ivcard .btn{margin-top:6px}
 .nowsaid{color:var(--ink)}.nowstep{color:var(--mute)}.nowstep b{color:var(--ink-2)!important;font-weight:500!important}
 .nowt{flex:none;font-variant-numeric:tabular-nums;font-weight:600;color:var(--ink)}.nowall{flex:none;color:var(--mute);font-variant-numeric:tabular-nums}
 @media (max-width:900px){.nowline{width:calc(100% - 16px)}.nowall{display:none}}
@@ -2718,17 +2723,19 @@ ${markupScript()}
     }, { passive: false });
     v.addEventListener("close", () => { pts.clear(); start = null; v._zoom(1); });
   }
+  // What opens in the viewer: images, videos and shared files (in a chat or the files grid); ⌘/Ctrl-click still opens a tab.
+  const IV_SEL = "a.att, a.attl, a.attv, a.attf, a.gfile";
   // An image in a message opens in a viewer over the page, not as its own page: the dashboard installed as an app on a
   // phone has no back button to come back from one. Close with ×, a tap beside it, Esc, or back (gesture or button).
   document.addEventListener("click", (e) => {
-    const a = e.target.closest && e.target.closest("a.att, a.attl, a.attv");
+    const a = e.target.closest && e.target.closest(IV_SEL);
     if (!a || e.metaKey || e.ctrlKey || e.shiftKey || e.button) return;
     e.preventDefault();
     let v = document.getElementById("imgview");
     if (!v) {
       v = document.createElement("dialog");
       v.id = "imgview"; v.className = "imgview"; v.setAttribute("autofocus", ""); v.tabIndex = -1;
-      v.innerHTML = '<div class="ivbar"><span class="ivname"><span class="ivn"></span><span class="ivwho"></span></span><button type="button" class="btn ghost sm icon ivmk" title="Mark up and send back" hidden>${MARK_ICON(18)}</button><a class="btn ghost sm icon ivdl" title="Download" download>${icon("download", 18)}</a><button type="button" class="btn ghost sm icon ivx" title="Close">${icon("x", 22)}</button></div><div class="ivbody"><img alt=""><video controls playsinline hidden></video></div>';
+      v.innerHTML = '<div class="ivbar"><span class="ivname"><span class="ivn"></span><span class="ivwho"></span></span><button type="button" class="btn ghost sm icon ivmk" title="Mark up and send back" hidden>${MARK_ICON(18)}</button><a class="btn ghost sm icon ivdl" title="Download" download>${icon("download", 18)}</a><button type="button" class="btn ghost sm icon ivx" title="Close">${icon("x", 22)}</button></div><div class="ivbody"><img alt=""><video controls playsinline hidden></video><div class="ivdoc" hidden></div></div>';
       document.body.appendChild(v);
       v.querySelector(".ivx").onclick = () => v.close();
       // Mark up the image you're looking at and send it to the agent of this chat, with what's wrong (markup.ts).
@@ -2747,23 +2754,41 @@ ${markupScript()}
           markUp({ ...opts, name: v._name + " at " + at, file: new File([blob], base + "-" + at + ".png", { type: "image/png" }) });
         } else markUp({ ...opts, url: v._href });
       };
-      v.querySelector(".ivbody").onclick = (ev) => { if (v._dragged) { v._dragged = false; return; } if (ev.target.tagName !== "IMG" && ev.target.tagName !== "VIDEO") v.close(); };
+      v.querySelector(".ivbody").onclick = (ev) => { if (v._dragged) { v._dragged = false; return; } if (ev.target.tagName !== "IMG" && ev.target.tagName !== "VIDEO" && !ev.target.closest(".ivdoc>*")) v.close(); };
       zoomable(v);
       v.addEventListener("close", () => { const vid = v.querySelector("video"); vid.pause(); vid.removeAttribute("src"); vid.load(); });
       v.addEventListener("close", () => { if (history.state && history.state.iv) { v._popping = true; history.back(); } });
       window.addEventListener("popstate", () => { if (v._popping) { setTimeout(() => (v._popping = false), 0); return; } if (v.open) { v._popping = true; v.close(); setTimeout(() => (v._popping = false), 0); } });
     }
-    // From the files grid (gallery.ts), ← and → step through its images.
-    const grid = a.closest("[data-gallery]");
-    v._list = grid ? [...grid.querySelectorAll("a.att, a.attv")] : [a];
-    v._at = v._list.indexOf(a);
+    // ← and → step through everything around it: the files grid (gallery.ts), or the chat's images, videos and files.
+    const scope = a.closest("[data-gallery]") || a.closest("#thread, .thread, .feed, main");
+    v._list = scope ? [...scope.querySelectorAll(IV_SEL)] : [a];
+    v._at = Math.max(0, v._list.indexOf(a));
     const show = (el) => {
-      const href = el.getAttribute("href"), name = el.dataset.name || el.getAttribute("title") || el.textContent.trim() || "image";
-      const vid = v.querySelector("video"), img = v.querySelector("img"), isVid = "video" in el.dataset;
-      img.hidden = isVid; vid.hidden = !isVid;
+      const isFile = el.matches("a.attf, a.gfile");
+      const href = el.getAttribute("href"), name = el.dataset.name || el.querySelector(".attf-n")?.textContent || el.getAttribute("title") || el.textContent.trim() || "image";
+      const vid = v.querySelector("video"), img = v.querySelector("img"), doc = v.querySelector(".ivdoc"), isVid = "video" in el.dataset;
+      img.hidden = isVid || isFile; vid.hidden = !isVid; doc.hidden = !isFile;
       const body = v.querySelector(".ivbody");
-      body.classList.toggle("pic", !isVid); v._zoom(1);
-      if (isVid) { img.removeAttribute("src"); body.classList.remove("loading"); vid.src = href; vid.play().catch(() => {}); }
+      body.classList.toggle("pic", !isVid && !isFile); body.classList.toggle("file", isFile); v._zoom(1);
+      if (!isVid) { vid.pause(); vid.removeAttribute("src"); }
+      if (isFile) {
+        // A file: a text one (Markdown, a log) to read here, anything else its name and a download.
+        img.removeAttribute("src"); body.classList.remove("loading");
+        const dl = href.replace(/[/]view$/, ""), sz = el.dataset.size || el.querySelector(".attf-s")?.textContent || "";
+        const card = () => { doc.innerHTML = '<div class="ivcard">${icon("file", 34)}<b></b><span class="muted"></span><a class="btn sm" download>${icon("download", 14)}Download</a></div>'; doc.querySelector("b").textContent = name; doc.querySelector(".muted").textContent = sz; const d = doc.querySelector("a"); d.href = dl; d.setAttribute("download", name); };
+        if (/[/]view$/.test(href)) {
+          doc.innerHTML = '<div class="ivcard muted">Loading…</div>';
+          const ask = v._doc = (v._doc || 0) + 1;
+          fetch(href + "?frag=1", { credentials: "same-origin" }).then((r) => r.ok && (r.headers.get("content-type") || "").startsWith("text/html") ? r.text() : null).then((t) => {
+            if (ask !== v._doc) return;
+            if (t == null) return card();
+            doc.innerHTML = t; doc.scrollTop = 0;
+            const open = document.createElement("a"); open.className = "btn ghost xs ivopen"; open.href = href; open.target = "_blank"; open.rel = "noopener"; open.textContent = "Open in a tab"; doc.prepend(open);
+          }).catch(() => ask === v._doc && card());
+        } else card();
+      }
+      else if (isVid) { img.removeAttribute("src"); body.classList.remove("loading"); vid.src = href; vid.play().catch(() => {}); }
       else {
         // A fresh image each time: the browser keeps showing the last one until the next has loaded, which looks like
         // you opened the wrong one. Until it's in, a spinner.
@@ -2778,7 +2803,7 @@ ${markupScript()}
         if (fresh.complete) done();
       }
       v.querySelector(".ivn").textContent = name + (v._list.length > 1 ? "  ·  " + (v._at + 1) + " / " + v._list.length : "");
-      v.querySelector(".ivdl").href = href; v.querySelector(".ivdl").setAttribute("download", name);
+      v.querySelector(".ivdl").href = isFile ? href.replace(/[/]view$/, "") : href; v.querySelector(".ivdl").setAttribute("download", name);
       v._href = href; v._name = name;
       // Who made it, and the agent a marked-up copy goes to: asked of the hub for a message's attachment (in this
       // chat, failing that, its agent; a file fetched from an agent's machine, that agent).
@@ -2786,7 +2811,7 @@ ${markupScript()}
       const chatTo = cf && !cf.dataset.sub ? { address: cf.dataset.agent, label: cf.dataset.label || "the agent", project: "" } : null;
       const fromFile = (href.match(/[?&]agent=([^&]+)/) || [])[1];
       const setTo = (to, line) => {
-        v._to = to; mkb.hidden = !to; who.textContent = line || ""; who.hidden = !line;
+        v._to = to; mkb.hidden = !to || isFile; who.textContent = line || ""; who.hidden = !line;
         if (to) mkb.title = "Mark up" + (isVid ? " this frame" : "") + " and send it to " + to.label;
       };
       setTo(fromFile ? { address: decodeURIComponent(fromFile), label: decodeURIComponent(fromFile).split("/").pop(), project: "" } : chatTo, "");

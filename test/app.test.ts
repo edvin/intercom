@@ -1888,8 +1888,8 @@ describe("share_file", () => {
     assert.match(String(th.status), /^30[1-8]$/);
     assert.match(th.headers.get("location")!, /\/attachment\/3$/);
     const files = await view("bob", "&kind=files");
-    assert.match(files, /href="\/attachment\/1\/view" target="_blank"[^>]*>.*<span class="gext">LOG<\/span><span class="gname">build<\/span><span class="gsize">1 B<\/span>/);
-    assert.match(files, /href="\/attachment\/2" download="r\.zip"[^>]*>.*<span class="gext">ZIP<\/span>/);
+    assert.match(files, /href="\/attachment\/1\/view" data-name="build.log" data-size="1 B" target="_blank"[^>]*>.*<span class="gext">LOG<\/span><span class="gname">build<\/span><span class="gsize">1 B<\/span>/);
+    assert.match(files, /href="\/attachment\/2" data-name="r\.zip" data-size="[^"]*" download="r\.zip"[^>]*>.*<span class="gext">ZIP<\/span>/);
     // Alice sees what came to her and to her project, not bob's own DM; carol, outside billing, sees nothing.
     const alice = await view("alice", "&kind=all");
     assert.match(alice, /\/attachment\/2"/);
@@ -1918,7 +1918,7 @@ describe("share_file", () => {
     const view = async (q: string) => (await w.request(`/dashboard?view=files${q}`, { as: "bob", cookie: true })).text();
     const vids = await view("&kind=videos");
     assert.match(vids, /<a class="attv gtile gvid" href="\/attachment\/1" data-video data-name="intro\.mp4"[^>]*><img src="\/attachment\/1\/thumb" alt="" loading="lazy" decoding="async" data-poster>/);
-    assert.match(vids, /href="\/attachment\/2" download="raw\.mkv"/);
+    assert.match(vids, /href="\/attachment\/2" data-name="raw\.mkv" data-size="[^"]*" download="raw\.mkv"/);
     assert.doesNotMatch(vids, /build\.log/);
     assert.match(vids, /0 images, 2 videos and 1 other file/);
     assert.doesNotMatch(await view("&kind=files"), /intro\.mp4|raw\.mkv/);

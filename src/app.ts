@@ -962,7 +962,7 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
     const buf = await readImage(env, a);
     if (!buf) return new Response(soloCard("File", `<h1>This file has expired</h1><p class="muted">Shared files are kept 30 days.</p>`), { status: 410, headers: { "content-type": "text/html; charset=utf-8" } });
     const agent = url.searchParams.get("agent");
-    return readerPage(a, buf, { source: url.searchParams.has("source"), agent: agent?.startsWith(`${me}/`) ? agent : null }) ?? redirect(`/attachment/${a.id}`);
+    return readerPage(a, buf, { source: url.searchParams.has("source"), agent: agent?.startsWith(`${me}/`) ? agent : null, frag: url.searchParams.has("frag") }) ?? redirect(`/attachment/${a.id}`);
   }
   const thumb = url.pathname.match(/^\/attachment\/(\d+)\/thumb$/);
   if (thumb) {

@@ -116,7 +116,7 @@ export async function galleryView(env: Env, me: string, url: URL): Promise<strin
     const ext = (/\.([a-z0-9]{1,8})$/i.exec(f.name)?.[1] ?? "file").toUpperCase();
     const stem = f.name.replace(/\.[a-z0-9]{1,8}$/i, "");
     const href = readableName(f.name) ? `/attachment/${f.id}/view` : `/attachment/${f.id}`;
-    return `<a class="gtile gfile" href="${href}"${readableName(f.name) ? ' target="_blank" rel="noopener"' : ` download="${esc(f.name)}"`} title="${esc(`${f.name} · ${size(f.bytes)} · ${from}`)}">${icon("file", 26)}<span class="gext">${esc(ext)}</span><span class="gname">${esc(stem)}</span><span class="gsize">${esc(size(f.bytes))}</span></a>`;
+    return `<a class="gtile gfile" href="${href}" data-name="${esc(f.name)}" data-size="${esc(size(f.bytes))}"${readableName(f.name) ? ' target="_blank" rel="noopener"' : ` download="${esc(f.name)}"`} title="${esc(`${f.name} · ${size(f.bytes)} · ${from}`)}">${icon("file", 26)}<span class="gext">${esc(ext)}</span><span class="gname">${esc(stem)}</span><span class="gsize">${esc(size(f.bytes))}</span></a>`;
   };
 
   const empty = `<div class="empty galempty">${icon(kind === "files" ? "file" : kind === "videos" ? "film" : "image", 30)}<div>${
