@@ -936,6 +936,7 @@ pre.term .b8{background:#555a6e}pre.term .b9{background:#d4505a}pre.term .b10{ba
 .glsz{text-align:right;color:var(--ink-2);font-variant-numeric:tabular-nums}.gldt{color:var(--mute);font-variant-numeric:tabular-nums;white-space:nowrap}
 .glist .attgone{opacity:.5}.glist a.glrow.attgone{padding:6px 14px!important}.glist .attgone::before{content:none}.glist .attgone .glth img{display:none!important}
 @media (max-width:640px){.glhd{display:none}.glist a.glrow{grid-template-columns:36px minmax(0,1fr) auto;grid-template-areas:"th nm sz" "th by dt";row-gap:1px;column-gap:10px;padding:8px 10px}.glth{grid-area:th}.glnm{grid-area:nm}.glsz{grid-area:sz;font-size:12px}.glby{grid-area:by;font-size:12px}.gldt{grid-area:dt;font-size:12px;text-align:right}}
+[data-gallery] [hidden]{display:none!important}.galq{position:relative;display:flex;align-items:center;flex:0 1 200px;width:200px;min-width:140px}.galq .i{position:absolute;left:10px;color:var(--mute);pointer-events:none}.galq input{width:100%;height:32px;padding-left:31px;font-size:13px}
 .galempty{padding:64px 16px;text-align:center}.galprune{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--mute)}.galprune select{width:auto;height:30px;font-size:13px}.galprune .btn{color:var(--red)}.galmore{display:flex;gap:8px;justify-content:center}
 @media (max-width:640px){.galpane{padding:12px 12px 88px}.gal{grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:4px}.gtile{border-radius:6px}.galbar select{min-width:0;flex:1}}
 /* Tickets & MRs (tracked.ts): grouped by who they wait on, an MR under its ticket, each row opening to its history. */
@@ -1338,15 +1339,19 @@ h1{font-size:22px;font-weight:620;letter-spacing:-.02em}
 .insp .subbody{padding:2px 10px 12px}
 @media (max-width:900px){
   .chd{padding:0 6px 0 4px;gap:6px}.chd .presence{display:none}.ctitle{gap:8px}.csub{display:none}.ctitle h2{max-width:none;flex:0 1 auto}
-  .ctools .seg span{display:none}.ctools .seg{margin-right:2px}.inspbtn{display:none}
+  .ctools .seg span{display:none}.ctools .seg{margin-right:2px}
   .chat.inspon .cbody{grid-template-columns:minmax(0,1fr)}
+  /* Too narrow for it beside the chat: the details panel slides in over it from the right, a shade behind it. */
+  .chat.inspon .insp{position:fixed;z-index:35;inset:0 0 0 auto;width:min(360px,calc(100vw - 40px));box-shadow:var(--shadow-lg);padding-top:env(safe-area-inset-top);padding-bottom:calc(24px + env(safe-area-inset-bottom));animation:inspin .18s ease-out}
+  .chat.inspon .inspshade{display:block;position:fixed;inset:0;z-index:34;background:rgba(0,0,0,.32);animation:shadein .18s ease-out}
 }
+.inspshade{display:none}
+@keyframes inspin{from{transform:translateX(24px);opacity:0}}@keyframes shadein{from{opacity:0}}
 /* A phone: the header keeps who it is and what it's doing; Chat/Code, its screen and the bell move into ⋯ */
 .cmenu .mnarrow{display:none}
 @media (max-width:560px){
   .ctools .seg,.ctools .scrbtn,.ctools .watchbtn{display:none}.cmenu .mnarrow{display:block}
   .ctitle h2{flex:0 1 auto;min-width:3em}.chd .rvbadge{display:none}
-  .chat.inspon .insp{position:fixed;z-index:35;inset:0 0 0 auto;width:min(360px,100vw);box-shadow:var(--shadow-lg);padding-top:env(safe-area-inset-top)}
 }
 
 /* The chat: messages in the UI type, read in a centred column; what an agent does in small mono beneath. */
@@ -2645,6 +2650,10 @@ ${markupScript()}
   // starts (more running than when you last looked at this agent).
   const inspSet = (open) => { const c = document.querySelector("section.chat"); if (!c) return; c.classList.toggle("inspon", open); document.cookie = "ic_insp=" + (open ? "1" : "0") + "; path=/; max-age=31536000; samesite=lax"; };
   document.addEventListener("click", (e) => { if (e.target.closest("[data-insp]")) { e.preventDefault(); inspSet(!document.querySelector("section.chat")?.classList.contains("inspon")); } });
+  if (matchMedia("(max-width: 900px)").matches && document.querySelector("section.chat.inspon")) inspSet(false);
+  // The files list's search: what's shown narrows as you type; Enter searches everything (gallery.ts).
+  document.addEventListener("input", (e) => { const q = e.target.closest && e.target.closest("[data-galq]"); if (!q) return; const v = q.value.trim().toLowerCase();
+    $$("[data-gallery] [data-name]").forEach((a) => (a.hidden = !!v && !a.dataset.name.toLowerCase().includes(v))); });
   function inspAuto() {
     const h = document.getElementById("chathd"); if (!h) return;
     const k = "ic_subs:" + h.dataset.agent, n = Number(h.dataset.subs || 0);

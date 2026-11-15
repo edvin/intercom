@@ -741,6 +741,7 @@ ${(() => {
         ${subSel ? `<div class="tiny muted chatoff">${icon("users", 11)} ${esc(agent.label)} gets this and passes it on to the subagent (SendMessage), ${subSel.status === "running" ? "which reads it at its next step" : "which carries on from where it ended"}; its answer shows here.</div>` : on ? "" : '<div class="tiny muted chatoff">Not connected: the next session with this name gets it.</div>'}
       </form>`}
       </div>
+      <div class="inspshade" data-insp aria-hidden="true"></div>
       <aside class="insp" id="insp" aria-label="Details">
         <div class="ihead"><b>${esc(agent.label)}</b><button type="button" class="btn ghost xs icon" data-insp title="Close">${icon("x", 14)}</button></div>
         ${codeOn || !ownAgent ? "" : subsRegion(subs, subs.length ? await subSteps(env, me, agent.session_id) : new Map(), agent.origin ?? null, Date.now(), subHref)}

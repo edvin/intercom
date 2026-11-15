@@ -33,14 +33,16 @@ interface Filters {
   agent: string;
   project: string;
   kind: Kind;
+  /** Part of the file's name, any case. */
+  q: string;
 }
 export const galleryFilters = (get: (k: string) => string | null | undefined): Filters => {
   const k = get("kind");
-  return { agent: get("agent") ?? "", project: get("project") ?? "", kind: k === "files" || k === "all" || k === "videos" ? k : "images" };
+  return { agent: get("agent") ?? "", project: get("project") ?? "", kind: k === "files" || k === "all" || k === "videos" ? k : "images", q: (get("q") ?? "").trim().slice(0, 100) };
 };
 
 /** What the grid shows with these filters, as SQL over attachments a JOIN messages m (binds ?1 = me, ?2 = since). */
-function scope(me: string, { agent, project, kind }: Filters) {
+function scope(me: string, { agent, project, kind, q }: Filters) {
   const where = [VISIBLE];
   const binds: unknown[] = [me, Date.now() - RETENTION_DAYS * 86400_000];
   if (agent.includes("/")) {
@@ -51,6 +53,10 @@ function scope(me: string, { agent, project, kind }: Filters) {
   if (project) {
     binds.push(project);
     where.push(`m.channel = ?${binds.length}`);
+  }
+  if (q) {
+    binds.push(`%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`);
+    where.push(`a.name LIKE ?${binds.length} ESCAPE '\\'`);
   }
   if (kind !== "all") where.push(kind === "images" ? IMG : kind === "videos" ? VID : `NOT ${IMG} AND NOT ${VID}`);
   return { where, binds };
@@ -83,7 +89,7 @@ export async function pruneFiles(env: Env, me: string, days: number, f: Filters)
 export async function galleryView(env: Env, me: string, url: URL): Promise<string> {
   const p = url.searchParams;
   const filters = galleryFilters((k) => p.get(k));
-  const { agent, project, kind } = filters;
+  const { agent, project, kind, q } = filters;
   const before = Number(p.get("before")) || 0;
   // A list unless you look at images or videos only: a file has no picture, so a tile of it says little.
   const listDefault = kind === "files" || kind === "all";
@@ -137,10 +143,10 @@ export async function galleryView(env: Env, me: string, url: URL): Promise<strin
   if (project && !projects.has(project)) projectKeys.unshift(project);
 
   const link = (over: Record<string, string>) => {
-    const q = new URLSearchParams({ view: "files" });
-    const all = { agent, project, kind: kind === "images" ? "" : kind, layout: kind !== "files" && asList !== listDefault ? (asList ? "list" : "grid") : "", ...over };
-    for (const [k, v] of Object.entries(all)) if (v) q.set(k, v);
-    return `/dashboard?${q}`;
+    const qs = new URLSearchParams({ view: "files" });
+    const all = { agent, project, q, kind: kind === "images" ? "" : kind, layout: kind !== "files" && asList !== listDefault ? (asList ? "list" : "grid") : "", ...over };
+    for (const [k, v] of Object.entries(all)) if (v) qs.set(k, v);
+    return `/dashboard?${qs}`;
   };
   const who = (k: string) => (k.startsWith(`${me}/`) ? k.slice(me.length + 1) : k);
   const opt = (v: string, label: string, on: boolean) => `<option value="${esc(v)}"${on ? " selected" : ""}>${esc(label)}</option>`;
@@ -150,9 +156,10 @@ export async function galleryView(env: Env, me: string, url: URL): Promise<strin
   const bar = `<form class="galbar" method="get" action="/dashboard" data-native>
     <input type="hidden" name="view" value="files">${kind === "images" ? "" : `<input type="hidden" name="kind" value="${kind}">`}
     <nav class="seg" aria-label="Kind">${seg("images", "Images", "image")}${seg("videos", "Videos", "film")}${seg("files", "Files", "file")}${seg("all", "All", "layers")}</nav>${asList !== listDefault ? `<input type="hidden" name="layout" value="${asList ? "list" : "grid"}">` : ""}
+    <label class="galq">${icon("search", 14)}<input type="search" name="q" value="${esc(q)}" placeholder="Find by name" aria-label="Find a file by name" autocomplete="off" spellcheck="false" data-galq${q ? " autofocus" : ""}></label>
     <select name="agent" aria-label="Agent" onchange="this.form.requestSubmit()">${opt("", "All agents", !agent)}${agentKeys.map((k) => opt(k, who(k), k === agent)).join("")}</select>
     <select name="project" aria-label="Project" onchange="this.form.requestSubmit()">${opt("", "All projects", !project)}${projectKeys.map((k) => opt(k, `#${k}`, k === project)).join("")}</select>
-    ${agent || project ? `<a class="btn ghost sm" href="${esc(link({ agent: "", project: "", before: "" }))}" title="Clear the filters">${icon("x", 13)}<span class="lbl">Clear</span></a>` : ""}
+    ${agent || project || q ? `<a class="btn ghost sm" href="${esc(link({ agent: "", project: "", q: "", before: "" }))}" title="Clear the filters">${icon("x", 13)}<span class="lbl">Clear</span></a>` : ""}
     ${kind === "files" ? "" : `<nav class="seg gallay" aria-label="Layout"><a href="${esc(link({ layout: listDefault ? "grid" : "" }))}"${asList ? "" : ' class="on"'} title="Thumbnails">${icon("grid", 14)}</a><a href="${esc(link({ layout: listDefault ? "" : "list" }))}"${asList ? ' class="on"' : ""} title="List with sizes and dates">${icon("list", 14)}</a></nav>`}
   </form>`;
 
@@ -192,20 +199,20 @@ export async function galleryView(env: Env, me: string, url: URL): Promise<strin
   const cnt = (n: number) => `${n} ${n === 1 ? what : what + "s"}`;
   const choices = PRUNE_DAYS.map((d, i) => ({ d, n: Number(olds?.[`n${i}`] ?? 0), b: Number(olds?.[`b${i}`] ?? 0) }));
   const first = choices.find((c) => c.d === 7 && c.n) ?? choices.find((c) => c.n);
-  const scopeText = [agent ? who(agent) : "", project ? `#${project}` : ""].filter(Boolean).join(" in ");
+  const scopeText = [agent ? who(agent) : "", project ? `#${project}` : ""].filter(Boolean).join(" in ") + (q ? `${agent || project ? " " : ""}named “${q}”` : "");
   const prune = first
     ? `<form class="galprune" method="post" action="/action/prunefiles">
       <input type="hidden" name="back" value="${esc(link({ before: "" }))}">
-      <input type="hidden" name="agent" value="${esc(agent)}"><input type="hidden" name="project" value="${esc(project)}"><input type="hidden" name="kind" value="${kind}">
+      <input type="hidden" name="agent" value="${esc(agent)}"><input type="hidden" name="project" value="${esc(project)}"><input type="hidden" name="kind" value="${kind}"><input type="hidden" name="q" value="${esc(q)}">
       <label for="galkeep">Keep</label>
       <select id="galkeep" name="days" aria-label="How much to keep">${choices
         .map((c) => `<option value="${c.d}"${c === first ? " selected" : ""}${c.n ? "" : " disabled"} data-n="${esc(cnt(c.n))}" data-b="${esc(size(c.b))}">${keepLabel(c.d)}${c.n ? ` (−${c.n})` : ""}</option>`)
         .join("")}</select>
-      <button class="btn sm" type="submit" data-scope="${esc(`${kind === "all" ? "files" : kind}${scopeText ? ` from ${scopeText}` : ""}`)}" title="Delete older ${what}s your own agents shared${scopeText ? ` (${scopeText})` : ""}; teammates' agents' files stay">${icon("trash", 13)}<span>Delete older</span></button>
+      <button class="btn sm" type="submit" data-scope="${esc(`${kind === "all" ? "files" : kind}${scopeText ? ` ${q && !agent && !project ? "" : "from "}${scopeText}` : ""}`)}" title="Delete older ${what}s your own agents shared${scopeText ? ` (${scopeText})` : ""}; teammates' agents' files stay">${icon("trash", 13)}<span>Delete older</span></button>
     </form>`
     : "";
   const empty = `<div class="empty galempty">${icon(kind === "files" ? "file" : kind === "videos" ? "film" : "image", 30)}<div>${
-    total === 0 ? "No files from agents in the last 30 days." : agent || project ? "Nothing here with these filters." : kind === "images" ? "No images from agents; try Files." : kind === "videos" ? "No videos from agents in the last 30 days." : "No files of this kind."
+    total === 0 ? "No files from agents in the last 30 days." : q ? `Nothing named “${esc(q)}”${kind === "all" ? "" : ` among the ${kind}`}.${kind === "all" ? "" : ` <a href="${esc(link({ kind: "all", before: "" }))}">Look in all files</a>`}` : agent || project ? "Nothing here with these filters." : kind === "images" ? "No images from agents; try Files." : kind === "videos" ? "No videos from agents in the last 30 days." : "No files of this kind."
   }</div><div class="small muted">Agents share screenshots, renders and reports with <code>share_file</code>; they show here for ${RETENTION_DAYS} days.</div></div>`;
 
   return `<div class="pane-in galpane">

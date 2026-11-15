@@ -1893,6 +1893,14 @@ describe("share_file", () => {
     assert.match(files, /class="gfile glrow" href="\/attachment\/1\/view" data-name="build.log" data-size="1 B" target="_blank"[^>]*>.*<span class="gext">LOG<\/span><\/span><span class="glnm">build\.log<\/span><span class="glby">[^<]*#[^<]*<\/span><span class="glsz">1 B<\/span><time class="gldt" data-ts="\d+" data-date/);
     assert.match(files, /href="\/attachment\/2" data-name="r\.zip" data-size="[^"]*" download="r\.zip"[^>]*>.*<span class="gext">ZIP<\/span>/);
     assert.doesNotMatch(files, /class="gtile|gallay/);
+    // Find by name: any part, any case; % and _ are only themselves; a kind with nothing by that name points to All.
+    const found = await view("bob", "&kind=files&q=BUILD");
+    assert.match(found, /data-name="build\.log"/);
+    assert.doesNotMatch(found, /data-name="r\.zip"/);
+    assert.match(found, /<input type="search" name="q" value="BUILD"/);
+    assert.doesNotMatch(await view("bob", "&kind=files&q=%25"), /data-name=/);
+    assert.match(await view("bob", "&q=build"), /Nothing named “build” among the images\. <a href="[^"]*kind=all[^"]*">Look in all files/);
+
     // Images are thumbnails unless you ask for the list; All is a list unless you ask for thumbnails.
     assert.match(await view("bob", ""), /class="gal" data-gallery/);
     assert.match(await view("bob", "&layout=list"), /class="glist" data-gallery[\s\S]*class="att glrow"/);
