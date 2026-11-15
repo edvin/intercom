@@ -1695,8 +1695,9 @@ describe("loops", () => {
     const view = (as: string) => w.request("/dashboard?view=agents&agent=bob/looper", { as, cookie: true }).then((r) => r.text());
 
     let page = await view("bob");
-    assert.match(page, /<\/svg><span>loop every 20m: \/babysit-prs/);
-    assert.match(page, /<\/svg><span>self-paced loop, next in 20m: check the deploy/);
+    // A card each: the schedule, when it runs next (the page works it out from the cron), the prompt with its /command.
+    assert.match(page, /<div class="loopc" title="\*\/20 \* \* \* \*"><div class="loophd"><svg[^]*?<\/svg><b>Every 20m<\/b><span class="loopnx" data-cron="\*\/20 \* \* \* \*"><\/span><\/div><div class="looppr" title="\/babysit-prs"><code>\/babysit-prs<\/code><\/div>/);
+    assert.match(page, /<b>Self-paced<\/b><span class="loopnx" data-next="\d+"><\/span><\/div><div class="looppr" title="check the deploy">check the deploy<\/div>/);
     assert.match(page, /data-k="bob\/[^"]+"[^>]*title="[^"]*running a loop/); // marked in the tree
     assert.equal((page.match(/Started self-paced loop<\/b><span class="lpq">check the deploy/g) ?? []).length, 1); // re-arming isn't news
     assert.doesNotMatch(await view("alice"), /babysit-prs/); // only the owner

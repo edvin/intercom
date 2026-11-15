@@ -76,6 +76,7 @@ export function describeCron(cron: string): string {
   const hhmm = () => `${h.padStart(2, "0")}:${m.padStart(2, "0")}`;
   if (rest && dow === "*" && h === "*" && /^\*\/\d+$/.test(m)) return `every ${m.slice(2)}m`;
   if (rest && dow === "*" && h === "*" && /^\d+$/.test(m)) return `hourly at :${m.padStart(2, "0")}`;
+  if (rest && dow === "*" && h === "*" && /^\d+(,\d+)+$/.test(m)) return `hourly at ${m.split(",").map((x) => `:${x.padStart(2, "0")}`).join(", ")}`;
   if (rest && dow === "*" && /^\*\/\d+$/.test(h) && /^\d+$/.test(m)) return `every ${h.slice(2)}h`;
   if (rest && /^\d+$/.test(h) && /^\d+$/.test(m)) return dow === "*" ? `daily at ${hhmm()}` : dow === "1-5" ? `weekdays at ${hhmm()}` : `${hhmm()} (${cron})`;
   return cron;
@@ -110,4 +111,16 @@ export function loopReminder(l: Loop, now = Date.now()): string {
     `. A compaction drops it unless you re-arm it: unless the loop's work is done or your user stopped it, call ScheduleWakeup again before this turn ends` +
     (auto ? ` with the prompt <<autonomous-loop-dynamic>>.` : l.prompt.length >= 200 ? ", with the loop's prompt as the user gave it (shortened above)." : ", with that same prompt.")
   );
+}
+
+/** A loop's card in the agent's info panel: its schedule ("Hourly at :37", "Self-paced"), when it runs next (the
+ * page works that out in your time zone from the cron), and its prompt with a leading /command picked out. */
+export function loopCard(l: Loop, esc: (s: string) => string, icon: string): string {
+  const sched = l.kind === "wakeup" ? "Self-paced" : `${l.recurring === false ? "Once, " : ""}${describeCron(l.cron ?? "")}`;
+  const label = sched.charAt(0).toUpperCase() + sched.slice(1);
+  const next = l.kind === "wakeup" ? (l.next ? ` data-next="${l.next}"` : "") : l.cron ? ` data-cron="${esc(l.cron)}"` : "";
+  const text = promptText(l.prompt);
+  const cmd = /^(\/[\w:.-]+)(.*)$/s.exec(text);
+  const body = cmd ? `<code>${esc(cmd[1]!)}</code>${esc(cmd[2]!)}` : esc(text);
+  return `<div class="loopc"${l.cron ? ` title="${esc(l.cron)}"` : ""}><div class="loophd">${icon}<b>${esc(label)}</b><span class="loopnx"${next}></span></div>${text ? `<div class="looppr" title="${esc(text)}">${body}</div>` : ""}</div>`;
 }

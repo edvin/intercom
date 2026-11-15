@@ -9,7 +9,7 @@ import { pendingReviews } from "./reviews";
 import { pendingTickets } from "./tickets";
 import { chatAsks } from "./asks";
 import { AUTO_UPDATE_SINCE, PLUGIN_VERSION, outdated } from "./version";
-import { activeLoops, describe, parseLoops } from "./loops";
+import { activeLoops, loopCard, parseLoops } from "./loops";
 import { activeJobs, duration, jobName, parseJobs } from "./jobs";
 import { STEPS_KEEP, type Sub, parseSubMessage, parseSubs, shownSubs, subSteps } from "./subagents";
 import { commandStep, fileStep } from "./steps";
@@ -658,7 +658,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
       <details class="inotes"${note ? "" : ""}><summary>${note ? `<div class="md inote">${md(note.body, agent.origin, null)}</div><span class="btn ghost xs">${icon("pencil", 12)}Edit</span>` : `<span class="small muted">What it's on and what's next, for whoever has the name after a restart.</span><span class="btn ghost xs">${icon("plus", 12)}Write</span>`}</summary>
         <form method="post" action="/agent/notes" data-native>${hidden({ label: agent.label, project: agent.project, back: here })}<textarea name="body" rows="7" maxlength="4000" placeholder="On: …&#10;Next: …&#10;Watch out for: …">${esc(note?.body ?? "")}</textarea><div class="row" style="justify-content:flex-end;margin-top:6px"><button class="btn sm primary">Save</button></div></form>
       </details>` : ""}
-    ${loopsOf(agent).length ? `<h3>Loops</h3>${loopsOf(agent).map((l) => `<div class="irow looprow">${icon("repeat", 13)}<span>${esc(describe(l))}</span></div>`).join("")}` : ""}
+    ${loopsOf(agent).length ? `<h3>Loops</h3><div class="loops">${loopsOf(agent).map((l) => loopCard(l, esc, icon("repeat", 13))).join("")}</div>` : ""}
     ${jobsOf(agent).length ? `<h3>Background jobs</h3>${jobsOf(agent).map((j) => `<div class="irow jobrow" title="${esc(j.command)}"><span>⧗</span><span class="grow">${esc(jobName(j))} <span class="muted">· running ${duration(Date.now() - j.at)}</span></span><form method="post" action="/agent/job-dismiss" data-native>${hidden({ session: agent.session_id, id: j.id, back: here })}<button class="btn ghost xs icon jobx" title="Not running any more? Remove it from this list">${icon("x", 11)}</button></form></div>`).join("")}` : ""}
   </section>`;
   const menu = `<div class="cmenu" role="menu">

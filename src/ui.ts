@@ -427,7 +427,7 @@ form.dropping{outline:2px dashed var(--accent);outline-offset:4px;border-radius:
 .rdsrc{font-variant-ligatures:none;margin:0;white-space:pre-wrap;overflow-wrap:anywhere;font:12.5px/1.6 "JetBrains Mono","Geist Mono",ui-monospace,monospace;color:var(--ink)}
 @media (max-width:640px){.reader{padding:18px 16px calc(40px + env(safe-area-inset-bottom))}.rdmd{font-size:15px}}
 .attf-n{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.attf-s{color:var(--mute);font-size:11px;white-space:nowrap}
-.att{display:inline-block;margin:6px 8px 2px 0;vertical-align:top}.attgone{pointer-events:none;text-decoration:none;color:var(--ink-3)!important;border:0!important;background:none!important;padding:0!important}.attgone img,.attgone .attv-play,.attgone .attv-n{display:none!important}.attgone::before{content:"File removed";display:inline-flex;align-items:center;height:28px;padding:0 10px;border:1px dashed var(--line);border-radius:8px;font-size:12px;color:var(--ink-3)}.attv.attgone{aspect-ratio:auto;width:auto}.att img{display:block;max-width:min(360px,100%);max-height:240px;border-radius:8px;border:1px solid var(--line);background:var(--surface-2)}
+.att{display:inline-block;margin:6px 8px 2px 0;vertical-align:top}.attgone{pointer-events:none;text-decoration:none;color:var(--mute)!important;border:0!important;background:none!important;padding:0!important}.attgone img,.attgone .attv-play,.attgone .attv-n{display:none!important}.attgone::before{content:"File removed";display:inline-flex;align-items:center;height:28px;padding:0 10px;border:1px dashed var(--line);border-radius:8px;font-size:12px;color:var(--mute)}.attv.attgone{aspect-ratio:auto;width:auto}.att img{display:block;max-width:min(360px,100%);max-height:240px;border-radius:8px;border:1px solid var(--line);background:var(--surface-2)}
 .att:hover img{border-color:var(--accent)}
 .attl{display:inline-flex;align-items:center;gap:4px;vertical-align:-2px}.attl svg{flex:none}
 /* The image viewer: the image over a dark backdrop, a bar with its name, download and close (clear of a phone's status bar and notch). */
@@ -475,7 +475,7 @@ form.editmode textarea{border-color:color-mix(in srgb,var(--amber) 60%,transpare
 .bubble.relay .rhd{display:block;font-size:12px;font-weight:600;color:var(--ink-2);margin-bottom:4px}
 .thread.term .bubble.relay{border-left:2px dashed var(--line);padding-left:12px;background:none}
 .thread.term .bubble.relay::before{content:none}
-.fsz{display:inline-flex;gap:0;border-right:1px solid var(--line);padding-right:4px;margin-right:2px}.fsz .btn{font:600 11px/1 "Geist",system-ui,sans-serif;color:var(--ink-3);width:24px}.fsz .btn:last-child{font-size:15px}.fsz .btn:disabled{opacity:.35}.fsz .btn.ghost{color:var(--ink-3)}.fsz .btn.ghost:hover:not(:disabled){color:var(--ink)}
+.fsz{display:inline-flex;gap:0;border-right:1px solid var(--line);padding-right:4px;margin-right:2px}.fsz .btn{font:600 11px/1 "Geist",system-ui,sans-serif;color:var(--mute);width:24px}.fsz .btn:last-child{font-size:15px}.fsz .btn:disabled{opacity:.35}.fsz .btn.ghost{color:var(--mute)}.fsz .btn.ghost:hover:not(:disabled){color:var(--ink)}
 /* the code view (code.ts): an agent's changes, commits and files */
 .seg{display:inline-flex;flex:none;gap:2px;padding:2px;border-radius:9px;background:var(--surface-2);border:1px solid var(--line)}
 .seg a{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:7px;font-size:12px;font-weight:600;color:var(--mute);text-decoration:none}
@@ -540,7 +540,7 @@ tr.hit,tr.hit td{background:var(--amber-soft)}
 .sline .ln{flex:none;min-width:3em;text-align:right;color:var(--mute);font-size:11.5px}
 .stext{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:pre}
 @media (max-width:640px){.seg span{display:none}.codebar{padding:8px 10px}.codebar .crepo{order:3;flex-basis:100%}.codebody{padding:10px 10px 24px}.cwho{display:none}table.diff{font-size:11.5px}}
-.ttog{color:var(--ink-3)}.ttog .i{display:block}.ttog .when-off{display:none}.ttog:not(.on) .when-on{display:none}.ttog:not(.on) .when-off{display:block}.ttog:not(.on){opacity:.7}
+.ttog{color:var(--mute)}.ttog .i{display:block}.ttog .when-off{display:none}.ttog:not(.on) .when-on{display:none}.ttog:not(.on) .when-off{display:block}.ttog:not(.on){opacity:.7}
 [data-acttoggle].on,[data-relaytoggle].on{background:var(--accent-soft);color:var(--accent)}
 .viewtoggle{display:inline-flex;border:1px solid var(--line-strong);border-radius:8px;overflow:hidden}
 .viewtoggle button{font:inherit;font-size:12px;padding:3px 10px;border:0;background:transparent;color:var(--mute);cursor:pointer}
@@ -837,7 +837,7 @@ body:has(.ide) .top .in{max-width:none;padding:8px 14px}
 .subtabs a>span:last-child{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .subtabs a:hover{background:var(--surface-2);color:var(--ink)}
 .subtabs a.on{background:var(--surface);border-color:var(--line-strong);color:var(--ink);box-shadow:var(--shadow)}
-.subtabs a.on:has(+ .subx){padding-right:30px}.subtabs a.subx{position:relative;z-index:1;align-self:center;margin-left:-32px;margin-right:2px;padding:4px;border-radius:6px;color:var(--ink-3);box-shadow:none}.subtabs a.subx:hover{background:var(--surface-2);color:var(--ink)}
+.subtabs a.on:has(+ .subx){padding-right:30px}.subtabs a.subx{position:relative;z-index:1;align-self:center;margin-left:-32px;margin-right:2px;padding:4px;border-radius:6px;color:var(--mute);box-shadow:none}.subtabs a.subx:hover{background:var(--surface-2);color:var(--ink)}
 .subtabs .av{width:18px;height:18px;font-size:9px}
 .subhead{display:flex;align-items:center;gap:10px;padding:10px 12px;margin:2px 0 10px;border:1px solid var(--line);border-radius:12px;background:var(--surface);font-family:"Geist",system-ui,sans-serif}
 .subhead b{font-size:14px}.subhead .subspin,.subhead .subend{width:16px;height:16px}
@@ -926,17 +926,17 @@ pre.term .b8{background:#555a6e}pre.term .b9{background:#d4505a}pre.term .b10{ba
 .galbar .gallay{margin-left:auto}.gallay a{padding:0 9px}
 .glist{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--surface)}
 .glhd,.glist a.glrow{display:grid;grid-template-columns:36px minmax(0,1fr) minmax(0,220px) 76px 150px;gap:14px;align-items:center;padding:6px 14px}
-.glhd{padding:8px 14px;font-size:11.5px;font-weight:500;color:var(--ink-3);border-bottom:1px solid var(--line);background:var(--surface-2)}.glhd>span:nth-child(4){text-align:right}
+.glhd{padding:8px 14px;font-size:11.5px;font-weight:500;color:var(--mute);border-bottom:1px solid var(--line);background:var(--surface-2)}.glhd>span:nth-child(4){text-align:right}
 .glist a.glrow{width:auto;aspect-ratio:auto;margin:0;border:0;border-radius:0;background:none;overflow:visible;color:var(--ink);text-decoration:none;font-size:13px;flex-direction:row;justify-content:normal}
 .glist a.glrow+a.glrow{border-top:1px solid var(--line)}.glist a.glrow:hover{background:var(--surface-2)}.glist a.glrow:hover .glnm{color:var(--accent)}.glist a.glrow:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
 .glth{position:relative;width:36px;height:36px;border-radius:6px;overflow:hidden;display:grid;place-items:center;background:var(--surface-2);border:1px solid var(--line)}
 .glist a.glrow .glth img{width:100%;height:100%;max-width:none;max-height:none;object-fit:cover;border:0;border-radius:0;pointer-events:none}.glth .gext{font-size:9px;letter-spacing:.03em}
 .glplay{position:absolute;inset:0;display:grid;place-items:center;font-size:10px;color:#fff;background:rgba(0,0,0,.35)}
-.glnm{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}.glby{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink-3)}
-.glsz{text-align:right;color:var(--ink-2);font-variant-numeric:tabular-nums}.gldt{color:var(--ink-3);font-variant-numeric:tabular-nums;white-space:nowrap}
+.glnm{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}.glby{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--mute)}
+.glsz{text-align:right;color:var(--ink-2);font-variant-numeric:tabular-nums}.gldt{color:var(--mute);font-variant-numeric:tabular-nums;white-space:nowrap}
 .glist .attgone{opacity:.5}.glist a.glrow.attgone{padding:6px 14px!important}.glist .attgone::before{content:none}.glist .attgone .glth img{display:none!important}
 @media (max-width:640px){.glhd{display:none}.glist a.glrow{grid-template-columns:36px minmax(0,1fr) auto;grid-template-areas:"th nm sz" "th by dt";row-gap:1px;column-gap:10px;padding:8px 10px}.glth{grid-area:th}.glnm{grid-area:nm}.glsz{grid-area:sz;font-size:12px}.glby{grid-area:by;font-size:12px}.gldt{grid-area:dt;font-size:12px;text-align:right}}
-.galempty{padding:64px 16px;text-align:center}.galprune{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--ink-3)}.galprune select{width:auto;height:30px;font-size:13px}.galprune .btn{color:var(--red)}.galmore{display:flex;gap:8px;justify-content:center}
+.galempty{padding:64px 16px;text-align:center}.galprune{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--mute)}.galprune select{width:auto;height:30px;font-size:13px}.galprune .btn{color:var(--red)}.galmore{display:flex;gap:8px;justify-content:center}
 @media (max-width:640px){.galpane{padding:12px 12px 88px}.gal{grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:4px}.gtile{border-radius:6px}.galbar select{min-width:0;flex:1}}
 /* Tickets & MRs (tracked.ts): grouped by who they wait on, an MR under its ticket, each row opening to its history. */
 .trkpane{max-width:1180px;gap:18px;padding-bottom:96px}
@@ -1319,6 +1319,13 @@ h1{font-size:22px;font-weight:620;letter-spacing:-.02em}
 .meter{height:4px;margin-top:7px;border-radius:9px;background:var(--line-strong);overflow:hidden}.meter i{display:block;height:100%;border-radius:9px;background:var(--ink-2)}.meter.amber i{background:var(--amber)}.meter.red i{background:var(--red)}
 .kv .takeswork{display:inline}.kv .takeswork .badge{cursor:pointer;border:0;font:inherit;font-size:11.5px;height:22px;padding:0 9px}
 .irow{display:flex;align-items:center;gap:8px;margin:0 2px 6px;font-size:12.5px;color:var(--ink-2)}.irow form{margin:0}
+/* the agent's loops (loops.ts loopCard): schedule and next run on top, the prompt under it, three lines until clicked */
+.loops{display:flex;flex-direction:column;gap:6px;margin-top:6px}
+.loopc{padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+.loophd{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--ink)}.loophd svg{color:var(--accent);flex:none}.loophd b{font-weight:600}
+.loopnx{margin-left:auto;font-size:11.5px;color:var(--mute);white-space:nowrap;font-variant-numeric:tabular-nums}.loopnx:empty{display:none}.loopnx.soon{color:var(--accent)}
+.looppr{margin-top:5px;font-size:12px;line-height:1.45;color:var(--ink-2);overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;cursor:pointer}.looppr.open{display:block}
+.looppr code{font:500 11.5px "JetBrains Mono","Geist Mono",ui-monospace,monospace;color:var(--accent);background:none;border:0;padding:0}
 .insp .subs{margin:6px 0 0;border:0;border-radius:0;background:none;max-height:none;overflow:visible}
 .insp .sublist{display:flex;flex-direction:column;gap:6px}
 .insp .subag{border:1px solid var(--line);border-radius:10px;background:var(--surface);overflow:hidden}
@@ -1691,10 +1698,25 @@ export const SCRIPT = `
   const stamp = (ts) => { const d = new Date(ts), now = new Date(), y = new Date(now); y.setDate(now.getDate() - 1);
     const hm = d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
     return (d.toDateString() === now.toDateString() ? "Today" : d.toDateString() === y.toDateString() ? "Yesterday" : d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short", ...(d.getFullYear() !== now.getFullYear() ? { year: "numeric" } : {}) })) + " " + hm; };
+  // When a cron runs next, in this browser's time zone (where the agent's machine most likely is); 0 if unreadable.
+  const cronNext = (c, from) => {
+    const f = (c || "").trim().split(/ +/); if (f.length !== 5) return 0;
+    const set = (s, lo, hi) => { const out = new Set(); for (const part of s.split(",")) { const [r, st] = part.split("/"); const step = +st || 1; let a = lo, b = hi;
+      if (r !== "*") { const [x, y] = r.split("-"); a = +x; b = y != null ? +y : st ? hi : +x; } if (isNaN(a) || isNaN(b) || step < 1) return null; for (let i = a; i <= b; i += step) out.add(i); } return out; };
+    const M = set(f[0], 0, 59), H = set(f[1], 0, 23), D = set(f[2], 1, 31), Mo = set(f[3], 1, 12), W = set(f[4], 0, 7);
+    if (!M || !H || !D || !Mo || !W) return 0; if (W.has(7)) W.add(0);
+    const both = f[2] !== "*" && f[4] !== "*", d = new Date(from); d.setSeconds(0, 0);
+    for (let i = 0; i < 11520; i++) { d.setMinutes(d.getMinutes() + 1);
+      if (!M.has(d.getMinutes()) || !H.has(d.getHours()) || !Mo.has(d.getMonth() + 1)) continue;
+      const dm = D.has(d.getDate()), dw = W.has(d.getDay()); if (both ? dm || dw : dm && dw) return d.getTime(); }
+    return 0; };
+  document.addEventListener("click", (e) => { const p = e.target.closest && e.target.closest(".looppr"); if (p && !getSelection().toString()) p.classList.toggle("open"); });
   const left = (ts) => { const m = Math.max(0, Math.round((ts - Date.now()) / 60000)); return m < 60 ? m + "m left" : Math.floor(m / 60) + "h " + (m % 60) + "m left"; };
   function tick() {
     $$("time[data-ts]").forEach((t) => (t.textContent = "short" in t.dataset ? short(+t.dataset.ts) : "date" in t.dataset ? stamp(+t.dataset.ts) : rel(+t.dataset.ts)));
     $$("[data-until]").forEach((t) => (t.textContent = left(+t.dataset.until)));
+    $$(".loopnx[data-cron], .loopnx[data-next]").forEach((t) => { const at = t.dataset.next ? +t.dataset.next : cronNext(t.dataset.cron, Date.now()); const m = Math.round((at - Date.now()) / 60000);
+      t.textContent = !at ? "" : m <= 0 ? "due now" : m < 60 ? "next in " + m + "m" : "next " + stamp(at).replace("Today ", ""); t.classList.toggle("soon", at > 0 && m < 5); });
     $$("[data-from][data-to]").forEach((b) => { const a = +b.dataset.from, z = +b.dataset.to; b.style.width = Math.max(0, Math.min(100, (100 * (z - Date.now())) / (z - a))) + "%"; });
   }
   function days(root = document) {

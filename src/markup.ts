@@ -41,7 +41,7 @@ export const MARKUP_STYLE = `
 .mkbar .mksw[data-color="#16171c"] i{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--ink) 30%,transparent)}.mkbar .mksw[data-color="#16171c"].on i{box-shadow:0 0 0 2px var(--surface),0 0 0 4px color-mix(in srgb,var(--ink) 55%,transparent)}
 .mkbar .mksz i{border-radius:50%;background:currentColor}.mkbar .mksz.on{background:var(--ink);color:var(--bg)}
 .mksep{flex:none;width:1px;height:22px;background:var(--line);margin:0 8px}
-.mkbar .mkclear{color:var(--red);font-size:13px;font-weight:560;padding:0 10px}.mkbar .mkzoom{font-size:12.5px;font-weight:600;font-variant-numeric:tabular-nums;color:var(--ink-3);padding:0 8px}
+.mkbar .mkclear{color:var(--red);font-size:13px;font-weight:560;padding:0 10px}.mkbar .mkzoom{font-size:12.5px;font-weight:600;font-variant-numeric:tabular-nums;color:var(--mute);padding:0 8px}
 .mkstage{flex:1;min-height:0;overflow:auto;margin:0 14px;border-radius:12px;background:var(--surface-2);overscroll-behavior:contain}
 .mkpad{position:relative;min-width:100%;min-height:100%;width:max-content;display:flex;align-items:center;justify-content:center;padding:12px;box-sizing:border-box}
 .mkcv{display:block;touch-action:none;box-shadow:0 1px 2px rgba(0,0,0,.12),0 6px 24px rgba(0,0,0,.12);cursor:crosshair}
