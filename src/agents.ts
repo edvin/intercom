@@ -543,14 +543,14 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   const compactCtl = !canCompact
     ? ""
     : agent.compact_req || agent.compact_prep
-      ? `<form method="post" action="/agent/compact" class="compacting" data-native>${hidden({ session: agent.session_id, back: here, cancel: "1" })}<span class="badge amber" title="${agent.compact_prep ? "It was told to save its state; it's compacted when that turn ends" : "Its intercom-ui mod compacts it when the current turn ends"}">${agent.compact_prep ? "Compacting…" : "Compacting when idle"}</span><button class="btn ghost xs">Call off</button></form>`
+      ? `<form method="post" action="/agent/compact" class="compacting">${hidden({ session: agent.session_id, back: here, cancel: "1" })}<span class="badge amber" title="${agent.compact_prep ? "It was told to save its state; it's compacted when that turn ends" : "Its intercom-ui mod compacts it when the current turn ends"}">${agent.compact_prep ? "Compacting…" : "Compacting when idle"}</span><button class="btn ghost xs">Call off</button></form>`
       : `<button type="button" class="btn ghost xs compactbtn" data-open="dlg-compact" title="Compact its context (like /compact)">Compact</button>`;
   // Its model, switched from here: its mod runs /model between turns (models.ts; Claude Code only).
   const canModel = ownAgent && !switchable(agent, isOn(agent));
   const modelWant = agent.model_req ? (JSON.parse(agent.model_req) as { model: string }).model : "";
   const modelRow = !agent.model && !canModel ? "" : `<dt>Model</dt><dd>${agent.model ? `<span title="${esc(agent.model)}">${esc(modelName(agent.model))}</span>` : `<span class="muted">not known yet</span>`}${
     modelWant
-      ? `<form method="post" action="/agent/model" class="compacting" data-native>${hidden({ session: agent.session_id, back: here, cancel: "1" })}<span class="badge amber" title="Its intercom-ui mod runs /model ${esc(modelWant)} when the current turn ends">to ${esc(modelName(modelWant))} when idle…</span><button class="btn ghost xs">Call off</button></form>`
+      ? `<form method="post" action="/agent/model" class="compacting">${hidden({ session: agent.session_id, back: here, cancel: "1" })}<span class="badge amber" title="Its intercom-ui mod runs /model ${esc(modelWant)} when the current turn ends">to ${esc(modelName(modelWant))} when idle…</span><button class="btn ghost xs">Call off</button></form>`
       : canModel ? `<button type="button" class="btn ghost xs compactbtn" data-open="dlg-model" title="Switch its model (like /model)">Switch</button>` : ""
   }${agent.model_err && !modelWant ? `<div class="small muted">Last switch didn't take: ${esc(agent.model_err)}</div>` : ""}</dd>`;
   // Whether it takes work your other agents hand it (lib.ts delegatedTo): a switch on your own agents.
@@ -728,7 +728,7 @@ ${(() => {
     </section>`;
   const dialogs = ownAgent
     ? `${canCompact ? `<dialog id="dlg-compact"><div class="hd">${icon("layers", 18)}<h2>Compact ${esc(agent.label)}</h2></div>
-        <form method="post" action="/agent/compact" data-native>${hidden({ session: agent.session_id, back: here })}<div class="bd stack">
+        <form method="post" action="/agent/compact">${hidden({ session: agent.session_id, back: here })}<div class="bd stack">
           <p class="small muted" style="margin:0">Like /compact: the conversation so far becomes a summary, freeing its context${agent.ctx_pct != null ? ` (now ${agent.ctx_pct}% full)` : ""}. It runs when the current turn ends.</p>
           <label class="field">What the summary should keep (optional)<textarea name="instructions" rows="3" maxlength="500" placeholder="e.g. the deploy plan and the open review comments"></textarea></label>
           <label class="check"><input type="checkbox" name="first" value="1" checked> Tell it first, so it can save its state and say what to keep (one more turn)</label>
@@ -737,7 +737,7 @@ ${(() => {
         // The one it runs is picked: an alias that names it (opus for claude-opus-…), else Other with its id.
         const now = (agent.model ?? "").toLowerCase(), fam = MODELS.find((m) => m.value !== "default" && now.startsWith(`claude-${m.value}-`))?.value ?? "";
         return `<dialog id="dlg-model"><div class="hd">${icon("cpu", 18)}<h2>Model for ${esc(agent.label)}</h2></div>
-        <form method="post" action="/agent/model" data-native>${hidden({ session: agent.session_id, back: here })}<div class="bd stack">
+        <form method="post" action="/agent/model">${hidden({ session: agent.session_id, back: here })}<div class="bd stack">
           <p class="small muted" style="margin:0">Like /model in its terminal, for this session only${agent.model ? `; it runs ${esc(modelName(agent.model))} now` : ""}. It switches ${agent.state === "working" ? "when its current turn ends" : "right away"}, and the conversation carries on.</p>
           <div class="mdlpick">${MODELS.map((m) => `<label class="mdlopt"><input type="radio" name="model" value="${m.value}"${m.value === fam ? " checked autofocus" : ""} required><b>${m.label}</b>${m.hint ? `<span class="muted">${m.hint}</span>` : ""}</label>`).join("")}
             <label class="mdlopt mdlother"><input type="radio" name="model" value="other"${!fam && now ? " checked autofocus" : ""}><b>Other</b><input name="other" placeholder="a model id, e.g. claude-opus-5-5[1m]" value="${!fam && now ? esc(agent.model ?? "") : ""}" autocomplete="off" spellcheck="false" maxlength="80"></label></div>

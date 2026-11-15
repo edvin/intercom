@@ -2998,8 +2998,11 @@ ${markupScript()}
   addEventListener("pageshow", (e) => { if (e.persisted) $$(".isleaving").forEach((b) => { b.classList.remove("isleaving"); $(".leaving", b).hidden = true; }); });
   async function submit(e) {
     const f = e.target; if (f.dataset.confirm && !f.dataset.ok) { e.preventDefault(); const d = $("#confirm"); if (d) { $("#confirm-text").textContent = f.dataset.confirm; d.showModal(); $("#confirm-yes").onclick = () => { d.close(); f.dataset.ok = "1"; f.requestSubmit(); delete f.dataset.ok; }; } return; }
-    if (f.hasAttribute("data-native")) return leaving(f);
+    // A dialog closes the moment it's sent, like a native app; it opens again, as filled in, if sending fails.
+    const dlg = f.closest("dialog");
+    if (f.hasAttribute("data-native")) { if (dlg && !f.dataset.leaving) dlg.close(); return leaving(f); }
     e.preventDefault();
+    if (dlg && dlg.open && !f._busy) dlg.close();
     // One send at a time: a phone can fire a second submit for the same tap a few milliseconds later.
     if (f._busy) return; f._busy = true;
     // A phone keyboard still composing a word puts it back after the field is cleared: finish it first.
@@ -3023,6 +3026,8 @@ ${markupScript()}
       const w = document.createElement("span"); w.className = "when"; w.textContent = "sending…"; ghost.append(w);
       th0.append(ghost); th0.scrollTop = th0.scrollHeight;
     }
+    // A dialog that was redrawn while sending is a new element: open the one with this form's id.
+    const reopen = () => { const d = dlg && ((dlg.id && document.getElementById(dlg.id)) || dlg); d && d.isConnected && !d.open && d.showModal(); };
     const restore = () => { ghost && ghost.remove(); const t = chat && (document.getElementById(chat.id) || chat); if (t && !t.value) { t.value = unsent; drafts.set(t); } };
     (f._imgs || []).forEach((it) => data.append("image", it.file, it.file.name));
     try {
@@ -3034,9 +3039,9 @@ ${markupScript()}
       if (!err) $$("textarea[id]", f).forEach((t) => { t.value = ""; t.style.height = ""; drafts.set(t); });
       if (res.ok) await swap(await res.text());
       if (err) restore();
-      if (err) toast(err, true); else { if (!f.hasAttribute("data-quiet")) toast(ok); f.reset(); if (f._afterSend) { f._afterSend(); f._afterSend = null; } if (f._imgs) { f._imgs.forEach((it) => URL.revokeObjectURL(it.url)); f._imgs = []; drawTray(f); } const d = f.closest("dialog"); d && d.close(); const ci = f.querySelector("#chat-input"); ci && !touch && ci.focus(); }
+      if (err) { toast(err, true); reopen(); } else { if (!f.hasAttribute("data-quiet")) toast(ok); f.reset(); if (f._afterSend) { f._afterSend(); f._afterSend = null; } if (f._imgs) { f._imgs.forEach((it) => URL.revokeObjectURL(it.url)); f._imgs = []; drawTray(f); } const d = f.closest("dialog"); d && d.open && d.close(); const ci = f.querySelector("#chat-input"); ci && !touch && ci.focus(); }
       if (link) { $("#invite-link").textContent = link; $("#invite-copy").dataset.copy = link; $("#invite-dlg").showModal(); }
-    } catch { restore(); toast("Network error — try again", true); }
+    } catch { restore(); reopen(); toast("Network error — try again", true); }
     btns.forEach((b) => (b.disabled = false)); f._busy = false;
   }
   // Waiting for you, redrawn card by card: a card that hasn't changed stays as it is (what you picked or typed in it,
