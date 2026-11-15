@@ -1,5 +1,6 @@
 // Files from agents (view=files): every image and file an agent shared where you can see it, as a grid of
-// thumbnails without the messages around them (a file that isn't an image shows its type, name and size). Filter by agent, project and kind; an image opens in the viewer
+// thumbnails without the messages around them, or as a list with name, who shared it, size and when (the default for
+// files, which have no picture to show). Filter by agent, project and kind; an image opens in the viewer
 // (← → step through the grid), a file opens in the reader or downloads. Kept as long as the files are (30 days).
 
 import { RETENTION_DAYS, VIDEO_EXTS, isImage, playable, readableName, size, thumbKey, videoType } from "./attachments";
@@ -84,6 +85,9 @@ export async function galleryView(env: Env, me: string, url: URL): Promise<strin
   const filters = galleryFilters((k) => p.get(k));
   const { agent, project, kind } = filters;
   const before = Number(p.get("before")) || 0;
+  // A list unless you look at images or videos only: a file has no picture, so a tile of it says little.
+  const listDefault = kind === "files" || kind === "all";
+  const asList = kind === "files" || (p.get("layout") === "list" ? true : p.get("layout") === "grid" ? false : listDefault);
   const { where, binds } = scope(me, filters);
   const since = binds[1] as number;
   // Clean up: how many of your agents' files (with these filters) each choice would delete.
@@ -134,7 +138,7 @@ export async function galleryView(env: Env, me: string, url: URL): Promise<strin
 
   const link = (over: Record<string, string>) => {
     const q = new URLSearchParams({ view: "files" });
-    const all = { agent, project, kind: kind === "images" ? "" : kind, ...over };
+    const all = { agent, project, kind: kind === "images" ? "" : kind, layout: kind !== "files" && asList !== listDefault ? (asList ? "list" : "grid") : "", ...over };
     for (const [k, v] of Object.entries(all)) if (v) q.set(k, v);
     return `/dashboard?${q}`;
   };
@@ -145,10 +149,11 @@ export async function galleryView(env: Env, me: string, url: URL): Promise<strin
 
   const bar = `<form class="galbar" method="get" action="/dashboard" data-native>
     <input type="hidden" name="view" value="files">${kind === "images" ? "" : `<input type="hidden" name="kind" value="${kind}">`}
-    <nav class="seg" aria-label="Kind">${seg("images", "Images", "image")}${seg("videos", "Videos", "film")}${seg("files", "Files", "file")}${seg("all", "All", "layers")}</nav>
+    <nav class="seg" aria-label="Kind">${seg("images", "Images", "image")}${seg("videos", "Videos", "film")}${seg("files", "Files", "file")}${seg("all", "All", "layers")}</nav>${asList !== listDefault ? `<input type="hidden" name="layout" value="${asList ? "list" : "grid"}">` : ""}
     <select name="agent" aria-label="Agent" onchange="this.form.requestSubmit()">${opt("", "All agents", !agent)}${agentKeys.map((k) => opt(k, who(k), k === agent)).join("")}</select>
     <select name="project" aria-label="Project" onchange="this.form.requestSubmit()">${opt("", "All projects", !project)}${projectKeys.map((k) => opt(k, `#${k}`, k === project)).join("")}</select>
     ${agent || project ? `<a class="btn ghost sm" href="${esc(link({ agent: "", project: "", before: "" }))}" title="Clear the filters">${icon("x", 13)}<span class="lbl">Clear</span></a>` : ""}
+    ${kind === "files" ? "" : `<nav class="seg gallay" aria-label="Layout"><a href="${esc(link({ layout: listDefault ? "grid" : "" }))}"${asList ? "" : ' class="on"'} title="Thumbnails">${icon("grid", 14)}</a><a href="${esc(link({ layout: listDefault ? "" : "list" }))}"${asList ? ' class="on"' : ""} title="List with sizes and dates">${icon("list", 14)}</a></nav>`}
   </form>`;
 
   // Each tile only: no message, no name under it. The name, agent and age are its tooltip.
@@ -164,6 +169,22 @@ export async function galleryView(env: Env, me: string, url: URL): Promise<strin
     const stem = f.name.replace(/\.[a-z0-9]{1,8}$/i, "");
     const href = readableName(f.name) ? `/attachment/${f.id}/view` : `/attachment/${f.id}`;
     return `<a class="gtile gfile" href="${href}" data-name="${esc(f.name)}" data-size="${esc(size(f.bytes))}"${readableName(f.name) ? ' target="_blank" rel="noopener"' : ` download="${esc(f.name)}"`} title="${esc(`${f.name} · ${size(f.bytes)} · ${from}`)}">${icon("file", 26)}<span class="gext">${esc(ext)}</span><span class="gname">${esc(stem)}</span><span class="gsize">${esc(size(f.bytes))}</span></a>`;
+  };
+
+  // A row: a small thumbnail (or the file's type), its name, who shared it where, its size and when. The same link and
+  // classes as a tile, so it opens in the viewer and ← → step through the list.
+  const row = (f: Item) => {
+    const by = `${who(`${f.sender}/${f.sender_agent}`)} · #${f.channel}`;
+    const ext = (/\.([a-z0-9]{1,8})$/i.exec(f.name)?.[1] ?? "file").toUpperCase();
+    const vid = !isImage(f.mime) && playable(videoType(f.name, f.mime));
+    const lead = isImage(f.mime)
+      ? `<img src="/attachment/${f.id}/thumb" alt="" loading="lazy" decoding="async">`
+      : vid ? `<img src="/attachment/${f.id}/thumb" alt="" loading="lazy" decoding="async" data-poster><span class="glplay">▶</span>` : `<span class="gext">${esc(ext.slice(0, 4))}</span>`;
+    const cells = `<span class="glth">${lead}</span><span class="glnm">${esc(f.name)}</span><span class="glby">${esc(by)}</span><span class="glsz">${esc(size(f.bytes))}</span><time class="gldt" data-ts="${f.created_at}" data-date title="${new Date(f.created_at).toISOString()}">${esc(ago(f.created_at))}</time>`;
+    if (isImage(f.mime)) return `<a class="att glrow" href="/attachment/${f.id}" data-name="${esc(f.name)}">${cells}</a>`;
+    if (vid) return `<a class="attv glrow" href="/attachment/${f.id}" data-video data-name="${esc(f.name)}">${cells}</a>`;
+    const href = readableName(f.name) ? `/attachment/${f.id}/view` : `/attachment/${f.id}`;
+    return `<a class="gfile glrow" href="${href}" data-name="${esc(f.name)}" data-size="${esc(size(f.bytes))}"${readableName(f.name) ? ' target="_blank" rel="noopener"' : ` download="${esc(f.name)}"`}>${cells}</a>`;
   };
 
   // Clean up: keep the last day / 3 days / week / 2 weeks of what your agents shared, with the filters as they are.
@@ -190,7 +211,7 @@ export async function galleryView(env: Env, me: string, url: URL): Promise<strin
   return `<div class="pane-in galpane">
     <header class="flhead"><div><h1>Files from agents</h1><p class="muted">${total ? `${imgs} image${imgs === 1 ? "" : "s"}, ${vids} video${vids === 1 ? "" : "s"} and ${total - imgs - vids} other file${total - imgs - vids === 1 ? "" : "s"} in the last ${RETENTION_DAYS} days.` : `Nothing shared in the last ${RETENTION_DAYS} days.`}</p></div>${prune}</header>
     ${bar}
-    ${shown.length ? `<div class="gal" data-gallery>${shown.map(tile).join("")}</div>` : empty}
+    ${!shown.length ? empty : asList ? `<div class="glist" data-gallery><div class="glhd" aria-hidden="true"><span></span><span>Name</span><span>Shared by</span><span>Size</span><span>When</span></div>${shown.map(row).join("")}</div>` : `<div class="gal" data-gallery>${shown.map(tile).join("")}</div>`}
     ${more || before ? `<nav class="galmore">${before ? `<a class="btn ghost sm" href="${esc(link({ before: "" }))}">${icon("back", 13)}Newest</a>` : ""}${more ? `<a class="btn sm" href="${esc(link({ before: String(shown[shown.length - 1].id) }))}">Older${icon("arrow", 13)}</a>` : ""}</nav>` : ""}
   </div>`;
 }

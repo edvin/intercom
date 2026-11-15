@@ -1888,8 +1888,15 @@ describe("share_file", () => {
     assert.match(String(th.status), /^30[1-8]$/);
     assert.match(th.headers.get("location")!, /\/attachment\/3$/);
     const files = await view("bob", "&kind=files");
-    assert.match(files, /href="\/attachment\/1\/view" data-name="build.log" data-size="1 B" target="_blank"[^>]*>.*<span class="gext">LOG<\/span><span class="gname">build<\/span><span class="gsize">1 B<\/span>/);
+    // Files are a list: type, name, who shared it where, size and when; no layout switch (a file has no picture).
+    assert.match(files, /class="gfile glrow" href="\/attachment\/1\/view" data-name="build.log" data-size="1 B" target="_blank"[^>]*>.*<span class="gext">LOG<\/span><\/span><span class="glnm">build\.log<\/span><span class="glby">[^<]*#[^<]*<\/span><span class="glsz">1 B<\/span><time class="gldt" data-ts="\d+" data-date/);
     assert.match(files, /href="\/attachment\/2" data-name="r\.zip" data-size="[^"]*" download="r\.zip"[^>]*>.*<span class="gext">ZIP<\/span>/);
+    assert.doesNotMatch(files, /class="gtile|gallay/);
+    // Images are thumbnails unless you ask for the list; All is a list unless you ask for thumbnails.
+    assert.match(await view("bob", ""), /class="gal" data-gallery/);
+    assert.match(await view("bob", "&layout=list"), /class="glist" data-gallery[\s\S]*class="att glrow"/);
+    assert.match(await view("bob", "&kind=all"), /class="glist" data-gallery/);
+    assert.match(await view("bob", "&kind=all&layout=grid"), /class="gal" data-gallery/);
     // Alice sees what came to her and to her project, not bob's own DM; carol, outside billing, sees nothing.
     const alice = await view("alice", "&kind=all");
     assert.match(alice, /\/attachment\/2"/);
@@ -1901,7 +1908,7 @@ describe("share_file", () => {
     assert.match(bob, /<option value="bob\/core">core<\/option>/);
     assert.match(await view("bob", "&kind=all&agent=bob%2Fother"), /Nothing here with these filters/);
     assert.match(await view("bob", "&kind=all&project=billing"), /\/attachment\/3"[\s\S]*(?!\/attachment\/1)/);
-    assert.doesNotMatch(await view("bob", "&kind=all&project=shop"), /class="gal"/);
+    assert.doesNotMatch(await view("bob", "&kind=all&project=shop"), /data-gallery/);
     // The tree links to it, and an agent's chat links to its own files.
     assert.match(bob, /href="\/dashboard\?view=files" title="Files from agents"/);
     assert.match(await (await w.request("/dashboard?view=agents&agent=bob%2Fcore", { as: "bob", cookie: true })).text(), /href="\/dashboard\?view=files&amp;agent=bob%2Fcore"/);

@@ -41,6 +41,8 @@ const ICONS: Record<string, string> = {
   branch: '<path d="M6 3v12"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/>',
   unlock: '<rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/>',
   check: '<path d="M20 6 9 17l-5-5"/>',
+  list: '<path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/>',
+  grid: '<rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/>',
   x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
   plus: '<path d="M5 12h14"/><path d="M12 5v14"/>',
   hash: '<path d="M4 9h16"/><path d="M4 15h16"/><path d="M10 3 8 21"/><path d="M16 3l-2 18"/>',
@@ -920,6 +922,20 @@ pre.term .b8{background:#555a6e}pre.term .b9{background:#d4505a}pre.term .b10{ba
 .gfile{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:var(--mute);text-decoration:none}.gfile:hover{color:var(--accent)}
 .gext{font:600 11px/1 "JetBrains Mono","Geist Mono",ui-monospace,monospace;letter-spacing:.06em;color:var(--ink-2)}.gfile{gap:6px;padding:12px}.gname{max-width:100%;font-size:12px;line-height:1.35;color:var(--ink);text-align:center;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}.gsize{font-size:11px;color:var(--mute)}.gfile:hover .gname{color:var(--accent)}
 @media (max-width:640px){.gfile{padding:6px;gap:3px}.gfile .i{width:18px;height:18px}.gname{font-size:10.5px;-webkit-line-clamp:3}.gsize{font-size:10px}}
+/* the list (gallery.ts row): thumbnail, name, who shared it, size, when; on a phone the last three go under the name */
+.galbar .gallay{margin-left:auto}.gallay a{padding:0 9px}
+.glist{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--surface)}
+.glhd,.glist a.glrow{display:grid;grid-template-columns:36px minmax(0,1fr) minmax(0,220px) 76px 150px;gap:14px;align-items:center;padding:6px 14px}
+.glhd{padding:8px 14px;font-size:11.5px;font-weight:500;color:var(--ink-3);border-bottom:1px solid var(--line);background:var(--surface-2)}.glhd>span:nth-child(4){text-align:right}
+.glist a.glrow{width:auto;aspect-ratio:auto;margin:0;border:0;border-radius:0;background:none;overflow:visible;color:var(--ink);text-decoration:none;font-size:13px;flex-direction:row;justify-content:normal}
+.glist a.glrow+a.glrow{border-top:1px solid var(--line)}.glist a.glrow:hover{background:var(--surface-2)}.glist a.glrow:hover .glnm{color:var(--accent)}.glist a.glrow:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.glth{position:relative;width:36px;height:36px;border-radius:6px;overflow:hidden;display:grid;place-items:center;background:var(--surface-2);border:1px solid var(--line)}
+.glist a.glrow .glth img{width:100%;height:100%;max-width:none;max-height:none;object-fit:cover;border:0;border-radius:0;pointer-events:none}.glth .gext{font-size:9px;letter-spacing:.03em}
+.glplay{position:absolute;inset:0;display:grid;place-items:center;font-size:10px;color:#fff;background:rgba(0,0,0,.35)}
+.glnm{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}.glby{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink-3)}
+.glsz{text-align:right;color:var(--ink-2);font-variant-numeric:tabular-nums}.gldt{color:var(--ink-3);font-variant-numeric:tabular-nums;white-space:nowrap}
+.glist .attgone{opacity:.5}.glist a.glrow.attgone{padding:6px 14px!important}.glist .attgone::before{content:none}.glist .attgone .glth img{display:none!important}
+@media (max-width:640px){.glhd{display:none}.glist a.glrow{grid-template-columns:36px minmax(0,1fr) auto;grid-template-areas:"th nm sz" "th by dt";row-gap:1px;column-gap:10px;padding:8px 10px}.glth{grid-area:th}.glnm{grid-area:nm}.glsz{grid-area:sz;font-size:12px}.glby{grid-area:by;font-size:12px}.gldt{grid-area:dt;font-size:12px;text-align:right}}
 .galempty{padding:64px 16px;text-align:center}.galprune{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--ink-3)}.galprune select{width:auto;height:30px;font-size:13px}.galprune .btn{color:var(--red)}.galmore{display:flex;gap:8px;justify-content:center}
 @media (max-width:640px){.galpane{padding:12px 12px 88px}.gal{grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:4px}.gtile{border-radius:6px}.galbar select{min-width:0;flex:1}}
 /* Tickets & MRs (tracked.ts): grouped by who they wait on, an MR under its ticket, each row opening to its history. */
@@ -1671,9 +1687,13 @@ export const SCRIPT = `
     if (s < 86400) return Math.round(s / 3600) + "h ago"; return Math.round(s / 86400) + "d ago"; };
   const short = (ts) => { const s = Math.round((Date.now() - ts) / 1000);
     return s < 60 ? "now" : s < 3600 ? Math.floor(s / 60) + "m" : s < 86400 ? Math.floor(s / 3600) + "h" : Math.floor(s / 86400) + "d"; };
+  // A date and time in your own time zone: "Today 14:32", "Yesterday 09:10", "Wed 12 Nov 14:32".
+  const stamp = (ts) => { const d = new Date(ts), now = new Date(), y = new Date(now); y.setDate(now.getDate() - 1);
+    const hm = d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+    return (d.toDateString() === now.toDateString() ? "Today" : d.toDateString() === y.toDateString() ? "Yesterday" : d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short", ...(d.getFullYear() !== now.getFullYear() ? { year: "numeric" } : {}) })) + " " + hm; };
   const left = (ts) => { const m = Math.max(0, Math.round((ts - Date.now()) / 60000)); return m < 60 ? m + "m left" : Math.floor(m / 60) + "h " + (m % 60) + "m left"; };
   function tick() {
-    $$("time[data-ts]").forEach((t) => (t.textContent = "short" in t.dataset ? short(+t.dataset.ts) : rel(+t.dataset.ts)));
+    $$("time[data-ts]").forEach((t) => (t.textContent = "short" in t.dataset ? short(+t.dataset.ts) : "date" in t.dataset ? stamp(+t.dataset.ts) : rel(+t.dataset.ts)));
     $$("[data-until]").forEach((t) => (t.textContent = left(+t.dataset.until)));
     $$("[data-from][data-to]").forEach((b) => { const a = +b.dataset.from, z = +b.dataset.to; b.style.width = Math.max(0, Math.min(100, (100 * (z - Date.now())) / (z - a))) + "%"; });
   }
