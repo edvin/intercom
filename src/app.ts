@@ -923,6 +923,36 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
     }
     return redirect(back.pathname + back.search);
   }
+  const info = url.pathname.match(/^\/attachment\/(\d+)\/info$/);
+  if (info && req.method === "GET") {
+    // Who an image or video came from, for the viewer: "from core · #billing · 2h ago", and the agent a marked-up
+    // copy goes back to (markup.ts). The agent that sent it; for one you sent, the agent you sent it to.
+    const a = await getAttachment(env, me, Number(info[1]));
+    if (!a) return json({ error: "not found" }, 404);
+    const m = a.message_id
+      ? await env.DB.prepare("SELECT channel, sender, sender_agent, recipient, recipient_agent, created_at FROM messages WHERE id = ?")
+          .bind(a.message_id)
+          .first<{ channel: string; sender: string; sender_agent: string | null; recipient: string | null; recipient_agent: string | null; created_at: number }>()
+      : null;
+    if (!m) return json({ name: a.name, at: a.created_at, from: null, to: null });
+    const mine = m.sender === me && !m.sender_agent;
+    const other = mine ? (m.recipient && m.recipient_agent ? { member: m.recipient, agent: m.recipient_agent } : null) : m.sender_agent ? { member: m.sender, agent: m.sender_agent } : null;
+    const label = (x: { member: string; agent: string }) => (x.member === me ? x.agent : address(x.member, x.agent));
+    // A direct message sent from the dashboard has no project ("dm"): the agent's own then.
+    const project =
+      m.channel !== "dm"
+        ? m.channel
+        : other
+          ? ((await env.DB.prepare("SELECT project FROM sessions WHERE member = ? AND label = ? ORDER BY last_seen DESC LIMIT 1").bind(other.member, other.agent).first<{ project: string }>())?.project ?? "")
+          : "";
+    return json({
+      name: a.name,
+      at: m.created_at,
+      project,
+      from: mine ? "you" : m.sender_agent ? label({ member: m.sender, agent: m.sender_agent }) : m.sender,
+      to: other ? { address: address(other.member, other.agent), label: label(other), project } : null,
+    });
+  }
   const view = url.pathname.match(/^\/attachment\/(\d+)\/view$/);
   if (view && req.method === "GET") {
     // A shared text file (a Markdown review, a log) to read in the dashboard (reader.ts); anything else downloads.

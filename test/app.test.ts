@@ -1800,6 +1800,32 @@ describe("images with messages", () => {
 });
 
 describe("share_file", () => {
+  test("the image viewer learns who made an image and which agent a marked-up copy goes to; others' stay private", async () => {
+    const w = await standardWorld();
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=v1&name=core", { as: "bob" });
+    const s = { id: "v1", project: "billing-api" };
+    const png = Buffer.from("png").toString("base64");
+    await w.ok("bob", "share_file", { path: "shot.png", _file: { name: "shot.png", mime: "image/png", data: png } }, s);
+    const info = async (id: number, as = "bob") => {
+      const r = await w.request(`/attachment/${id}/info`, { as, cookie: true });
+      return { status: r.status, body: r.status === 200 ? ((await r.json()) as Record<string, unknown>) : null };
+    };
+    // An agent's image: from that agent, and a mark-up goes back to it.
+    const got = await info(1);
+    assert.equal(got.body!.from, "core");
+    assert.deepEqual(got.body!.to, { address: "bob/core", label: "core", project: "billing" });
+    // One you sent to an agent from the dashboard: from you, and a mark-up goes to that agent.
+    const form = new FormData();
+    form.set("message", "look"); form.set("to", "bob/core"); form.set("channel", "billing"); form.set("back", "/dashboard");
+    form.append("image", new File([Buffer.from("png")], "mine.png", { type: "image/png" }));
+    await w.request("/action/post", { method: "POST", as: "bob", cookie: true, headers: { origin: ORIGIN }, body: form, redirect: "manual" });
+    const mine = await info(2);
+    assert.equal(mine.body!.from, "you");
+    assert.deepEqual(mine.body!.to, { address: "bob/core", label: "core", project: "billing" });
+    // Someone outside the conversation learns nothing.
+    assert.equal((await info(1, "carol")).status, 404);
+  });
+
   test("an agent shares a file from its machine: it lands in its user's dashboard; images preview, other files only download", async () => {
     const w = await standardWorld();
     await w.request("/api/hook?event=SessionStart&project=billing-api&session=sf1&name=core", { as: "bob" });

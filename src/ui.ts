@@ -1,4 +1,5 @@
 import type { Delivery } from "./lib";
+import { MARK_ICON, MARKUP_STYLE, markupScript } from "./markup";
 // Design system for the web pages: tokens, components and the page shell. No framework, no build step:
 // one stylesheet and a small script, served inline with every page (fonts are served from the edge).
 
@@ -429,7 +430,7 @@ form.dropping{outline:2px dashed var(--accent);outline-offset:4px;border-radius:
 /* The image viewer: the image over a dark backdrop, a bar with its name, download and close (clear of a phone's status bar and notch). */
 .imgview{position:fixed;inset:0;width:100vw;height:100dvh;max-width:none;max-height:none;margin:0;padding:0;border:0;border-radius:0;background:rgba(6,8,14,.94);color:#e8e9ef;display:none;flex-direction:column}.imgview[open]{display:flex}.imgview:focus{outline:none}.imgview::backdrop{background:transparent}
 .ivbar{flex:none;display:flex;align-items:center;gap:6px;padding:max(8px,env(safe-area-inset-top)) max(8px,env(safe-area-inset-right)) 8px max(16px,env(safe-area-inset-left))}
-.ivname{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13.5px;font-weight:560;color:#c6c8d6}
+.ivname{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}.ivname>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.ivn{font-size:13.5px;font-weight:560;color:#c6c8d6}.ivwho{font-size:12px;color:#8d90a3}.ivwho[hidden]{display:none}
 .ivbar .btn{color:#e8e9ef;width:44px;height:44px;justify-content:center}.ivbar .btn:hover{background:rgba(255,255,255,.1);color:#fff}
 .ivbody{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;padding:8px 8px max(16px,env(safe-area-inset-bottom));overflow:auto;touch-action:pinch-zoom pan-x pan-y}
 .ivbody img{max-width:100%;max-height:100%;object-fit:contain;border-radius:6px;box-shadow:0 10px 40px rgba(0,0,0,.5)}
@@ -1617,7 +1618,7 @@ article.mdfile[hidden]{display:none}
 .relaygroup[open]>summary{margin-bottom:4px;border-style:solid}
 .norelay .relaygroup{display:none}
 @media (max-width:640px){.relay .rcard{max-width:94%}}
-
+${MARKUP_STYLE}
 `;
 
 // Client behaviour: relative times, day separators, copy buttons, dialogs, toasts, progressive form submits
@@ -1693,7 +1694,10 @@ export const SCRIPT = `
       else { d.innerHTML = ${JSON.stringify(icon("file", 15))}; const n = document.createElement("span"); n.className = "fname"; n.textContent = it.file.name || "file"; const s = document.createElement("span"); s.className = "fsize"; s.textContent = kb(it.file.size); d.append(n, s); d.title = it.file.name; }
       const x = document.createElement("button"); x.type = "button"; x.textContent = "×"; x.title = "Remove";
       x.onclick = () => { if (it.url) URL.revokeObjectURL(it.url); f._imgs.splice(i, 1); drawTray(f); };
-      d.appendChild(x); tray.appendChild(d);
+      d.appendChild(x);
+      // Draw on it: boxes, arrows, a pen, text (markup.ts).
+      if (it.url && it.file.type !== "image/gif") { const m = document.createElement("button"); m.type = "button"; m.className = "mkbtn"; m.innerHTML = MK_ICON; m.title = it.shapes ? "Change your marks" : "Mark up: draw boxes, arrows or text on it"; m.setAttribute("aria-label", m.title); m.onclick = () => markTrayImage(f, it); d.appendChild(m); }
+      tray.appendChild(d);
     });
     const t = f.querySelector("textarea"); if (t) t.required = !f._imgs.length;
   }
@@ -1729,7 +1733,7 @@ export const SCRIPT = `
     f.addEventListener("drop", async (e) => { f.classList.remove("dropping"); if (e.dataTransfer && e.dataTransfer.files.length) { e.preventDefault(); await addImages(f, e.dataTransfer.files); } });
     drawTray(f);
   }
-
+${markupScript()}
   // btw mode in an agent's chat: side questions, answered from its context without adding to it. Remembered per
   // agent while the page is open, so live redraws keep it.
   const btwOn = {}, btwFresh = {};
@@ -2682,9 +2686,25 @@ export const SCRIPT = `
     if (!v) {
       v = document.createElement("dialog");
       v.id = "imgview"; v.className = "imgview"; v.setAttribute("autofocus", ""); v.tabIndex = -1;
-      v.innerHTML = '<div class="ivbar"><span class="ivname"></span><a class="btn ghost sm icon ivdl" title="Download" download>${icon("download", 18)}</a><button type="button" class="btn ghost sm icon ivx" title="Close">${icon("x", 22)}</button></div><div class="ivbody"><img alt=""><video controls playsinline hidden></video></div>';
+      v.innerHTML = '<div class="ivbar"><span class="ivname"><span class="ivn"></span><span class="ivwho"></span></span><button type="button" class="btn ghost sm icon ivmk" title="Mark up and send back" hidden>${MARK_ICON(18)}</button><a class="btn ghost sm icon ivdl" title="Download" download>${icon("download", 18)}</a><button type="button" class="btn ghost sm icon ivx" title="Close">${icon("x", 22)}</button></div><div class="ivbody"><img alt=""><video controls playsinline hidden></video></div>';
       document.body.appendChild(v);
       v.querySelector(".ivx").onclick = () => v.close();
+      // Mark up the image you're looking at and send it to the agent of this chat, with what's wrong (markup.ts).
+      v.querySelector(".ivmk").onclick = async () => {
+        const to = v._to; if (!to) return;
+        const opts = { name: v._name, to, send: to.label, okLabel: "Send to " + to.label, done: sendMarked };
+        const vid = v.querySelector("video");
+        if (!vid.hidden) {
+          // A video: the frame it shows now (pause where you mean).
+          if (!vid.videoWidth) { toast("Play the video to the moment you mean first", true); return; }
+          vid.pause();
+          const c = document.createElement("canvas"); c.width = vid.videoWidth; c.height = vid.videoHeight; c.getContext("2d").drawImage(vid, 0, 0);
+          const t = Math.floor(vid.currentTime), at = Math.floor(t / 60) + "m" + String(t % 60).padStart(2, "0") + "s";
+          const blob = await new Promise((r) => c.toBlob(r, "image/png"));
+          const base = v._name.replace(/[.][^.]*$/, "");
+          markUp({ ...opts, name: v._name + " at " + at, file: new File([blob], base + "-" + at + ".png", { type: "image/png" }) });
+        } else markUp({ ...opts, url: v._href });
+      };
       v.querySelector(".ivbody").onclick = (ev) => { if (v._dragged) { v._dragged = false; return; } if (ev.target.tagName !== "IMG" && ev.target.tagName !== "VIDEO") v.close(); };
       zoomable(v);
       v.addEventListener("close", () => { const vid = v.querySelector("video"); vid.pause(); vid.removeAttribute("src"); vid.load(); });
@@ -2715,8 +2735,25 @@ export const SCRIPT = `
         fresh.src = href;
         if (fresh.complete) done();
       }
-      v.querySelector(".ivname").textContent = name + (v._list.length > 1 ? "  ·  " + (v._at + 1) + " / " + v._list.length : "");
+      v.querySelector(".ivn").textContent = name + (v._list.length > 1 ? "  ·  " + (v._at + 1) + " / " + v._list.length : "");
       v.querySelector(".ivdl").href = href; v.querySelector(".ivdl").setAttribute("download", name);
+      v._href = href; v._name = name;
+      // Who made it, and the agent a marked-up copy goes to: asked of the hub for a message's attachment (in this
+      // chat, failing that, its agent; a file fetched from an agent's machine, that agent).
+      const mkb = v.querySelector(".ivmk"), who = v.querySelector(".ivwho"), cf = document.getElementById("chatform");
+      const chatTo = cf && !cf.dataset.sub ? { address: cf.dataset.agent, label: cf.dataset.label || "the agent", project: "" } : null;
+      const fromFile = (href.match(/[?&]agent=([^&]+)/) || [])[1];
+      const setTo = (to, line) => {
+        v._to = to; mkb.hidden = !to; who.textContent = line || ""; who.hidden = !line;
+        if (to) mkb.title = "Mark up" + (isVid ? " this frame" : "") + " and send it to " + to.label;
+      };
+      setTo(fromFile ? { address: decodeURIComponent(fromFile), label: decodeURIComponent(fromFile).split("/").pop(), project: "" } : chatTo, "");
+      const aid = (href.match(/^[/]attachment[/]([0-9]+)/) || [])[1], ask = v._ask = (v._ask || 0) + 1;
+      if (aid) fetch("/attachment/" + aid + "/info", { credentials: "same-origin" }).then((r) => r.ok ? r.json() : null).then((j) => {
+        if (!j || ask !== v._ask) return;
+        const line = [j.from ? "from " + j.from : "", j.project ? "#" + j.project : "", j.at ? rel(j.at) : ""].filter(Boolean).join(" · ");
+        setTo(j.to || chatTo, line);
+      }).catch(() => {});
     };
     v._step = (step) => {
       if (v._list.length < 2) return false;
