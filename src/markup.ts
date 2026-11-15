@@ -50,7 +50,8 @@ export const MARKUP_STYLE = `
 .mktext{position:absolute;z-index:2;min-width:120px;border:1.5px dashed var(--accent);border-radius:4px;background:color-mix(in srgb,var(--surface) 75%,transparent);padding:0 4px;font-family:"Geist",system-ui,sans-serif;font-weight:650;outline:none;box-sizing:content-box}
 .mkhint{flex:none;margin:8px 18px 0}
 .mksend{flex:none;padding:10px 18px 0}.mksend[hidden]{display:none}.mksend label{display:block;font-weight:600;margin-bottom:5px}.mksend textarea{width:100%;box-sizing:border-box;resize:vertical;min-height:52px}.mkto{margin:6px 0 0;display:flex;align-items:center;gap:6px;flex-wrap:wrap}.mkto label{display:inline;margin:0;font-weight:500}.mkto select{height:28px;font-size:12.5px;padding:0 6px;max-width:100%}
-.mkft{flex:none;display:flex;justify-content:flex-end;gap:8px;padding:12px 18px 16px}
+.mkft{flex:none;display:flex;justify-content:flex-end;align-items:center;gap:8px;padding:12px 18px 16px}
+.mkcrop{margin-right:auto;display:flex;align-items:center;gap:6px;color:var(--ink-2);cursor:pointer;user-select:none}.mkcrop[hidden]{display:none}.mkcrop input{margin:0;accent-color:var(--accent,#7c5cff)}
 .imgthumb .mkbtn{position:absolute;top:auto;right:auto;left:-6px;bottom:-6px;width:22px;height:22px;border-radius:50%;border:0;background:var(--ink);color:var(--bg);display:grid;place-items:center;padding:0;cursor:pointer}
 .imgthumb .mkbtn svg{width:13px;height:13px}
 @media (max-width:560px){
@@ -89,13 +90,13 @@ export function markupScript(): string {
     .map(([k, n, d]) => `<button type="button" class="mksz" data-size="${k}" title="${n}" aria-label="${n}"><i style="width:${d}px;height:${d}px"></i></button>`)
     .join("");
   const bar = `${tools}<span class="mksep"></span>${colors}<span class="mksep"></span>${sizes}<span class="mksep"></span><button type="button" data-mk="undo" title="Undo (Ctrl+Z)" aria-label="Undo">${svg("undo")}</button><button type="button" data-mk="redo" title="Redo (Ctrl+Shift+Z)" aria-label="Redo">${svg("redo")}</button><button type="button" data-mk="del" title="Delete the selected mark (Delete)" aria-label="Delete the selected mark">${svg("trash")}</button><button type="button" class="mkclear" data-mk="clear">Clear all</button><button type="button" class="mkzoom" data-mk="fit" title="Fit the image to the window">100%</button>`;
-  const html = `<div class="mkhd"><b class="mktitle"></b><button type="button" class="btn ghost sm icon" data-mk="cancel" title="Cancel">${svg("x", 18)}</button></div><div class="mkbar" role="toolbar" aria-label="Mark-up tools">${bar}</div><div class="mkstage"><div class="mkpad"><canvas class="mkcv"></canvas><input class="mktext" type="text" maxlength="200" aria-label="Text" hidden></div></div><p class="mkhint tiny muted">Ctrl + scroll zooms (pinch on a phone), and the scroll bars or a drag with the select tool move around. Delete removes the selected mark; Ctrl+Z undoes, Ctrl+Shift+Z redoes.</p><div class="mksend" hidden><label class="tiny" for="mkmsg">What looks off?</label><textarea id="mkmsg" rows="2" maxlength="4000"></textarea><p class="tiny muted mkto"><label for="mksel">Goes to</label><select id="mksel" aria-label="Send it to"></select><span>with the marked-up image and what you write here.</span></p></div><div class="mkft"><button type="button" class="btn" data-mk="cancel">Cancel</button><button type="button" class="btn primary" data-mk="ok"></button></div>`;
+  const html = `<div class="mkhd"><b class="mktitle"></b><button type="button" class="btn ghost sm icon" data-mk="cancel" title="Cancel">${svg("x", 18)}</button></div><div class="mkbar" role="toolbar" aria-label="Mark-up tools">${bar}</div><div class="mkstage"><div class="mkpad"><canvas class="mkcv"></canvas><input class="mktext" type="text" maxlength="200" aria-label="Text" hidden></div></div><p class="mkhint tiny muted">Ctrl + scroll zooms (pinch on a phone), and the scroll bars or a drag with the select tool move around. Delete removes the selected mark; Ctrl+Z undoes, Ctrl+Shift+Z redoes.</p><div class="mksend" hidden><label class="tiny" for="mkmsg">What looks off?</label><textarea id="mkmsg" rows="2" maxlength="4000"></textarea><p class="tiny muted mkto"><label for="mksel">Goes to</label><select id="mksel" aria-label="Send it to"></select><span>with the marked-up image and what you write here.</span></p></div><div class="mkft"><label class="mkcrop tiny" hidden title="Zoomed in: send only what you see in the window, at the image's full sharpness"><input type="checkbox" data-mk="crop"> Only the part in view</label><button type="button" class="btn" data-mk="cancel">Cancel</button><button type="button" class="btn primary" data-mk="ok"></button></div>`;
 
   return `
   // ---- Mark up an image (markup.ts)
   const MK_HTML = ${JSON.stringify(html)};
   const MK_ICON = ${JSON.stringify(MARK_ICON(13))};
-  const mkPrefs = { tool: "rect", color: "#e5484d", size: 1 };
+  const mkPrefs = { tool: "rect", color: "#e5484d", size: 1, crop: true };
   try { const p = JSON.parse(localStorage.getItem("ic_mk") || "null"); if (p && typeof p === "object") Object.assign(mkPrefs, p); } catch {}
   const mkSave = () => { try { localStorage.setItem("ic_mk", JSON.stringify(mkPrefs)); } catch {} };
   const MK_SIDE = 1600; // what the composer sends anyway: what you mark is what the agent gets
@@ -238,10 +239,22 @@ export function markupScript(): string {
     d.querySelector('[data-mk="del"]').onclick = del;
     d.querySelector('[data-mk="clear"]').onclick = () => { if (!E.shapes.length) return; commit(); E.shapes = []; E.sel = -1; sync(); };
     d.querySelector('[data-mk="fit"]').onclick = () => zoomTo(1);
+    const crop = d.querySelector(".mkcrop"), cropBox = crop.querySelector("input");
+    cropBox.checked = !!mkPrefs.crop;
+    cropBox.onchange = () => { mkPrefs.crop = cropBox.checked; mkSave(); };
+    // The part of the image the window shows, in image pixels; null when that's (nearly) all of it.
+    function inView() {
+      const r = cv.getBoundingClientRect(), v = stage.getBoundingClientRect();
+      const x0 = Math.max(r.left, v.left), x1 = Math.min(r.right, v.right), y0 = Math.max(r.top, v.top), y1 = Math.min(r.bottom, v.bottom);
+      if (x1 <= x0 || y1 <= y0) return null;
+      const b = [(x0 - r.left) * E.W / r.width, (y0 - r.top) * E.H / r.height, (x1 - r.left) * E.W / r.width, (y1 - r.top) * E.H / r.height];
+      return b[2] - b[0] > E.W * 0.98 && b[3] - b[1] > E.H * 0.98 ? null : b;
+    }
     // ---- zoom: the canvas keeps the image's pixels and is shown larger or smaller; the stage scrolls
     function layout() {
       cv.style.width = Math.round(E.W * scale()) + "px"; cv.style.height = Math.round(E.H * scale()) + "px";
       zl.textContent = Math.round(scale() * 100) + "%";
+      crop.hidden = E.z <= 1.01;
       if (!tin.hidden) placeText();
     }
     function zoomTo(z, cx, cy) {
@@ -260,7 +273,10 @@ export function markupScript(): string {
     }
     stage.addEventListener("wheel", (e) => {
       if (!(e.ctrlKey || e.metaKey)) return; // plain scrolling moves around a zoomed image
-      e.preventDefault(); zoomTo(E.z * Math.exp(-e.deltaY * 0.01), e.clientX, e.clientY);
+      e.preventDefault();
+      // a wheel notch (~100) zooms about 20%; a trackpad pinch's small steps go through as they are
+      const dy = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1);
+      zoomTo(E.z * Math.exp(-Math.max(-20, Math.min(20, dy)) * 0.009), e.clientX, e.clientY);
     }, { passive: false });
     new ResizeObserver(() => { if (E.W && d.open) { fitNow(); render(); } }).observe(stage);
     // ---- text: typed into a box over the image, drawn into the image when you're done
@@ -407,8 +423,13 @@ export function markupScript(): string {
     // ---- done: the marks drawn into the image
     E.flatten = async () => {
       finishText();
-      const c = document.createElement("canvas"); c.width = E.W; c.height = E.H;
-      E.sel = -1; render(c.getContext("2d"), false);
+      // Zoomed in with "Only the part in view": that part, cut from the original image so it stays sharp.
+      const b = E.z > 1.01 && mkPrefs.crop ? inView() : null;
+      const [bx, by, bw, bh] = b ? [b[0], b[1], b[2] - b[0], b[3] - b[1]] : [0, 0, E.W, E.H];
+      const k = b ? Math.min(E.img.width / E.W, MK_SIDE / Math.max(bw, bh)) : 1;
+      const c = document.createElement("canvas"); c.width = Math.max(1, Math.round(bw * k)); c.height = Math.max(1, Math.round(bh * k));
+      const cc = c.getContext("2d"); cc.setTransform(c.width / bw, 0, 0, c.height / bh, -bx * c.width / bw, -by * c.height / bh);
+      E.sel = -1; render(cc, false);
       const blob = await new Promise((r) => c.toBlob(r, "image/png"));
       const base = (E.opts.name || "image").replace(/[.][^.]*$/, "").replace(/-marked$/, "");
       return shrink(new File([blob], base + "-marked.png", { type: "image/png" }));
@@ -430,7 +451,7 @@ export function markupScript(): string {
     const E = mkEditor(), d = E.d;
     E.opts = opts; E.shapes = JSON.parse(JSON.stringify(opts.shapes || [])); E.sel = -1; E.hist = []; E.fut = []; E.dirty = false; E.z = 1; E.img = null;
     d.querySelector(".mktitle").textContent = "Mark up: " + (opts.name || "image");
-    d.querySelector(".mksend").hidden = !opts.send;
+    d.querySelector(".mksend").hidden = !opts.send; d.querySelector(".mkcrop").hidden = true;
     E.msg.value = ""; E.ok.textContent = opts.okLabel || "Done"; E.ok.disabled = false;
     if (opts.to) mkTargets(E);
     if (!d.open) d.showModal();
