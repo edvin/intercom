@@ -1949,6 +1949,34 @@ describe("share_file", () => {
     assert.equal((await w.request("/attachment/1/thumb", { as: "carol", cookie: true })).status, 404);
   });
 
+  test("files from agents: Delete older removes your own agents' files past the days you keep, with the filters, and leaves teammates' files", async () => {
+    const w = await standardWorld();
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=gp1&name=core", { as: "bob" });
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=gp2&name=ui", { as: "alice" });
+    const data = Buffer.from("0123456789").toString("base64");
+    const share = (as: string, id: string, name: string, mime: string) => w.ok(as, "share_file", { path: `/w/${name}`, _file: { name, mime, data } }, { id, project: "billing-api" });
+    await share("bob", "gp1", "old.log", "text/plain"); // #1
+    await share("bob", "gp1", "old.mp4", "video/mp4"); // #2
+    await share("alice", "gp2", "hers.log", "text/plain"); // #3: a teammate's agent
+    await share("bob", "gp1", "new.log", "text/plain"); // #4
+    await w.db.prepare("UPDATE attachments SET created_at = ? WHERE id IN (1, 2, 3)").bind(Date.now() - 10 * 86400_000).run();
+    const view = async (q: string) => (await w.request(`/dashboard?view=files${q}`, { as: "bob", cookie: true })).text();
+    const all = await view("&kind=all");
+    assert.match(all, /<option value="7" selected[^>]*data-n="2 files"[^>]*>the last week \(−2\)<\/option>/);
+    assert.match(all, /<option value="14" disabled/);
+    const prune = (body: Record<string, string>) => w.form("/action/prunefiles", "bob", body);
+    // With Files picked, only the log goes.
+    let r = await prune({ days: "7", kind: "files", back: "/dashboard?view=files&kind=files" });
+    assert.match(new URL(r.headers.get("location")!, "https://x").searchParams.get("ok")!, /^Deleted 1 file \(10 B\)$/);
+    assert.deepEqual((await w.db.prepare("SELECT id FROM attachments ORDER BY id").all<{ id: number }>()).results.map((x) => x.id), [2, 3, 4]);
+    r = await prune({ days: "7", kind: "all" });
+    assert.match(new URL(r.headers.get("location")!, "https://x").searchParams.get("ok")!, /^Deleted 1 file \(10 B\)$/);
+    assert.deepEqual((await w.db.prepare("SELECT id FROM attachments ORDER BY id").all<{ id: number }>()).results.map((x) => x.id), [3, 4]);
+    assert.equal([...w.objects.keys()].filter((k) => k.startsWith("att/")).length, 2);
+    assert.equal((await prune({ days: "5", kind: "all" })).headers.get("location")!.includes("err="), true);
+    assert.doesNotMatch(await view("&kind=all"), /galprune/);
+  });
+
   test("tickets & MRs: an agent publishes where its tickets and MRs stand with track, and the dashboard groups them by who they wait on", async () => {
     const w = await standardWorld();
     await w.request("/api/hook?event=SessionStart&project=billing-api&session=tk1&name=merginator", { as: "bob" });
@@ -3268,7 +3296,7 @@ describe("context and compaction", () => {
     assert.equal(new URL(res.headers.get("location")!, ORIGIN).searchParams.get("ok"), "core compacts now, keeping: keep the deploy plan");
     const asked = (await poll()).compact!;
     assert.equal(asked.instructions, "keep the deploy plan");
-    assert.match(await page(), /compacting when idle/);
+    assert.match(await page(), /Compacting when idle/);
     await w.request(`/api/compact/${asked.id}`, { as: "bob", method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ session: "cc1" }) });
     assert.equal((await poll()).compact, null);
     // Someone else's agent: the request is refused.

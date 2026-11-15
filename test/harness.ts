@@ -85,7 +85,7 @@ export class World {
       return o ? { arrayBuffer: async () => o.body, get body() { return new Response(o.body).body; }, httpMetadata: { contentType: o.type } } : null;
     },
     head: async (key: string) => (this.objects.has(key) ? { key } : null),
-    delete: async (key: string) => void this.objects.delete(key),
+    delete: async (key: string | string[]) => void (Array.isArray(key) ? key : [key]).forEach((k) => this.objects.delete(k)),
   } as unknown as R2Bucket;
 
   env(): Env {

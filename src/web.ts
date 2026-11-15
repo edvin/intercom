@@ -2,14 +2,14 @@ import { ticketView } from "./ticketview";
 import { reviewView } from "./reviewview";
 import { workView } from "./work";
 import { fleetView } from "./fleet";
-import { galleryView } from "./gallery";
+import { galleryFilters, galleryView, pruneFiles } from "./gallery";
 import { trackedView } from "./tracked";
 import { bargeIn, screenDialog } from "./screen";
 import { type Delivery, type Env, type Lock, deliveryMarks, issueToken, type Message, type Project, type Proposal, DELEGATE_PER_HOUR, LIVE, MAX_BODY, MEMBER_OF, RECEIVES, activeLocks, address, authenticate, coMembers, isAdmin, myProjects, normChannel, postMessage, roleIn, sha256, workingOn, newToken, HANDLE, limit, UserError, unsend, ago } from "./lib";
 import { agentsView } from "./agents";
 import { askBtw } from "./btw";
 import { parseSubs, subMessage } from "./subagents";
-import { linkImages, markerFor, storeImages } from "./attachments";
+import { linkImages, markerFor, size, storeImages } from "./attachments";
 import { type Decision, type Handoff, OPEN_HANDOFF, findDecisions, gatesOf, listHandoffs, obligationsOf } from "./records";
 import { pendingApprovals } from "./approvals";
 import { asksDock } from "./asks";
@@ -219,6 +219,17 @@ export async function handleAction(req: Request, env: Env, me: string, action: s
       },
     ],
   };
+  // Files from agents → Clean up: your agents' files older than the days picked, with the grid's filters.
+  if (action === "prunefiles") {
+    const u = new URL(back, req.url);
+    try {
+      const { n, bytes } = await pruneFiles(env, me, Number(f("days")), galleryFilters(f));
+      u.searchParams.set("ok", n ? `Deleted ${n} file${n === 1 ? "" : "s"} (${size(bytes)})` : "Nothing older to delete");
+    } catch (e) {
+      u.searchParams.set("err", (e as Error).message.split("\n")[0]);
+    }
+    return redirect(u.pathname + u.search);
+  }
   // A side question (/btw) to your own agent: not a message, so it never reaches the agent's context.
   const text = f("message") ?? "";
   if (action === "post" && (f("mode") === "btw" || /^\/btw\s/i.test(text)) && f("session")) {

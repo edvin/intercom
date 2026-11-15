@@ -2,7 +2,7 @@
 // thumbnails without the messages around them (a file that isn't an image shows its type, name and size). Filter by agent, project and kind; an image opens in the viewer
 // (← → step through the grid), a file opens in the reader or downloads. Kept as long as the files are (30 days).
 
-import { RETENTION_DAYS, VIDEO_EXTS, isImage, playable, readableName, size, videoType } from "./attachments";
+import { RETENTION_DAYS, VIDEO_EXTS, isImage, playable, readableName, size, thumbKey, videoType } from "./attachments";
 import { type Env, ago } from "./lib";
 import { esc, icon } from "./ui";
 
@@ -23,20 +23,25 @@ const PAGE = 120;
 const VISIBLE = `m.sender_agent IS NOT NULL AND m.cancelled_at IS NULL AND m.held_at IS NULL AND a.created_at > ?2
   AND (m.sender = ?1 OR m.recipient = ?1 OR (m.recipient IS NULL AND m.channel IN (SELECT project FROM project_members WHERE member = ?1)))`;
 
-export async function galleryView(env: Env, me: string, url: URL): Promise<string> {
-  const p = url.searchParams;
-  const agent = p.get("agent") ?? "";
-  const project = p.get("project") ?? "";
-  const k = p.get("kind");
-  const kind = k === "files" || k === "all" || k === "videos" ? k : "images";
-  const before = Number(p.get("before")) || 0;
-  const since = Date.now() - RETENTION_DAYS * 86400_000;
-  const IMG = "a.mime IN ('image/png','image/jpeg','image/webp','image/gif')";
-  // A video by its name or its type (videoType in attachments.ts).
-  const VID = `(a.mime LIKE 'video/%' OR ${VIDEO_EXTS.map((e) => `lower(a.name) LIKE '%.${e}'`).join(" OR ")})`;
+const IMG = "a.mime IN ('image/png','image/jpeg','image/webp','image/gif')";
+// A video by its name or its type (videoType in attachments.ts).
+const VID = `(a.mime LIKE 'video/%' OR ${VIDEO_EXTS.map((e) => `lower(a.name) LIKE '%.${e}'`).join(" OR ")})`;
 
+type Kind = "images" | "videos" | "files" | "all";
+interface Filters {
+  agent: string;
+  project: string;
+  kind: Kind;
+}
+export const galleryFilters = (get: (k: string) => string | null | undefined): Filters => {
+  const k = get("kind");
+  return { agent: get("agent") ?? "", project: get("project") ?? "", kind: k === "files" || k === "all" || k === "videos" ? k : "images" };
+};
+
+/** What the grid shows with these filters, as SQL over attachments a JOIN messages m (binds ?1 = me, ?2 = since). */
+function scope(me: string, { agent, project, kind }: Filters) {
   const where = [VISIBLE];
-  const binds: unknown[] = [me, since];
+  const binds: unknown[] = [me, Date.now() - RETENTION_DAYS * 86400_000];
   if (agent.includes("/")) {
     const [member, label] = [agent.slice(0, agent.indexOf("/")), agent.slice(agent.indexOf("/") + 1)];
     binds.push(member, label);
@@ -47,11 +52,50 @@ export async function galleryView(env: Env, me: string, url: URL): Promise<strin
     where.push(`m.channel = ?${binds.length}`);
   }
   if (kind !== "all") where.push(kind === "images" ? IMG : kind === "videos" ? VID : `NOT ${IMG} AND NOT ${VID}`);
+  return { where, binds };
+}
+
+/** How far back Clean up can keep: the last day, 3 days, week or 2 weeks. */
+export const PRUNE_DAYS = [1, 3, 7, 14];
+const keepLabel = (d: number) => (d === 1 ? "the last day" : d === 7 ? "the last week" : d === 14 ? "the last 2 weeks" : `the last ${d} days`);
+
+/**
+ * Clean up: delete the files your own agents shared that are older than `days`, among what the filters show (the bytes
+ * and thumbnails in R2 too). Teammates' agents' files stay. A message that named one shows it as removed.
+ */
+export async function pruneFiles(env: Env, me: string, days: number, f: Filters): Promise<{ n: number; bytes: number }> {
+  if (!PRUNE_DAYS.includes(days)) throw new Error("Pick how many days to keep");
+  const { where, binds } = scope(me, f);
+  binds.push(Date.now() - days * 86400_000);
+  where.push(`m.sender = ?1 AND a.created_at < ?${binds.length}`);
+  const { results } = await env.DB.prepare(`SELECT a.id, a.r2_key, a.bytes FROM attachments a JOIN messages m ON m.id = a.message_id WHERE ${where.join(" AND ")}`)
+    .bind(...binds)
+    .all<{ id: number; r2_key: string; bytes: number }>();
+  for (let i = 0; i < results.length; i += 400) {
+    const part = results.slice(i, i + 400);
+    await env.files?.delete(part.flatMap((r) => [r.r2_key, thumbKey(r)]));
+    await env.DB.prepare("DELETE FROM attachments WHERE id IN (SELECT value FROM json_each(?))").bind(JSON.stringify(part.map((r) => r.id))).run();
+  }
+  return { n: results.length, bytes: results.reduce((s, r) => s + r.bytes, 0) };
+}
+
+export async function galleryView(env: Env, me: string, url: URL): Promise<string> {
+  const p = url.searchParams;
+  const filters = galleryFilters((k) => p.get(k));
+  const { agent, project, kind } = filters;
+  const before = Number(p.get("before")) || 0;
+  const { where, binds } = scope(me, filters);
+  const since = binds[1] as number;
+  // Clean up: how many of your agents' files (with these filters) each choice would delete.
+  const old = scope(me, filters);
+  old.where.push("m.sender = ?1");
+  const cuts = PRUNE_DAYS.map((d) => Date.now() - d * 86400_000);
+  const cutSql = cuts.map((_, i) => `SUM(a.created_at < ?${old.binds.length + 1 + i}) AS n${i}, SUM(CASE WHEN a.created_at < ?${old.binds.length + 1 + i} THEN a.bytes ELSE 0 END) AS b${i}`).join(", ");
   if (before) {
     binds.push(before);
     where.push(`a.id < ?${binds.length}`);
   }
-  const [{ results: items }, { results: facets }] = await Promise.all([
+  const [{ results: items }, { results: facets }, olds] = await Promise.all([
     env.DB.prepare(
       `SELECT a.id, a.mime, a.bytes, a.name, a.created_at, m.sender, m.sender_agent, m.channel
        FROM attachments a JOIN messages m ON m.id = a.message_id WHERE ${where.join(" AND ")} ORDER BY a.id DESC LIMIT ${PAGE + 1}`,
@@ -65,6 +109,9 @@ export async function galleryView(env: Env, me: string, url: URL): Promise<strin
     )
       .bind(me, since)
       .all<{ sender: string; sender_agent: string; channel: string; n: number; imgs: number; vids: number }>(),
+    env.DB.prepare(`SELECT ${cutSql} FROM attachments a JOIN messages m ON m.id = a.message_id WHERE ${old.where.join(" AND ")}`)
+      .bind(...old.binds, ...cuts)
+      .first<Record<string, number | null>>(),
   ]);
   const more = items.length > PAGE;
   const shown = items.slice(0, PAGE);
@@ -96,7 +143,7 @@ export async function galleryView(env: Env, me: string, url: URL): Promise<strin
   const seg = (k: "images" | "videos" | "files" | "all", label: string, ico: string) =>
     `<a href="${esc(link({ kind: k === "images" ? "" : k, before: "" }))}"${kind === k ? ' class="on"' : ""}>${icon(ico, 13)}<span>${label}</span></a>`;
 
-  const filters = `<form class="galbar" method="get" action="/dashboard" data-native>
+  const bar = `<form class="galbar" method="get" action="/dashboard" data-native>
     <input type="hidden" name="view" value="files">${kind === "images" ? "" : `<input type="hidden" name="kind" value="${kind}">`}
     <nav class="seg" aria-label="Kind">${seg("images", "Images", "image")}${seg("videos", "Videos", "film")}${seg("files", "Files", "file")}${seg("all", "All", "layers")}</nav>
     <select name="agent" aria-label="Agent" onchange="this.form.requestSubmit()">${opt("", "All agents", !agent)}${agentKeys.map((k) => opt(k, who(k), k === agent)).join("")}</select>
@@ -119,13 +166,30 @@ export async function galleryView(env: Env, me: string, url: URL): Promise<strin
     return `<a class="gtile gfile" href="${href}" data-name="${esc(f.name)}" data-size="${esc(size(f.bytes))}"${readableName(f.name) ? ' target="_blank" rel="noopener"' : ` download="${esc(f.name)}"`} title="${esc(`${f.name} · ${size(f.bytes)} · ${from}`)}">${icon("file", 26)}<span class="gext">${esc(ext)}</span><span class="gname">${esc(stem)}</span><span class="gsize">${esc(size(f.bytes))}</span></a>`;
   };
 
+  // Clean up: keep the last day / 3 days / week / 2 weeks of what your agents shared, with the filters as they are.
+  const what = kind === "images" ? "image" : kind === "videos" ? "video" : "file";
+  const cnt = (n: number) => `${n} ${n === 1 ? what : what + "s"}`;
+  const choices = PRUNE_DAYS.map((d, i) => ({ d, n: Number(olds?.[`n${i}`] ?? 0), b: Number(olds?.[`b${i}`] ?? 0) }));
+  const first = choices.find((c) => c.d === 7 && c.n) ?? choices.find((c) => c.n);
+  const scopeText = [agent ? who(agent) : "", project ? `#${project}` : ""].filter(Boolean).join(" in ");
+  const prune = first
+    ? `<form class="galprune" method="post" action="/action/prunefiles">
+      <input type="hidden" name="back" value="${esc(link({ before: "" }))}">
+      <input type="hidden" name="agent" value="${esc(agent)}"><input type="hidden" name="project" value="${esc(project)}"><input type="hidden" name="kind" value="${kind}">
+      <label for="galkeep">Keep</label>
+      <select id="galkeep" name="days" aria-label="How much to keep">${choices
+        .map((c) => `<option value="${c.d}"${c === first ? " selected" : ""}${c.n ? "" : " disabled"} data-n="${esc(cnt(c.n))}" data-b="${esc(size(c.b))}">${keepLabel(c.d)}${c.n ? ` (−${c.n})` : ""}</option>`)
+        .join("")}</select>
+      <button class="btn sm" type="submit" data-scope="${esc(`${kind === "all" ? "files" : kind}${scopeText ? ` from ${scopeText}` : ""}`)}" title="Delete older ${what}s your own agents shared${scopeText ? ` (${scopeText})` : ""}; teammates' agents' files stay">${icon("trash", 13)}<span>Delete older</span></button>
+    </form>`
+    : "";
   const empty = `<div class="empty galempty">${icon(kind === "files" ? "file" : kind === "videos" ? "film" : "image", 30)}<div>${
     total === 0 ? "No files from agents in the last 30 days." : agent || project ? "Nothing here with these filters." : kind === "images" ? "No images from agents; try Files." : kind === "videos" ? "No videos from agents in the last 30 days." : "No files of this kind."
   }</div><div class="small muted">Agents share screenshots, renders and reports with <code>share_file</code>; they show here for ${RETENTION_DAYS} days.</div></div>`;
 
   return `<div class="pane-in galpane">
-    <header class="flhead"><div><h1>Files from agents</h1><p class="muted">${total ? `${imgs} image${imgs === 1 ? "" : "s"}, ${vids} video${vids === 1 ? "" : "s"} and ${total - imgs - vids} other file${total - imgs - vids === 1 ? "" : "s"} in the last ${RETENTION_DAYS} days.` : `Nothing shared in the last ${RETENTION_DAYS} days.`}</p></div></header>
-    ${filters}
+    <header class="flhead"><div><h1>Files from agents</h1><p class="muted">${total ? `${imgs} image${imgs === 1 ? "" : "s"}, ${vids} video${vids === 1 ? "" : "s"} and ${total - imgs - vids} other file${total - imgs - vids === 1 ? "" : "s"} in the last ${RETENTION_DAYS} days.` : `Nothing shared in the last ${RETENTION_DAYS} days.`}</p></div>${prune}</header>
+    ${bar}
     ${shown.length ? `<div class="gal" data-gallery>${shown.map(tile).join("")}</div>` : empty}
     ${more || before ? `<nav class="galmore">${before ? `<a class="btn ghost sm" href="${esc(link({ before: "" }))}">${icon("back", 13)}Newest</a>` : ""}${more ? `<a class="btn sm" href="${esc(link({ before: String(shown[shown.length - 1].id) }))}">Older${icon("arrow", 13)}</a>` : ""}</nav>` : ""}
   </div>`;

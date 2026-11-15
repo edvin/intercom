@@ -157,7 +157,7 @@ export const readable = (a: Attachment) =>
  */
 export const THUMB_W = 640;
 const SMALL = 120_000;
-const thumbKey = (a: Attachment) => `thumb/${a.r2_key}`;
+export const thumbKey = (a: Pick<Attachment, "r2_key">) => `thumb/${a.r2_key}`;
 
 export async function thumbnail(env: Env, a: Attachment): Promise<{ body: ReadableStream | ArrayBuffer; type: string } | "original" | null> {
   const t = await env.files?.get(thumbKey(a));

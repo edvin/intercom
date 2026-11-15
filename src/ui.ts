@@ -425,7 +425,7 @@ form.dropping{outline:2px dashed var(--accent);outline-offset:4px;border-radius:
 .rdsrc{font-variant-ligatures:none;margin:0;white-space:pre-wrap;overflow-wrap:anywhere;font:12.5px/1.6 "JetBrains Mono","Geist Mono",ui-monospace,monospace;color:var(--ink)}
 @media (max-width:640px){.reader{padding:18px 16px calc(40px + env(safe-area-inset-bottom))}.rdmd{font-size:15px}}
 .attf-n{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.attf-s{color:var(--mute);font-size:11px;white-space:nowrap}
-.att{display:inline-block;margin:6px 8px 2px 0;vertical-align:top}.att img{display:block;max-width:min(360px,100%);max-height:240px;border-radius:8px;border:1px solid var(--line);background:var(--surface-2)}
+.att{display:inline-block;margin:6px 8px 2px 0;vertical-align:top}.attgone{pointer-events:none;text-decoration:none;color:var(--ink-3)!important;border:0!important;background:none!important;padding:0!important}.attgone img,.attgone .attv-play,.attgone .attv-n{display:none!important}.attgone::before{content:"File removed";display:inline-flex;align-items:center;height:28px;padding:0 10px;border:1px dashed var(--line);border-radius:8px;font-size:12px;color:var(--ink-3)}.attv.attgone{aspect-ratio:auto;width:auto}.att img{display:block;max-width:min(360px,100%);max-height:240px;border-radius:8px;border:1px solid var(--line);background:var(--surface-2)}
 .att:hover img{border-color:var(--accent)}
 .attl{display:inline-flex;align-items:center;gap:4px;vertical-align:-2px}.attl svg{flex:none}
 /* The image viewer: the image over a dark backdrop, a bar with its name, download and close (clear of a phone's status bar and notch). */
@@ -722,7 +722,7 @@ body:has(.ide) .top .in{max-width:none;padding:8px 14px}
 .tcx{font-size:9px;font-weight:700;color:var(--mute);border:1px solid var(--line);border-radius:4px;padding:0 3px}
 .tctx{font-size:10px;font-weight:650;font-variant-numeric:tabular-nums;color:var(--amber)}.tctx.red{color:var(--red)}
 .ctxb{font-variant-numeric:tabular-nums}.ctxb:not(.amber):not(.red){background:var(--surface-2);color:var(--ink-2)}
-.compacting{display:inline-flex;gap:4px;align-items:center;margin:0}.jobrow form{display:inline;margin:0}.jobrow .jobx{opacity:0;transition:opacity .12s}.jobrow:hover .jobx,.jobrow .jobx:focus{opacity:1}@media (hover:none){.jobrow .jobx{opacity:.7}}
+.compacting{display:inline-flex;gap:4px;align-items:center;margin:0;flex-wrap:nowrap}.compacting .badge{white-space:nowrap}.jobrow form{display:inline;margin:0}.jobrow .jobx{opacity:0;transition:opacity .12s}.jobrow:hover .jobx,.jobrow .jobx:focus{opacity:1}@media (hover:none){.jobrow .jobx{opacity:.7}}
 .meta-row .btn.compactbtn,.meta-row .btn.scrbtn,.meta-row .compacting .btn{padding:1px 8px;font-size:11.5px;font-weight:500;color:var(--mute)}.meta-row .btn.compactbtn:hover,.meta-row .btn.scrbtn:hover,.meta-row .compacting .btn:hover{color:var(--ink)}
 .tdot{position:absolute;left:11px;width:6px;height:6px;border-radius:50%;background:var(--mute)}
 .tdot.idle{background:var(--green)}.tdot.work{background:var(--accent);animation:pulse 1.8s infinite}.tdot.wait{background:var(--red)}.tdot.off{background:transparent;box-shadow:inset 0 0 0 1px var(--mute)}
@@ -920,7 +920,7 @@ pre.term .b8{background:#555a6e}pre.term .b9{background:#d4505a}pre.term .b10{ba
 .gfile{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:var(--mute);text-decoration:none}.gfile:hover{color:var(--accent)}
 .gext{font:600 11px/1 "JetBrains Mono","Geist Mono",ui-monospace,monospace;letter-spacing:.06em;color:var(--ink-2)}.gfile{gap:6px;padding:12px}.gname{max-width:100%;font-size:12px;line-height:1.35;color:var(--ink);text-align:center;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}.gsize{font-size:11px;color:var(--mute)}.gfile:hover .gname{color:var(--accent)}
 @media (max-width:640px){.gfile{padding:6px;gap:3px}.gfile .i{width:18px;height:18px}.gname{font-size:10.5px;-webkit-line-clamp:3}.gsize{font-size:10px}}
-.galempty{padding:64px 16px;text-align:center}.galmore{display:flex;gap:8px;justify-content:center}
+.galempty{padding:64px 16px;text-align:center}.galprune{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--ink-3)}.galprune select{width:auto;height:30px;font-size:13px}.galprune .btn{color:var(--red)}.galmore{display:flex;gap:8px;justify-content:center}
 @media (max-width:640px){.galpane{padding:12px 12px 88px}.gal{grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:4px}.gtile{border-radius:6px}.galbar select{min-width:0;flex:1}}
 /* Tickets & MRs (tracked.ts): grouped by who they wait on, an MR under its ticket, each row opening to its history. */
 .trkpane{max-width:1180px;gap:18px;padding-bottom:96px}
@@ -2178,6 +2178,17 @@ ${markupScript()}
     else if (e.key === "Escape") slashHide();
   }, true);
   document.addEventListener("click", (e) => { const b = e.target.closest && e.target.closest("[data-slash]"); if (!b) return; const t = document.getElementById("chat-input"); t.value = b.dataset.slash; slashHide(); t.focus(); });
+  // Files from agents → Delete older: say what goes before it goes.
+  document.addEventListener("submit", (e) => {
+    const form = e.target; if (!form.classList || !form.classList.contains("galprune")) return;
+    const o = form.querySelector("select").selectedOptions[0], b = form.querySelector("button[data-scope]");
+    if (!o || !confirm("Delete " + o.dataset.n + " (" + o.dataset.b + ")? You keep " + o.textContent.replace(/ [(].*$/, "") + ". Only " + b.dataset.scope + " your own agents shared; teammates' agents' files stay. A message that showed one says it was removed.")) { e.preventDefault(); e.stopImmediatePropagation(); }
+  }, true);
+  // An image or video whose file was deleted (Clean up, or past 30 days): a quiet "removed" in its place, not a broken image.
+  document.addEventListener("error", (e) => {
+    const img = e.target; if (!img || img.tagName !== "IMG") return;
+    const a = img.closest("a.att, a.attv"); if (a) a.classList.add("attgone");
+  }, true);
   document.addEventListener("submit", async (e) => {
     const form = e.target; if (form.id !== "chatform" || !form.dataset.keys) return;
     const t = form.querySelector("#chat-input"), v = (t?.value || "").trim();

@@ -543,7 +543,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   const compactCtl = !canCompact
     ? ""
     : agent.compact_req || agent.compact_prep
-      ? `<form method="post" action="/agent/compact" class="compacting" data-native>${hidden({ session: agent.session_id, back: here, cancel: "1" })}<span class="badge amber" title="${agent.compact_prep ? "It was told to save its state; it's compacted when that turn ends" : "Its intercom-ui mod compacts it when the current turn ends"}">${agent.compact_prep ? "saving its state, then compacting…" : "compacting when idle…"}</span><button class="btn ghost xs">Call off</button></form>`
+      ? `<form method="post" action="/agent/compact" class="compacting" data-native>${hidden({ session: agent.session_id, back: here, cancel: "1" })}<span class="badge amber" title="${agent.compact_prep ? "It was told to save its state; it's compacted when that turn ends" : "Its intercom-ui mod compacts it when the current turn ends"}">${agent.compact_prep ? "Compacting…" : "Compacting when idle"}</span><button class="btn ghost xs">Call off</button></form>`
       : `<button type="button" class="btn ghost xs compactbtn" data-open="dlg-compact" title="Compact its context (like /compact)">Compact</button>`;
   // Its model, switched from here: its mod runs /model between turns (models.ts; Claude Code only).
   const canModel = ownAgent && !switchable(agent, isOn(agent));
