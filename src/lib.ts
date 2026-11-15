@@ -547,10 +547,12 @@ export async function unread(
   // A DM to this session's name that no session ever took, though it's below the cursor: it came while another session
   // had the name (one that wasn't reading, or moved past it before it was named so), or before this one took the name.
   // A cursor only says how far a session has read, not what it was given, so these are fetched by what's missing.
+  // The new ones by id (NOT INDEXED: an id range, not every message to you through RECEIVES's OR), the missed ones by
+  // recipient and time; as one OR it read the whole table on every poll.
   const missed = session
-    ? "OR (id <= ?1 AND recipient = ?2 AND recipient_agent IN (?4, ?5) AND created_at > ?6 AND kind != 'event' AND NOT EXISTS (SELECT 1 FROM deliveries d WHERE d.message_id = messages.id))"
+    ? "UNION ALL SELECT * FROM messages WHERE id IN (SELECT m.id FROM messages m WHERE m.recipient = ?2 AND m.recipient_agent IN (?4, ?5) AND m.created_at > ?6 AND m.id <= ?1 AND m.kind != 'event' AND NOT EXISTS (SELECT 1 FROM deliveries d WHERE d.message_id = m.id))"
     : "";
-  const { results } = await env.DB.prepare(`SELECT * FROM messages WHERE (id > ?1 ${missed}) AND ${notMine} AND ${RECEIVES} AND ${agentOk} ORDER BY id LIMIT ?3`)
+  const { results } = await env.DB.prepare(`SELECT * FROM (SELECT * FROM messages NOT INDEXED WHERE id > ?1 ${missed}) WHERE ${notMine} AND ${RECEIVES} AND ${agentOk} ORDER BY id LIMIT ?3`)
     .bind(cursor, me, limit + 1, session?.label ?? null, session?.project ?? null, ...(session ? [Date.now() - MISSED_DAYS * 86_400_000] : []))
     .all<Message>();
   const more = results.length > limit;

@@ -577,7 +577,7 @@ export async function dashboard(url: URL, env: Env, me: string, cookie = ""): Pr
     env.DB.prepare(
       channel
         ? `SELECT * FROM messages WHERE channel = ?1 AND (recipient IS NULL OR (recipient = ?2 AND ${LIVE}) OR sender = ?2) ORDER BY id DESC LIMIT 100`
-        : `SELECT * FROM messages WHERE ?1 IS NULL AND (sender = ?2 OR ${RECEIVES}) ORDER BY id DESC LIMIT 100`,
+        : `SELECT * FROM messages NOT INDEXED WHERE ?1 IS NULL AND (sender = ?2 OR ${RECEIVES}) ORDER BY id DESC LIMIT 100`,
     )
       .bind(channel, me)
       .all<Message>(),

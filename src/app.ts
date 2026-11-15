@@ -515,14 +515,14 @@ async function handleUi(url: URL, env: Env, me: string): Promise<Response> {
   const pending = mySession ? (await unread(env, me, 99, false, mySession)).messages : null;
   const recent = pending
     ? pending.slice(-8).reverse()
-    : (await env.DB.prepare(`SELECT * FROM messages WHERE id > ?1 AND sender != ?2 AND ${RECEIVES} ORDER BY id DESC LIMIT 8`).bind(cursor, me).all<Message>()).results;
+    : (await env.DB.prepare(`SELECT * FROM messages NOT INDEXED WHERE id > ?1 AND sender != ?2 AND ${RECEIVES} ORDER BY id DESC LIMIT 8`).bind(cursor, me).all<Message>()).results;
   const unreadCount = pending
     ? pending.length
-    : (await env.DB.prepare(`SELECT COUNT(*) AS n FROM messages WHERE id > ?1 AND sender != ?2 AND ${RECEIVES}`).bind(cursor, me).first<{ n: number }>())!.n;
+    : (await env.DB.prepare(`SELECT COUNT(*) AS n FROM messages NOT INDEXED WHERE id > ?1 AND sender != ?2 AND ${RECEIVES}`).bind(cursor, me).first<{ n: number }>())!.n;
   // The mod toasts what's newer than the newest it has seen: that must cover everything in `recent`, including
   // DMs from your own other agents (sent as you), or it toasts them again on every poll.
   const latest = Math.max(
-    (await env.DB.prepare(`SELECT COALESCE(MAX(id), 0) AS id FROM messages WHERE sender != ?2 AND ${RECEIVES} AND ?1 IS NULL`).bind(null, me).first<{ id: number }>())!.id,
+    (await env.DB.prepare(`SELECT COALESCE((SELECT id FROM messages NOT INDEXED WHERE sender != ?2 AND ${RECEIVES} AND ?1 IS NULL ORDER BY id DESC LIMIT 1), 0) AS id`).bind(null, me).first<{ id: number }>())!.id,
     ...recent.map((m) => m.id),
   );
   // What the user typed to this session in the dashboard and it hasn't read: the mod submits these when it's idle.
@@ -581,7 +581,7 @@ async function handleStatusline(url: URL, env: Env, me: string): Promise<Respons
   }
   const cursor = await env.DB.prepare("SELECT last_read_id FROM cursors WHERE member = ?").bind(me).first<{ last_read_id: number }>();
   const n = cursor
-    ? (await env.DB.prepare(`SELECT COUNT(*) AS n FROM messages WHERE id > ?1 AND sender != ?2 AND ${RECEIVES}`)
+    ? (await env.DB.prepare(`SELECT COUNT(*) AS n FROM messages NOT INDEXED WHERE id > ?1 AND sender != ?2 AND ${RECEIVES}`)
         .bind(cursor.last_read_id, me)
         .first<{ n: number }>())!.n
     : 0;
