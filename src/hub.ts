@@ -248,8 +248,24 @@ export class TeamHub extends DurableObject<WorkerEnv> {
   }
 
   async fetch(req: Request): Promise<Response> {
+    const reached = Date.now();
     if (new URL(req.url).pathname === "/ws") return this.acceptChannel(req);
-    return handle(req, this.appEnv(), this.env.ADMIN_TOKEN);
+    const res = await handle(req, this.appEnv(), this.env.ADMIN_TOKEN);
+    // Where the hub runs and how long the request took to reach it (travel plus waiting behind other requests).
+    const t0 = Number(req.headers.get("x-hub-t0"));
+    if (!t0 || res.webSocket) return res;
+    const out = new Response(res.body, res);
+    out.headers.append("server-timing", `reach;dur=${Math.max(0, reached - t0)};desc="hub ${this.colo ?? (this.colo = await this.whereAmI())}"`);
+    return out;
+  }
+  private colo: string | undefined;
+  private async whereAmI(): Promise<string> {
+    try {
+      const t = await (await fetch("https://cloudflare.com/cdn-cgi/trace")).text();
+      return /colo=(\w+)/.exec(t)?.[1] ?? "?";
+    } catch {
+      return "?";
+    }
   }
 
   private async acceptChannel(req: Request): Promise<Response> {

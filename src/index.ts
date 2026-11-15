@@ -124,6 +124,14 @@ export default {
     const big = /^\/(action\/post|api\/file-reply|api\/code-reply|mcp)$/.test(url.pathname);
     const len = Number(req.headers.get("content-length") ?? 0);
     if (len > (big ? 45 : 1) * 1024 * 1024) return new Response("Request too large", { status: 413 });
-    return env.HUB.get(env.HUB.idFromName("team"), { locationHint: "weur" }).fetch(req);
+    // Server-Timing: the hub's round trip from here (this edge), and how long the request waited before the hub took it up.
+    const t0 = Date.now();
+    const fwd = new Request(req, { headers: new Headers(req.headers) });
+    fwd.headers.set("x-hub-t0", String(t0));
+    const res = await env.HUB.get(env.HUB.idFromName("team"), { locationHint: "weur" }).fetch(fwd);
+    if (res.webSocket) return res;
+    const out = new Response(res.body, res);
+    out.headers.append("server-timing", `hub;dur=${Date.now() - t0};desc="edge ${(req as { cf?: { colo?: string } }).cf?.colo ?? "?"}"`);
+    return out;
   },
 } satisfies ExportedHandler<WorkerEnv>;
