@@ -2306,7 +2306,13 @@ ${markupScript()}
   function chatField(t) {
     if (!t.value) t.value = drafts.get(t);
     t.addEventListener("input", () => drafts.set(t));
-    const grow = () => { t.style.height = ""; const base = t.offsetHeight; t.style.height = "0"; const h = t.scrollHeight + 2; t.style.height = h > base ? h + "px" : ""; };
+    // Measuring collapses the field for a moment, which lets the chat above it grow and lose its place: it keeps it
+    // (at the latest it stays at the latest as the field grows, scrolled up it stays on what you were reading).
+    const grow = () => {
+      const th = document.getElementById("thread"), top = th ? th.scrollTop : 0, atEnd = th ? th.scrollHeight - th.scrollTop - th.clientHeight < 8 : false;
+      t.style.height = ""; const base = t.offsetHeight; t.style.height = "0"; const h = t.scrollHeight + 2; t.style.height = h > base ? h + "px" : "";
+      if (th) th.scrollTop = atEnd ? th.scrollHeight : top;
+    };
     t.oninput = grow; if (t.value) grow();
     t.onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); if (t.value.trim() || (t.form._imgs && t.form._imgs.length)) t.form.requestSubmit(); } };
   }
