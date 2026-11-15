@@ -1319,17 +1319,19 @@ describe("delivery marks", () => {
     const view = async (as: string, path: string) => (await w.request(path, { as, cookie: true })).text();
 
     let page = await view("bob", "/dashboard?view=agents&agent=bob/alder");
-    assert.match(page, /class="bubble md relay r-in"[^>]*><div class="rcard"><span class="rhd"><span[^>]*>[^<]*<\/span><a class="an" href="\/dashboard\?view=agents&amp;agent=bob%2Fcore"[^>]*>bob\/core<\/a><span class="rarrow">→<\/span><span[^>]*>[^<]*<\/span><a class="an"[^>]*>bob\/alder<\/a> <span class="badge accent"[^>]*>work<\/span><\/span>/);
-    assert.match(page, /bob\/core<\/a><span class="rarrow">→<\/span>[\s\S]*?bob\/alder[\s\S]*?class="dlv wait"/);
-    assert.match(page, /alice<span class="rarrow">→<\/span>[\s\S]*?bob\/alder/);
-    assert.match(await view("bob", "/dashboard?view=agents&agent=bob/core"), /bob\/core<\/a><span class="rarrow">→<\/span>[^\n]*?bob\/ghost[\s\S]*?⚠ not connected/);
+    // In alder's chat: "from core" (your own agents by name alone; the other end is alder), in core's colour.
+    assert.match(page, /class="bubble md relay r-in"[^>]*style="--h:\d+"><div class="rcard"><span class="rhd"><span class="rdir">from<\/span><span[^>]*>[^<]*<\/span><a class="an" href="\/dashboard\?view=agents&amp;agent=bob%2Fcore"[^>]*>core<\/a> <span class="badge accent"[^>]*>work<\/span><\/span>/);
+    assert.match(page, />core<\/a> <span class="badge[\s\S]*?class="dlv wait"/);
+    assert.match(page, /<span class="rdir">from<\/span><span[^>]*>[^<]*<\/span>alice<\/span>/);
+    assert.match(await view("bob", "/dashboard?view=agents&agent=bob/core"), /<span class="rdir">to<\/span><span[^>]*>[^<]*<\/span><a class="an"[^>]*>ghost<\/a>[\s\S]*?⚠ not connected/);
     const DM = /→ <a class="an"[^>]*>bob\/alder<\/a><\/span><span class="meta"><time[^>]*>[^<]*<\/time>(<span class="dlv[^"]*"[^>]*>[^<]*<\/span>)/;
     assert.match((await view("alice", "/dashboard")).match(DM)![1]!, /dlv wait/);
 
     // alder's next turn takes both messages into its context.
     await hook("UserPromptSubmit", "d1");
     page = await view("bob", "/dashboard?view=agents&agent=bob/alder");
-    assert.match(page, /handoff: abc123[\s\S]*?class="dlv ok" title="Delivered to alder[^"]*">✓ alder/);
+    // Taken by alder, which it was sent to: just ✓ (the name only when another session took it).
+    assert.match(page, /handoff: abc123[\s\S]*?class="dlv ok" title="Delivered to alder[^"]*">✓<\/span>/);
     const alice = await view("alice", "/dashboard");
     assert.equal(alice.match(DM)![1], '<span class="dlv ok" title="Delivered to an agent">✓</span>');
     assert.doesNotMatch(alice, /✓ alder/);
@@ -2383,15 +2385,15 @@ describe("background jobs", () => {
     ]);
     page = await view("bob");
     assert.doesNotMatch(page, />Run the dev server <span class="muted">· running/);
-    assert.match(page, /✓ finished: Deploy and wait until live after/);
-    assert.match(page, /✗ failed: Run the dev server \(exit 1\) after/);
+    assert.match(page, /<b>Background job finished<\/b><span class="sx"> · after [^<]+<\/span><code class="jname">Deploy and wait until live</);
+    assert.match(page, /<b>Background job failed<\/b><span class="sx"> · exit 1 · after [^<]+<\/span><code class="jname">Run the dev server</);
 
     // One the agent stops itself (TaskStop): no notice from Claude Code, the mirror ends it with "stopped".
     await post([ev({ op: "start", id: "b3", description: "Tail the logs", command: "npx wrangler tail" })]);
     await post([ev({ op: "end", id: "b3", status: "stopped" })]);
     page = await view("bob");
     assert.doesNotMatch(page, /⧗ Tail the logs/);
-    assert.match(page, /■ stopped: Tail the logs after/);
+    assert.match(page, /<b>Background job stopped<\/b><span class="sx"> · after [^<]+<\/span><code class="jname">Tail the logs</);
   });
 });
 

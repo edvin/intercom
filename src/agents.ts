@@ -378,6 +378,22 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
           : `<div class="act act-loop step s-loop${m[1] === "stopped" ? " off" : ""}" data-mid="a${a.id}">${head}</div>`;
       }
     }
+    // A background job that ended: one quiet line like a step ("Background job finished · its name · after 22m"),
+    // the name cut to that line and shown whole when opened.
+    if (a.kind === "job") {
+      const m = plainSpaces(a.text).match(/^(✓ finished|✗ failed|■ stopped|ended(?: \([^)]*\))?): ([\s\S]*?)(?: \(exit (\d+)\))?(?: after (\S+))?$/);
+      if (m) {
+        const [, verb, name, exit, took] = m;
+        const kind = verb!.startsWith("✓") ? "ok" : verb!.startsWith("✗") ? "bad" : "off";
+        const word = kind === "ok" ? "finished" : kind === "bad" ? "failed" : verb!.startsWith("■") ? "stopped" : verb!;
+        const known = name !== "a background job";
+        const tail = [exit ? `exit ${exit}` : "", took ? `after ${took}` : ""].filter(Boolean).join(" · ");
+        const head = `<span class="aic">${icon(kind === "ok" ? "check" : kind === "bad" ? "x" : "clock", 13)}</span><span class="atx"><b>Background job ${esc(word)}</b>${tail ? `<span class="sx"> · ${esc(tail)}</span>` : ""}${known ? `<code class="jname">${esc(name!)}</code>` : ""}</span><span class="when">${time(a.at)}</span>`;
+        return known && name!.length > 60
+          ? `<details class="act act-job step j-${kind}" data-mid="a${a.id}"><summary>${head}</summary><div class="stepcmd"><pre>${esc(name!)}</pre><button type="button" class="mdcopy" data-copystep title="Copy the command">Copy</button></div></details>`
+          : `<div class="act act-job step j-${kind}" data-mid="a${a.id}">${head}</div>`;
+      }
+    }
     // A long text it wrote in its terminal reads as a message of its own (marked where it was written).
     if (a.kind === "text" && a.text.length >= 280)
       return `<div class="bubble md termtext" data-mid="a${a.id}" data-who="${esc(agent.label)}" style="--h:${agentHue(agent.member, agent.label)}">${md(a.text, agent.origin, files)}<span class="when">${time(a.at)} · in its terminal</span></div>`;
@@ -394,7 +410,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
         return `<div class="activity" data-mid="${m.id}">${icon("hash", 12)}<span>#${esc(m.channel)} · ${esc(plainSpaces(m.body).split("\n")[0]!.slice(0, 240))}</span><span class="when">${time(m.created_at)}</span></div>`;
       }
       const fromMe = m.sender === me && !m.sender_agent;
-      const mark = deliveryMark(marks.get(m.id));
+      const mark = deliveryMark(marks.get(m.id), m.recipient_agent ?? (m.recipient === agent.member ? agent.label : null));
       const replyToYou = m.sender === agent.member && m.sender_agent === agent.label && m.recipient === me && (!m.recipient_agent || agent.member !== me);
       if (!fromMe && !replyToYou) {
         // Agent-to-agent (or a teammate writing to your agent): who to whom, shown apart from your own conversation.
@@ -406,7 +422,14 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
         const dir = m.sender === agent.member && m.sender_agent === agent.label ? "out" : m.recipient === agent.member && m.recipient_agent === agent.label ? "in" : "side";
         const face = (member: string, agentLabel: string | null) => (agentLabel ? agentAvatar(member, agentLabel, "s") : avatar(member, "s"));
         const pair = [from, to].sort().join(" ⇄ ");
-        return `<div class="bubble md relay r-${dir}" data-mid="${m.id}" data-pair="${esc(pair)}"><div class="rcard"><span class="rhd">${face(m.sender, m.sender_agent)}${named(m.sender, m.sender_agent, from)}<span class="rarrow">→</span>${face(m.recipient!, m.recipient_agent)}${named(m.recipient!, m.recipient_agent, to)}${m.delegated ? ' <span class="badge accent" title="Handed as work: the receiving agent takes work from your other agents">work</span>' : ""}</span><div class="rbody">${md(m.body, originOf(m.sender, m.sender_agent), null, codeOf(m.sender, m.sender_agent))}</div><span class="when">${time(m.created_at)}${mark}</span></div></div>`;
+        // Your own agents go by their names alone; in this agent's chat the other end is it, so "from x" / "to x".
+        const short = (member: string, agentLabel: string | null, full: string) => (member === me && agentLabel ? agentLabel : full);
+        const who = (member: string, agentLabel: string | null, full: string) => `${face(member, agentLabel)}${named(member, agentLabel, short(member, agentLabel, full))}`;
+        const head =
+          dir === "out" ? `<span class="rdir">to</span>${who(m.recipient!, m.recipient_agent, to)}`
+          : dir === "in" ? `<span class="rdir">from</span>${who(m.sender, m.sender_agent, from)}`
+          : `${who(m.sender, m.sender_agent, from)}<span class="rarrow">→</span>${who(m.recipient!, m.recipient_agent, to)}`;
+        return `<div class="bubble md relay r-${dir}" data-mid="${m.id}" data-pair="${esc(pair)}" style="--h:${m.sender_agent ? agentHue(m.sender, m.sender_agent) : 250}"><div class="rcard"><span class="rhd">${head}${m.delegated ? ' <span class="badge accent" title="Handed as work: the receiving agent takes work from your other agents">work</span>' : ""}</span><div class="rbody">${md(m.body, originOf(m.sender, m.sender_agent), null, codeOf(m.sender, m.sender_agent))}</div><span class="when">${time(m.created_at)}${mark}</span></div></div>`;
       }
       const speak = fromMe ? "" : `<button type="button" class="speak" data-speak title="Read aloud">${icon("volume", 13)}</button>`;
       // Not taken by an agent yet: you can still edit or cancel it (lib.ts unsend). Held means you're editing it.
@@ -444,7 +467,9 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   // so the mirrored copy of that text stays out too.
   const replies = rows.filter((m) => m.sender === agent.member && m.sender_agent === agent.label && m.recipient === me).map((m) => flat(m.body).slice(0, 120));
   const said = (a: Activity) => a.kind === "text" && replies.includes(flat(a.text).slice(0, 120));
-  for (const a of [...acts].reverse()) if (!echo(a) && !said(a)) items.push({ at: a.at, html: actRow(a), act: a }); // oldest first; sort is stable
+  // "finished: a background job" (an end it had no record of) beside a named one is the same job told twice.
+  const twice = (a: Activity) => a.kind === "job" && / a background job(?: \(exit \d+\))?$/.test(a.text) && acts.some((b) => b !== a && b.kind === "job" && !/ a background job/.test(b.text) && Math.abs(b.at - a.at) < 120_000);
+  for (const a of [...acts].reverse()) if (!echo(a) && !said(a) && !twice(a)) items.push({ at: a.at, html: actRow(a), act: a }); // oldest first; sort is stable
   // Side questions (/btw) to your own agent: shown apart, never part of its context.
   if (agent.member === me) {
     for (const b of await btwFor(env, me, agent.session_id)) {

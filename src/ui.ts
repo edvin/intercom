@@ -127,11 +127,12 @@ export const avatar = (name: string, size: "s" | "m" | "l" = "m") =>
   `<span class="av av-${size}" style="--h:${hue(name)}" title="${esc(name)}">${esc(name.slice(0, 1).toUpperCase())}</span>`;
 
 /** A direct message's delivery mark: ✓ taken into an agent's context, ⏳ not picked up yet, ⚠ nobody connected to take it. */
-export function deliveryMark(d: Delivery | undefined): string {
+export function deliveryMark(d: Delivery | undefined, to?: string | null): string {
   if (!d) return "";
   if (d.state === "delivered") {
     const title = d.detail && d.at ? `Delivered to ${d.label || "an agent"} ${relative(d.at)}` : "Delivered to an agent";
-    return `<span class="dlv ok" title="${esc(title)}">✓${d.detail && d.label ? ` ${esc(d.label)}` : ""}</span>`;
+    // The session's name only when it isn't the one it was sent to (a DM to "edvin" that one of its sessions took).
+    return `<span class="dlv ok" title="${esc(title)}">✓${d.detail && d.label && d.label !== to ? ` ${esc(d.label)}` : ""}</span>`;
   }
   if (d.state === "waiting")
     return `<span class="dlv wait" title="${d.detail ? "A session that takes it is connected; it lands at its next turn or check-in" : "Not delivered yet"}">⏳</span>`;
@@ -1629,6 +1630,21 @@ article.mdfile[hidden]{display:none}
 .relaygroup[open]>summary{margin-bottom:4px;border-style:solid}
 .norelay .relaygroup{display:none}
 @media (max-width:640px){.relay .rcard{max-width:94%}}
+/* Between the messages, the agent's work is one quiet style: small sans text, a small icon in one column, code type
+   only for the command itself, and its time when you point at the row (the messages carry the times). */
+.thread.term .act{font:12.5px/1.5 Geist,ui-sans-serif,system-ui,sans-serif}
+.thread.term .act .when,.thread.term .actgroup>summary .when{opacity:0;transition:opacity .12s}
+.thread.term .act:hover>.when,.thread.term .act:hover>summary>.when,.thread.term .act[open]>summary>.when,.thread.term .actgroup>summary:hover .when,.thread.term .actgroup[open]>summary .when{opacity:.8}
+.thread.term .act-text .aic{color:var(--mute);opacity:.7}
+.thread.term .act-prompt .atx,.thread.term .act-tool .atx{font-size:12.5px}
+.thread.term .actgroup>summary .aic{color:var(--mute);font-size:10px}
+.thread.term .act-job .jname{margin-left:7px;font:11.5px "Geist Mono",ui-monospace,monospace;color:var(--mute)}
+.thread.term .act-job.j-ok .aic{color:var(--green)}.thread.term .act-job.j-bad .aic{color:var(--red)}.thread.term .act-job.j-off .aic{color:var(--mute)}
+.thread.term .act-job .atx b{font-weight:520;color:var(--ink-2)}
+/* Agent-to-agent cards in the sending agent's colour, so who's talking shows at a glance. */
+.relay .rcard{--rc:hsl(var(--h) 62% 55%)!important;background:color-mix(in srgb,hsl(var(--h) 62% 55%) 6%,var(--bg))}
+.relay .rdir{color:var(--mute);font-weight:500}
+.dlv.ok{font-weight:500}
 ${MARKUP_STYLE}
 `;
 
