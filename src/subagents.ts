@@ -101,6 +101,10 @@ export function applySubEvents(subs: Sub[], events: { at: number; ev: SubEvent }
   return { subs: list, steps };
 }
 
+/** The ones to show: running, or finished within SUB_KEEP_MS. The stored list is only pruned when new sub events
+ *  come in, so an agent that stopped starting subagents would otherwise show its last ones for days. */
+export const shownSubs = (subs: Sub[], now = Date.now()) => subs.filter((s) => s.status === "running" || now - s.updated < SUB_KEEP_MS);
+
 export const runningSubs = (subs: Sub[]) => subs.filter((s) => s.status === "running");
 
 /** Store a batch of sub events for one session: its list, the new steps, and only the steps of subagents still listed. */

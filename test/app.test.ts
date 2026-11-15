@@ -1185,6 +1185,10 @@ describe("activity mirroring", () => {
     const later = await (await w.request("/dashboard?view=agents&agent=bob/alder", { as: "bob", cookie: true })).text();
     assert.match(later, /none running · 2 finished/);
     assert.doesNotMatch(later, /class="tsub"/);
+    // Hours later, with no new subagents since (nothing prunes the stored list), the finished ones are gone from view.
+    await w.db.prepare("UPDATE sessions SET subagents = (SELECT json_group_array(json_set(value, '$.updated', ?)) FROM json_each(subagents)) WHERE session_id = 'sub1'").bind(Date.now() - 10 * 3600_000).run();
+    const hours = await (await w.request("/dashboard?view=agents&agent=bob/alder", { as: "bob", cookie: true })).text();
+    assert.doesNotMatch(hours, /id="sub-a1"|id="sub-a2"/);
     // Nobody else writes into it or sees it.
     assert.equal((await send("alice", [ev({ op: "start", id: "a9", desc: "sneaky" })])).stored, 0);
     const theirs = await (await w.request("/dashboard?view=agents&agent=bob/alder", { as: "alice", cookie: true })).text();

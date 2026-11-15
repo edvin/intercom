@@ -11,7 +11,7 @@ import { chatAsks } from "./asks";
 import { AUTO_UPDATE_SINCE, PLUGIN_VERSION, outdated } from "./version";
 import { activeLoops, describe, parseLoops } from "./loops";
 import { activeJobs, duration, jobName, parseJobs } from "./jobs";
-import { STEPS_KEEP, type Sub, parseSubMessage, parseSubs, subSteps } from "./subagents";
+import { STEPS_KEEP, type Sub, parseSubMessage, parseSubs, shownSubs, subSteps } from "./subagents";
 import { commandStep, fileStep } from "./steps";
 import { getNote } from "./notes";
 import { NEW_AGENT_SINCE } from "./terminals";
@@ -574,7 +574,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   // The header is one line: who it is, what it's doing, where; then Chat/Code, its subagents (a count), its screen
   // and files, the inspector and ⋯ for the rest. The inspector (right) holds its subagents and its session details;
   // it stays as you left it, and opens by itself when a subagent starts.
-  const subs = codeOn || !ownAgent ? [] : parseSubs(agent.subagents);
+  const subs = codeOn || !ownAgent ? [] : shownSubs(parseSubs(agent.subagents));
   const runningN = subs.filter((x) => x.status === "running").length;
   // A subagent's own view (tabs over the chat): what it was asked, its steps folded like the agent's, what you sent
   // it through the agent, and its answer.
