@@ -632,7 +632,9 @@ dialog{border:1px solid var(--line-strong);background:var(--surface);color:var(-
 dialog::backdrop{background:rgba(8,8,14,.45);backdrop-filter:blur(3px)}
 /* ↓ back to the latest in a scrolled-up chat */
 .tojump{position:fixed;z-index:30;width:40px;height:40px;border-radius:50%;display:grid;place-items:center;border:1px solid var(--line-strong);background:color-mix(in srgb,var(--surface) 92%,transparent);color:var(--ink-2);box-shadow:var(--shadow-lg);cursor:pointer;opacity:0;transform:translateY(8px) scale(.9);pointer-events:none;transition:opacity .16s,transform .16s,color .16s;backdrop-filter:blur(8px)}
-.tojump svg{transform:rotate(90deg)}.tojump.on{opacity:1;transform:none;pointer-events:auto}.tojump:hover{color:var(--accent)}
+.tojump svg{transform:rotate(90deg)}.tojump.on{opacity:1;transform:none;pointer-events:auto}
+/* Not over a drawer that slides across the chat on a phone: the agent list (the left menu) or the inspector. */
+@media (max-width:900px){body:has(.ide.treeopen) .tojump.on,body:has(.chat.inspon) .tojump.on{opacity:0;transform:translateY(8px) scale(.9);pointer-events:none}}.tojump:hover{color:var(--accent)}
 .tojump .jdot{position:absolute;top:2px;right:2px;width:9px;height:9px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 2px var(--surface);transform:scale(0);transition:transform .16s}.tojump.new .jdot{transform:scale(1)}
 /* ⌘K: find an agent, project or page */
 .kpal{width:min(620px,calc(100vw - 24px));margin-top:12vh;border-radius:16px;overflow:hidden}
