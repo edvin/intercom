@@ -448,7 +448,9 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
     .reverse()
     .map((m) => {
       if (!m.recipient) {
-        return `<div class="activity" data-mid="${m.id}">${icon("hash", 12)}<span>#${esc(m.channel)} · ${esc(plainSpaces(m.body).split("\n")[0]!.slice(0, 240))}</span><span class="when">${time(m.created_at)}</span></div>`;
+        // Its post in a project, in a line; the files and images it carried stay with it, to open from here.
+        const atts = m.body.match(/\[📎 (?:image|file) #\d+[^\]]*\]/g) ?? [];
+        return `<div class="activity" data-mid="${m.id}">${icon("hash", 12)}<span>#${esc(m.channel)} · ${esc(plainSpaces(m.body).split("\n")[0]!.slice(0, 240))}</span><span class="when">${time(m.created_at)}</span></div>${atts.length ? `<div class="actatt md" data-mid="${m.id}f">${md(atts.join(" "), agent.origin, files)}</div>` : ""}`;
       }
       const fromMe = m.sender === me && !m.sender_agent;
       const mark = deliveryMark(marks.get(m.id), m.recipient_agent ?? (m.recipient === agent.member ? agent.label : null));

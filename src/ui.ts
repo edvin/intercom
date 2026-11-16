@@ -378,6 +378,7 @@ label.field>input,label.field>textarea,label.field>select{width:100%}
 .bubble.mine{align-self:flex-end;background:var(--grad);color:#fff;border:0;border-bottom-left-radius:16px;border-bottom-right-radius:6px}
 .bubble.mine a{color:#fff;text-decoration:underline}.bubble.mine code{background:rgba(255,255,255,.18);border-color:transparent;color:#fff}
 .bubble .when{display:block;font-size:11px;color:var(--mute);margin-top:4px}.bubble .via{margin-right:.5em;padding:0 6px;border-radius:6px;background:var(--surface-2);color:var(--ink-2)}
+.actatt{align-self:center;max-width:80%;margin-top:-2px}.actatt p{margin:0;display:flex;flex-wrap:wrap;gap:6px;justify-content:center}
 .activity{align-self:center;font-size:12.5px;color:var(--mute);text-align:center;max-width:80%;display:flex;gap:6px;align-items:baseline;min-width:0}.activity>span{min-width:0;overflow-wrap:anywhere}
 .activity .i{align-self:flex-start;margin-top:2px}
 /* Terminal style (default): a full-width CLI transcript in JetBrains Mono */
