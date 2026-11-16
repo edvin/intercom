@@ -341,7 +341,12 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
     // You (or your agents) → it, it → you (or your agents); for your own agents also every DM it sent or got,
     // so agent-to-agent conversations can be followed. A teammate's agent only ever shows what involves you.
     // Held or cancelled messages (unsend) only ever show to the person who wrote them.
-    `SELECT * FROM messages WHERE (${LIVE} OR (sender = ?1 AND sender_agent IS NULL)) AND (
+    // The candidates come by index (what was sent to it, what it sent: the newest 1000 of each), then the conditions
+    // pick; as one OR over the table it read every message back to the 150th match.
+    `SELECT * FROM messages WHERE id IN (
+       SELECT id FROM (SELECT id FROM messages INDEXED BY messages_to_agent WHERE recipient = ?2 AND recipient_agent IN (?3, ?4) ORDER BY id DESC LIMIT 1000)
+       UNION ALL SELECT id FROM (SELECT id FROM messages INDEXED BY messages_from WHERE sender = ?2 AND sender_agent = ?3 ORDER BY id DESC LIMIT 1000))
+     AND (${LIVE} OR (sender = ?1 AND sender_agent IS NULL)) AND (
        (sender = ?1 AND recipient = ?2 AND recipient_agent = ?3)
        OR (sender = ?2 AND sender_agent = ?3 AND recipient = ?1 AND (recipient_agent IS NULL OR ?1 != ?2))
        OR (?1 = ?2 AND sender = ?2 AND sender_agent = ?3 AND recipient IS NOT NULL)

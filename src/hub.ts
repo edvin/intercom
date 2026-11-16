@@ -70,6 +70,7 @@ import m0060 from "../migrations/0060_message_indexes.sql";
 import m0061 from "../migrations/0061_session_usage.sql";
 import m0062 from "../migrations/0062_fable_opus.sql";
 import m0063 from "../migrations/0063_messages_taken.sql";
+import m0064 from "../migrations/0064_messages_from.sql";
 import { upkeepTick } from "./upkeep";
 
 /** A short fingerprint of the MCP tools (names, descriptions, schemas) this code offers. */
@@ -143,6 +144,7 @@ const MIGRATIONS: [string, string][] = [
   ["0061_session_usage", m0061],
   ["0062_fable_opus", m0062],
   ["0063_messages_taken", m0063],
+  ["0064_messages_from", m0064],
 ];
 
 const DAY = 86400_000;
