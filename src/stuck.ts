@@ -87,8 +87,8 @@ export async function cantTake(env: Env, member: string, agent: string): Promise
 export async function stuckSessions(env: Env, me: string, now = Date.now()): Promise<Stuck[]> {
   const since = Number((await env.DB.prepare("SELECT value FROM settings WHERE key = 'deliveries_since'").first<{ value: string }>())?.value ?? 0);
   const { results } = await env.DB.prepare(
-    `SELECT m.id, m.channel, m.sender, m.sender_agent, m.recipient_agent, m.kind, m.body, m.created_at, m.from_user, m.delegated, m.via FROM messages m INDEXED BY messages_to_when
-     WHERE m.recipient = ?1 AND m.recipient_agent IS NOT NULL AND +m.id > ?2 AND m.created_at > ?3 AND m.kind != 'event'
+    `SELECT m.id, m.channel, m.sender, m.sender_agent, m.recipient_agent, m.kind, m.body, m.created_at, m.from_user, m.delegated, m.via FROM messages m INDEXED BY messages_untaken
+     WHERE m.recipient = ?1 AND m.taken IS NULL AND m.recipient_agent IS NOT NULL AND +m.id > ?2 AND m.created_at > ?3 AND m.kind != 'event'
        AND m.cancelled_at IS NULL AND m.held_at IS NULL
        AND NOT (m.sender = ?1 AND m.sender_agent = m.recipient_agent)
        AND NOT EXISTS (SELECT 1 FROM deliveries d WHERE d.message_id = m.id)

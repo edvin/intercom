@@ -15,11 +15,15 @@ export interface Db {
 
 /** Split a migration file into single statements (DO SQL exec() wants exactly one each). */
 export function splitStatements(ddl: string): string[] {
-  return ddl
-    .replace(/--.*$/gm, "")
-    .split(";")
-    .map((st) => st.trim())
-    .filter(Boolean);
+  const out: string[] = [];
+  for (const part of ddl.replace(/--.*$/gm, "").split(";")) {
+    const st = part.trim();
+    // A trigger's body has statements of its own: its parts go together up to its END.
+    const last = out[out.length - 1];
+    if (last !== undefined && /^CREATE\s+TRIGGER\b/i.test(last) && !/\bEND$/i.test(last)) out[out.length - 1] = `${last}; ${st}`;
+    else if (st) out.push(st);
+  }
+  return out;
 }
 
 /** D1 conventions: undefined binds as NULL, booleans as 0/1. */

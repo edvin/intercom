@@ -550,7 +550,7 @@ export async function unread(
   // The new ones by id (NOT INDEXED: an id range, not every message to you through RECEIVES's OR), the missed ones by
   // recipient and time; as one OR it read the whole table on every poll.
   const missed = session
-    ? "UNION ALL SELECT * FROM messages WHERE id IN (SELECT m.id FROM messages m WHERE m.recipient = ?2 AND m.recipient_agent IN (?4, ?5) AND m.created_at > ?6 AND m.id <= ?1 AND m.kind != 'event' AND NOT EXISTS (SELECT 1 FROM deliveries d WHERE d.message_id = m.id))"
+    ? "UNION ALL SELECT * FROM messages WHERE id IN (SELECT m.id FROM messages m INDEXED BY messages_untaken WHERE m.recipient = ?2 AND m.taken IS NULL AND m.recipient_agent IS NOT NULL AND m.recipient_agent IN (?4, ?5) AND m.created_at > ?6 AND m.id <= ?1 AND m.kind != 'event' AND NOT EXISTS (SELECT 1 FROM deliveries d WHERE d.message_id = m.id))"
     : "";
   const { results } = await env.DB.prepare(`SELECT * FROM (SELECT * FROM messages NOT INDEXED WHERE id > ?1 ${missed}) WHERE ${notMine} AND ${RECEIVES} AND ${agentOk} ORDER BY id LIMIT ?3`)
     .bind(cursor, me, limit + 1, session?.label ?? null, session?.project ?? null, ...(session ? [Date.now() - MISSED_DAYS * 86_400_000] : []))

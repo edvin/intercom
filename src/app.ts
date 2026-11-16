@@ -469,6 +469,9 @@ async function handleBrief(url: URL, env: Env, me: string): Promise<Response> {
 }
 
 /** JSON snapshot for the intercom-ui mod: what to show in the band, pane and status line. Read-only. */
+/** The newest message each person receives, up to the newest message there was (handleUi's `latest`). */
+const latestSeen = new Map<string, { upto: number; id: number }>();
+
 async function handleUi(url: URL, env: Env, me: string): Promise<Response> {
   const raw = url.searchParams.get("project");
   const project = await projectFor(env, me, raw, url.searchParams.get("session"));
@@ -493,7 +496,10 @@ async function handleUi(url: URL, env: Env, me: string): Promise<Response> {
         .all<{ proposal_id: number }>()
     : { results: [] };
   const votedIds = new Set(voted.map((v) => v.proposal_id));
-  const cursor = cursorRow?.last_read_id ?? 0;
+  // How far back the person-level count looks: at most the last 5000 messages. A cursor left far behind (nobody reads
+  // the person-level view) made the unread count read 34,000 rows on every poll.
+  const top = (await env.DB.prepare("SELECT MAX(id) AS id FROM messages").first<{ id: number | null }>())?.id ?? 0;
+  const cursor = Math.max(cursorRow?.last_read_id ?? 0, top - 5000);
   const sid = url.searchParams.get("session");
   const mySession = sid
     ? await env.DB.prepare("SELECT session_id, label, project, cursor, version, compact_req, model, model_req, started_at, state, last_seen FROM sessions WHERE member = ? AND session_id = ?").bind(me, sid).first<Session & { cursor: number; version: string; compact_req: string | null; model: string | null; model_req: string | null; state: string | null; last_seen: number }>()
@@ -550,10 +556,14 @@ async function handleUi(url: URL, env: Env, me: string): Promise<Response> {
   // DMs from your own other agents (sent as you), or it toasts them again on every poll.
   // Among the latest 3000 messages only: from the newest back to one from someone else read the whole table for a
   // person whose recent messages are all their own agents'. It's only the mod's starting point; `recent` covers the rest.
-  const latest = Math.max(
-    (await env.DB.prepare(`SELECT COALESCE((SELECT id FROM messages NOT INDEXED WHERE id > (SELECT MAX(id) FROM messages) - 3000 AND sender != ?2 AND ${RECEIVES} AND ?1 IS NULL ORDER BY id DESC LIMIT 1), 0) AS id`).bind(null, me).first<{ id: number }>())!.id,
-    ...recent.map((m) => m.id),
-  );
+  // Remembered per person between polls, so each poll reads only the messages since the last one, not 3000.
+  let seen = latestSeen.get(me);
+  if (!seen || top - seen.upto > 3000 || top < seen.upto)
+    seen = { upto: top, id: (await env.DB.prepare(`SELECT COALESCE((SELECT id FROM messages NOT INDEXED WHERE id > ?3 - 3000 AND sender != ?2 AND ${RECEIVES} AND ?1 IS NULL ORDER BY id DESC LIMIT 1), 0) AS id`).bind(null, me, top).first<{ id: number }>())!.id };
+  else if (top > seen.upto)
+    seen = { upto: top, id: Math.max(seen.id, (await env.DB.prepare(`SELECT COALESCE(MAX(id), 0) AS id FROM messages NOT INDEXED WHERE id > ?3 AND id <= ?4 AND sender != ?2 AND ${RECEIVES} AND ?1 IS NULL`).bind(null, me, seen.upto, top).first<{ id: number }>())!.id) };
+  latestSeen.set(me, seen);
+  const latest = Math.max(seen.id, ...recent.map((m) => m.id));
   // What the user typed to this session in the dashboard and it hasn't read: the mod submits these when it's idle.
   // Also work another of the user's agents handed it, when it takes that (a mod that knows to say so: `note`).
   const modV = (url.searchParams.get("mod") ?? "0").split(".").map(Number);
@@ -611,7 +621,7 @@ async function handleStatusline(url: URL, env: Env, me: string): Promise<Respons
   const cursor = await env.DB.prepare("SELECT last_read_id FROM cursors WHERE member = ?").bind(me).first<{ last_read_id: number }>();
   const n = cursor
     ? (await env.DB.prepare(`SELECT COUNT(*) AS n FROM messages NOT INDEXED WHERE id > ?1 AND sender != ?2 AND ${RECEIVES}`)
-        .bind(cursor.last_read_id, me)
+        .bind(Math.max(cursor.last_read_id, ((await env.DB.prepare("SELECT MAX(id) AS id FROM messages").first<{ id: number | null }>())?.id ?? 0) - 5000), me)
         .first<{ n: number }>())!.n
     : 0;
   const locks = await activeLocks(env, me);

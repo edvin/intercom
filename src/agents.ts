@@ -11,6 +11,34 @@ import { chatAsks } from "./asks";
 import { AUTO_UPDATE_SINCE, PLUGIN_VERSION, outdated } from "./version";
 import { activeLoops, loopCard, parseLoops } from "./loops";
 
+/** Per person: the latest message each agent sent them, as of the newest message there was (lastFromAgents). */
+const lastFrom = new Map<string, { upto: number; built: number; rows: Map<string, { id: number; at: number }> }>();
+
+/**
+ * The latest message each agent sent you in the last week, by "member/agent". Kept between redraws: a redraw reads
+ * only the messages since the last one (it read every message to you that week, ~30,000 rows, on every redraw), and
+ * it's built afresh hourly.
+ */
+async function lastFromAgents(env: Env, me: string, now = Date.now()): Promise<Map<string, number>> {
+  const top = (await env.DB.prepare("SELECT MAX(id) AS id FROM messages").first<{ id: number | null }>())?.id ?? 0;
+  let c = lastFrom.get(me);
+  const q = (where: string, ...binds: unknown[]) =>
+    env.DB.prepare(`SELECT sender || '/' || sender_agent AS k, MAX(id) AS id, MAX(created_at) AS at FROM messages ${where} AND sender_agent IS NOT NULL AND kind != 'event' GROUP BY sender, sender_agent`)
+      .bind(...binds)
+      .all<{ k: string; id: number; at: number }>();
+  if (!c || now - c.built > 3600_000 || top < c.upto) {
+    const { results } = await q("INDEXED BY messages_to_when WHERE recipient = ?1 AND created_at > ?2", me, now - 7 * 86400_000);
+    c = { upto: top, built: now, rows: new Map(results.map((r) => [r.k, { id: r.id, at: r.at }])) };
+    lastFrom.set(me, c);
+  } else if (top > c.upto) {
+    const { results } = await q("NOT INDEXED WHERE id > ?1 AND id <= ?2 AND recipient = ?3", c.upto, top, me);
+    for (const r of results) if (r.id > (c.rows.get(r.k)?.id ?? 0)) c.rows.set(r.k, { id: r.id, at: r.at });
+    c.upto = top;
+  }
+  const week = now - 7 * 86400_000;
+  return new Map([...c.rows].filter(([, r]) => r.at > week).map(([k, r]) => [k, r.id]));
+}
+
 const WINDOWS: Record<string, string> = { five_hour: "5-hour", seven_day: "Week", seven_day_opus: "Week (Opus)", spend_limit: "Spend" };
 /** What an agent's mod reported of its usage (app.ts handleUi), without windows that have reset since. */
 export function usageOf(raw: string | null | undefined, now = Date.now()): { rl: { k: string; p: number; r: number | null }[]; usd: number | null } | null {
@@ -135,12 +163,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   for (const a of agents) if (a.member !== me) a.state_detail = "";
   // The latest message each agent sent you (the last week): the tree marks agents with one you haven't opened (the
   // browser remembers what you've seen).
-  const { results: lastRows } = await env.DB.prepare(
-    "SELECT sender || '/' || sender_agent AS k, MAX(id) AS id FROM messages INDEXED BY messages_to_when WHERE recipient = ? AND sender_agent IS NOT NULL AND kind != 'event' AND created_at > ? GROUP BY sender, sender_agent",
-  )
-    .bind(me, Date.now() - 7 * 86400_000)
-    .all<{ k: string; id: number }>();
-  const lastTo = new Map(lastRows.map((r) => [r.k, r.id]));
+  const lastTo = await lastFromAgents(env, me);
   const connected = env.live?.() ?? new Set<string>();
   const nick = await hostNames(env, me);
   const hostOf = (a: Agent) => (a.member === me ? nick.get(a.host) ?? a.host : a.host);
