@@ -1,9 +1,27 @@
 // Runs the hub's app code against Node's built-in SQLite, with the same migrations as production.
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { DatabaseSync, type StatementSync } from "node:sqlite";
 import { handle } from "../src/app.ts";
 import { bindable, splitStatements, type Db, type Stmt } from "../src/db.ts";
 import { type Env, type Message, issueToken, sha256 } from "../src/lib.ts";
+
+// SQL_PLANS=<file>: every distinct query the tests run, with SQLite's plan for it and where in src it came from, written
+// out when the tests end. For finding queries that read a whole table (each row read is billed on the hub).
+const plans = new Map<string, { plan: string[]; at: string; n: number }>();
+if (process.env.SQL_PLANS)
+  process.on("exit", () => writeFileSync(process.env.SQL_PLANS!, JSON.stringify(Object.fromEntries(plans), null, 1)));
+function notePlan(db: DatabaseSync, query: string, params: unknown[]) {
+  const q = query.replace(/\s+/g, " ").trim();
+  const seen = plans.get(q);
+  if (seen) return void seen.n++;
+  if (!/^\s*(SELECT|WITH|UPDATE|DELETE|INSERT)/i.test(q)) return;
+  let plan: string[] = [];
+  try {
+    plan = (db.prepare(`EXPLAIN QUERY PLAN ${query}`).all(...(params as never[])) as { detail: string }[]).map((r) => r.detail);
+  } catch {}
+  const at = (new Error().stack ?? "").split("\n").filter((l) => l.includes("/src/") && !l.includes("/src/db.ts")).slice(0, 2).map((l) => l.replace(/^.*\/src\//, "").replace(/\)$/, "")).join(" < ");
+  plans.set(q, { plan, at, n: 1 });
+}
 
 class NodeStmt implements Stmt {
   db: DatabaseSync;
@@ -18,6 +36,7 @@ class NodeStmt implements Stmt {
     return new NodeStmt(this.db, this.query, bindable(values));
   }
   prepared(): StatementSync {
+    if (process.env.SQL_PLANS) notePlan(this.db, this.query, this.params);
     return this.db.prepare(this.query);
   }
   async first<T>(): Promise<T | null> {
