@@ -2705,12 +2705,13 @@ ${markupScript()}
   // (one that failed before this script ran)
   const postersNow = () => $$("img[data-poster]").forEach((i) => { if (i.complete && !i.naturalWidth && (i.getAttribute("src") || "").endsWith("/thumb")) posterMissing(i); });
   // Zoom and pan in the image viewer, by hand rather than the browser's page zoom (which zoomed the whole page and
-  // then wouldn't pan): pinch or double-tap to zoom, drag to move around a zoomed image, the wheel on a desktop.
+  // then wouldn't pan): a click or tap zooms in where it lands (to the image's own pixels) and another zooms back out;
+  // pinch or the wheel zoom too, and a drag moves around a zoomed image.
   // Not zoomed, a sideways swipe steps through the files grid's images.
   function zoomable(v) {
     const body = v.querySelector(".ivbody");
     const pts = new Map();
-    let s = 1, x = 0, y = 0, start = null, lastTap = 0, kind = "mouse";
+    let s = 1, x = 0, y = 0, start = null;
     const img = () => body.querySelector("img");
     const clamp = () => {
       const i = img(); if (!i) return;
@@ -2735,7 +2736,6 @@ ${markupScript()}
     };
     body.addEventListener("pointerdown", (e) => {
       if (!body.classList.contains("pic") || e.button) return;
-      kind = e.pointerType;
       pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
       try { body.setPointerCapture(e.pointerId); } catch {}
       if (pts.size === 1) start = null;
@@ -2770,17 +2770,19 @@ ${markupScript()}
       if (s === 1 && p0.length === 1 && moved) {
         const dx = was.x - p0[0].x, dy = was.y - p0[0].y;
         if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) v._step(dx < 0 ? 1 : -1);
-      } else if (!moved && p0.length === 1 && e.pointerType !== "mouse") {
-        // Double-tap: zoom in where you tapped, or back out.
-        const now = Date.now();
-        if (now - lastTap < 300) { const [px, py] = rel(e); if (s > 1) { s = 1; apply(true); } else zoomAt(2.5, px, py, true); v._dragged = true; lastTap = 0; }
-        else lastTap = now;
       }
       start = null;
     };
     body.addEventListener("pointerup", end);
     body.addEventListener("pointercancel", end);
-    body.addEventListener("dblclick", (e) => { if (!body.classList.contains("pic") || kind !== "mouse") return; /* a touch double-tap is handled above */ const [px, py] = rel(e); if (s > 1) { s = 1; apply(true); } else zoomAt(2.5, px, py, true); });
+    // A click on the image (not the end of a drag: the viewer's click handler checks): in to its own pixels where it
+    // landed, at least twice the size, or back out.
+    v._clickZoom = (e) => {
+      const i = img(); if (!i || !body.classList.contains("pic")) return;
+      if (s > 1) { s = 1; apply(true); return; }
+      const [px, py] = rel(e);
+      zoomAt(Math.max(2, (i.naturalWidth || 0) / (i.offsetWidth || 1)), px, py, true);
+    };
     body.addEventListener("wheel", (e) => {
       if (!body.classList.contains("pic")) return;
       e.preventDefault();
@@ -2821,7 +2823,7 @@ ${markupScript()}
           markUp({ ...opts, name: v._name + " at " + at, file: new File([blob], base + "-" + at + ".png", { type: "image/png" }) });
         } else markUp({ ...opts, url: v._href });
       };
-      v.querySelector(".ivbody").onclick = (ev) => { if (v._dragged) { v._dragged = false; return; } if (ev.target.tagName !== "IMG" && ev.target.tagName !== "VIDEO" && !ev.target.closest(".ivdoc>*")) v.close(); };
+      v.querySelector(".ivbody").onclick = (ev) => { if (v._dragged) { v._dragged = false; return; } const im = ev.currentTarget.querySelector(".pic img"), r = im && im.getBoundingClientRect(); /* the pointer capture (zoomable) sends the click to the body, not the image: where it landed decides */ if (r && ev.clientX >= r.left && ev.clientX <= r.right && ev.clientY >= r.top && ev.clientY <= r.bottom) v._clickZoom(ev); else if (ev.target.tagName !== "IMG" && ev.target.tagName !== "VIDEO" && ev.target.tagName !== "VIDEO" && !ev.target.closest(".ivdoc>*")) v.close(); };
       zoomable(v);
       v.addEventListener("close", () => { const vid = v.querySelector("video"); vid.pause(); vid.removeAttribute("src"); vid.load(); });
       v.addEventListener("close", () => { if (history.state && history.state.iv) { v._popping = true; history.back(); } });
