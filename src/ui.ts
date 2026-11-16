@@ -2706,7 +2706,7 @@ ${markupScript()}
   const postersNow = () => $$("img[data-poster]").forEach((i) => { if (i.complete && !i.naturalWidth && (i.getAttribute("src") || "").endsWith("/thumb")) posterMissing(i); });
   // Zoom and pan in the image viewer, by hand rather than the browser's page zoom (which zoomed the whole page and
   // then wouldn't pan): a click or tap zooms in where it lands (to the image's own pixels) and another zooms back out;
-  // pinch or the wheel zoom too, and a drag moves around a zoomed image.
+  // the wheel and a pinch zoom too, and a drag moves around a zoomed image.
   // Not zoomed, a sideways swipe steps through the files grid's images.
   function zoomable(v) {
     const body = v.querySelector(".ivbody");
@@ -2787,8 +2787,10 @@ ${markupScript()}
       if (!body.classList.contains("pic")) return;
       e.preventDefault();
       const [px, py] = rel(e);
-      if (e.ctrlKey || !(s > 1)) zoomAt(s * Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.002)), px, py, false);
-      else { x -= e.deltaX; y -= e.deltaY; apply(false); }
+      // The wheel (or a two-finger scroll) zooms about the pointer, in and out, all the way; a drag moves around.
+      // (It used to pan once zoomed, so the first notch zoomed a hair and the rest only moved the image.)
+      const d = e.deltaMode === 1 ? e.deltaY * 33 : e.deltaY;
+      zoomAt(s * Math.exp(-Math.max(-60, Math.min(60, d)) * (e.ctrlKey ? 0.01 : 0.004)), px, py, false);
     }, { passive: false });
     v.addEventListener("close", () => { pts.clear(); start = null; v._zoom(1); });
   }
