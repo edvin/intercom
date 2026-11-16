@@ -1366,7 +1366,7 @@ h1{font-size:22px;font-weight:620;letter-spacing:-.02em}
 .thread.term .bubble.mine::before{content:"You";color:var(--ink)}
 .thread.term .bubble .when{display:block;margin:4px 0 0;font-size:11px;color:var(--mute);opacity:.8}
 .thread.term .bubble:not(:hover) .when .speak{opacity:0}
-.thread.term .md code{font-size:.88em;padding:.08em .38em;border-radius:5px;background:var(--surface-2)}.thread.term .bubble.mine .md code,.thread.term .bubble.mine code{background:var(--surface-3)}
+.thread.term .md code{font-size:.88em;padding:.08em .38em;border-radius:5px;background:var(--surface-2)}.thread.term .bubble.mine .md code,.thread.term .bubble.mine code{background:var(--surface-3);color:var(--ink)}
 .thread.term .mdpre{font-size:12.5px;border-radius:9px}
 .thread.term .md .mdh{color:var(--ink)}
 .thread.term .md a,.thread.term .bubble a.ref{text-decoration:none;color:var(--accent)}
