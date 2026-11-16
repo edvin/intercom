@@ -45,8 +45,8 @@ function matcher({ agent, project, kind, q }: Filters): (f: Item) => boolean {
 interface Kept extends Item {
   recipient: string | null;
 }
-/** The files agents shared in the last 30 days, whoever may see them, per hub (its database). */
-const kept = new WeakMap<object, { upto: number; built: number; rows: Map<number, Kept> }>();
+/** The files agents shared in the last 30 days, whoever may see them, as of message `upto` (written at `uptoAt`). */
+let kept: { upto: number; uptoAt: number; built: number; rows: Map<number, Kept> } | null = null;
 const REBUILD_MS = 10 * 60_000;
 const COLS = "a.id, a.mime, a.bytes, a.name, a.created_at, m.sender, m.sender_agent, m.channel, m.recipient";
 const LIVE = "m.sender_agent IS NOT NULL AND m.cancelled_at IS NULL AND m.held_at IS NULL";
@@ -56,15 +56,17 @@ const LIVE = "m.sender_agent IS NOT NULL AND m.cancelled_at IS NULL AND m.held_a
  * one (and their files), and it's built afresh every 10 minutes (a message withdrawn or held since, a file's retention).
  */
 async function recentFiles(env: Env, now = Date.now()): Promise<Kept[]> {
-  const top = (await env.DB.prepare("SELECT MAX(id) AS id FROM messages").first<{ id: number | null }>())?.id ?? 0;
+  const last = await env.DB.prepare("SELECT id, created_at FROM messages ORDER BY id DESC LIMIT 1").first<{ id: number; created_at: number }>();
+  const [top, topAt] = [last?.id ?? 0, last?.created_at ?? 0];
   const since = now - RETENTION_DAYS * 86400_000;
-  let c = kept.get(env.DB);
-  if (!c || now - c.built > REBUILD_MS || top < c.upto) {
+  let c = kept;
+  // The message it read up to is still there as it was (not another database, as in the tests).
+  const same = !!c && (c.upto === top ? c.uptoAt === topAt : top > c.upto && (await env.DB.prepare("SELECT created_at FROM messages WHERE id = ?").bind(c.upto).first<{ created_at: number }>())?.created_at === c.uptoAt);
+  if (!c || !same || now - c.built > REBUILD_MS) {
     const { results } = await env.DB.prepare(`SELECT ${COLS} FROM attachments a INDEXED BY attachments_when CROSS JOIN messages m ON m.id = a.message_id WHERE a.created_at > ? AND ${LIVE}`)
       .bind(since)
       .all<Kept>();
-    c = { upto: top, built: now, rows: new Map(results.map((r) => [r.id, r])) };
-    kept.set(env.DB, c);
+    c = kept = { upto: top, uptoAt: topAt, built: now, rows: new Map(results.map((r) => [r.id, r])) };
   } else if (top > c.upto) {
     // From a few messages back: a file gets its message's id just after the message is written (linkImages).
     const { results } = await env.DB.prepare(`SELECT ${COLS} FROM messages m CROSS JOIN attachments a INDEXED BY attachments_message ON a.message_id = m.id WHERE m.id > ? AND m.id <= ? AND ${LIVE}`)
@@ -72,11 +74,14 @@ async function recentFiles(env: Env, now = Date.now()): Promise<Kept[]> {
       .all<Kept>();
     for (const r of results) c.rows.set(r.id, r);
     c.upto = top;
+    c.uptoAt = topAt;
   }
   return [...c.rows.values()].filter((r) => r.created_at > since);
 }
 /** After Clean up deleted some: the next visit reads them afresh. */
-const forgetFiles = (env: Env) => kept.delete(env.DB);
+const forgetFiles = () => {
+  kept = null;
+};
 
 type Kind = "images" | "videos" | "files" | "all";
 interface Filters {
@@ -133,7 +138,7 @@ export async function pruneFiles(env: Env, me: string, days: number, f: Filters)
     await env.files?.delete(part.flatMap((r) => [r.r2_key, thumbKey(r)]));
     await env.DB.prepare("DELETE FROM attachments WHERE id IN (SELECT value FROM json_each(?))").bind(JSON.stringify(part.map((r) => r.id))).run();
   }
-  forgetFiles(env);
+  forgetFiles();
   return { n: results.length, bytes: results.reduce((s, r) => s + r.bytes, 0) };
 }
 
