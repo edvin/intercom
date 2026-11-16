@@ -28,6 +28,56 @@ const IMG = "a.mime IN ('image/png','image/jpeg','image/webp','image/gif')";
 // A video by its name or its type (videoType in attachments.ts).
 const VID = `(a.mime LIKE 'video/%' OR ${VIDEO_EXTS.map((e) => `lower(a.name) LIKE '%.${e}'`).join(" OR ")})`;
 
+const IMG_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
+const isImg = (f: { mime: string }) => IMG_TYPES.has(f.mime.toLowerCase());
+const isVid = (f: { mime: string; name: string }) => /^video\//i.test(f.mime) || VIDEO_EXTS.some((e) => f.name.toLowerCase().endsWith(`.${e}`));
+
+/** What the grid shows with these filters (scope's SQL, for the files kept in memory). */
+function matcher({ agent, project, kind, q }: Filters): (f: Item) => boolean {
+  const needle = q.toLowerCase();
+  return (f) =>
+    (!agent || `${f.sender}/${f.sender_agent}` === agent) &&
+    (!project || f.channel === project) &&
+    (!needle || f.name.toLowerCase().includes(needle)) &&
+    (kind === "all" || (kind === "images" ? isImg(f) : kind === "videos" ? isVid(f) : !isImg(f) && !isVid(f)));
+}
+
+interface Kept extends Item {
+  recipient: string | null;
+}
+/** The files agents shared in the last 30 days, whoever may see them, per hub (its database). */
+const kept = new WeakMap<object, { upto: number; built: number; rows: Map<number, Kept> }>();
+const REBUILD_MS = 10 * 60_000;
+const COLS = "a.id, a.mime, a.bytes, a.name, a.created_at, m.sender, m.sender_agent, m.channel, m.recipient";
+const LIVE = "m.sender_agent IS NOT NULL AND m.cancelled_at IS NULL AND m.held_at IS NULL";
+
+/**
+ * Every file an agent shared in the last 30 days, kept between visits: a visit reads only the messages since the last
+ * one (and their files), and it's built afresh every 10 minutes (a message withdrawn or held since, a file's retention).
+ */
+async function recentFiles(env: Env, now = Date.now()): Promise<Kept[]> {
+  const top = (await env.DB.prepare("SELECT MAX(id) AS id FROM messages").first<{ id: number | null }>())?.id ?? 0;
+  const since = now - RETENTION_DAYS * 86400_000;
+  let c = kept.get(env.DB);
+  if (!c || now - c.built > REBUILD_MS || top < c.upto) {
+    const { results } = await env.DB.prepare(`SELECT ${COLS} FROM attachments a INDEXED BY attachments_when CROSS JOIN messages m ON m.id = a.message_id WHERE a.created_at > ? AND ${LIVE}`)
+      .bind(since)
+      .all<Kept>();
+    c = { upto: top, built: now, rows: new Map(results.map((r) => [r.id, r])) };
+    kept.set(env.DB, c);
+  } else if (top > c.upto) {
+    // From a few messages back: a file gets its message's id just after the message is written (linkImages).
+    const { results } = await env.DB.prepare(`SELECT ${COLS} FROM messages m CROSS JOIN attachments a INDEXED BY attachments_message ON a.message_id = m.id WHERE m.id > ? AND m.id <= ? AND ${LIVE}`)
+      .bind(Math.max(0, c.upto - 20), top)
+      .all<Kept>();
+    for (const r of results) c.rows.set(r.id, r);
+    c.upto = top;
+  }
+  return [...c.rows.values()].filter((r) => r.created_at > since);
+}
+/** After Clean up deleted some: the next visit reads them afresh. */
+const forgetFiles = (env: Env) => kept.delete(env.DB);
+
 type Kind = "images" | "videos" | "files" | "all";
 interface Filters {
   agent: string;
@@ -83,6 +133,7 @@ export async function pruneFiles(env: Env, me: string, days: number, f: Filters)
     await env.files?.delete(part.flatMap((r) => [r.r2_key, thumbKey(r)]));
     await env.DB.prepare("DELETE FROM attachments WHERE id IN (SELECT value FROM json_each(?))").bind(JSON.stringify(part.map((r) => r.id))).run();
   }
+  forgetFiles(env);
   return { n: results.length, bytes: results.reduce((s, r) => s + r.bytes, 0) };
 }
 
@@ -94,35 +145,23 @@ export async function galleryView(env: Env, me: string, url: URL): Promise<strin
   // A list unless you look at images or videos only: a file has no picture, so a tile of it says little.
   const listDefault = kind === "files" || kind === "all";
   const asList = kind === "files" || (p.get("layout") === "list" ? true : p.get("layout") === "grid" ? false : listDefault);
-  const { where, binds } = scope(me, filters);
-  const since = binds[1] as number;
+  // All from the files of the last 30 days kept in memory (recentFiles): the filters' counts and Clean up's add up every
+  // one of them, which read ~20,000 rows a visit when asked of the database.
+  const [rows, { results: mine }] = await Promise.all([recentFiles(env), env.DB.prepare("SELECT project FROM project_members WHERE member = ?").bind(me).all<{ project: string }>()]);
+  const projectsOf = new Set(mine.map((r) => r.project));
+  const visible = rows.filter((r) => r.sender === me || r.recipient === me || (r.recipient === null && projectsOf.has(r.channel)));
+  const pick = matcher(filters);
+  const items = visible.filter((r) => pick(r) && (!before || r.id < before)).sort((a, b) => b.id - a.id).slice(0, PAGE + 1);
+  const facets = visible;
   // Clean up: how many of your agents' files (with these filters) each choice would delete.
-  const old = scope(me, filters);
-  old.where.push("m.sender = ?1");
   const cuts = PRUNE_DAYS.map((d) => Date.now() - d * 86400_000);
-  const cutSql = cuts.map((_, i) => `SUM(a.created_at < ?${old.binds.length + 1 + i}) AS n${i}, SUM(CASE WHEN a.created_at < ?${old.binds.length + 1 + i} THEN a.bytes ELSE 0 END) AS b${i}`).join(", ");
-  if (before) {
-    binds.push(before);
-    where.push(`a.id < ?${binds.length}`);
-  }
-  const [{ results: items }, { results: facets }, olds] = await Promise.all([
-    env.DB.prepare(
-      `SELECT a.id, a.mime, a.bytes, a.name, a.created_at, m.sender, m.sender_agent, m.channel
-       FROM attachments a CROSS JOIN messages m ON m.id = a.message_id WHERE ${where.join(" AND ")} ORDER BY a.id DESC LIMIT ${PAGE + 1}`,
-    )
-      .bind(...binds)
-      .all<Item>(),
-    // What the filters offer: every agent and project with something in the last 30 days, whatever is picked.
-    env.DB.prepare(
-      `SELECT m.sender, m.sender_agent, m.channel, COUNT(*) AS n, SUM(${IMG}) AS imgs, SUM(${VID}) AS vids FROM attachments a CROSS JOIN messages m ON m.id = a.message_id
-       WHERE ${VISIBLE} GROUP BY m.sender, m.sender_agent, m.channel`,
-    )
-      .bind(me, since)
-      .all<{ sender: string; sender_agent: string; channel: string; n: number; imgs: number; vids: number }>(),
-    env.DB.prepare(`SELECT ${cutSql} FROM attachments a CROSS JOIN messages m ON m.id = a.message_id WHERE ${old.where.join(" AND ")}`)
-      .bind(...old.binds, ...cuts)
-      .first<Record<string, number | null>>(),
-  ]);
+  const ours = visible.filter((r) => r.sender === me && pick(r));
+  const olds: Record<string, number> = {};
+  cuts.forEach((cut, i) => {
+    const old = ours.filter((r) => r.created_at < cut);
+    olds[`n${i}`] = old.length;
+    olds[`b${i}`] = old.reduce((s, r) => s + r.bytes, 0);
+  });
   const more = items.length > PAGE;
   const shown = items.slice(0, PAGE);
 
@@ -130,12 +169,12 @@ export async function galleryView(env: Env, me: string, url: URL): Promise<strin
   const projects = new Map<string, number>();
   for (const f of facets) {
     const k = `${f.sender}/${f.sender_agent}`;
-    agents.set(k, (agents.get(k) ?? 0) + f.n);
-    projects.set(f.channel, (projects.get(f.channel) ?? 0) + f.n);
+    agents.set(k, (agents.get(k) ?? 0) + 1);
+    projects.set(f.channel, (projects.get(f.channel) ?? 0) + 1);
   }
-  const total = facets.reduce((s, f) => s + f.n, 0);
-  const imgs = facets.reduce((s, f) => s + (f.imgs ?? 0), 0);
-  const vids = facets.reduce((s, f) => s + (f.vids ?? 0), 0);
+  const total = facets.length;
+  const imgs = facets.filter((f) => isImg(f)).length;
+  const vids = facets.filter((f) => isVid(f)).length;
   // Your own agents first, then everyone else's, each by name.
   const agentKeys = [...agents.keys()].sort((a, b) => Number(!a.startsWith(`${me}/`)) - Number(!b.startsWith(`${me}/`)) || a.localeCompare(b));
   if (agent && !agents.has(agent)) agentKeys.unshift(agent);
@@ -197,7 +236,7 @@ export async function galleryView(env: Env, me: string, url: URL): Promise<strin
   // Clean up: keep the last day / 3 days / week / 2 weeks of what your agents shared, with the filters as they are.
   const what = kind === "images" ? "image" : kind === "videos" ? "video" : "file";
   const cnt = (n: number) => `${n} ${n === 1 ? what : what + "s"}`;
-  const choices = PRUNE_DAYS.map((d, i) => ({ d, n: Number(olds?.[`n${i}`] ?? 0), b: Number(olds?.[`b${i}`] ?? 0) }));
+  const choices = PRUNE_DAYS.map((d, i) => ({ d, n: olds[`n${i}`] ?? 0, b: olds[`b${i}`] ?? 0 }));
   const first = choices.find((c) => c.d === 7 && c.n) ?? choices.find((c) => c.n);
   const scopeText = [agent ? who(agent) : "", project ? `#${project}` : ""].filter(Boolean).join(" in ") + (q ? `${agent || project ? " " : ""}named “${q}”` : "");
   const prune = first

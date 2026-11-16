@@ -1920,6 +1920,9 @@ describe("share_file", () => {
     assert.match(await view("bob", "&kind=all&agent=bob%2Fother"), /Nothing here with these filters/);
     assert.match(await view("bob", "&kind=all&project=billing"), /\/attachment\/3"[\s\S]*(?!\/attachment\/1)/);
     assert.doesNotMatch(await view("bob", "&kind=all&project=shop"), /data-gallery/);
+    // A file shared since the last visit shows on the next one (the page keeps what it read and adds what's new).
+    await w.ok("bob", "share_file", { path: "/w/later.txt", _file: { name: "later.txt", mime: "text/plain", data: b64("y") } }, s);
+    assert.match(await view("bob", "&kind=files"), /data-name="later\.txt"/);
     // The tree links to it, and an agent's chat links to its own files.
     assert.match(bob, /href="\/dashboard\?view=files" title="Files from agents"/);
     assert.match(await (await w.request("/dashboard?view=agents&agent=bob%2Fcore", { as: "bob", cookie: true })).text(), /href="\/dashboard\?view=files&amp;agent=bob%2Fcore"/);
