@@ -337,7 +337,10 @@ export async function listHandoffs(env: Env, me: string, opts: { project?: strin
     where.push(`status IN (${opts.states.map(() => "?").join(",")})`);
     binds.push(...opts.states);
   }
-  const { results } = await env.DB.prepare(`SELECT * FROM handoffs WHERE ${where.join(" AND ")} ORDER BY updated_at DESC LIMIT ?`)
+  // All your projects' latest: from the newest back until there are enough (it read every handoff, 3,300 rows, on each
+  // dashboard redraw). One project or a few states: by the project's index.
+  const by = opts.project || opts.states?.length ? "" : " INDEXED BY handoffs_updated";
+  const { results } = await env.DB.prepare(`SELECT * FROM handoffs${by} WHERE ${where.join(" AND ")} ORDER BY updated_at DESC LIMIT ?`)
     .bind(...binds, opts.limit ?? 20)
     .all<Handoff>();
   return results;

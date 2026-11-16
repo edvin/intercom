@@ -552,9 +552,14 @@ export async function unread(
   const missed = session
     ? "UNION ALL SELECT * FROM messages WHERE id IN (SELECT m.id FROM messages m INDEXED BY messages_untaken WHERE m.recipient = ?2 AND m.taken IS NULL AND m.recipient_agent IS NOT NULL AND m.recipient_agent IN (?4, ?5) AND m.created_at > ?6 AND m.id <= ?1 AND m.kind != 'event' AND NOT EXISTS (SELECT 1 FROM deliveries d WHERE d.message_id = m.id))"
     : "";
+  const top = session ? ((await env.DB.prepare("SELECT MAX(id) AS id FROM messages").first<{ id: number | null }>())?.id ?? 0) : 0;
   const { results } = await env.DB.prepare(`SELECT * FROM (SELECT * FROM messages NOT INDEXED WHERE id > ?1 ${missed}) WHERE ${notMine} AND ${RECEIVES} AND ${agentOk} ORDER BY id LIMIT ?3`)
     .bind(cursor, me, limit + 1, session?.label ?? null, session?.project ?? null, ...(session ? [Date.now() - MISSED_DAYS * 86_400_000] : []))
     .all<Message>();
+  // Nothing up to the newest message is for this session: its cursor moves there, so the next poll doesn't read the
+  // team's messages since it last got one all over again (800 rows a poll, every few seconds).
+  if (session && !results.length && top > cursor)
+    await env.DB.prepare("UPDATE sessions SET cursor = MAX(cursor, ?) WHERE member = ? AND session_id = ?").bind(top, me, session.session_id).run();
   const more = results.length > limit;
   const messages = results.slice(0, limit);
   if (markRead && messages.length) {

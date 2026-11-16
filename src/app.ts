@@ -496,10 +496,10 @@ async function handleUi(url: URL, env: Env, me: string): Promise<Response> {
         .all<{ proposal_id: number }>()
     : { results: [] };
   const votedIds = new Set(voted.map((v) => v.proposal_id));
-  // How far back the person-level count looks: at most the last 5000 messages. A cursor left far behind (nobody reads
+  // How far back the person-level count looks: at most the last 1000 messages. A cursor left far behind (nobody reads
   // the person-level view) made the unread count read 34,000 rows on every poll.
   const top = (await env.DB.prepare("SELECT MAX(id) AS id FROM messages").first<{ id: number | null }>())?.id ?? 0;
-  const cursor = Math.max(cursorRow?.last_read_id ?? 0, top - 5000);
+  const cursor = Math.max(cursorRow?.last_read_id ?? 0, top - 1000);
   const sid = url.searchParams.get("session");
   const mySession = sid
     ? await env.DB.prepare("SELECT session_id, label, project, cursor, version, compact_req, model, model_req, started_at, state, last_seen FROM sessions WHERE member = ? AND session_id = ?").bind(me, sid).first<Session & { cursor: number; version: string; compact_req: string | null; model: string | null; model_req: string | null; state: string | null; last_seen: number }>()
@@ -621,7 +621,7 @@ async function handleStatusline(url: URL, env: Env, me: string): Promise<Respons
   const cursor = await env.DB.prepare("SELECT last_read_id FROM cursors WHERE member = ?").bind(me).first<{ last_read_id: number }>();
   const n = cursor
     ? (await env.DB.prepare(`SELECT COUNT(*) AS n FROM messages NOT INDEXED WHERE id > ?1 AND sender != ?2 AND ${RECEIVES}`)
-        .bind(Math.max(cursor.last_read_id, ((await env.DB.prepare("SELECT MAX(id) AS id FROM messages").first<{ id: number | null }>())?.id ?? 0) - 5000), me)
+        .bind(Math.max(cursor.last_read_id, ((await env.DB.prepare("SELECT MAX(id) AS id FROM messages").first<{ id: number | null }>())?.id ?? 0) - 1000), me)
         .first<{ n: number }>())!.n
     : 0;
   const locks = await activeLocks(env, me);

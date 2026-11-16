@@ -41,7 +41,7 @@ export const galleryFilters = (get: (k: string) => string | null | undefined): F
   return { agent: get("agent") ?? "", project: get("project") ?? "", kind: k === "files" || k === "all" || k === "videos" ? k : "images", q: (get("q") ?? "").trim().slice(0, 100) };
 };
 
-/** What the grid shows with these filters, as SQL over attachments a JOIN messages m (binds ?1 = me, ?2 = since). */
+/** What the grid shows with these filters, as SQL over attachments a CROSS JOIN messages m (attachments first: CROSS keeps SQLite to that order; binds ?1 = me, ?2 = since). */
 function scope(me: string, { agent, project, kind, q }: Filters) {
   const where = [VISIBLE];
   const binds: unknown[] = [me, Date.now() - RETENTION_DAYS * 86400_000];
@@ -75,7 +75,7 @@ export async function pruneFiles(env: Env, me: string, days: number, f: Filters)
   const { where, binds } = scope(me, f);
   binds.push(Date.now() - days * 86400_000);
   where.push(`m.sender = ?1 AND a.created_at < ?${binds.length}`);
-  const { results } = await env.DB.prepare(`SELECT a.id, a.r2_key, a.bytes FROM attachments a JOIN messages m ON m.id = a.message_id WHERE ${where.join(" AND ")}`)
+  const { results } = await env.DB.prepare(`SELECT a.id, a.r2_key, a.bytes FROM attachments a CROSS JOIN messages m ON m.id = a.message_id WHERE ${where.join(" AND ")}`)
     .bind(...binds)
     .all<{ id: number; r2_key: string; bytes: number }>();
   for (let i = 0; i < results.length; i += 400) {
@@ -108,18 +108,18 @@ export async function galleryView(env: Env, me: string, url: URL): Promise<strin
   const [{ results: items }, { results: facets }, olds] = await Promise.all([
     env.DB.prepare(
       `SELECT a.id, a.mime, a.bytes, a.name, a.created_at, m.sender, m.sender_agent, m.channel
-       FROM attachments a JOIN messages m ON m.id = a.message_id WHERE ${where.join(" AND ")} ORDER BY a.id DESC LIMIT ${PAGE + 1}`,
+       FROM attachments a CROSS JOIN messages m ON m.id = a.message_id WHERE ${where.join(" AND ")} ORDER BY a.id DESC LIMIT ${PAGE + 1}`,
     )
       .bind(...binds)
       .all<Item>(),
     // What the filters offer: every agent and project with something in the last 30 days, whatever is picked.
     env.DB.prepare(
-      `SELECT m.sender, m.sender_agent, m.channel, COUNT(*) AS n, SUM(${IMG}) AS imgs, SUM(${VID}) AS vids FROM attachments a JOIN messages m ON m.id = a.message_id
+      `SELECT m.sender, m.sender_agent, m.channel, COUNT(*) AS n, SUM(${IMG}) AS imgs, SUM(${VID}) AS vids FROM attachments a CROSS JOIN messages m ON m.id = a.message_id
        WHERE ${VISIBLE} GROUP BY m.sender, m.sender_agent, m.channel`,
     )
       .bind(me, since)
       .all<{ sender: string; sender_agent: string; channel: string; n: number; imgs: number; vids: number }>(),
-    env.DB.prepare(`SELECT ${cutSql} FROM attachments a JOIN messages m ON m.id = a.message_id WHERE ${old.where.join(" AND ")}`)
+    env.DB.prepare(`SELECT ${cutSql} FROM attachments a CROSS JOIN messages m ON m.id = a.message_id WHERE ${old.where.join(" AND ")}`)
       .bind(...old.binds, ...cuts)
       .first<Record<string, number | null>>(),
   ]);
