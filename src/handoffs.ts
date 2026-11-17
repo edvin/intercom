@@ -5,7 +5,7 @@
 
 import { type Env, address } from "./lib";
 import { type Handoff, OPEN_HANDOFF, gatesOf, obligationsOf } from "./records";
-import { esc, icon, md, time } from "./ui";
+import { agentAvatar, avatar, esc, icon, md, time } from "./ui";
 
 const HANDOFF_PILL: Record<string, string> = { pending: "accent", integrated: "green", held: "amber", rejected: "red", withdrawn: "" };
 
@@ -15,42 +15,80 @@ const GATE_ICON: Record<string, string> = { passed: "check", failed: "x", "not r
 /** The gates as chips with their results (older handoffs: the text they were given). */
 function handoffGates(h: Handoff): string {
   const list = gatesOf(h);
-  if (!list.length) return h.gates ? `<div class="tiny muted">gates: ${esc(h.gates)}</div>` : "";
+  if (!list.length) return h.gates ? `<div class="hogates"><span class="hogt">${esc(h.gates)}</span></div>` : "";
   return `<div class="hogates" aria-label="Gates">${list
-    .map((g) => `<span class="badge ${GATE_PILL[g.result] ?? ""}"${g.detail ? ` title="${esc(g.detail)}"` : ""}>${icon(GATE_ICON[g.result] ?? "dots", 11)}${esc(g.name)}${g.result === "passed" ? "" : ` · ${esc(g.result)}`}</span>`)
+    .map((g) => `<span class="hogate ${GATE_PILL[g.result] ?? ""}"${g.detail ? ` title="${esc(g.detail)}"` : ""}>${icon(GATE_ICON[g.result] ?? "dots", 11)}${esc(g.name)}${g.result === "passed" ? "" : `<i>${esc(g.result)}</i>`}</span>`)
     .join("")}</div>`;
 }
 
 const TICK_LABEL: Record<string, string> = { open: "not yet", done: "done", na: "doesn't apply", waived: "waived" };
 
-/** The receiver's obligations, with how each was ticked off. */
+/** The receiver's obligations, with how each was ticked off: a progress bar, and the list (folded once it's settled). */
 function handoffChecklist(h: Handoff): string {
   const list = obligationsOf(h);
   if (!list.length) return "";
   const met = list.filter((o) => o.state !== "open").length;
-  return `<div class="hoobl"><div class="tiny muted">Obligations · ${met} of ${list.length} ticked off</div><ol>${list
+  const items = `<ol>${list
     .map(
       (o) =>
-        `<li class="${o.state}"><span class="hochk" title="${TICK_LABEL[o.state] ?? ""}">${o.state === "open" ? "" : icon(o.state === "done" ? "check" : o.state === "waived" ? "x" : "dots", 11)}</span><span class="hotxt">${esc(o.text)}${o.state !== "open" && o.state !== "done" ? ` <span class="tiny muted">(${TICK_LABEL[o.state]})</span>` : ""}${o.note ? `<span class="tiny muted hond">${esc(o.note)}${o.by ? ` — ${esc(o.by)}` : ""}</span>` : ""}</span></li>`,
+        `<li class="${o.state}"><span class="hochk" title="${TICK_LABEL[o.state] ?? ""}">${o.state === "open" ? "" : icon(o.state === "done" ? "check" : o.state === "waived" ? "x" : "dots", 11)}</span><span class="hotxt">${esc(o.text)}${o.state !== "open" && o.state !== "done" ? ` <span class="hotag">${TICK_LABEL[o.state]}</span>` : ""}${o.note ? `<span class="hond">${esc(o.note)}${o.by ? ` · ${esc(o.by)}` : ""}</span>` : ""}</span></li>`,
     )
-    .join("")}</ol></div>`;
+    .join("")}</ol>`;
+  const head = `<span class="hoblh">Obligations</span><span class="hobar2" style="--p:${Math.round((met / list.length) * 100)}%"></span><span class="hoblc">${met}/${list.length}</span>`;
+  return OPEN_HANDOFF.includes(h.status)
+    ? `<div class="hoobl"><div class="hoblhd">${head}</div>${items}</div>`
+    : `<details class="hoobl"><summary class="hoblhd">${head}${icon("chevron", 12)}</summary>${items}</details>`;
 }
 
-/** A handoff: its ref and state, summary, gates, the receiver's checklist, evidence, the outcome's note, and who to whom. */
+const STATE_ICON: Record<string, string> = { pending: "arrow", held: "clock", integrated: "check", rejected: "x", withdrawn: "back" };
+const OUTCOME: Record<string, string> = { integrated: "Integrated", held: "Held", rejected: "Rejected", withdrawn: "Withdrawn", pending: "Back to pending" };
+
+/** Plain text of a bit of markdown, for a title. */
+const plain = (s: string) => s.replace(/\*\*|__|`|^#+\s*/gm, "").replace(/\[([^\]]*)\]\([^)]*\)/g, "$1").trim();
+
+/** The summary's first sentence as the card's title, and the rest as its text (all of it when the first sentence won't split cleanly). */
+export function splitSummary(summary: string): { title: string; rest: string } {
+  const s = summary.trim();
+  const m = /[.!?](?=\s|$)|\n/.exec(s);
+  const cut = m ? m.index + 1 : s.length;
+  const head = s.slice(0, cut);
+  const clean = cut <= 160 && (head.match(/`/g) ?? []).length % 2 === 0 && (head.match(/\*\*/g) ?? []).length % 2 === 0;
+  if (clean) return { title: plain(head.replace(/[.:]$/, "")), rest: s.slice(cut).trim() };
+  const t = plain(s);
+  return { title: t.length > 110 ? `${t.slice(0, 110).replace(/\s+\S*$/, "")}…` : t, rest: s };
+}
+
+/** The ref, its commit picked out: "5df5034 on /tmp/alder-3". */
+function refChip(ref: string): string {
+  const m = /^([0-9a-f]{7,40})\b(.*)$/i.exec(ref.trim());
+  return `<span class="horef" title="${esc(ref)}">${icon("branch", 12)}${m ? `<b>${esc(m[1]!.slice(0, 10))}</b>${esc(m[2]!)}` : esc(ref)}</span>`;
+}
+
+/** A handoff: status, title and ref, then the summary, gates, the receiver's checklist, the outcome and who handed it to whom. */
 export function handoffCard(h: Handoff, showProject: boolean, opts: { decision?: { id: number; verdict: string } | null; who?: (member: string, agent: string | null) => string } = {}): string {
-  const state = h.status === "integrated" && h.result ? `integrated as ${h.result}` : h.status;
-  const who = (m: string, a: string | null) => (opts.who ? `<a href="${esc(opts.who(m, a))}">${esc(address(m, a))}</a>` : esc(address(m, a)));
-  const settled = !OPEN_HANDOFF.includes(h.status) && h.updated_at > h.created_at;
+  const face = (m: string, a: string | null) => (a ? agentAvatar(m, a, "s") : avatar(m, "s"));
+  const who = (m: string, a: string | null) =>
+    `<span class="hop">${face(m, a)}${opts.who ? `<a href="${esc(opts.who(m, a))}" title="Only handoffs by or to ${esc(address(m, a))}">${esc(address(m, a))}</a>` : `<span>${esc(address(m, a))}</span>`}</span>`;
+  const open = OPEN_HANDOFF.includes(h.status);
+  const settled = h.updated_at > h.created_at && (h.note || h.result || !open);
   const d = opts.decision;
-  return `<div class="recc" id="h${h.id}">
-    <div class="row" style="gap:8px;flex-wrap:wrap"><span class="tiny muted">H${h.id}</span><span class="res">${esc(h.ref)}</span><span class="badge ${HANDOFF_PILL[h.status] ?? ""}">${esc(state)}</span>${showProject ? `<a class="tag" href="/dashboard?channel=${encodeURIComponent(h.project)}">#${esc(h.project)}</a>` : ""}${d ? `<a class="tag" href="/dashboard?channel=${encodeURIComponent(h.project)}&amp;q=D${d.id}#decisionlog" title="In the decision log as ${esc(d.verdict)}">D${d.id}</a>` : ""}</div>
-    <div class="md small" style="margin-top:4px">${md(h.summary)}</div>
-    ${handoffGates(h)}
-    ${handoffChecklist(h)}
-    ${h.evidence ? `<div class="tiny muted">evidence: <span class="mono">${esc(h.evidence)}</span></div>` : ""}
-    ${h.note ? `<div class="tiny" style="margin-top:2px">${esc(h.note)}${h.updated_by ? ` <span class="muted">— ${esc(h.updated_by)}</span>` : ""}</div>` : ""}
-    <div class="tiny muted" style="margin-top:4px">${who(h.author, h.author_agent)}${h.to_member ? ` → ${who(h.to_member, h.to_agent)}` : ` → #${esc(h.project)}`} · ${time(h.created_at)}${settled ? ` · ${esc(h.status)} ${time(h.updated_at)}` : ""}</div>
-  </div>`;
+  const { title, rest } = splitSummary(h.summary);
+  const outcome = settled
+    ? `<div class="hoout${h.note ? "" : " slim"}">${icon(STATE_ICON[h.status] ?? "dots", 13)}<div><b>${OUTCOME[h.status] ?? esc(h.status)}${h.status === "integrated" && h.result ? ` as <code>${esc(h.result)}</code>` : ""}</b>${h.updated_by ? ` <span class="muted">by ${esc(h.updated_by)}</span>` : ""} <span class="muted">· ${time(h.updated_at)}</span>${h.note ? `<div class="honote">${esc(h.note)}</div>` : ""}</div></div>`
+    : "";
+  return `<article class="hoc s-${esc(h.status)}" id="h${h.id}" data-day="${h.updated_at}">
+    <div class="hoic" title="${esc(h.status)}">${icon(STATE_ICON[h.status] ?? "dots", 15)}</div>
+    <div class="hobody">
+      <div class="hotop"><a class="hoid" href="#h${h.id}">H${h.id}</a><span class="badge ${HANDOFF_PILL[h.status] ?? ""}">${esc(h.status)}</span>${showProject ? `<a class="hochip" href="/dashboard?channel=${encodeURIComponent(h.project)}">#${esc(h.project)}</a>` : ""}${d ? `<a class="hochip" href="/dashboard?channel=${encodeURIComponent(h.project)}&amp;q=D${d.id}#decisionlog" title="In the decision log as ${esc(d.verdict)}">${icon("book", 11)}D${d.id}</a>` : ""}<span class="hotime">${time(h.created_at)}</span></div>
+      <h3 class="hotitle">${esc(title)}</h3>
+      ${rest ? `<div class="md hosum">${md(rest)}</div>` : ""}
+      <div class="horow">${refChip(h.ref)}${h.evidence ? `<span class="horef hoev" title="Evidence: ${esc(h.evidence)}">${icon("paperclip", 12)}${esc(h.evidence)}</span>` : ""}</div>
+      ${handoffGates(h)}
+      ${handoffChecklist(h)}
+      ${outcome}
+      <div class="horoute">${who(h.author, h.author_agent)}<span class="hoarr">${icon("arrow", 13)}</span>${h.to_member ? who(h.to_member, h.to_agent) : `<span class="hop"><span class="hohash">#</span><span>${esc(h.project)}</span></span>`}</div>
+    </div>
+  </article>`;
 }
 
 const PAGE = 30;
@@ -82,8 +120,14 @@ export async function handoffsView(env: Env, me: string, url: URL): Promise<stri
     }
   }
   const counts = (where: string[], binds: unknown[]) =>
-    env.DB.prepare(`SELECT status, COUNT(*) AS n FROM handoffs WHERE ${where.join(" AND ")} AND status IN ('pending', 'held') GROUP BY status`)
+    env.DB.prepare(`SELECT status, COUNT(*) AS n, MIN(created_at) AS oldest FROM handoffs WHERE ${where.join(" AND ")} AND status IN ('pending', 'held') GROUP BY status`)
       .bind(...binds)
+      .all<{ status: string; n: number; oldest: number }>();
+  // What settled this week: from the newest change back to a week ago, nothing older.
+  const weekAgo = Date.now() - 7 * 86400_000;
+  const week = () =>
+    env.DB.prepare(`SELECT status, COUNT(*) AS n FROM handoffs INDEXED BY handoffs_updated WHERE updated_at > ? AND ${where.join(" AND ")} AND status IN ('integrated', 'rejected', 'withdrawn') GROUP BY status`)
+      .bind(weekAgo, ...binds)
       .all<{ status: string; n: number }>();
   const states = SHOWS[show];
   const lw = [...where];
@@ -98,7 +142,7 @@ export async function handoffsView(env: Env, me: string, url: URL): Promise<stri
   }
   // The open ones by the project index (there are few); settled or all from the newest back until a page is full.
   const by = show === "open" || show === "pending" || show === "held" ? "" : " INDEXED BY handoffs_updated";
-  const [{ results: rows }, { results: cs }, people] = await Promise.all([
+  const [{ results: rows }, { results: cs }, people, { results: ws }] = await Promise.all([
     env.DB.prepare(`SELECT * FROM handoffs${by} WHERE ${lw.join(" AND ")} ORDER BY updated_at DESC, id DESC LIMIT ${PAGE + 1}`)
       .bind(...lb)
       .all<Handoff>(),
@@ -108,6 +152,7 @@ export async function handoffsView(env: Env, me: string, url: URL): Promise<stri
           .bind(...projects)
           .all<{ member: string }>()
       : Promise.resolve({ results: [] as { member: string }[] }),
+    week(),
   ]);
   const more = rows.length > PAGE;
   const shown = rows.slice(0, PAGE);
@@ -121,6 +166,8 @@ export async function handoffsView(env: Env, me: string, url: URL): Promise<stri
   const n = (s: string) => cs.find((c) => c.status === s)?.n ?? 0;
   const pending = n("pending");
   const held = n("held");
+  const oldest = cs.find((c) => c.status === "pending")?.oldest;
+  const wn = (s: string) => ws.find((c) => c.status === s)?.n ?? 0;
 
   const link = (over: Record<string, string>) => {
     const qs = new URLSearchParams({ view: "handoffs" });
@@ -147,11 +194,23 @@ export async function handoffsView(env: Env, me: string, url: URL): Promise<stri
     whoRaw || project ? `No ${what ? `${what} ` : ""}handoffs with these filters.` : show === "open" ? "Nothing open: every handoff is settled." : `No ${what ? `${what} ` : ""}handoffs yet.`
   }</div><div class="small muted">Agents hand work over with <code>handoff</code>; the receiver records what became of it with <code>update_handoff</code>.</div></div>`;
   const last = shown[shown.length - 1];
-  const sub = pending + held ? `${pending} pending and ${held} held${project ? ` in #${esc(project)}` : ""}${whoRaw ? ` for ${esc(whoRaw)}` : ""}.` : `Nothing open${project ? ` in #${esc(project)}` : ""}${whoRaw ? ` for ${esc(whoRaw)}` : ""}.`;
+  const scopeTxt = `${project ? ` in #${esc(project)}` : ""}${whoRaw ? ` for ${esc(whoRaw)}` : ""}`;
+  const days = (t: number) => Math.max(1, Math.round((Date.now() - t) / 86400_000));
+  const tile = (k: Show | "", cls: string, ic: string, n: number, label: string, sub: string) => {
+    const inner = `<span class="hotic">${icon(ic, 15)}</span><b>${n.toLocaleString("en")}</b><span class="hotl">${label}</span><span class="hots">${sub}</span>`;
+    return k ? `<a class="hotile ${cls}${show === k ? " on" : ""}" href="${esc(link({ show: k === "open" ? "" : k, before: "" }))}">${inner}</a>` : `<div class="hotile ${cls}">${inner}</div>`;
+  };
+  const tiles = `<div class="hotiles">
+    ${tile("pending", "t-pending", "arrow", pending, "Pending", oldest ? `oldest ${days(oldest)} day${days(oldest) === 1 ? "" : "s"} old` : "waiting for the receiver")}
+    ${tile("held", "t-held", "clock", held, "Held", "parked for now")}
+    ${tile("settled", "t-integrated", "check", wn("integrated"), "Integrated", "last 7 days")}
+    ${tile("", "t-rejected", "x", wn("rejected") + wn("withdrawn"), "Rejected", "or withdrawn, 7 days")}
+  </div>`;
   return `<div class="pane-in hopane">
-    <header class="flhead"><div><h1>Handoffs</h1><p class="muted">${sub}</p></div></header>
+    <header class="flhead"><div><h1>Handoffs</h1><p class="muted">${pending + held ? `${(pending + held).toLocaleString("en")} open${scopeTxt}: work handed over and waiting for an outcome.` : `Nothing open${scopeTxt}.`}</p></div></header>
+    ${tiles}
     ${bar}
-    ${shown.length ? `<section class="card holist">${shown.map((h) => handoffCard(h, !project, { decision: decisionOf.get(h.id), who: whoLink })).join("")}</section>` : empty}
+    ${shown.length ? `<section class="holist">${shown.map((h) => handoffCard(h, !project, { decision: decisionOf.get(h.id), who: whoLink })).join("")}</section>` : empty}
     ${more || bAt ? `<nav class="galmore">${bAt ? `<a class="btn ghost sm" href="${esc(link({ before: "" }))}">${icon("back", 13)}Newest</a>` : ""}${more ? `<a class="btn sm" href="${esc(link({ before: `${last!.updated_at}-${last!.id}` }))}">Older${icon("arrow", 13)}</a>` : ""}</nav>` : ""}
   </div>`;
 }

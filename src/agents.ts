@@ -604,7 +604,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
         takesWork
           ? `Your other agents can hand ${esc(agent.label)} work: their DMs and handoffs wake it when idle, and it acts on them like a request from you (at most ${DELEGATE_PER_HOUR} an hour). Click to turn off.`
           : `Your other agents' messages are information to ${esc(agent.label)}, as from anyone. Click to let them hand it work again: their DMs and handoffs then wake it when idle, and it acts on them like a request from you.`
-      }">${icon("users", 11)}${takesWork ? "takes work from your agents" : "info only from your agents"}</button></form>`
+      }">${icon("users", 11)}${takesWork ? "can hand it work" : "info only"}</button></form>`
     : "";
   const btwOff = canBtw && !modAnswers(agent) ? NO_MOD(agent.label, hostOf(agent)) : "";
   const back = `/dashboard?view=agents&agent=${encodeURIComponent(key(agent))}`;

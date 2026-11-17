@@ -603,12 +603,7 @@ button.opt.mine .pick{background:var(--grad);border-color:transparent;color:#fff
 
 /* locks */
 .recc{padding:12px 18px;border-top:1px solid var(--line)}
-.recc .hogates{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}.recc .hogates .badge{display:inline-flex;align-items:center;gap:3px}
-.recc .hoobl{margin:8px 0 6px}.recc .hoobl ol{list-style:none;margin:4px 0 0;padding:0;display:grid;gap:5px}
-.recc .hoobl li{display:flex;gap:7px;align-items:flex-start;font-size:13px;line-height:1.4}.recc .hotxt{min-width:0;overflow-wrap:anywhere}
-.recc .hochk{flex:none;width:15px;height:15px;margin-top:2px;border-radius:4px;border:1.5px solid var(--line-2,var(--line));display:inline-flex;align-items:center;justify-content:center}
-.recc .hoobl li.done .hochk{background:var(--green);border-color:var(--green);color:var(--bg)}.recc .hoobl li.na .hochk,.recc .hoobl li.waived .hochk{color:var(--ink-3,var(--muted))}
-.recc .hoobl li.waived .hochk{border-color:var(--amber);color:var(--amber)}.recc .hond{display:block;margin-top:1px}.recc .res{font-family:"Geist Mono",monospace;font-size:13px;font-weight:600;color:var(--ink);overflow-wrap:anywhere}.recc.old{opacity:.55}.recc .md p{margin:0}
+.recc .res{font-family:"Geist Mono",monospace;font-size:13px;font-weight:600;color:var(--ink);overflow-wrap:anywhere}.recc.old{opacity:.55}.recc .md p{margin:0}
 .logsearch{padding:0 18px 10px}.logsearch input{height:30px;font-size:12.5px}
 .lockc{padding:14px 18px;border-top:1px solid var(--line)}.lockc:first-child{border-top:0}
 .lockc .res{font-family:"Geist Mono",monospace;font-size:13.5px;font-weight:600;display:flex;align-items:center;gap:8px;color:var(--amber)}
@@ -908,11 +903,57 @@ pre.term .b8{background:#555a6e}pre.term .b9{background:#d4505a}pre.term .b10{ba
   .chat>.hd.menu .mdet .mi{display:flex;align-items:center;gap:6px;min-width:0;overflow-wrap:anywhere}.chat>.hd.menu .mdet .i{flex:none;color:var(--mute)}
   .chat>.hd.menu .sep{display:none}.chat>.hd.menu .mdet .cwd{display:flex}}
 /* Handoffs (handoffs.ts): a filter bar and one card of handoffs, a page at a time. */
+/* Handoffs (handoffs.ts): stat tiles, then cards with a status rail, a title, the ref, gates, checklist, outcome and route. */
 .hopane{max-width:980px;gap:16px;padding-bottom:96px}
-.holist{padding:0;overflow:hidden}.holist>.recc:first-child{border-top:0}.holist .recc{padding:14px 18px}
-.holist .recc .tiny a{color:inherit;text-decoration:none;border-bottom:1px dotted var(--line-strong)}.holist .recc .tiny a:hover{color:var(--accent)}
+.hotiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.hotile{--c:var(--mute);position:relative;display:grid;grid-template-columns:auto 1fr;column-gap:12px;align-items:center;padding:14px 16px 13px;border-radius:14px;background:var(--surface);border:1px solid var(--line);color:var(--ink);text-decoration:none;overflow:hidden;transition:border-color .15s,transform .15s,box-shadow .15s}
+.hotile::before{content:"";position:absolute;inset:0;background:radial-gradient(120% 90% at 100% 0%,color-mix(in srgb,var(--c) 13%,transparent),transparent 60%);pointer-events:none}
+a.hotile:hover{border-color:color-mix(in srgb,var(--c) 40%,transparent);transform:translateY(-1px);box-shadow:0 6px 18px -10px color-mix(in srgb,var(--c) 60%,transparent)}
+.hotile.on{border-color:color-mix(in srgb,var(--c) 55%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--c) 30%,transparent)}
+.hotic{grid-row:1/4;align-self:start;width:30px;height:30px;border-radius:9px;display:grid;place-items:center;color:var(--c);background:color-mix(in srgb,var(--c) 14%,transparent)}
+.hotile b{font-size:24px;line-height:1.05;font-weight:680;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.hotl{font-size:12.5px;font-weight:600;color:var(--ink-2);margin-top:3px}.hots{font-size:11.5px;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.t-pending{--c:var(--accent)}.t-held{--c:var(--amber)}.t-integrated{--c:var(--green)}.t-rejected{--c:var(--red)}
 .hobar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.hobar select{width:auto;min-width:150px;max-width:260px;height:32px;font-size:13px}
-@media (max-width:640px){.hopane{padding:12px 12px 88px}.hobar select{min-width:0;max-width:none;flex:1}.hobar .seg{width:100%;overflow-x:auto}.hobar .seg span{display:inline}.holist .recc{padding:12px 14px}}
+.holist{display:grid;gap:10px}.holist .day{margin:10px 2px 0}
+.hoc{--c:var(--mute);position:relative;display:grid;grid-template-columns:32px minmax(0,1fr);gap:14px;padding:16px 18px 14px 16px;border-radius:14px;background:var(--surface);border:1px solid var(--line);overflow:hidden;scroll-margin-top:16px}
+.hoc::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--c);opacity:.85}
+.hoc:target{border-color:color-mix(in srgb,var(--c) 50%,transparent);box-shadow:0 0 0 3px color-mix(in srgb,var(--c) 14%,transparent)}
+.hoc.s-pending{--c:var(--accent)}.hoc.s-held{--c:var(--amber)}.hoc.s-integrated{--c:var(--green)}.hoc.s-rejected{--c:var(--red)}
+.hoic{width:32px;height:32px;border-radius:10px;display:grid;place-items:center;color:var(--c);background:color-mix(in srgb,var(--c) 13%,transparent)}
+.hobody{min-width:0;display:grid;gap:8px}
+.hotop{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:12px;color:var(--mute)}
+.hoid{font:600 12px "Geist Mono",ui-monospace,monospace;color:var(--mute);text-decoration:none}.hoid:hover{color:var(--c)}
+.hochip{display:inline-flex;align-items:center;gap:4px;height:20px;padding:0 7px;border-radius:6px;font-size:11.5px;font-weight:550;color:var(--ink-2);background:var(--surface-2);text-decoration:none}.hochip:hover{color:var(--accent);background:var(--accent-soft)}
+.hotime{margin-left:auto;white-space:nowrap}
+.hotitle{margin:0;font-size:15px;line-height:1.38;font-weight:620;letter-spacing:-.005em;color:var(--ink);overflow-wrap:anywhere}
+.hosum{font-size:13.5px;line-height:1.55;color:var(--ink-2);margin-top:-4px;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}.hosum p{margin:0}.hosum p+p{margin-top:4px}
+.horow{display:flex;gap:6px;flex-wrap:wrap;min-width:0}
+.horef{display:inline-flex;align-items:center;gap:6px;max-width:100%;height:24px;padding:0 9px;border-radius:7px;background:var(--surface-2);border:1px solid var(--line);font:12px "Geist Mono",ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.horef svg{flex:none;color:var(--mute)}.horef b{font-weight:600;color:var(--ink)}.hoev{color:var(--mute)}
+.hogates{display:flex;flex-wrap:wrap;gap:5px}.hogt{font-size:12px;color:var(--mute)}
+.hogate{display:inline-flex;align-items:center;gap:4px;height:22px;padding:0 8px 0 6px;border-radius:99px;font-size:11.5px;font-weight:600;background:var(--surface-2);color:var(--ink-2);border:1px solid var(--line)}
+.hogate i{font-style:normal;font-weight:500;opacity:.8;margin-left:2px}.hogate.green{color:var(--green);background:var(--green-soft);border-color:transparent}.hogate.red{color:var(--red);background:var(--red-soft);border-color:transparent}
+.hoobl{border-radius:10px;background:var(--surface-2);padding:9px 12px}.hoobl ol{list-style:none;margin:8px 0 2px;padding:0;display:grid;gap:7px}
+.hoblhd{display:flex;align-items:center;gap:10px;font-size:12px;color:var(--mute);list-style:none}.hoblhd::-webkit-details-marker{display:none}
+details.hoobl>summary{cursor:pointer}details.hoobl>summary svg{transition:transform .15s;color:var(--mute)}details.hoobl[open]>summary svg{transform:rotate(90deg)}details.hoobl:not([open]) ol{display:none}
+.hoblh{font-weight:600;color:var(--ink-2)}.hoblc{font:600 11.5px "Geist Mono",ui-monospace,monospace;color:var(--ink-2)}
+.hobar2{flex:1;max-width:160px;height:5px;border-radius:99px;background:var(--surface-3);position:relative;overflow:hidden}.hobar2::after{content:"";position:absolute;inset:0 auto 0 0;width:var(--p);border-radius:inherit;background:var(--green)}
+.hoobl li{display:flex;gap:9px;align-items:flex-start;font-size:13px;line-height:1.4;color:var(--ink)}.hotxt{min-width:0;overflow-wrap:anywhere}
+.hochk{flex:none;width:16px;height:16px;margin-top:1px;border-radius:5px;border:1.5px solid var(--line-strong);background:var(--surface);display:inline-flex;align-items:center;justify-content:center}
+.hoobl li.done .hochk{background:var(--green);border-color:var(--green);color:#fff}.hoobl li.done .hotxt{color:var(--ink-2)}
+.hoobl li.na .hochk{color:var(--mute)}.hoobl li.waived .hochk{border-color:var(--amber);color:var(--amber)}
+.hotag{font-size:10.5px;font-weight:600;padding:0 6px;border-radius:99px;background:var(--surface-3);color:var(--mute);vertical-align:1px}.hoobl li.waived .hotag{background:var(--amber-soft);color:var(--amber)}
+.hond{display:block;margin-top:2px;font-size:12px;color:var(--mute)}
+.hoout{display:flex;gap:9px;align-items:flex-start;padding:9px 12px;border-radius:10px;font-size:13px;color:var(--ink);background:color-mix(in srgb,var(--c) 9%,transparent);border:1px solid color-mix(in srgb,var(--c) 22%,transparent)}
+.hoout>svg{flex:none;margin-top:2px;color:var(--c)}.hoout b{font-weight:620}.hoout code{font-size:12px;padding:1px 5px;border-radius:5px;background:color-mix(in srgb,var(--c) 14%,transparent)}.honote{margin-top:2px;color:var(--ink-2);overflow-wrap:anywhere}
+.hoout.slim{padding:0;background:none;border:0;font-size:12.5px}
+.horoute{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:12.5px;color:var(--ink-2);padding-top:9px;border-top:1px dashed var(--line-strong)}
+.hop{display:inline-flex;align-items:center;gap:6px;min-width:0}.hop .av{width:20px;height:20px;font-size:8.5px}.hop a{color:inherit;text-decoration:none;font-weight:550}.hop a:hover{color:var(--accent)}
+.hoarr{color:var(--mute);display:inline-flex}.hohash{width:20px;height:20px;border-radius:6px;display:grid;place-items:center;font-weight:700;font-size:11px;background:var(--surface-3);color:var(--mute)}
+@media (max-width:900px){.hotiles{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:640px){.hopane{padding:12px 12px 88px}.hobar select{min-width:0;max-width:none;flex:1}.hobar .seg{width:100%;overflow-x:auto}.hobar .seg span{display:inline}
+  .hoc{grid-template-columns:minmax(0,1fr);padding:14px 14px 12px 16px;gap:8px}.hoic{display:none}.hotile{padding:12px 13px}.hotile b{font-size:21px}.hotic{width:26px;height:26px}.hots{white-space:normal}}
 /* Files from agents (gallery.ts): thumbnails only, square, filling the width. */
 .galpane{max-width:1400px;gap:16px;padding-bottom:96px}
 .galbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.galbar select{width:auto;min-width:150px;max-width:260px;height:32px;font-size:13px}
@@ -1329,7 +1370,7 @@ h1{font-size:22px;font-weight:620;letter-spacing:-.02em}
 .meter{height:4px;margin-top:7px;border-radius:9px;background:var(--line-strong);overflow:hidden}.meter i{display:block;height:100%;border-radius:9px;background:var(--ink-2)}.meter.amber i{background:var(--amber)}.meter.red i{background:var(--red)}
 .usage{display:flex;flex-direction:column;gap:7px}.urow{display:grid;grid-template-columns:auto auto minmax(0,1fr);align-items:baseline;column-gap:6px}.uk,.uv{white-space:nowrap}.ur{min-width:0;overflow:hidden;text-overflow:ellipsis}.urow .meter{grid-column:1/-1;margin-top:4px}
 .uk{color:var(--ink-2)}.uv{font-weight:600;font-variant-numeric:tabular-nums}.ur{justify-self:end;font-size:11.5px;color:var(--mute);white-space:nowrap}.ucost .uv{font-weight:500}
-.kv .takeswork{display:inline}.kv .takeswork .badge{cursor:pointer;border:0;font:inherit;font-size:11.5px;height:22px;padding:0 9px}
+.kv .takeswork{display:inline-flex;max-width:100%}.kv .takeswork .badge{cursor:pointer;border:0;font:inherit;font-size:11.5px;font-weight:600;height:22px;padding:0 9px;gap:5px;white-space:nowrap}
 .irow{display:flex;align-items:center;gap:8px;margin:0 2px 6px;font-size:12.5px;color:var(--ink-2)}.irow form{margin:0}
 /* the agent's loops (loops.ts loopCard): schedule and next run on top, the prompt under it, three lines until clicked */
 .loops{display:flex;flex-direction:column;gap:6px;margin-top:6px}
@@ -1739,7 +1780,7 @@ export const SCRIPT = `
     $$("[data-from][data-to]").forEach((b) => { const a = +b.dataset.from, z = +b.dataset.to; b.style.width = Math.max(0, Math.min(100, (100 * (z - Date.now())) / (z - a))) + "%"; });
   }
   function days(root = document) {
-    $$(".feed", root).forEach((feed) => {
+    $$(".feed, .holist", root).forEach((feed) => {
       $$(".day", feed).forEach((d) => d.remove());
       let last = "";
       const today = new Date().toDateString(), yest = new Date(Date.now() - 864e5).toDateString();

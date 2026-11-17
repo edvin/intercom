@@ -1446,7 +1446,7 @@ describe("decision log and handoffs", () => {
     assert.match(await w.ok("alice", "projects"), /crew roles:\n\s+- bob\/alder \(Codex\)/);
 
     const page = await (await w.request("/dashboard?channel=billing&q=1cb2e05", { as: "alice", cookie: true })).text();
-    assert.match(page, /id="handoffs"[\s\S]*5df5034 on \/tmp\/alder-3[\s\S]*integrated as a91c2e0/);
+    assert.match(page, /id="handoffs"[\s\S]*<b>5df5034<\/b> on \/tmp\/alder-3[\s\S]*Integrated as <code>a91c2e0<\/code>/);
     assert.match(page, /id="decisionlog"[\s\S]*FnCell 1cb2e05/);
   });
 
@@ -1500,8 +1500,8 @@ describe("decision log and handoffs", () => {
 
     // The card shows the gates as chips and the checklist.
     const page = await (await w.request("/dashboard?channel=billing", { as: "alice", cookie: true })).text();
-    assert.match(page, /class="hogates"[\s\S]*?unit[\s\S]*?e2e · not run/);
-    assert.match(page, /Obligations · 3 of 3 ticked off[\s\S]*?<li class="done">[\s\S]*?15\/15 clean[\s\S]*?<li class="na">[\s\S]*?<li class="waived">/);
+    assert.match(page, /class="hogates"[\s\S]*?unit[\s\S]*?e2e<i>not run<\/i>/);
+    assert.match(page, /<span class="hoblc">3\/3<\/span>[\s\S]*?<li class="done">[\s\S]*?15\/15 clean[\s\S]*?<li class="na">[\s\S]*?<li class="waived">/);
 
     // Bad input is refused with what to send instead; an older agent's text gates still work.
     assert.match((await w.tool("bob", "handoff", { ref: "x", summary: "y", gates: [{ name: "unit", result: "meh" }] }, alder)).text, /result is passed, failed or not run/);
@@ -1995,18 +1995,20 @@ describe("share_file", () => {
     await w.ok("bob", "update_handoff", { id: 2, status: "integrated", result: "e5e5e5e" }, alder);
     await w.ok("bob", "update_handoff", { id: 3, status: "held", note: "after the release" }, alder);
     const view = async (q = "") => (await w.request(`/dashboard?view=handoffs${q}`, { as: "bob", cookie: true })).text();
-    const ids = (h: string) => [...h.matchAll(/class="recc" id="h(\d+)"/g)].map((m) => Number(m[1]));
+    const ids = (h: string) => [...h.matchAll(/class="hoc s-\w+" id="h(\d+)"/g)].map((m) => Number(m[1]));
     // Open by default: pending and held, with the counts in the tabs.
     const open = await view();
     assert.deepEqual(ids(open).sort(), [1, 3]);
-    assert.match(open, /1 pending and 1 held\./);
-    assert.match(open, /Obligations · 0 of 1 ticked off/);
+    assert.match(open, /2 open: work handed over/);
+    assert.match(open, /<b>1<\/b><span class="hotl">Pending<\/span>/);
+    assert.match(open, /<span class="hoblh">Obligations<\/span><span class="hobar2" style="--p:0%"><\/span><span class="hoblc">0\/1<\/span>/);
     assert.match(open, /after the release/);
     // Settled: the integrated one, linked to the decision it was logged as.
     const settled = await view("&show=settled");
     assert.deepEqual(ids(settled), [2]);
-    assert.match(settled, /integrated as e5e5e5e/);
-    assert.match(settled, /href="\/dashboard\?channel=billing&amp;q=D\d+#decisionlog"[^>]*>D\d+</);
+    assert.match(settled, /Integrated as <code>e5e5e5e<\/code>/);
+    assert.match(settled, /<b>1<\/b><span class="hotl">Integrated<\/span><span class="hots">last 7 days/);
+    assert.match(settled, /href="\/dashboard\?channel=billing&amp;q=D\d+#decisionlog"[^>]*>(?:<svg.*?<\/svg>)?D\d+</);
     // All of bob's projects, never another's.
     assert.deepEqual(ids(await view("&show=all")).sort(), [1, 2, 3]);
     assert.doesNotMatch(await view("&show=all&project=shop"), /ddd444/);
@@ -3025,7 +3027,7 @@ describe("your agents handing each other work", () => {
   test("switched off: another agent's DM is information, never a prompt", async () => {
     const { w, merge } = await setup();
     await w.form("/agent/takes-work", "bob", { label: "core", on: "0" });
-    assert.match(await (await w.request("/dashboard?view=agents&agent=bob/core", { as: "bob", cookie: true })).text(), /info only from your agents/);
+    assert.match(await (await w.request("/dashboard?view=agents&agent=bob/core", { as: "bob", cookie: true })).text(), />info only<\/button>/);
     await w.ok("bob", "post", { to: "bob/core", message: "Please rebase MR 12" }, merge);
     assert.deepEqual((await ui(w, "0.2.9")).prompts, []);
     assert.equal(await stop(w), null);
@@ -3034,7 +3036,7 @@ describe("your agents handing each other work", () => {
 
   test("on by default: its DMs and handoffs wake it as work from your agent; teammates' stay information", async () => {
     const { w, core, merge } = await setup();
-    assert.match(await (await w.request("/dashboard?view=agents&agent=bob/core", { as: "bob", cookie: true })).text(), /takes work from your agents/);
+    assert.match(await (await w.request("/dashboard?view=agents&agent=bob/core", { as: "bob", cookie: true })).text(), />can hand it work<\/button>/);
     await w.ok("bob", "post", { to: "bob/core", message: "Please rebase MR 12" }, merge);
     // An older mod would call it "sent by you", so only a mod that knows gets it as a prompt.
     assert.deepEqual((await ui(w, "0.2.8")).prompts, []);
