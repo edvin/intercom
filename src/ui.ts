@@ -791,9 +791,9 @@ body:has(.ide) .top .in{max-width:none;padding:8px 14px}
 .tkrow{display:grid;grid-template-columns:96px minmax(0,1fr);align-items:center;gap:10px;min-height:32px}
 .tkrow dt{font-size:12.5px;font-weight:550;color:var(--mute)}
 .tkrow dd{margin:0;min-width:0;font-size:13.5px;color:var(--ink)}
-@container tk (max-width:879px){.tkdl{display:grid;grid-template-columns:1fr 1fr;gap:12px 16px}.tkrow{grid-template-columns:minmax(0,1fr);gap:3px;min-height:0}.tkrow dt{font-size:11.5px}}
-.tkval,.tkwho{display:inline-flex;align-items:center;gap:8px;min-width:0}.tkwho>span:last-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.tkwho.none{color:var(--mute)}
-.tkrepos{display:flex;flex-wrap:wrap;gap:4px}.tkrepos code{font-size:12px;padding:2px 7px;border-radius:6px;background:var(--surface-2);border:1px solid var(--line)}
+@container tk (max-width:879px){.tkdl{display:grid;grid-template-columns:1fr 1fr;gap:12px 16px}.tkrow{grid-template-columns:minmax(0,1fr);gap:3px;min-height:0;align-content:start}.tkrow dt{font-size:11.5px}}
+.tkval,.tkwho{display:inline-flex;align-items:center;gap:8px;min-width:0;max-width:100%}.tkval{overflow-wrap:anywhere}.tkwho>span:last-child{min-width:0;overflow-wrap:anywhere;line-height:1.35}.tkwho>.av{align-self:flex-start;margin-top:1px}.tkwho.none{color:var(--mute)}
+.tkrepos{display:flex;flex-wrap:wrap;gap:4px}.tkrepos code{max-width:100%;overflow-wrap:anywhere;font-size:12px;padding:2px 7px;border-radius:6px;background:var(--surface-2);border:1px solid var(--line)}
 .tkmrl{display:inline-flex;align-items:center;gap:5px;font-size:12.5px;font-weight:550;color:var(--ink-2);padding:2px 8px;border-radius:6px;background:var(--surface-2);text-decoration:none}.tkmrl:hover{color:var(--accent);text-decoration:none}
 .tklz{display:inline-flex;align-items:center;flex:none;height:20px;padding:0 7px;border-radius:4px;font-size:11px;font-weight:700;line-height:1;text-transform:uppercase;letter-spacing:.04em;white-space:nowrap;background:var(--surface-3);color:var(--ink-2)}
 .tklz.ok{background:var(--green-soft);color:var(--green)}.tklz.bad{background:var(--red-soft);color:var(--red)}.tklz.mid{background:color-mix(in srgb,var(--accent-2) 14%,transparent);color:color-mix(in srgb,var(--accent-2) 75%,var(--ink))}
