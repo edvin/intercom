@@ -10,7 +10,8 @@ import { agentsView } from "./agents";
 import { askBtw } from "./btw";
 import { parseSubs, subMessage } from "./subagents";
 import { linkImages, markerFor, size, storeImages } from "./attachments";
-import { type Decision, type Handoff, OPEN_HANDOFF, findDecisions, gatesOf, listHandoffs, obligationsOf } from "./records";
+import { type Decision, OPEN_HANDOFF, findDecisions, listHandoffs } from "./records";
+import { handoffCard, handoffsView } from "./handoffs";
 import { pendingApprovals } from "./approvals";
 import { asksDock } from "./asks";
 import { subscriptions } from "./push";
@@ -405,48 +406,7 @@ function messageRow(m: Message, me: string, showChannel: boolean, d?: Delivery, 
   </div>`;
 }
 
-const HANDOFF_PILL: Record<string, string> = { pending: "accent", integrated: "green", held: "amber", rejected: "red", withdrawn: "" };
 const VERDICT_PILL: Record<string, string> = { approved: "green", rejected: "red", held: "amber", noted: "" };
-
-const GATE_PILL: Record<string, string> = { passed: "green", failed: "red", "not run": "" };
-const GATE_ICON: Record<string, string> = { passed: "check", failed: "x", "not run": "dots" };
-
-/** The gates as chips with their results (older handoffs: the text they were given). */
-function handoffGates(h: Handoff): string {
-  const list = gatesOf(h);
-  if (!list.length) return h.gates ? `<div class="tiny muted">gates: ${esc(h.gates)}</div>` : "";
-  return `<div class="hogates" aria-label="Gates">${list
-    .map((g) => `<span class="badge ${GATE_PILL[g.result] ?? ""}"${g.detail ? ` title="${esc(g.detail)}"` : ""}>${icon(GATE_ICON[g.result] ?? "dots", 11)}${esc(g.name)}${g.result === "passed" ? "" : ` · ${esc(g.result)}`}</span>`)
-    .join("")}</div>`;
-}
-
-const TICK_LABEL: Record<string, string> = { open: "not yet", done: "done", na: "doesn't apply", waived: "waived" };
-
-/** The receiver's obligations, with how each was ticked off. */
-function handoffChecklist(h: Handoff): string {
-  const list = obligationsOf(h);
-  if (!list.length) return "";
-  const met = list.filter((o) => o.state !== "open").length;
-  return `<div class="hoobl"><div class="tiny muted">Obligations · ${met} of ${list.length} ticked off</div><ol>${list
-    .map(
-      (o) =>
-        `<li class="${o.state}"><span class="hochk" title="${TICK_LABEL[o.state] ?? ""}">${o.state === "open" ? "" : icon(o.state === "done" ? "check" : o.state === "waived" ? "x" : "dots", 11)}</span><span class="hotxt">${esc(o.text)}${o.state !== "open" && o.state !== "done" ? ` <span class="tiny muted">(${TICK_LABEL[o.state]})</span>` : ""}${o.note ? `<span class="tiny muted hond">${esc(o.note)}${o.by ? ` — ${esc(o.by)}` : ""}</span>` : ""}</span></li>`,
-    )
-    .join("")}</ol></div>`;
-}
-
-function handoffCard(h: Handoff, showProject: boolean): string {
-  const state = h.status === "integrated" && h.result ? `integrated as ${h.result}` : h.status;
-  return `<div class="recc">
-    <div class="row" style="gap:8px;flex-wrap:wrap"><span class="tiny muted">H${h.id}</span><span class="res">${esc(h.ref)}</span><span class="badge ${HANDOFF_PILL[h.status] ?? ""}">${esc(state)}</span>${showProject ? `<a class="tag" href="/dashboard?channel=${encodeURIComponent(h.project)}">#${esc(h.project)}</a>` : ""}</div>
-    <div class="md small" style="margin-top:4px">${md(h.summary)}</div>
-    ${handoffGates(h)}
-    ${handoffChecklist(h)}
-    ${h.evidence ? `<div class="tiny muted">evidence: <span class="mono">${esc(h.evidence)}</span></div>` : ""}
-    ${h.note ? `<div class="tiny" style="margin-top:2px">${esc(h.note)}${h.updated_by ? ` <span class="muted">— ${esc(h.updated_by)}</span>` : ""}</div>` : ""}
-    <div class="tiny muted" style="margin-top:4px">${esc(address(h.author, h.author_agent))}${h.to_member ? ` → ${esc(address(h.to_member, h.to_agent))}` : ""} · ${time(h.created_at)}</div>
-  </div>`;
-}
 
 function decisionRow(d: Decision, showProject: boolean): string {
   return `<div class="recc${d.superseded_by ? " old" : ""}">
@@ -621,7 +581,7 @@ export async function dashboard(url: URL, env: Env, me: string, cookie = ""): Pr
   const ownerOf = (project: string) => admin || pmRes.results.some((m) => m.project === project && m.member === me && m.role === "owner");
   const shownLocks = channel ? locks.filter((l) => l.channel === channel) : locks;
   const asked = url.searchParams.get("view");
-  const view = asked === "admin" && admin ? "admin" : asked === "account" ? "account" : asked === "ticket" ? "ticket" : asked === "review" ? "review" : asked === "work" ? "work" : asked === "fleet" ? "fleet" : asked === "files" ? "files" : asked === "tracked" ? "tracked" : asked === "agents" ? "agents" : "feed";
+  const view = asked === "admin" && admin ? "admin" : asked === "account" ? "account" : asked === "ticket" ? "ticket" : asked === "review" ? "review" : asked === "work" ? "work" : asked === "fleet" ? "fleet" : asked === "files" ? "files" : asked === "handoffs" ? "handoffs" : asked === "tracked" ? "tracked" : asked === "agents" ? "agents" : "feed";
 
   const { results: requests } = await env.DB.prepare(
     `SELECT r.project, r.member, r.note, r.created_at, m.org, m.github_login FROM join_requests r JOIN members m ON m.name = r.member
@@ -717,7 +677,7 @@ export async function dashboard(url: URL, env: Env, me: string, cookie = ""): Pr
   const shownHandoffs = hos.filter((h) => OPEN_HANDOFF.includes(h.status) || h.updated_at > Date.now() - 7 * 86400_000).slice(0, 10);
   const openHandoffs = hos.filter((h) => OPEN_HANDOFF.includes(h.status)).length;
   const handoffPanel = `<section class="card" id="handoffs" data-region>
-      <div class="hd"><h2>${icon("arrow", 16)}Handoffs</h2>${openHandoffs ? `<span class="badge accent">${openHandoffs} open</span>` : ""}</div>
+      <div class="hd"><h2>${icon("arrow", 16)}Handoffs</h2>${openHandoffs ? `<span class="badge accent">${openHandoffs} open</span>` : ""}<div class="act"><a class="btn ghost sm" href="/dashboard?view=handoffs${channel ? `&amp;project=${encodeURIComponent(channel)}` : ""}" title="Every handoff, by status, with filters">All</a></div></div>
       ${shownHandoffs.length ? shownHandoffs.map((h) => handoffCard(h, !channel)).join("") : `<div class="empty">${icon("arrow", 26)}<div class="small">No handoffs yet. Agents hand work over with the <code>handoff</code> tool: a commit or branch, evidence and the gates run. Its status stays here.</div></div>`}
     </section>`;
   const logPanel = `<section class="card" id="decisionlog" data-region>
@@ -783,6 +743,8 @@ export async function dashboard(url: URL, env: Env, me: string, cookie = ""): Pr
         ? `<main class="pane">${await fleetView(env, me)}</main>`
       : view === "files"
         ? `<main class="pane">${await galleryView(env, me, url)}</main>`
+      : view === "handoffs"
+        ? `<main class="pane">${await handoffsView(env, me, url)}</main>`
       : view === "tracked"
         ? `<main class="pane">${await trackedView(env, me, url)}</main>`
       : view === "work"
@@ -999,6 +961,7 @@ export function docsPage(origin: string): Response {
           <li><b>Notifications:</b> turn them on with <i>Notify me</i> in Waiting for you, or under Account, per device. You get one for a new review or ticket, an agent's answer on one, and a question or permission prompt still unanswered after a minute (at once in away mode); tapping it opens the dashboard there. On an iPhone, add Intercom to the Home Screen and turn them on in that app. The app icon shows how many things are waiting.</li>
           <li><b>Images and files:</b> paste (⌘V), drop or pick (the paperclip) up to 4 images or files in a message: they go with your text, like in the terminal. The agent sees <code>[📎 image #12: name]</code> and opens an image itself with the <code>attachment</code> tool; any other file (a zip, a PDF, a CSV, up to 10 MB) shows as <code>[📎 file #13: data.zip · 2.1 MB]</code>, and the agent saves it to its machine with <code>save_attachment</code>, where you tell it or in its working folder. Images are scaled down before upload; files go as they are. Text files (a Markdown review, a log, JSON, code) open in a reader in the dashboard, Markdown rendered or as source, with a download button; anything else only downloads. Visible only to those who can read the message, kept 30 days. A folder: zip it first.</li>
           <li><b>Tickets &amp; MRs:</b> an agent that looks after your tickets (going through Jira and GitLab, say) publishes where each one stands with <code>track</code> after every check: its key and link, state, pipeline and approvals, who it's waiting on and the next step, with each MR under its ticket. The intercom reads no tracker itself. It opens on what needs you, grouped by what it asks (your decision, your merge), with a Decide button where a card waits and what you said where you decided; tabs show the rest (working, waiting, parked, all), and you can show only tickets or MRs, or filter by words. Each MR sits under its ticket, each item keeps a history of its changes, and a board that hasn't been updated for three hours says so. Done items stay a week in view.</li>
+          <li><b>Handoff page:</b> every handoff in your projects in the rail's <i>Handoffs</i>: open (pending and held), settled or all, for a project and a person or agent, each with its gates, checklist, evidence, outcome and the decision it was logged as.</li>
           <li><b>Files from agents:</b> ask an agent to show you something it made (a screenshot, a report, a log) and it shares the file with <code>share_file</code>. It lands in your dashboard: images preview, other files download. Up to 10 MB, kept 30 days.</li>
           <li><b>Side questions (btw):</b> switch the chat to <b>btw</b> (or start with <code>/btw</code>) to ask your own Claude Code agent something without touching its work, e.g. “what's your plan?”. The intercom-ui mod in that session answers from a read-only copy of its current context; nothing is added to the agent's history. Follow-ups continue the side thread; “start a new side thread” begins fresh. Needs intercom-ui 0.2.4+ and at least one finished turn; not available for Codex.</li>
           <li><b>Background jobs:</b> commands an agent runs in the background (a dev server, a long deploy) show in its header with how long they've run (⧗ in the agent list), and a ✓ finished / ✗ failed line when they end. Like activity, this comes from the transcript and only you see it; the jobs' output stays on your machine.</li>

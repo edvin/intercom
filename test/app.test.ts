@@ -1983,6 +1983,43 @@ describe("share_file", () => {
     assert.ok(left.results.every((r) => r.due_at > Date.now() + 30_000), JSON.stringify(left.results));
   });
 
+  test("handoffs page: every handoff in your projects by status, filtered by project and person, with the decision each outcome was logged as", async () => {
+    const w = await standardWorld();
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=ho1&name=alder", { as: "bob" });
+    await w.request("/api/hook?event=SessionStart&project=shop&session=ho2&name=cart", { as: "carol" });
+    const alder = { id: "ho1", project: "billing-api" };
+    await w.ok("bob", "handoff", { ref: "aaa111", summary: "first fix", to: "alice", obligations: ["Re-run the suite"] }, alder); // H1 pending
+    await w.ok("bob", "handoff", { ref: "bbb222", summary: "second fix", to: "bob/core" }, alder); // H2 → integrated
+    await w.ok("bob", "handoff", { ref: "ccc333", summary: "third fix", to: "bob/core" }, alder); // H3 → held
+    await w.ok("carol", "handoff", { ref: "ddd444", summary: "carol's own", to: "carol/cart" }, { id: "ho2", project: "shop" }); // H4: not bob's project
+    await w.ok("bob", "update_handoff", { id: 2, status: "integrated", result: "e5e5e5e" }, alder);
+    await w.ok("bob", "update_handoff", { id: 3, status: "held", note: "after the release" }, alder);
+    const view = async (q = "") => (await w.request(`/dashboard?view=handoffs${q}`, { as: "bob", cookie: true })).text();
+    const ids = (h: string) => [...h.matchAll(/class="recc" id="h(\d+)"/g)].map((m) => Number(m[1]));
+    // Open by default: pending and held, with the counts in the tabs.
+    const open = await view();
+    assert.deepEqual(ids(open).sort(), [1, 3]);
+    assert.match(open, /1 pending and 1 held\./);
+    assert.match(open, /Obligations · 0 of 1 ticked off/);
+    assert.match(open, /after the release/);
+    // Settled: the integrated one, linked to the decision it was logged as.
+    const settled = await view("&show=settled");
+    assert.deepEqual(ids(settled), [2]);
+    assert.match(settled, /integrated as e5e5e5e/);
+    assert.match(settled, /href="\/dashboard\?channel=billing&amp;q=D\d+#decisionlog"[^>]*>D\d+</);
+    // All of bob's projects, never another's.
+    assert.deepEqual(ids(await view("&show=all")).sort(), [1, 2, 3]);
+    assert.doesNotMatch(await view("&show=all&project=shop"), /ddd444/);
+    // By person (author or receiver) and by agent.
+    assert.deepEqual(ids(await view("&show=all&who=alice")), [1]);
+    assert.deepEqual(ids(await view("&show=all&who=bob%2Fcore")).sort(), [2, 3]);
+    assert.match(await view("&show=pending&who=carol"), /No pending handoffs with these filters/);
+    // Carol sees only hers; the rail and the feed's panel link here.
+    assert.deepEqual(ids(await (await w.request("/dashboard?view=handoffs&show=all", { as: "carol", cookie: true })).text()), [4]);
+    assert.match(open, /href="\/dashboard\?view=handoffs" title="Handoffs"/);
+    assert.match(await (await w.request("/dashboard?channel=billing", { as: "bob", cookie: true })).text(), /href="\/dashboard\?view=handoffs&amp;project=billing"/);
+  });
+
   test("files from agents: Delete older removes your own agents' files past the days you keep, with the filters, and leaves teammates' files", async () => {
     const w = await standardWorld();
     await w.request("/api/hook?event=SessionStart&project=billing-api&session=gp1&name=core", { as: "bob" });

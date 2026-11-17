@@ -299,6 +299,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
     ${rl(nav.view === "feed", "/dashboard", "layers", "Everything: your projects and messages", pill(nav.votesTotal))}
     ${rl(nav.view === "work", "/dashboard?view=work", "check", "Work")}
     ${rl(nav.view === "tracked", "/dashboard?view=tracked", "branch", "Tickets &amp; MRs", pill(trackedN, "amber"))}
+    ${rl(nav.view === "handoffs", "/dashboard?view=handoffs", "arrow", "Handoffs")}
     ${rl(nav.view === "files", "/dashboard?view=files", "image", "Files from agents")}
     ${rl(nav.view === "fleet", "/dashboard?view=fleet", "monitor", "Agents · versions", pill(stale.length, "amber"))}
     <span class="rsp"></span>

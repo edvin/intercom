@@ -907,6 +907,12 @@ pre.term .b8{background:#555a6e}pre.term .b9{background:#d4505a}pre.term .b10{ba
   .chat>.hd.menu .meta-row>.mdet{flex-basis:100%;display:flex;flex-direction:column;gap:5px;margin-top:4px;overflow:visible;white-space:normal;font-size:12.5px;color:var(--ink-2)}
   .chat>.hd.menu .mdet .mi{display:flex;align-items:center;gap:6px;min-width:0;overflow-wrap:anywhere}.chat>.hd.menu .mdet .i{flex:none;color:var(--mute)}
   .chat>.hd.menu .sep{display:none}.chat>.hd.menu .mdet .cwd{display:flex}}
+/* Handoffs (handoffs.ts): a filter bar and one card of handoffs, a page at a time. */
+.hopane{max-width:980px;gap:16px;padding-bottom:96px}
+.holist{padding:0;overflow:hidden}.holist>.recc:first-child{border-top:0}.holist .recc{padding:14px 18px}
+.holist .recc .tiny a{color:inherit;text-decoration:none;border-bottom:1px dotted var(--line-strong)}.holist .recc .tiny a:hover{color:var(--accent)}
+.hobar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.hobar select{width:auto;min-width:150px;max-width:260px;height:32px;font-size:13px}
+@media (max-width:640px){.hopane{padding:12px 12px 88px}.hobar select{min-width:0;max-width:none;flex:1}.hobar .seg{width:100%;overflow-x:auto}.hobar .seg span{display:inline}.holist .recc{padding:12px 14px}}
 /* Files from agents (gallery.ts): thumbnails only, square, filling the width. */
 .galpane{max-width:1400px;gap:16px;padding-bottom:96px}
 .galbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.galbar select{width:auto;min-width:150px;max-width:260px;height:32px;font-size:13px}
@@ -3316,7 +3322,7 @@ ${markupScript()}
       out.push({ group: "Agents", name: a.dataset.k, sub: [proj ? proj.textContent.trim() : "", state].filter(Boolean).join(" · "), more: a.title || "", href: a.getAttribute("href"), icon: [...a.children].slice(0, 2).map((c) => c.outerHTML).join(""), gone: a.classList.contains("gone"), when: (a.querySelector("time.tt") || {}).textContent || "", whenTip: (a.querySelector("time.tt") || {}).title || "" });
     });
     $$("#tree a.tpn").forEach((a) => out.push({ group: "Projects", name: a.textContent.trim(), sub: "messages, locks, votes", href: a.getAttribute("href"), icon: ICONS_K.folder }));
-    [["Everything", "/dashboard", "every project and message", "layers"], ["Agents", "/dashboard?view=agents", "your agents' chats", "message"], ["Tickets & MRs", "/dashboard?view=tracked", "what your agents track for you", "branch"], ["Files from agents", "/dashboard?view=files", "images and files they shared", "image"], ["Work", "/dashboard?view=work", "your work log", "check"], ["Agents · versions", "/dashboard?view=fleet", "machines and updates", "monitor"], ["Account", "/account", "tokens, browsers, GitHub", "user"], ["Docs", "/docs", "how intercom works", "book"]].forEach(([name, href, sub, ic]) => out.push({ group: "Pages", name, sub, href, icon: ICONS_K[ic] || "" }));
+    [["Everything", "/dashboard", "every project and message", "layers"], ["Agents", "/dashboard?view=agents", "your agents' chats", "message"], ["Tickets & MRs", "/dashboard?view=tracked", "what your agents track for you", "branch"], ["Files from agents", "/dashboard?view=files", "images and files they shared", "image"], ["Handoffs", "/dashboard?view=handoffs", "work handed between agents, and what became of it", "arrow"], ["Work", "/dashboard?view=work", "your work log", "check"], ["Agents · versions", "/dashboard?view=fleet", "machines and updates", "monitor"], ["Account", "/account", "tokens, browsers, GitHub", "user"], ["Docs", "/docs", "how intercom works", "book"]].forEach(([name, href, sub, ic]) => out.push({ group: "Pages", name, sub, href, icon: ICONS_K[ic] || "" }));
     return out;
   };
   const ICONS_K = { folder: ${JSON.stringify(icon("folder", 16))}, layers: ${JSON.stringify(icon("layers", 16))}, message: ${JSON.stringify(icon("message", 16))}, user: ${JSON.stringify(icon("user", 16))}, book: ${JSON.stringify(icon("book", 16))}, branch: ${JSON.stringify(icon("branch", 16))}, image: ${JSON.stringify(icon("image", 16))}, check: ${JSON.stringify(icon("check", 16))}, monitor: ${JSON.stringify(icon("monitor", 16))} };
