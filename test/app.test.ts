@@ -3465,11 +3465,11 @@ describe("Claude.ai connector", () => {
     // Refused elsewhere: not the plugin's tools, not the dashboard. Added with /mcp, Claude gets the connector there.
     const viaMcp = await w.request("/mcp", { method: "POST", headers: { authorization: `Bearer ${access_token}`, "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }) });
     const mcpNames = ((await viaMcp.json()) as { result: { tools: { name: string }[] } }).result.tools.map((t) => t.name);
-    assert.deepEqual(mcpNames, ["agents", "agent_status", "ask", "compact", "model", "screen", "keys", "stop", "conversation", "locks", "decisions", "proposals", "handoffs"]);
+    assert.deepEqual(mcpNames, ["agents", "agent_status", "ask", "compact", "model", "screen", "keys", "stop", "conversation", "image", "locks", "decisions", "proposals", "handoffs"]);
     assert.equal((await w.request("/mcp", { method: "POST", headers: { authorization: "Bearer nope" }, body: "{}" })).status, 401);
     assert.equal((await w.request("/api/whoami", { headers: { authorization: `Bearer ${access_token}` } })).status, 401);
     const names = (await rpc(w, access_token, "tools/list")).body.result.tools.map((t: { name: string }) => t.name);
-    assert.deepEqual(names, ["agents", "agent_status", "ask", "compact", "model", "screen", "keys", "stop", "conversation", "locks", "decisions", "proposals", "handoffs"]);
+    assert.deepEqual(names, ["agents", "agent_status", "ask", "compact", "model", "screen", "keys", "stop", "conversation", "image", "locks", "decisions", "proposals", "handoffs"]);
     assert.equal((await rpc(w, access_token, "tools/call", { name: "invite", arguments: {} })).body.error.code, -32602);
     const ask = (await rpc(w, access_token, "tools/list")).body.result.tools.find((t: { name: string }) => t.name === "ask");
     assert.equal(ask.annotations.destructiveHint, true);
@@ -3516,6 +3516,32 @@ describe("Claude.ai connector", () => {
     assert.match(await call(w, t, "ask", { agent: "docs", message: "update the README", wait_seconds: 0, resend: true }), /^Sent \[\d+\] to docs\./);
     const readme = await w.db.prepare("SELECT COUNT(*) AS n FROM messages WHERE body = 'update the README'").first<{ n: number }>();
     assert.equal(readme!.n, 2);
+
+    // Images: a sketch goes with ask (its type from its bytes), the agent gets it as an image marker and can open it;
+    // the chat shows only the marker, and image fetches it by number. One already there is passed on by number.
+    const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+    const sent = await call(w, t, "ask", { agent: "docs", message: "build this layout", wait_seconds: 0, images: [{ data: `data:image/png;base64,${png}`, name: "sketch" }] });
+    assert.match(sent, /^Sent \[\d+\] to docs\./);
+    const att = await w.db.prepare("SELECT id, name, mime, message_id FROM attachments ORDER BY id DESC LIMIT 1").first<{ id: number; name: string; mime: string; message_id: number }>();
+    assert.deepEqual([att!.name, att!.mime, att!.message_id], ["sketch.png", "image/png", Number(/\[(\d+)\]/.exec(sent)![1])]);
+    const got2 = await (await w.request("/api/hook?event=UserPromptSubmit&project=billing-api&session=k2", { as: "bob" })).text();
+    assert.ok(JSON.parse(got2).hookSpecificOutput.additionalContext.includes(`build this layout\n[📎 image #${att!.id}: sketch.png]`));
+    assert.match(await call(w, t, "conversation", { agent: "docs" }), new RegExp(`\\[📎 image #${att!.id}: sketch\\.png\\]`));
+    const shown = (await rpc(w, t, "tools/call", { name: "image", arguments: { id: att!.id } })).body.result.content;
+    assert.match(shown[0].text, new RegExp(`^Image #${att!.id} \\(sketch\\.png\\), from message \\[\\d+\\]:`));
+    assert.deepEqual([shown[1].type, shown[1].mimeType, shown[1].data], ["image", "image/png", png]);
+    // A retry with the same text and image isn't sent twice; one passed on by number goes as its marker.
+    assert.match(await call(w, t, "ask", { agent: "docs", message: "build this layout", wait_seconds: 0, images: [{ data: png }] }), /Already sent/);
+    assert.match(await call(w, t, "ask", { agent: "kernel", message: "compare with docs' sketch", wait_seconds: 0, image_ids: [att!.id] }), /^Sent/);
+    assert.ok(await w.db.prepare("SELECT 1 FROM messages WHERE body = ?").bind(`compare with docs' sketch\n[📎 image #${att!.id}: sketch.png]`).first());
+    // Not an image, too many, or one you can't see: refused, nothing sent.
+    const err = async (args: object) => (await rpc(w, t, "tools/call", { name: "ask", arguments: { agent: "docs", wait_seconds: 0, ...args } })).body.result;
+    assert.match((await err({ message: "a", images: [{ data: btoa("<svg/>") }] })).content[0].text, /isn't a PNG, JPEG, GIF or WebP/);
+    assert.match((await err({ message: "b", images: [{ data: "%%%" }] })).content[0].text, /isn't base64/);
+    assert.match((await err({ message: "c", image_ids: [99999] })).content[0].text, /No image #99999/);
+    assert.match((await err({ message: "d", images: Array(5).fill({ data: png }) })).content[0].text, /At most 4 images/);
+    assert.equal((await w.db.prepare("SELECT COUNT(*) AS n FROM messages WHERE body IN ('a','b','c','d')").first<{ n: number }>())!.n, 0);
+    assert.match((await rpc(w, t, "tools/call", { name: "image", arguments: { id: 99999 } })).body.result.content[0].text, /No image #99999/);
     // Unused for 30 days (counting from its last use): signed out by the daily cleanup.
     assert.equal((await prune(w.env(), undefined, Date.now() + 29 * 86400_000)).connectors, 0);
     assert.equal((await prune(w.env(), undefined, Date.now() + 31 * 86400_000)).connectors, 1);

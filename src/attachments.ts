@@ -65,6 +65,42 @@ export async function storeFile(env: Env, me: string, f: { name: string; mime: s
   return row!;
 }
 
+/** What an image's first bytes say it is (PNG, JPEG, GIF, WebP), whatever it was called: null for anything else. */
+export function sniffImage(b: Uint8Array): string | null {
+  if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return "image/png";
+  if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return "image/jpeg";
+  if (b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x38) return "image/gif";
+  if (b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 && b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50) return "image/webp";
+  return null;
+}
+
+/**
+ * An image sent as base64 (or a data: URL), e.g. a sketch Claude made on Claude.ai: stored like one pasted in the
+ * dashboard. Its type is taken from its bytes, so only a real PNG, JPEG, GIF or WebP gets in.
+ */
+export async function storeImageData(env: Env, me: string, f: { data: string; name?: string }, n: number): Promise<Attachment> {
+  if (!env.files) throw new UserError("Attachments aren't enabled on this intercom.");
+  const raw = f.data.trim().replace(/^data:[\w.+/-]*;base64,/i, "").replace(/\s+/g, "");
+  let bytes: Uint8Array;
+  try {
+    bytes = Uint8Array.from(atob(raw), (c) => c.charCodeAt(0));
+  } catch {
+    throw new UserError(`Image ${n} isn't base64.`);
+  }
+  if (bytes.length > MAX_BYTES) throw new UserError(`Image ${n} is over ${MAX_BYTES / 1024 / 1024} MB.`);
+  const mime = sniffImage(bytes);
+  if (!mime) throw new UserError(`Image ${n} isn't a PNG, JPEG, GIF or WebP.`);
+  await limit(env, `upload:${me}`, 100, 3600_000, "uploads");
+  const key = `att/${crypto.randomUUID()}`;
+  await env.files.put(key, bytes, { httpMetadata: { contentType: mime } });
+  const ext = mime.split("/")[1]!.replace("jpeg", "jpg");
+  const base = (f.name || "").replace(/\.[a-z0-9]{1,5}$/i, "").replace(/[^\w.\- ]+/g, "_").slice(0, 70) || `image-${n}`;
+  const row = await env.DB.prepare("INSERT INTO attachments (member, r2_key, mime, bytes, name, created_at) VALUES (?, ?, ?, ?, ?, ?) RETURNING *")
+    .bind(me, key, mime, bytes.length, `${base}.${ext}`, Date.now())
+    .first<Attachment>();
+  return row!;
+}
+
 /** Text an agent can read straight from a shared file, when it is text and small. */
 export const isText = (a: Attachment) => /^text\/|\/(json|xml|yaml|x-yaml|csv|x-sh|javascript|typescript)$/.test(a.mime) && a.bytes <= 200_000;
 
