@@ -21,7 +21,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const VERSION = "0.12.57"; // kept in step with .claude-plugin/plugin.json (a test checks)
+const VERSION = "0.12.58"; // kept in step with .claude-plugin/plugin.json (a test checks)
 const DIR = path.join(os.homedir(), ".claude", "intercom");
 const CONFIG = path.join(DIR, "config");
 function readConf() {
@@ -510,6 +510,38 @@ const isNoise = (t) => /^\s*(<|# AGENTS\.md|\[intercom|Caveat:)/.test(t) || /\(S
 const pendingCron = new Map(); // CronCreate tool_use id → job, until its result names the job id
 const endedJobs = new Set(); // job ids already reported ended (the queue record and the message both say so)
 const bashCalls = new Map(); // Bash tool_use id → what it does, until its result says whether it went to the background
+/** A JS string literal's value: '…', "…" or `…` (a template's ${…} kept as written). */
+const LITERAL = /`(?:\\[\s\S]|[^`\\])*`|'(?:\\[\s\S]|[^'\\])*'|"(?:\\[\s\S]|[^"\\])*"/;
+const unquote = (lit) => {
+  const body = lit.slice(1, -1);
+  return lit[0] === "`" ? body.replace(/\\([`\\$])/g, "$1") : body.replace(/\\(?:n|t|(['"\\]))/g, (m, c) => c ?? (m === "\\n" ? "\n" : "\t"));
+};
+const literalOf = (src, key) => {
+  const m = src.match(new RegExp(`\\b${key}\\s*:\\s*(${LITERAL.source})`));
+  return m ? unquote(m[1]) : null;
+};
+/** A Codex code-mode script → a step per tool it calls: the command it runs, the searches it makes, else the tool's name. */
+function codeCalls(src) {
+  const at = [...src.matchAll(/\btools\.(\w+)\s*\(/g)];
+  const out = [];
+  at.forEach((m, k) => {
+    const name = m[1];
+    const arg = src.slice(m.index + m[0].length, at[k + 1]?.index ?? src.length);
+    if (name === "wait" || name.includes("intercom")) return;
+    const cmd = literalOf(arg, "cmd") ?? literalOf(arg, "command");
+    if (cmd) return out.push({ kind: "cmd", text: oneLine(cmd) });
+    if (name === "apply_patch") {
+      const files = [...new Set([...arg.matchAll(/\*\*\* (?:Update|Add|Delete) File: (.+?)(?=\\n|\n|$)/g)].map((f) => f[1].trim()))];
+      return out.push({ kind: "edit", text: `edit ${clip(files.join(", "), 300) || "files"}` });
+    }
+    const qs = [...arg.matchAll(new RegExp(`\\bq\\s*:\\s*(${LITERAL.source})`, "g"))].map((q) => unquote(q[1]));
+    if (qs.length) return out.push({ kind: "tool", text: `web search: ${clip(qs.join(" · "), 200)}` });
+    const what = literalOf(arg, "url") ?? literalOf(arg, "ref_id") ?? literalOf(arg, "path") ?? literalOf(arg, "message");
+    if (/^send_message_to_user/.test(name) && what?.trim()) return out.push({ kind: "text", text: clip(what, TEXT_MAX) });
+    out.push({ kind: "tool", text: `${name.replace(/__/g, ".")}${what ? `: ${clip(oneLine(what), 160)}` : ""}` });
+  });
+  return out;
+}
 const xmlTag = (text, name) => text.match(new RegExp(`<${name}>([\\s\\S]*?)</${name}>`))?.[1]?.trim() ?? "";
 function summarizeLine(line, side = false) {
   let d;
@@ -605,6 +637,13 @@ function summarizeLine(line, side = false) {
       // What Codex says to you mid-turn (send_message_to_user, …_async): an answer in the chat, not a step.
       if (/^send_message_to_user/.test(name) && typeof args?.message === "string") {
         if (args.message.trim()) out.push({ at, kind: "text", text: clip(args.message, TEXT_MAX) });
+        return out;
+      }
+      // Codex's code mode: one "exec" call runs a script that calls tools (tools.exec_command({cmd: `…`}), …). Each
+      // call is shown as its own step, the command or search it makes, instead of the script's first line.
+      const calls = typeof args === "string" && /\btools\.\w+\s*\(/.test(args) ? codeCalls(args) : [];
+      if (calls.length) {
+        for (const c of calls) out.push({ at, ...c });
         return out;
       }
       if (name === "apply_patch" || /\*\*\* (Update|Add|Delete) File:/.test(typeof args === "string" ? args : "")) {
