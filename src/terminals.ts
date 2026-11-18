@@ -62,6 +62,21 @@ export async function newTerm(env: Env, me: string, host: string, name: string, 
   return r.made?.pane ?? "";
 }
 
+/** Bringing back an agent in a new terminal, resumed by its session (tmux-new with resume). */
+export const RESUME_SINCE = "0.12.59";
+
+/** Start an agent that ended again, under its name, in a new terminal on its machine, resumed by its session id. */
+export async function resumeTerm(env: Env, me: string, host: string, label: string, cwd: string, run: "claude" | "codex", resume: { id: string; flags: string[]; channel: boolean }): Promise<string> {
+  const via = await viaOn(env, me, host);
+  if (newer(RESUME_SINCE, via.version)) throw new UserError(`Bringing agents back needs intercom ${RESUME_SINCE} on ${host} (${via.label} runs ${via.version}): update it there first.`);
+  const name = label.replace(/[^A-Za-z0-9_-]/g, "-").slice(0, 32) || "agent";
+  const r = await askSession(env, me, via, { op: "tmux-new", name, cwd, run, resume, label }, note(via));
+  await env.DB.prepare("INSERT INTO activity (member, session_id, at, kind, text) VALUES (?, ?, ?, 'keys', ?)")
+    .bind(me, via.session_id, Date.now(), `you brought back ${label} on ${host} from the dashboard: ${run} --resume ${resume.id} in ${cwd}`)
+    .run();
+  return r.made?.pane ?? "";
+}
+
 export async function closeTerm(env: Env, me: string, host: string, name: string): Promise<void> {
   const via = await viaOn(env, me, host);
   await askSession(env, me, via, { op: "tmux-kill", name }, note(via));

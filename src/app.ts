@@ -6,7 +6,7 @@ import { recordsBrief } from "./records";
 import { saveWorkSettings, workCsv } from "./work";
 import { dismissStuck, moveStuck, releaseSenders, setNudge, wakeStuck } from "./stuck";
 import { askModel } from "./models";
-import { CTX_STALE_MS, FIT_SINCE, compactAgent, compactOnStop, markCompacted, dismiss, myRows, newer, outOfUsage, restartAgent, setAuto, updateAgent, updateIdle } from "./upkeep";
+import { CTX_STALE_MS, FIT_SINCE, compactAgent, compactOnStop, markCompacted, dismiss, myRows, newer, outOfUsage, restartAgent, reviveAgent, setAuto, updateAgent, updateIdle } from "./upkeep";
 import { activeLoops, loopReminder, parseLoops } from "./loops";
 import { KEY_NAMES, type ScreenQuery, askScreen, drawScreen, screenReply, sendNow, stopAgent } from "./screen";
 import { answerBtw, pendingBtw } from "./btw";
@@ -196,15 +196,18 @@ async function handleHook(url: URL, env: Env, me: string, input: { last_assistan
   }
   if (event === "SessionEnd") {
     if (sessionId) {
-      // Remember where a named session stopped, so the next session with its name picks up the mail sent meanwhile.
-      const gone = await env.DB.prepare("DELETE FROM sessions WHERE member = ? AND session_id = ? RETURNING label, project, cursor")
+      // Remember where a session stopped: a named one's next session picks up the mail sent meanwhile, and any can be
+      // brought back from the dashboard (its session, machine, folder and command line; upkeep.ts reviveAgent).
+      const gone = await env.DB.prepare("DELETE FROM sessions WHERE member = ? AND session_id = ? RETURNING label, project, cursor, client, host, cwd, launch, pane")
         .bind(me, sessionId)
-        .first<{ label: string; project: string; cursor: number }>();
-      if (gone && !gone.label.startsWith(`${gone.project || "session"}-`)) {
+        .first<{ label: string; project: string; cursor: number; client: string; host: string; cwd: string; launch: string; pane: string }>();
+      if (gone) {
         await env.DB.prepare(
-          "INSERT INTO ended_sessions (member, label, cursor, ended_at) VALUES (?, ?, ?, ?) ON CONFLICT(member, label) DO UPDATE SET cursor = excluded.cursor, ended_at = excluded.ended_at",
+          `INSERT INTO ended_sessions (member, label, cursor, ended_at, session_id, client, host, cwd, launch, pane, project) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(member, label) DO UPDATE SET cursor = excluded.cursor, ended_at = excluded.ended_at, session_id = excluded.session_id, client = excluded.client,
+             host = excluded.host, cwd = excluded.cwd, launch = excluded.launch, pane = excluded.pane, project = excluded.project`,
         )
-          .bind(me, gone.label, gone.cursor, Date.now())
+          .bind(me, gone.label, gone.cursor, Date.now(), sessionId, gone.client, gone.host, gone.cwd, gone.launch, gone.pane, gone.project)
           .run();
       }
     }
@@ -861,6 +864,7 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
       else if (op === "fable-on" || op === "fable-off") ok = await setFableOpus(env, me, op === "fable-on");
       else if (op === "reset-now") ok = await resetHost(env, me, f("host"), { force: true });
       else if (op === "restart") ok = await restartAgent(env, me, f("session"));
+      else if (op === "revive") ok = await reviveAgent(env, me, f("label"));
       else if (op === "pick") ok = await pickPrompt(env, me, f("session"), Number(f("n")));
       else if (op === "compact" || op === "compact-now") ok = await compactAgent(env, me, f("session"), { rightAway: op === "compact-now" });
       else ok = await dismiss(env, me, f("key"), Number(f("value")) || 1);

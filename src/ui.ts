@@ -1351,6 +1351,9 @@ h1{font-size:22px;font-weight:620;letter-spacing:-.02em}
 .cmenu hr{border:0;border-top:1px solid var(--line);margin:5px 4px}
 .cbanner{display:flex;align-items:center;gap:10px;flex:none;margin:12px 18px 0;padding:10px 12px;border-radius:10px;background:var(--amber-soft);font-size:13px;color:var(--ink)}
 .cbanner>i{width:7px;height:7px;flex:none;border-radius:50%;background:var(--amber)}.cbanner>span{flex:1;min-width:0}
+.cbanner.revive{align-items:flex-start;background:var(--accent-soft);line-height:1.45}.cbanner.revive>svg{flex:none;margin-top:2px;color:var(--accent)}.cbanner.revive>.btn{flex:none}.cbanner.revive code{font-size:12px}
+.rvhand{margin-top:6px}.rvhand>summary{cursor:pointer;font-size:12px;color:var(--mute)}.rvhand .stepcmd{margin:6px 0 0}.rvhand pre{white-space:pre-wrap;overflow-wrap:anywhere}
+@media (max-width:640px){.cbanner.revive{flex-wrap:wrap}.cbanner.revive>span{flex:1 1 calc(100% - 30px)}.cbanner.revive>.btn{margin-left:25px}.rvhand pre{font-size:11.5px}}
 .cbody{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 0}
 .chat.inspon .cbody{grid-template-columns:minmax(0,1fr) 320px}
 .cmain{display:flex;flex-direction:column;min-width:0;min-height:0}

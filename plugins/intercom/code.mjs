@@ -411,7 +411,23 @@ async function terminalOp(q) {
     if (!(run in TERM_RUN)) throw new Error("Start a shell, claude or codex.");
     const dir = path.resolve(String(q.cwd || "~").replace(/^~(?=$|\/)/, os.homedir()));
     if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) throw new Error(`${dir} isn't a folder on this machine.`);
-    const args = ["new-session", "-d", "-P", "-F", "#{pane_id}", "-s", name, "-c", dir, "-x", "160", "-y", "45"];
+    // A name already taken by another terminal gets -2, -3, … (an agent brought back where its old one still sits).
+    let free = name;
+    for (let i = 2; i <= 9 && !(await tmux(["has-session", "-t", `=${free}`])).err; i++) free = `${name.slice(0, 29)}-${i}`;
+    const args = ["new-session", "-d", "-P", "-F", "#{pane_id}", "-s", free, "-c", dir, "-x", "160", "-y", "45"];
+    if (q.resume && TERM_RUN[run]) {
+      // An agent brought back: its own session resumed, with the flags it ran with, under its intercom name. The hub
+      // builds the flags from its command line; each is one plain word here too, and tmux runs them without a shell.
+      const { id, flags, channel } = q.resume;
+      const label = String(q.label ?? name);
+      if (typeof id !== "string" || !/^[\w-]{1,80}$/.test(id)) throw new Error("Not a session id.");
+      if (!Array.isArray(flags) || flags.length > 30 || !flags.every((f) => typeof f === "string" && /^[A-Za-z0-9_=.:\/,@+%-]{1,200}$/.test(f))) throw new Error("Its flags aren't plain words; start it by hand.");
+      if (!/^[A-Za-z0-9_.-]{1,64}$/.test(label)) throw new Error("Not an agent name.");
+      args.push("-e", `INTERCOM_NAME=${label}`, ...(channel ? ["-e", "INTERCOM_CHANNEL=1"] : []), TERM_RUN[run], ...flags, ...(run === "codex" ? ["resume", id] : ["--resume", id]));
+      const r = await tmux(args);
+      if (r.err) throw new Error(`tmux: ${r.err}`);
+      return { pane: r.out.trim(), name: free };
+    }
     // An agent takes the terminal's name as its intercom name, and starts on the first message, if one was given.
     if (TERM_RUN[run]) {
       const prompt = typeof q.prompt === "string" ? q.prompt.trim().slice(0, 4000) : "";

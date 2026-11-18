@@ -4359,7 +4359,7 @@ describe("keeping agents running and current", () => {
     assert.match(await page(w), /<article class="ask k-stuck" data-mid="xup1">[\s\S]*core stopped 15m ago without ending its session/);
     const shell = (q: Record<string, unknown>) => ({ text: q.op === "capture" ? "Resume this session with:\nclaude --resume up1\nedvin@vms01:~/projects/billing$ " : "" });
     const { result, seen } = await machine(w, () => w.form("/upkeep", "bob", { op: "restart", session: "up1", back: "/dashboard" }), shell);
-    assert.equal(ok(result), "Restarting core in its pane: claude --dangerously-skip-permissions --resume up1");
+    assert.equal(ok(result), "Bringing core back in its terminal: claude --dangerously-skip-permissions --resume up1");
     assert.deepEqual(seen, [{ op: "capture", pane: "%5" }, { op: "keys", text: "claude --dangerously-skip-permissions --resume up1", enter: true, pane: "%5" }]);
     // Not when the pane isn't at a shell prompt.
     const busy = (q: Record<string, unknown>) => ({ text: q.op === "capture" ? "Compiling…\n[####      ] 40%" : "" });
@@ -4383,6 +4383,54 @@ describe("keeping agents running and current", () => {
     assert.doesNotMatch(await page(w), /data-mid="cup2"/);
     await ctx(80);
     assert.match(await page(w), /data-mid="cup2"/);
+  });
+
+  test("an agent whose session ended is listed and brought back in a new terminal on its machine, in its folder, resumed", async () => {
+    const w = await setup();
+    await w.db.prepare("UPDATE sessions SET cwd = '/home/bob/billing', pane = '%5', launch = 'claude --model opus --resume old' WHERE session_id = 'up1'").run();
+    await w.request("/api/hook?event=SessionEnd&session=up1", { as: "bob" });
+    const ended = await w.db.prepare("SELECT session_id, client, host, cwd, launch, pane, project FROM ended_sessions WHERE member = 'bob' AND label = 'core'").first();
+    assert.deepEqual({ ...ended }, { session_id: "up1", client: "claude", host: "vms01", cwd: "/home/bob/billing", launch: "claude --model opus --resume old", pane: "%5", project: "billing" });
+    // In the tree with those not connected, and its page offers to bring it back (or the command by hand).
+    const dash = await page(w);
+    assert.match(dash, /<summary>1 not connected<\/summary><a class="ta gone"[^>]*agent=bob%2Fcore"[^>]*title="bob\/core · ended just now/);
+    const pg = await (await w.request("/dashboard?view=agents&agent=bob%2Fcore", { as: "bob", cookie: true })).text();
+    assert.match(pg, /<span class="cstate off">ended just now<\/span>/);
+    assert.match(pg, /<form class="cbanner revive"[\s\S]*name="op" value="revive"[\s\S]*name="label" value="core"[\s\S]*<b>core ended just now on vms01\.<\/b>[\s\S]*<pre>cd \/home\/bob\/billing &amp;&amp; claude --model opus --resume up1<\/pre>[\s\S]*Bring back<\/button>/);
+    // Its old pane is gone (tmux says so): a new terminal named after it, through triage.
+    const answer = (q: Record<string, unknown>) => (q.op === "capture" ? { error: "tmux: can't find pane: %5" } : { text: "", made: { pane: "%9" } });
+    const go = () => w.form("/upkeep", "bob", { op: "revive", label: "core", back: "/dashboard?view=agents&agent=bob%2Fcore" });
+    const seen: Record<string, unknown>[] = [];
+    let done = false;
+    const p = go().finally(() => (done = true));
+    let n = w.screenAsked.length;
+    while (!done) {
+      while (w.screenAsked.length > n) {
+        const ask = w.screenAsked[n++]!;
+        seen.push(ask.q);
+        const a = answer(ask.q) as { error?: string };
+        await w.request("/api/screen-reply", { as: ask.member, method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(a.error ? { req: ask.req, error: a.error } : { req: ask.req, data: { cols: 80, rows: 24, cursor: null, keys: true, ...a } }) });
+      }
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    assert.match(ok(await p)!, /^Bringing core back on vms01, in a new terminal \(%9\)/);
+    assert.deepEqual(seen, [
+      { op: "capture", pane: "%5" },
+      { op: "tmux-new", name: "core", cwd: "/home/bob/billing", run: "claude", resume: { id: "up1", flags: ["--model", "opus"], channel: false }, label: "core" },
+    ]);
+    // Once it's back under its name it leaves the ended list.
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=up1&name=core", { as: "bob" });
+    assert.doesNotMatch(await page(w), /ended just now/);
+    // Running ones aren't brought back; unknown names say so.
+    assert.match(ok(await w.form("/upkeep", "bob", { op: "revive", label: "core", back: "/dashboard" }))!, /core is running: nothing to bring back/);
+    assert.match(ok(await w.form("/upkeep", "bob", { op: "revive", label: "nobody", back: "/dashboard" }))!, /No agent of yours called nobody ended/);
+  });
+
+  test("the machine's side of bringing one back: plain flags only, its name and session, a free terminal name", async () => {
+    const { screenRequest } = await import("../plugins/intercom/code.mjs");
+    const on = { pane: null, keysOn: true, termsOn: true };
+    await assert.rejects(screenRequest({ op: "tmux-new", name: "core", cwd: "~", run: "claude", resume: { id: "up1", flags: ["--model", "$(rm -rf ~)"], channel: false } }, on), /aren't plain words/);
+    await assert.rejects(screenRequest({ op: "tmux-new", name: "core", cwd: "~", run: "claude", resume: { id: "../x", flags: [], channel: false } }, on), /Not a session id/);
   });
 
   test("a page of your agents and versions, by machine, updating one at a time", async () => {

@@ -54,7 +54,7 @@ import { STEPS_KEEP, type Sub, parseSubMessage, parseSubs, shownSubs, subSteps }
 import { commandStep, fileStep } from "./steps";
 import { getNote } from "./notes";
 import { NEW_AGENT_SINCE } from "./terminals";
-import { newer } from "./upkeep";
+import { type Gone, endedAgents, newer, reviveByHand } from "./upkeep";
 import { subMark, subMarkOf, subsRegion, subWhen } from "./subview";
 import { trackedNeedsYou } from "./tracked";
 import { BTW_TIMEOUT, NO_MOD, btwFor, compactable, modAnswers } from "./btw";
@@ -97,6 +97,8 @@ interface Agent {
   model_err?: string | null;
   screen?: string;
   usage?: string | null;
+  /** Its session ended (closed, not crashed): listed from ended_sessions so it can be brought back. */
+  ended?: boolean;
 }
 
 /** Which agent runs the session, in each tool's own colours. */
@@ -167,7 +169,13 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   const connected = env.live?.() ?? new Set<string>();
   const nick = await hostNames(env, me);
   const hostOf = (a: Agent) => (a.member === me ? nick.get(a.host) ?? a.host : a.host);
-  const isOn = (a: Agent) => connected.has(`${a.member}/${a.session_id}`) || Date.now() - a.last_seen < 10 * 60_000;
+  const isOn = (a: Agent) => !a.ended && (connected.has(`${a.member}/${a.session_id}`) || Date.now() - a.last_seen < 10 * 60_000);
+  // Your agents whose session ended (the last 3 days, not back under their name): in the tree with those not
+  // connected, and their page offers to bring them back (upkeep.ts reviveAgent). One small read by your name.
+  const endedList: Gone[] = await endedAgents(env, me);
+  for (const g of endedList)
+    if (!agents.some((a) => a.member === me && a.label === g.label))
+      agents.push({ member: me, session_id: g.session_id, label: g.label, project: g.project, client: g.client, host: g.host, cwd: g.cwd, branch: "", note: "", version: "", last_seen: g.at, active_at: g.at, state: "", state_detail: "", state_at: null, ended: true });
   // Loops (/loop, scheduled prompts) of your own connected agents, as their transcripts show them.
   const loopsOf = (a: Agent) => (a.member === me && isOn(a) ? activeLoops(parseLoops(a.loops)) : []);
   // Background jobs (shell commands running in the background) of your own connected agents.
@@ -221,7 +229,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   );
   const dot = (a: Agent) => (!isOn(a) ? "off" : a.state === "waiting" ? "wait" : a.state === "working" ? "work" : "idle");
   const tip = (a: Agent) =>
-    [key(a), a.client === "codex" ? "Codex" : "", loopsOf(a).length ? "running a loop" : "", jobsOf(a).length ? "background jobs" : "", a.member === me && isOn(a) && outdated(a.version) ? "update available" : "", !isOn(a) ? `last seen ${ago(a.last_seen)}` : a.state === "waiting" ? `needs you: ${a.state_detail || "waiting"}` : a.state || "connected", a.host ? `on ${hostOf(a)}` : "", a.branch ? `⎇ ${a.branch}` : "", a.member === me ? a.cwd : "", a.note]
+    [key(a), a.client === "codex" ? "Codex" : "", loopsOf(a).length ? "running a loop" : "", jobsOf(a).length ? "background jobs" : "", a.member === me && isOn(a) && outdated(a.version) ? "update available" : "", !isOn(a) ? `${a.ended ? "ended" : "last seen"} ${ago(a.last_seen)}` : a.state === "waiting" ? `needs you: ${a.state_detail || "waiting"}` : a.state || "connected", a.host ? `on ${hostOf(a)}` : "", a.branch ? `⎇ ${a.branch}` : "", a.member === me ? a.cwd : "", a.note]
       .filter(Boolean)
       .join(" · ");
   // When it last did something (a prompt, a step, a post), as a quiet "2m" on the row; working agents show their dot instead.
@@ -673,7 +681,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
     : `<nav class="subtabs" id="subtabs" data-region hidden></nav>`;
   const inspOpen = /(?:^|;\s*)ic_insp=1/.test(cookie);
   const stateText = !on
-    ? `<span class="cstate off">last seen ${ago(agent.last_seen)}</span>`
+    ? `<span class="cstate off">${agent.ended ? "ended" : "last seen"} ${ago(agent.last_seen)}</span>`
     : agent.state === "waiting"
       ? `<span class="cstate wait" title="${esc(agent.state_detail)}"><i></i>needs you</span>`
       : agent.state === "working"
@@ -740,6 +748,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
         </div>
       </header>
       ${codeOn || !ownAgent ? "" : subTabs}
+      ${ownAgent && !on ? reviveBar(agent, endedList.find((g) => g.label === agent.label), back) : ""}
       ${on && agent.state === "waiting" && !pending.some((p) => p.session_id === agent.session_id) && !asksHere.includes('data-mid="w') ? `<div class="cbanner"><i></i><span><b>${esc(agent.label)} is waiting${agent.state_at ? ` (asked ${ago(agent.state_at)})` : ""}:</b> ${esc(agent.state_detail || "for approval or input")}. Only its terminal can answer this.${canScreen ? "" : " Already answered? Claude Code doesn't say when, so this stays until the step has run."}</span>${canScreen ? `<button type="button" class="btn sm" ${screenAttrs(key(agent), agent.label, agent.screen ?? "", agent.client ?? "")}>${icon("terminal", 14)}Open its screen</button>` : ""}</div>` : ""}
       <div class="cbody"><div class="cmain">
       ${codeOn ? codePane : `<div class="thread term${/(?:^|;\s*)ic_activity=off/.test(cookie) ? " noact" : ""}${/(?:^|;\s*)ic_relay=off/.test(cookie) ? " norelay" : ""}" id="thread" data-region${subSel ? ` data-sub="${esc(subSel.id)}"` : ""}>${subSel ? subThread : thread || `<div class="empty" style="margin:auto">${icon("message", 28)}<div>No messages with ${esc(agent.label)} yet.</div><div class="small">${ownAgent ? "Ask a question or give it a new direction; it treats what you write here like a prompt you typed." : "Your message reaches this session; its owner's agent treats it as information from you."}</div></div>`}</div>
@@ -820,4 +829,12 @@ ${(() => {
         </div><div class="ft"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary">${icon("check", 14)}Save</button></div></form></dialog>` : ""}`
     : "";
   return { tree, main: `${updateBar}${dialogs}<div class="agents" id="agents">${chat.replace('<div class="hd">', '<div class="hd" id="chathd" data-region>')}</div>` };
+}
+
+/** On the page of one of your agents that isn't running: bring it back in the same session, or the command to do it by hand. */
+function reviveBar(agent: Agent, g: Gone | undefined, back: string): string {
+  const cmd = g ? reviveByHand(g) : "";
+  return `<form class="cbanner revive" method="post" action="/upkeep">${hidden({ back, op: "revive", label: agent.label })}
+    ${icon("refresh", 15)}<span><b>${esc(agent.label)} ${agent.ended ? "ended" : "stopped"} ${esc(ago(agent.last_seen))}${agent.host ? ` on ${esc(agent.host)}` : ""}.</b> Bring it back to carry on in the same conversation: it starts in a new terminal there${agent.cwd ? ` in <code>${esc(agent.cwd)}</code>` : ""}, resumed by its session.${cmd ? `<details class="rvhand"><summary>Or by hand</summary><div class="stepcmd"><pre>${esc(cmd)}</pre><button type="button" class="mdcopy" data-copystep>Copy</button></div></details>` : ""}</span>
+    <button class="btn primary sm">${icon("refresh", 13)}Bring back</button></form>`;
 }

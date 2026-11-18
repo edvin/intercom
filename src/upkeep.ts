@@ -10,6 +10,7 @@ import { compactable } from "./btw";
 import { type Env, GONE_MS, UserError, ago, liveIds, postMessage } from "./lib";
 import { type Term, busy, carryOn, goal, pause } from "./codexterm";
 import { type AgentPane, type ScreenData, type ScreenQuery, askSession, plainScreen } from "./screen";
+import { resumeTerm } from "./terminals";
 import { PLUGIN_VERSION } from "./version";
 
 /** A helper must run at least this to list the agents on its machine and type into their panes. */
@@ -35,6 +36,7 @@ export interface Row {
   screen: string;
   pane: string;
   launch: string;
+  cwd?: string;
   ctx_pct: number | null;
   compact_req: string | null;
   compact_prep: string | null;
@@ -53,7 +55,7 @@ const atLeast = (v: string, want: string) => v === want || newer(v, want);
 
 export async function myRows(env: Env, me: string): Promise<{ rows: Row[]; live: (r: Row) => boolean }> {
   const { results } = await env.DB.prepare(
-    `SELECT session_id, label, project, client, version, state, state_detail, state_at, active_at, last_seen, host, screen, pane, launch, ctx_pct, compact_req, compact_prep, compact_err, ui_at, ui_version
+    `SELECT session_id, label, project, client, version, state, state_detail, state_at, active_at, last_seen, host, screen, pane, launch, cwd, ctx_pct, compact_req, compact_prep, compact_err, ui_at, ui_version
      FROM sessions WHERE member = ? AND last_seen > ? ORDER BY last_seen DESC`,
   )
     .bind(me, Date.now() - 86_400_000)
@@ -223,11 +225,12 @@ export function exitedAgents(rows: Row[], live: (r: Row) => boolean): Row[] {
   return rows.filter((r) => !live(r) && now - r.last_seen < 86_400_000 && r.pane && r.launch && !rows.some((x) => x.label === r.label && x.session_id !== r.session_id && live(x)) && helperFor(rows, live, r));
 }
 
-/** The command that starts this agent again, resumed by its session id (never --continue: several can share a folder). */
-export function resumeCommand(t: { launch: string; session_id: string; client: string }): string {
+/** How to start this agent again, resumed by its session id (never --continue: several can share a folder): the program,
+ * the flags it was started with, and whether it ran in channel mode. Throws when its command line can't be trusted. */
+export function resumeParts(t: { launch: string; session_id: string; client: string }): { bin: string; flags: string[]; channel: boolean } {
   if (!/^[\w-]+$/.test(t.session_id)) throw new UserError("That session id can't be resumed.");
   const words = t.launch.trim().split(/\s+/).filter(Boolean);
-  if (t.client === "codex") return codexResume(words, t.session_id);
+  if (t.client === "codex") return { bin: "codex", flags: codexFlags(words), channel: false };
   if (words.some((w) => /[;&|`$<>(){}\\'"]/.test(w))) throw new UserError("Its command line has shell characters; restart it by hand.");
   const bin = words[0] && /(^|\/)claude$/.test(words[0]) ? words[0] : "claude";
   const flags: string[] = [];
@@ -238,18 +241,23 @@ export function resumeCommand(t: { launch: string; session_id: string; client: s
       continue;
     }
     if (/^(--resume=|--session-id=)/.test(w) || /^(--continue|-c|--fork-session)$/.test(w)) continue;
-    if (/[;&|`$<>(){}\\'"]/.test(w)) throw new UserError("Its command line has shell characters; restart it by hand.");
     flags.push(w);
   }
-  const channel = /plugin:intercom@intercom/.test(t.launch) ? "INTERCOM_CHANNEL=1 " : "";
-  return `${channel}${bin} ${[...flags, "--resume", t.session_id].join(" ")}`.replace(/\s+/g, " ").trim();
+  return { bin, flags, channel: /plugin:intercom@intercom/.test(t.launch) };
+}
+
+/** The command line that starts this agent again (typed into its old pane). */
+export function resumeCommand(t: { launch: string; session_id: string; client: string }): string {
+  const { bin, flags, channel } = resumeParts(t);
+  if (t.client === "codex") return [bin, ...flags, "resume", t.session_id].join(" ");
+  return `${channel ? "INTERCOM_CHANNEL=1 " : ""}${bin} ${[...flags, "--resume", t.session_id].join(" ")}`.replace(/\s+/g, " ").trim();
 }
 
 // Codex flags that take a value; any other word that isn't a flag (a prompt, `resume <id>`, `--last`) is dropped, so a
 // restart never sends its first prompt again.
 const CODEX_VALUE_FLAGS = /^(-m|--model|-c|--config|-p|--profile|-s|--sandbox|-a|--ask-for-approval|-C|--cd|-i|--image|--add-dir|--enable|--disable|--local-provider)$/;
 
-function codexResume(words: string[], id: string): string {
+function codexFlags(words: string[]): string[] {
   const w = words[0] && /(^|\/)node$/.test(words[0]) ? words.slice(1) : words;
   const flags: string[] = [];
   for (let i = 1; i < w.length; i++) {
@@ -259,22 +267,87 @@ function codexResume(words: string[], id: string): string {
     flags.push(x);
     if (CODEX_VALUE_FLAGS.test(x) && w[i + 1] && !w[i + 1]!.startsWith("-")) flags.push(w[++i]!);
   }
-  return ["codex", ...flags, "resume", id].join(" ");
+  return flags;
 }
 
-/** Start an agent that stopped running again, in its pane, in the same session. */
+/** Start an agent that stopped running again, in the same session (the Stopped running card): see reviveAgent. */
 export async function restartAgent(env: Env, me: string, sessionId: string): Promise<string> {
-  const { rows, live } = await myRows(env, me);
+  const { rows } = await myRows(env, me);
   const t = rows.find((r) => r.session_id === sessionId);
   if (!t) throw new UserError("No such agent of yours (in the last day).");
-  if (live(t)) throw new UserError(`${t.label} is running: nothing to restart.`);
-  const at = await locate(env, me, t, rows, live);
-  if (!at?.pane) throw new UserError(`${t.label}'s terminal can't be reached: no updated agent of yours on ${t.host || "its machine"} to go through.`);
-  const end = lastLine((await ask(env, me, at, t, { op: "capture" }, "from the dashboard")).text);
-  if (!SHELL_PROMPT.test(end)) throw new UserError(`${t.label}'s pane doesn't show a shell prompt (it ends with “${end.slice(-60)}”): look at it before restarting.`);
-  const cmd = resumeCommand(t);
-  await ask(env, me, at, t, { op: "keys", text: cmd, enter: true }, "from the dashboard");
-  return `Restarting ${t.label} in its pane: ${cmd}`;
+  return reviveAgent(env, me, t.label);
+}
+
+/** An agent of yours that's no longer running, as the dashboard lists it: ended (its session closed), or exited (gone without ending). */
+export interface Gone {
+  label: string;
+  session_id: string;
+  client: string;
+  host: string;
+  cwd: string;
+  launch: string;
+  pane: string;
+  project: string;
+  at: number;
+  how: "ended" | "exited";
+}
+
+/** Your agents that ended in the last `days` and haven't come back under their name: one row each, newest first. */
+export async function endedAgents(env: Env, me: string, days = 3, limit = 30): Promise<Gone[]> {
+  const { results } = await env.DB.prepare(
+    `SELECT e.label, e.session_id, e.client, e.host, e.cwd, e.launch, e.pane, e.project, e.ended_at AS at FROM ended_sessions e
+     WHERE e.member = ? AND e.ended_at > ? AND e.session_id != '' AND NOT EXISTS (SELECT 1 FROM sessions s WHERE s.member = e.member AND s.label = e.label)
+     ORDER BY e.ended_at DESC LIMIT ?`,
+  )
+    .bind(me, Date.now() - days * 86_400_000, limit)
+    .all<Omit<Gone, "how">>();
+  return results.map((r) => ({ ...r, how: "ended" as const }));
+}
+
+/** What brings an agent back by hand: its folder, then the command (shown when the dashboard can't do it). */
+export function reviveByHand(g: Pick<Gone, "launch" | "session_id" | "client" | "cwd">): string {
+  let cmd: string;
+  try {
+    cmd = resumeCommand(g);
+  } catch {
+    cmd = g.client === "codex" ? `codex resume ${g.session_id}` : `claude --resume ${g.session_id}`;
+  }
+  const dir = /^[\w@%+=:,.\/~-]+$/.test(g.cwd) ? g.cwd : `'${g.cwd.replace(/'/g, `'\\''`)}'`;
+  return g.cwd ? `cd ${dir} && ${cmd}` : cmd;
+}
+
+/**
+ * Bring an agent back under its name, in the same session: typed into its old pane when that still shows a shell,
+ * else started in a new tmux terminal on its machine (through another of your agents there), in its folder, with the
+ * flags it ran with. Ended agents (closed cleanly) and exited ones (crashed, killed) alike.
+ */
+export async function reviveAgent(env: Env, me: string, label: string): Promise<string> {
+  const { rows, live } = await myRows(env, me);
+  if (rows.some((r) => r.label === label && live(r))) throw new UserError(`${label} is running: nothing to bring back.`);
+  const exited = rows.find((r) => r.label === label);
+  const ended = (await endedAgents(env, me, 14, 200)).find((g) => g.label === label);
+  const g: Gone | null = exited && (!ended || exited.last_seen >= ended.at) ? { ...exited, cwd: exited.cwd ?? "", at: exited.last_seen, how: "exited" } : ended ?? null;
+  if (!g) throw new UserError(`No agent of yours called ${label} ended in the last two weeks.`);
+  const parts = resumeParts(g);
+  const tr = g as unknown as Row; // what reaching its pane needs: its session, label and machine
+  const helper = helperFor(rows, live, tr);
+  // Its old pane, if it's still there at a shell prompt (a crash leaves it so): the same terminal, typed into.
+  if (g.pane && helper) {
+    const at: Located = { via: helper, pane: g.pane };
+    const end = await ask(env, me, at, tr, { op: "capture" }, "from the dashboard").then((d) => lastLine(d.text), () => null);
+    if (end !== null && SHELL_PROMPT.test(end)) {
+      await ask(env, me, at, tr, { op: "keys", text: resumeCommand(g), enter: true }, "from the dashboard");
+      return `Bringing ${label} back in its terminal: ${resumeCommand(g)}`;
+    }
+    // Something still runs there (it may be the agent itself, hung): never a second copy of its session.
+    if (end !== null) throw new UserError(`${label}'s terminal doesn't show a shell prompt (it ends with “${end.slice(-60)}”): look at it before bringing it back.`);
+  }
+  if (!g.host) throw new UserError(`Which machine ${label} ran on isn't known. On it: ${reviveByHand(g)}`);
+  const pane = await resumeTerm(env, me, g.host, label, g.cwd || "~", g.client === "codex" ? "codex" : "claude", { id: g.session_id, flags: parts.flags, channel: parts.channel }).catch((e) => {
+    if (e instanceof UserError) throw new UserError(`${e.message} By hand, on ${g.host}: ${reviveByHand(g)}`);
+    throw e;
+  });
+  return `Bringing ${label} back on ${g.host}, in a new terminal${pane ? ` (${pane})` : ""}: it resumes its session and shows up here in a few seconds`;
 }
 
 // ---- context ----
