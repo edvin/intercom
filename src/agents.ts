@@ -600,11 +600,11 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   // Its model, switched from here: its mod runs /model between turns (models.ts; Claude Code only).
   const canModel = ownAgent && !switchable(agent, isOn(agent));
   const modelWant = agent.model_req ? (JSON.parse(agent.model_req) as { model: string }).model : "";
-  const modelRow = !agent.model && !canModel ? "" : `<dt>Model</dt><dd>${agent.model ? `<span title="${esc(agent.model)}">${esc(modelName(agent.model))}</span>` : `<span class="muted">not known yet</span>`}${
+  const modelVal = !agent.model && !canModel ? "" : `${agent.model ? `<span title="${esc(agent.model)}">${esc(modelName(agent.model))}</span>` : `<span class="muted">not known yet</span>`}${
     modelWant
       ? `<form method="post" action="/agent/model" class="compacting">${hidden({ session: agent.session_id, back: here, cancel: "1" })}<span class="badge amber" title="Its intercom-ui mod runs /model ${esc(modelWant)} when the current turn ends">to ${esc(modelName(modelWant))} when idle…</span><button class="btn ghost xs">Call off</button></form>`
       : canModel ? `<button type="button" class="btn ghost xs compactbtn" data-open="dlg-model" title="Switch its model (like /model)">Switch</button>` : ""
-  }${agent.model_err && !modelWant ? `<div class="small muted">Last switch didn't take: ${esc(agent.model_err)}</div>` : ""}</dd>`;
+  }${agent.model_err && !modelWant ? `<div class="small muted">Last switch didn't take: ${esc(agent.model_err)}</div>` : ""}`;
   // Whether it takes work your other agents hand it (lib.ts delegatedTo): a switch on your own agents.
   const takesWork = ownAgent && !(await env.DB.prepare("SELECT 1 FROM agent_prefs WHERE member = ? AND label = ? AND takes_work = 0").bind(me, agent.label).first());
   const takesCtl = ownAgent
@@ -688,39 +688,46 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
         ? `<span class="cstate work"><i></i>working</span>`
         : `<span class="cstate idle"><i></i>idle</span>`;
   const where = [agent.project ? `#${esc(agent.project)}` : "no project", agent.branch ? esc(agent.branch) : ""].filter(Boolean).join(" · ");
-  const ctxRow =
+  // The inspector: what it's on (its status note), its gauges (context, plan limits, cost), the facts about it as a
+  // list with icons, then its notes, loops and background jobs.
+  const gauge = (label: string, value: string, pct: number, tone: string, sub: string, ctl = "", title = "") =>
+    `<div class="igauge"${title ? ` title="${esc(title)}"` : ""}><div class="igh"><span class="igl">${label}</span><span class="igv ${tone}">${value}</span><span class="grow"></span>${ctl}</div><div class="meter ${tone}"><i style="width:${Math.min(100, Math.max(0, pct))}%"></i></div>${sub ? `<div class="igs">${sub}</div>` : ""}</div>`;
+  const ctxGauge =
     agent.ctx_pct != null && agent.client !== "codex"
-      ? `<dt>Context</dt><dd><span class="ctxv ${ctxLevel(agent) ?? ""}" title="Context: ${kTok(agent.ctx_tokens)} of ${kTok(agent.ctx_window)} tokens · ${ago(agent.ctx_at ?? 0)}">${agent.ctx_pct}%</span>${agent.ctx_window ? `<span class="muted"> of ${kTok(agent.ctx_window)}</span>` : ""}${compactCtl}<div class="meter ${ctxLevel(agent) ?? ""}"><i style="width:${Math.min(100, agent.ctx_pct)}%"></i></div></dd>`
-      : canCompact ? `<dt>Context</dt><dd>${compactCtl}</dd>` : "";
+      ? gauge("Context", `${agent.ctx_pct}%`, agent.ctx_pct, ctxLevel(agent) ?? "", agent.ctx_window ? `of ${kTok(agent.ctx_window)} tokens` : "", compactCtl, `Context: ${kTok(agent.ctx_tokens)} of ${kTok(agent.ctx_window)} tokens · ${ago(agent.ctx_at ?? 0)}`)
+      : canCompact ? `<div class="igauge"><div class="igh"><span class="igl">Context</span><span class="igv muted">not known yet</span><span class="grow"></span>${compactCtl}</div></div>` : "";
   // Its plan's limits (5-hour and weekly windows, from the last answer Claude Code got) and what it has cost: what its
   // mod reads off the status line's figures. Your own agents only; a window whose reset has passed is left out.
   const usage = ownAgent ? usageOf(agent.usage) : null;
-  const usageRow = usage && (usage.rl.length || usage.usd != null)
-    ? `<dt>Usage</dt><dd class="usage">${usage.rl
-        .map((w) => `<div class="urow"><span class="uk">${esc(WINDOWS[w.k] ?? w.k.replace(/_/g, " "))}</span><span class="uv">${w.p}%</span>${w.r ? `<span class="ur">resets <time data-ts="${w.r}" data-at title="${new Date(w.r).toISOString()}">${esc(ago(w.r))}</time></span>` : ""}<div class="meter ${w.p >= 90 ? "red" : w.p >= 70 ? "amber" : ""}"><i style="width:${Math.min(100, w.p)}%"></i></div></div>`)
-        .join("")}${usage.usd != null ? `<div class="urow ucost"><span class="uk">This session</span><span class="uv">$${usage.usd.toFixed(2)}</span></div>` : ""}</dd>`
-    : "";
+  const usageGauges = (usage?.rl ?? [])
+    .map((w) => gauge(esc(WINDOWS[w.k] ?? w.k.replace(/_/g, " ")), `${w.p}%`, w.p, w.p >= 90 ? "red" : w.p >= 70 ? "amber" : "", w.r ? `resets <time data-ts="${w.r}" data-at title="${new Date(w.r).toISOString()}">${esc(ago(w.r))}</time>` : ""))
+    .join("");
+  const cost = usage?.usd != null ? `<div class="icost">${icon("sparkles", 12)}<span>This session</span><b>$${usage.usd.toFixed(2)}</b></div>` : "";
+  const gauges = ctxGauge || usageGauges || cost ? `<div class="igauges">${ctxGauge}${usageGauges}${cost}</div>` : "";
   const note = ownAgent && agent.project ? await getNote(env, me, agent.project, agent.label) : null;
   const watching = ownAgent && !!(await env.DB.prepare("SELECT 1 FROM agent_watch WHERE member = ? AND label = ?").bind(me, agent.label).first());
-  const session = `<section class="ipart" id="isess" data-region><h3>Session</h3><dl class="kv">
-      <dt>State</dt><dd>${stateText}${on && agent.state === "waiting" && agent.state_detail ? `<div class="small muted">${esc(agent.state_detail)}</div>` : ""}</dd>
-      ${ctxRow}
-      ${usageRow}
-      ${modelRow}
-      ${agent.note ? `<dt>Role</dt><dd>${esc(plainSpaces(agent.note))}</dd>` : ""}
-      <dt>Project</dt><dd>${agent.project ? `<a href="/dashboard?channel=${encodeURIComponent(agent.project)}">#${esc(agent.project)}</a>` : "none"}${ownAgent && agent.project_pin ? ` <span class="badge" title="Set from the dashboard for this session; its repo would put it in ${esc(agent.repo ? `whatever ${agent.repo} maps to` : "no project")}">pinned</span>` : ""}${ownAgent ? `<button type="button" class="btn ghost xs icon" data-open="dlg-project" title="Choose its project">${icon("pencil", 11)}</button>` : ""}</dd>
-      ${agent.branch ? `<dt>Branch</dt><dd class="mono">${esc(agent.branch)}</dd>` : ""}
-      ${agent.host ? `<dt>Machine</dt><dd>${esc(hostOf(agent))}${ownAgent ? `<button type="button" class="btn ghost xs icon" data-open="dlg-host" title="Rename this machine">${icon("pencil", 11)}</button>` : ""}</dd>` : ""}
-      ${ownAgent && agent.cwd ? `<dt>Folder</dt><dd class="mono cwd">${esc(agent.cwd)}</dd>` : ""}
-      <dt>Client</dt><dd>${clientBadge(agent.client, true)}${agent.version ? ` <span class="muted">${esc(agent.version)}</span>` : ""}</dd>
-      ${ownAgent ? `<dt>Your agents</dt><dd>${takesCtl}</dd>` : ""}
-    </dl>
-    ${ownAgent && agent.project ? `<h3>Notes${note ? `<span class="muted">${ago(note.updated_at)}${note.updated_by && note.updated_by !== me ? ` · by ${esc(note.updated_by)}` : note.updated_by === me ? " · by you" : ""}</span>` : ""}</h3>
-      <details class="inotes"${note ? "" : ""}><summary>${note ? `<div class="md inote">${md(note.body, agent.origin, null)}</div><span class="btn ghost xs">${icon("pencil", 12)}Edit</span>` : `<span class="small muted">What it's on and what's next, for whoever has the name after a restart.</span><span class="btn ghost xs">${icon("plus", 12)}Write</span>`}</summary>
+  const fact = (ic: string, k: string, v: string, cls = "") => `<div class="ifr${cls ? ` ${cls}` : ""}"><span class="ifi">${icon(ic, 13)}</span><span class="ifk">${k}</span><span class="ifv">${v}</span></div>`;
+  const facts = [
+    modelVal ? fact("cpu", "Model", modelVal) : "",
+    fact("hash", "Project", `${agent.project ? `<a href="/dashboard?channel=${encodeURIComponent(agent.project)}">#${esc(agent.project)}</a>` : `<span class="muted">none</span>`}${ownAgent && agent.project_pin ? ` <span class="badge" title="Set from the dashboard for this session; its repo would put it in ${esc(agent.repo ? `whatever ${agent.repo} maps to` : "no project")}">pinned</span>` : ""}${ownAgent ? `<button type="button" class="btn ghost xs icon iedit" data-open="dlg-project" title="Choose its project">${icon("pencil", 11)}</button>` : ""}`),
+    agent.branch ? fact("branch", "Branch", `<span class="mono">${esc(agent.branch)}</span>`) : "",
+    agent.host ? fact("monitor", "Machine", `${esc(hostOf(agent))}${ownAgent ? `<button type="button" class="btn ghost xs icon iedit" data-open="dlg-host" title="Rename this machine">${icon("pencil", 11)}</button>` : ""}`) : "",
+    ownAgent && agent.cwd ? fact("folder", "Folder", `<span class="mono cwd" title="${esc(agent.cwd)}">${esc(agent.cwd)}</span>`) : "",
+    fact("terminal", "Client", `${clientBadge(agent.client, true)}${agent.version ? `<span class="iver">${esc(agent.version)}</span>` : ""}`),
+    ownAgent ? fact("users", "Your agents", takesCtl) : "",
+  ].join("");
+  const waitNote = on && agent.state === "waiting" && agent.state_detail ? `<div class="iwait">${esc(agent.state_detail)}</div>` : "";
+  const session = `<section class="ipart" id="isess" data-region>
+    <div class="istate">${stateText}<span class="grow"></span>${agent.state_at && on ? `<span class="tiny muted">since ${esc(ago(agent.state_at))}</span>` : ""}</div>
+    ${waitNote}
+    ${agent.note ? `<p class="irole">${esc(plainSpaces(agent.note))}</p>` : ""}
+    ${gauges}
+    <div class="ifacts">${facts}</div>
+    ${ownAgent && agent.project ? `<details class="inotes"><summary><h3>Notes${note ? `<span class="muted">${ago(note.updated_at)}${note.updated_by && note.updated_by !== me ? ` · by ${esc(note.updated_by)}` : note.updated_by === me ? " · by you" : ""}</span>` : ""}<span class="grow"></span><span class="btn ghost xs">${icon(note ? "pencil" : "plus", 12)}${note ? "Edit" : "Write"}</span></h3>${note ? `<div class="md inote">${md(note.body, agent.origin, null)}</div>` : `<span class="small muted inoteempty">What it's on and what's next, for whoever has the name after a restart.</span>`}</summary>
         <form method="post" action="/agent/notes" data-native>${hidden({ label: agent.label, project: agent.project, back: here })}<textarea name="body" rows="7" maxlength="4000" placeholder="On: …&#10;Next: …&#10;Watch out for: …">${esc(note?.body ?? "")}</textarea><div class="row" style="justify-content:flex-end;margin-top:6px"><button class="btn sm primary">Save</button></div></form>
       </details>` : ""}
     ${loopsOf(agent).length ? `<h3>Loops</h3><div class="loops">${loopsOf(agent).map((l) => loopCard(l, esc, icon("repeat", 13))).join("")}</div>` : ""}
-    ${jobsOf(agent).length ? `<h3>Background jobs</h3>${jobsOf(agent).map((j) => `<div class="irow jobrow" title="${esc(j.command)}"><span>⧗</span><span class="grow">${esc(jobName(j))} <span class="muted">· running ${duration(Date.now() - j.at)}</span></span><form method="post" action="/agent/job-dismiss" data-native>${hidden({ session: agent.session_id, id: j.id, back: here })}<button class="btn ghost xs icon jobx" title="Not running any more? Remove it from this list">${icon("x", 11)}</button></form></div>`).join("")}` : ""}
+    ${jobsOf(agent).length ? `<h3>Background jobs</h3><div class="ijobs">${jobsOf(agent).map((j) => `<div class="irow jobrow" title="${esc(j.command)}"><span class="ijic">${icon("clock", 12)}</span><span class="grow"><span class="ijn">${esc(jobName(j))}</span><span class="muted ijt">running ${duration(Date.now() - j.at)}</span></span><form method="post" action="/agent/job-dismiss" data-native>${hidden({ session: agent.session_id, id: j.id, back: here })}<button class="btn ghost xs icon jobx" title="Not running any more? Remove it from this list">${icon("x", 11)}</button></form></div>`).join("")}</div>` : ""}
   </section>`;
   const menu = `<div class="cmenu" role="menu">
       <div class="mrow"><span>Text size</span><span class="fsz"><button type="button" class="btn ghost xs icon" data-fs="-1" title="Smaller text">A</button><button type="button" class="btn ghost xs icon" data-fs="1" title="Larger text">A</button></span></div>
@@ -784,7 +791,7 @@ ${(() => {
       </div>
       <div class="inspshade" data-insp aria-hidden="true"></div>
       <aside class="insp" id="insp" aria-label="Details">
-        <div class="ihead"><b>${esc(agent.label)}</b><button type="button" class="btn ghost xs icon" data-insp title="Close">${icon("x", 14)}</button></div>
+        <div class="ihead">${agentAvatar(agent.member, agent.label, "s")}<b>${esc(ownAgent ? agent.label : key(agent))}</b><span class="grow"></span><button type="button" class="btn ghost xs icon" data-insp title="Close">${icon("x", 14)}</button></div>
         ${codeOn || !ownAgent ? "" : subsRegion(subs, subs.length ? await subSteps(env, me, agent.session_id) : new Map(), agent.origin ?? null, Date.now(), subHref)}
         ${session}
       </aside></div>

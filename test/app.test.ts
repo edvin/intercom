@@ -2480,7 +2480,7 @@ describe("background jobs", () => {
     ]);
     const view = (as: string) => w.request("/dashboard?view=agents&agent=bob/runner", { as, cookie: true }).then((r) => r.text());
     let page = await view("bob");
-    assert.match(page, />Run the dev server <span class="muted">· running/);
+    assert.match(page, /<span class="ijn">Run the dev server<\/span><span class="muted ijt">running/);
     assert.match(page, /data-k="bob\/runner"[^>]*title="[^"]*background jobs/); // marked in the tree
     assert.doesNotMatch(await view("alice"), /Run the dev server/);
 
@@ -2489,7 +2489,7 @@ describe("background jobs", () => {
       ev({ op: "end", id: "b1", status: "failed", summary: 'Background command "Run the dev server" failed with exit code 1' }),
     ]);
     page = await view("bob");
-    assert.doesNotMatch(page, />Run the dev server <span class="muted">· running/);
+    assert.doesNotMatch(page, /<span class="ijn">Run the dev server<\/span><span class="muted ijt">running/);
     assert.match(page, /<b>Background job finished<\/b><span class="sx"> · after [^<]+<\/span><code class="jname">Deploy and wait until live</);
     assert.match(page, /<b>Background job failed<\/b><span class="sx"> · exit 1 · after [^<]+<\/span><code class="jname">Run the dev server</);
 
@@ -2786,7 +2786,7 @@ describe("working directory", () => {
     const w = await standardWorld();
     await w.request("/api/hook?event=SessionStart&project=billing-api&session=wd1&name=core&cwd=~/work/billing-api", { as: "bob" });
     const view = (as: string) => w.request("/dashboard?view=agents&agent=bob/core", { as, cookie: true }).then((r) => r.text());
-    assert.match(await view("bob"), /<dt>Folder<\/dt><dd class="mono cwd">~\/work\/billing-api<\/dd>/);
+    assert.match(await view("bob"), /<span class="ifk">Folder<\/span><span class="ifv"><span class="mono cwd" title="~\/work\/billing-api">~\/work\/billing-api<\/span><\/span>/);
     assert.doesNotMatch(await view("alice"), /work\/billing-api/);
   });
 });
@@ -3361,7 +3361,7 @@ describe("context and compaction", () => {
     assert.equal((await poll("&ctx=82&tok=164000&win=200000")).compact, null);
     const page = async () => (await w.request("/dashboard?view=agents&agent=bob/core", { as: "bob", cookie: true })).text();
     const html = await page();
-    assert.match(html, /<span class="ctxv amber" title="Context: 164k of 200k tokens[^"]*">82%<\/span>/);
+    assert.match(html, /<div class="igauge" title="Context: 164k of 200k tokens[^"]*"><div class="igh"><span class="igl">Context<\/span><span class="igv amber">82%<\/span>/);
     assert.match(html, /<span class="tctx amber"[^>]*>82%<\/span>/);
     assert.match(html, /data-open="dlg-compact"/);
     const form = new URLSearchParams({ session: "cc1", instructions: "keep the deploy plan", back: "/dashboard?view=agents&agent=bob/core" });
@@ -3560,11 +3560,11 @@ describe("Claude.ai connector", () => {
     await poll(`five_hour|41.6|${soon},seven_day|93|${soon},seven_day_opus|12|${gone}`, "3.46");
     const page = async (as: string) => (await w.request("/dashboard?view=agents&agent=bob/kernel", { as, cookie: true })).text();
     const html = await page("bob");
-    assert.match(html, /<dt>Usage<\/dt><dd class="usage"><div class="urow"><span class="uk">5-hour<\/span><span class="uv">42%<\/span><span class="ur">resets <time data-ts="\d+" data-at/);
-    assert.match(html, /<span class="uk">Week<\/span><span class="uv">93%<\/span>[\s\S]*?<div class="meter red"><i style="width:93%">/);
+    assert.match(html, /<span class="igl">5-hour<\/span><span class="igv ">42%<\/span>[\s\S]*?<div class="igs">resets <time data-ts="\d+" data-at/);
+    assert.match(html, /<span class="igl">Week<\/span><span class="igv red">93%<\/span>[\s\S]*?<div class="meter red"><i style="width:93%">/);
     assert.doesNotMatch(html, /Week \(Opus\)/); // that window has reset since
-    assert.match(html, /<span class="uk">This session<\/span><span class="uv">\$3\.46<\/span>/);
-    assert.doesNotMatch(await page("alice"), /<dt>Usage<\/dt>/);
+    assert.match(html, /<span>This session<\/span><b>\$3\.46<\/b>/);
+    assert.doesNotMatch(await page("alice"), /class="igl">5-hour/);
     // The same figures again: nothing written.
     const before = w.db.db.prepare("SELECT usage FROM sessions WHERE session_id = 'u1'").get() as { usage: string };
     await poll(`five_hour|41.6|${soon},seven_day|93|${soon},seven_day_opus|12|${gone}`, "3.46");
@@ -3584,7 +3584,7 @@ describe("Claude.ai connector", () => {
     await poll("&model=claude-sonnet-5-5");
     const page = async () => (await w.request("/dashboard?view=agents&agent=bob/kernel", { as: "bob", cookie: true })).text();
     let html = await page();
-    assert.match(html, /<dt>Model<\/dt><dd><span title="claude-sonnet-5-5">Sonnet 5\.5<\/span>/);
+    assert.match(html, /<span class="ifk">Model<\/span><span class="ifv"><span title="claude-sonnet-5-5">Sonnet 5\.5<\/span>/);
     assert.match(html, /id="dlg-model"[\s\S]*value="sonnet" checked/);
     // Asked from the dashboard: the mod gets it, runs it and reports back.
     const r = await w.form("/agent/model", "bob", { session: "m1", model: "opus", back: "/dashboard?view=agents&agent=bob%2Fkernel" });
