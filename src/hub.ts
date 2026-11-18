@@ -74,6 +74,7 @@ import m0064 from "../migrations/0064_messages_from.sql";
 import m0065 from "../migrations/0065_lookups.sql";
 import m0066 from "../migrations/0066_handoff_lookups.sql";
 import m0067 from "../migrations/0067_ended_resume.sql";
+import m0068 from "../migrations/0068_session_account.sql";
 import { upkeepTick } from "./upkeep";
 
 /** A short fingerprint of the MCP tools (names, descriptions, schemas) this code offers. */
@@ -151,6 +152,7 @@ const MIGRATIONS: [string, string][] = [
   ["0065_lookups", m0065],
   ["0066_handoff_lookups", m0066],
   ["0067_ended_resume", m0067],
+  ["0068_session_account", m0068],
 ];
 
 const DAY = 86400_000;
@@ -313,6 +315,13 @@ export class TeamHub extends DurableObject<WorkerEnv> {
     await env.DB.prepare("UPDATE sessions SET screen = ?, pane = ?, launch = ? WHERE member = ? AND session_id = ?")
       .bind(screen === "keys" || screen === "view" ? screen : "", /^%\d+$/.test(pane) ? pane : "", launch, me, sessionId)
       .run();
+    // The Anthropic account it runs on (its owner's inspector only): {email, org, plan, method}, kept as sent when valid.
+    let account = "";
+    try {
+      const a = JSON.parse(decodeURIComponent(req.headers.get("x-intercom-account") ?? "")) as Record<string, unknown>;
+      if (a && typeof a === "object") account = JSON.stringify(Object.fromEntries(["email", "org", "plan", "method"].map((k) => [k, typeof a[k] === "string" ? (a[k] as string).slice(0, 120) : ""])));
+    } catch {}
+    if (account) await env.DB.prepare("UPDATE sessions SET account = ? WHERE member = ? AND session_id = ?").bind(account, me, sessionId).run();
     const mode = req.headers.get("x-intercom-mode") === "peek" ? "peek" : "push";
 
     const [client, server] = Object.values(new WebSocketPair());

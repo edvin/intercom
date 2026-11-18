@@ -1359,7 +1359,11 @@ h1{font-size:22px;font-weight:620;letter-spacing:-.02em}
 .cmain{display:flex;flex-direction:column;min-width:0;min-height:0}
 .insp{display:none;min-height:0;overflow-y:auto;border-left:1px solid var(--line);background:var(--side);padding:0 14px 24px}
 .chat.inspon .insp{display:block}
-.ihead{position:sticky;top:0;z-index:2;display:flex;align-items:center;gap:9px;height:52px;margin:0 -14px 0;padding:0 8px 0 14px;background:color-mix(in srgb,var(--side) 88%,transparent);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);font-size:14px;border-bottom:1px solid transparent}.ihead b{font-weight:650;letter-spacing:-.01em;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.ihead .av{flex:none}
+.ihead{position:sticky;top:0;z-index:2;display:flex;align-items:center;gap:11px;height:64px;margin:0 -14px 14px;padding:0 10px 0 16px;background:color-mix(in srgb,var(--surface) 92%,transparent);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border-bottom:1px solid var(--line);box-shadow:0 6px 14px -12px rgba(0,0,0,.25)}
+.ihav{position:relative;flex:none;display:grid}.ihav .av{width:34px;height:34px;font-size:12px;border-radius:10px}.ihdot{position:absolute;right:-3px;bottom:-3px;width:11px;height:11px;border-radius:50%;border:2.5px solid var(--surface);background:var(--mute)}.ihdot.idle{background:var(--green)}.ihdot.work{background:var(--accent)}.ihdot.wait{background:var(--amber)}.ihdot.off{background:var(--line-strong)}
+.ihtx{flex:1;min-width:0;display:flex;flex-direction:column;line-height:1.2}.iheye{font-size:10.5px;font-weight:650;letter-spacing:.07em;text-transform:uppercase;color:var(--mute)}.ihtx b{font-size:15px;font-weight:680;letter-spacing:-.015em;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.ihsub{display:flex;align-items:center;gap:5px;margin-top:3px;font-size:12px;color:var(--mute);white-space:nowrap;overflow:hidden}.ihsub .cstate{font-size:12px}.ihsub .cstate i{display:none}
+.ihead .ihx{flex:none;width:32px;height:32px;border-radius:9px;color:var(--ink-2);border:1px solid var(--line);background:var(--surface)}.ihead .ihx:hover{background:var(--surface-2);color:var(--ink);border-color:var(--line-strong)}
+.insp{box-shadow:inset 1px 0 0 var(--line)}
 .ihead .btn{color:var(--mute)}
 .ipart{margin-top:6px}.ipart+.ipart{margin-top:22px}
 .ipart h3{display:flex;align-items:baseline;gap:8px;margin:0 2px 8px;font-size:11px;font-weight:620;letter-spacing:.05em;text-transform:uppercase;color:var(--mute)}.ipart h3 .muted{text-transform:none;letter-spacing:0;font-weight:500}
@@ -1391,9 +1395,9 @@ h1{font-size:22px;font-weight:620;letter-spacing:-.02em}
 .insp .subag:not(.on){opacity:.92}.insp .subag[open]{opacity:1}
 .insp .subbody{padding:2px 10px 12px}
 /* The inspector's blocks (agents.ts): state, its status note, gauges, facts, notes, loops and jobs. */
-.istate{display:flex;align-items:center;gap:8px;margin:4px 2px 0}.istate .cstate{font-size:12.5px}
-.iwait{margin:8px 0 0;padding:8px 10px;border-radius:9px;background:var(--amber-soft);color:var(--ink);font-size:12.5px;line-height:1.45}
-.irole{position:relative;margin:10px 0 0;padding:9px 12px 9px 14px;border-radius:10px;background:var(--surface-2);font-size:12.5px;line-height:1.5;color:var(--ink-2);overflow-wrap:anywhere}.irole::before{content:"";position:absolute;left:0;top:9px;bottom:9px;width:3px;border-radius:0 3px 3px 0;background:var(--accent);opacity:.7}
+.istate{display:flex;align-items:center;gap:8px;margin:0 2px}.istate .cstate{font-size:12.5px}
+.iwait{margin:0 0 10px;padding:8px 10px;border-radius:9px;background:var(--amber-soft);color:var(--ink);font-size:12.5px;line-height:1.45}
+.irole{position:relative;margin:0;padding:9px 12px 9px 14px;border-radius:10px;background:var(--surface-2);font-size:12.5px;line-height:1.5;color:var(--ink-2);overflow-wrap:anywhere}.irole::before{content:"";position:absolute;left:0;top:9px;bottom:9px;width:3px;border-radius:0 3px 3px 0;background:var(--accent);opacity:.7}
 .igauges{display:grid;gap:12px;margin-top:12px;padding:12px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
 .igauge .igh{display:flex;align-items:center;gap:6px;min-height:22px}.igl{font-size:12px;color:var(--mute);font-weight:550}.igv{font-size:15px;font-weight:680;letter-spacing:-.01em;font-variant-numeric:tabular-nums;color:var(--ink);margin-left:2px}.igv.amber{color:var(--amber)}.igv.red{color:var(--red)}.igv.muted{font-size:12.5px;font-weight:500;color:var(--mute)}
 .igauge .meter{height:6px;margin-top:6px;background:var(--surface-3)}.igauge .meter i{background:var(--accent)}.igauge .meter.amber i{background:var(--amber)}.igauge .meter.red i{background:var(--red)}
@@ -1405,7 +1409,7 @@ h1{font-size:22px;font-weight:620;letter-spacing:-.02em}
 .ifi{display:grid;place-items:center;color:var(--mute)}.ifk{color:var(--mute)}.ifv{min-width:0;color:var(--ink);display:flex;align-items:center;flex-wrap:wrap;gap:4px 6px;overflow-wrap:anywhere}
 .ifv a{color:var(--accent);text-decoration:none;font-weight:550}.ifv a:hover{text-decoration:underline}.ifv .mono{font-size:12px;color:var(--ink-2)}.ifv .cwd{overflow-wrap:anywhere}
 .ifv .iedit{width:22px;height:20px;margin-left:-2px;opacity:0;transition:opacity .12s}.ifr:hover .iedit,.iedit:focus{opacity:.8}@media (hover:none){.ifv .iedit{opacity:.6}}
-.iver{font:500 11.5px "Geist Mono",ui-monospace,monospace;color:var(--mute)}.ifv .client{font-weight:550}
+.iver{font:500 11.5px "Geist Mono",ui-monospace,monospace;color:var(--mute)}.iacct{min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.ifv .iplan{font-size:10.5px;font-weight:600}.ifv .client{font-weight:550}
 .ifv .compactbtn{height:22px;padding:0 9px;border:1px solid var(--line-strong);border-radius:7px;font-size:11.5px}.ifv .compacting{margin:0}
 .ifv .takeswork .badge{cursor:pointer;border:0;font:inherit;font-size:11.5px;font-weight:600;height:22px;padding:0 9px;gap:5px;white-space:nowrap}
 #isess>h3{margin-top:18px}
@@ -1618,9 +1622,15 @@ tr.dh td{background:var(--diff-hunk)}
 .thread.term .md pre code,.md pre code{background:none!important;padding:0;border:0;border-radius:0;font-size:inherit}
 
 /* Notes in the inspector: read as Markdown, Edit opens the field. */
-.inotes{margin-top:18px}.inotes>summary{display:block;cursor:pointer;list-style:none}.inotes>summary::-webkit-details-marker{display:none}.inotes>summary h3{align-items:center;margin-bottom:8px}.inotes>summary h3 .btn{height:22px;opacity:.75}.inotes>summary:hover h3 .btn{opacity:1;color:var(--accent)}.inoteempty{display:block;margin:0 2px}
-.inote{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--surface);font-size:12.5px;line-height:1.55;color:var(--ink-2);max-height:200px;overflow:auto;-webkit-mask-image:linear-gradient(to bottom,#000 calc(100% - 28px),transparent);mask-image:linear-gradient(to bottom,#000 calc(100% - 28px),transparent);padding-bottom:22px}.insp .inote :is(h1,h2,h3,h4,h5,.mdh){font-size:13px;line-height:1.4;margin:0 0 5px;padding:0;border:0;text-transform:none;letter-spacing:0;font-weight:650;color:var(--ink)}.insp .inote :is(p,ul,ol){margin:0 0 6px}.insp .inote>:first-child{margin-top:0}.inotes>summary h3 .btn{text-transform:none;letter-spacing:0;font-weight:550}
-.inotes[open] .inote,.inotes[open] .inoteempty,.inotes[open]>summary h3 .btn{display:none}.inotes form{margin:0 2px}.inotes textarea{width:100%;min-height:150px;font-size:12.5px}
+.inotes{margin-top:14px;border:1px solid var(--line);border-radius:12px;background:var(--surface);overflow:hidden}.inotes>summary{display:block;cursor:pointer;list-style:none}.inotes>summary::-webkit-details-marker{display:none}
+.inhd{display:flex;align-items:center;gap:10px;padding:10px 10px 10px 12px;background:linear-gradient(to bottom,color-mix(in srgb,var(--accent) 7%,transparent),transparent);border-bottom:1px solid var(--line)}
+.inic{flex:none;width:28px;height:28px;border-radius:8px;display:grid;place-items:center;color:var(--accent);background:var(--accent-soft)}
+.intl{flex:1;min-width:0;display:flex;flex-direction:column;line-height:1.25}.intl b{font-size:13px;font-weight:650;color:var(--ink)}.intl span{font-size:11.5px;color:var(--mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.inedit{flex:none;height:26px;padding:0 10px;gap:5px;border:1px solid var(--line-strong);background:var(--surface);font-size:12px;font-weight:550}.inotes>summary:hover .inedit{border-color:color-mix(in srgb,var(--accent) 50%,transparent);color:var(--accent)}
+.inoteempty{margin:0;padding:11px 12px 12px;font-size:12.5px;line-height:1.5;color:var(--mute)}.inotes.empty{border-style:dashed;background:none}.inotes.empty .inhd{background:none;border-bottom:0;padding-bottom:0}
+.inotes[open] .inote,.inotes[open] .inoteempty,.inotes[open] .inedit{display:none}.inotes[open] .inhd{border-bottom:1px solid var(--line)}.inotes form{margin:0;padding:10px 12px 12px}.inotes textarea{width:100%;min-height:180px;font-size:12.5px;line-height:1.5}
+.inote{width:100%;padding:11px 13px 24px;font-size:12.5px;line-height:1.6;color:var(--ink-2);max-height:240px;overflow:auto;-webkit-mask-image:linear-gradient(to bottom,#000 calc(100% - 28px),transparent);mask-image:linear-gradient(to bottom,#000 calc(100% - 28px),transparent)}.insp .inote :is(h1,h2,h3,h4,h5,.mdh){font-size:13px;line-height:1.4;margin:0 0 5px;padding:0;border:0;text-transform:none;letter-spacing:0;font-weight:650;color:var(--ink)}.insp .inote :is(p,ul,ol){margin:0 0 6px}.insp .inote>:first-child{margin-top:0}.inotes>summary h3 .btn{text-transform:none;letter-spacing:0;font-weight:550}
+.inotes form{margin:0 2px}.inotes textarea{width:100%;min-height:150px;font-size:12.5px}
 
 /* Terminals on a machine (Versions page). */
 .terms{margin-top:10px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
@@ -1976,6 +1986,8 @@ ${markupScript()}
     themeShow();
     icToast(next === "system" ? "Appearance follows your system" : next === "light" ? "Light mode" : "Dark mode");
   });
+  // A Cancel inside a fold (the inspector's notes editor) closes it.
+  document.addEventListener("click", (e) => { const b = e.target.closest && e.target.closest("[data-closedetails]"); if (!b) return; e.preventDefault(); const d = b.closest("details"); if (d) d.open = false; });
   // Code blocks: Copy puts the code (not the colours) on the clipboard.
   document.addEventListener("click", async (e) => {
     const b = e.target.closest && e.target.closest("[data-copycode], [data-copystep]"); if (!b) return;

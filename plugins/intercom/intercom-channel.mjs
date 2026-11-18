@@ -21,7 +21,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const VERSION = "0.12.59"; // kept in step with .claude-plugin/plugin.json (a test checks)
+const VERSION = "0.12.60"; // kept in step with .claude-plugin/plugin.json (a test checks)
 const DIR = path.join(os.homedir(), ".claude", "intercom");
 const CONFIG = path.join(DIR, "config");
 function readConf() {
@@ -1263,7 +1263,28 @@ async function locate() {
       headers["x-intercom-pane"] = PANE;
     }
     if (launch) headers["x-intercom-launch"] = encodeURIComponent(launch);
+    // Which Anthropic account it runs on (Claude Code's own `claude auth status`), for its owner's inspector.
+    if (headers["x-intercom-client"] !== "codex" && !headers["x-intercom-account"]) {
+      const acct = await account();
+      if (acct) headers["x-intercom-account"] = encodeURIComponent(JSON.stringify(acct));
+    }
   } catch {}
+}
+
+/** The account this machine's Claude Code is signed in with: its email, organization and plan. Null when unknown. */
+function account() {
+  return new Promise((resolve) => {
+    execFile("claude", ["auth", "status", "--json"], { encoding: "utf8", timeout: 8000, env: process.env }, (err, out) => {
+      try {
+        const d = JSON.parse(out);
+        if (err || !d.loggedIn) return resolve(null);
+        const str = (v) => (typeof v === "string" ? v.slice(0, 120) : "");
+        resolve({ email: str(d.email), org: str(d.orgName), plan: str(d.planTier || d.subscriptionType), method: str(d.authMethod) });
+      } catch {
+        resolve(null);
+      }
+    });
+  });
 }
 
 // The live connection starts once the client has introduced itself (so the hub knows Claude Code from Codex),

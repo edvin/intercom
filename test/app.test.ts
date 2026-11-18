@@ -3569,6 +3569,10 @@ describe("Claude.ai connector", () => {
     const before = w.db.db.prepare("SELECT usage FROM sessions WHERE session_id = 'u1'").get() as { usage: string };
     await poll(`five_hour|41.6|${soon},seven_day|93|${soon},seven_day_opus|12|${gone}`, "3.46");
     assert.deepEqual(w.db.db.prepare("SELECT usage FROM sessions WHERE session_id = 'u1'").get(), before);
+    // The Anthropic account it runs on (sent by its intercom on connect): its owner sees it, with the plan.
+    await w.db.prepare("UPDATE sessions SET account = ? WHERE session_id = 'u1'").bind(JSON.stringify({ email: "bob@example.com", org: "Bob", plan: "max_20x", method: "claude.ai" })).run();
+    assert.match(await page("bob"), /<span class="ifk">Account<\/span><span class="ifv"><span class="iacct" title="bob@example\.com · Bob · claude\.ai">bob@example\.com<\/span><span class="badge iplan">Max 20×<\/span>/);
+    assert.doesNotMatch(await page("alice"), /bob@example\.com/);
   });
 
   test("an agent's model is shown, switched from the dashboard or the connector through its mod, and a bad name says why", async () => {

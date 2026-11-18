@@ -97,6 +97,7 @@ interface Agent {
   model_err?: string | null;
   screen?: string;
   usage?: string | null;
+  account?: string;
   /** Its session ended (closed, not crashed): listed from ended_sessions so it can be brought back. */
   ended?: boolean;
 }
@@ -154,7 +155,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   const ph = (n: number) => Array.from({ length: n }, () => "?").join(",") || "NULL";
   const everyone = people.includes(me) ? people : [...people, me];
   const { results: agents } = await env.DB.prepare(
-    `SELECT member, session_id, label, project, project_pin, repo, loops, jobs, subagents, origin, branch, note, client, host, version, last_seen, state, state_detail, state_at, active_at, cwd, ui_at, ui_version, ctx_pct, ctx_tokens, ctx_window, ctx_at, compact_req, compact_prep, model, model_req, model_err, screen, usage FROM sessions
+    `SELECT member, session_id, label, project, project_pin, repo, loops, jobs, subagents, origin, branch, note, client, host, version, last_seen, state, state_detail, state_at, active_at, cwd, ui_at, ui_version, ctx_pct, ctx_tokens, ctx_window, ctx_at, compact_req, compact_prep, model, model_req, model_err, screen, usage, account FROM sessions
      WHERE member IN (${ph(everyone.length)}) AND (member = ? OR project IN (${ph(mine.length)})) AND last_seen > ?
      ORDER BY member = ? DESC, last_seen DESC`,
   )
@@ -209,7 +210,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
     const [pm = "", pl = ""] = picked.split("/");
     agent =
       (await env.DB.prepare(
-        `SELECT member, session_id, label, project, project_pin, repo, loops, jobs, subagents, origin, branch, note, client, host, version, last_seen, state, state_detail, state_at, active_at, cwd, ui_at, ui_version, ctx_pct, ctx_tokens, ctx_window, ctx_at, compact_req, compact_prep, model, model_req, model_err, screen, usage FROM sessions
+        `SELECT member, session_id, label, project, project_pin, repo, loops, jobs, subagents, origin, branch, note, client, host, version, last_seen, state, state_detail, state_at, active_at, cwd, ui_at, ui_version, ctx_pct, ctx_tokens, ctx_window, ctx_at, compact_req, compact_prep, model, model_req, model_err, screen, usage, account FROM sessions
          WHERE member = ? AND label = ? AND (member = ? OR project IN (${ph(mine.length)})) ORDER BY last_seen DESC LIMIT 1`,
       )
         .bind(pm, pl, me, ...mine)
@@ -706,6 +707,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   const gauges = ctxGauge || usageGauges || cost ? `<div class="igauges">${ctxGauge}${usageGauges}${cost}</div>` : "";
   const note = ownAgent && agent.project ? await getNote(env, me, agent.project, agent.label) : null;
   const watching = ownAgent && !!(await env.DB.prepare("SELECT 1 FROM agent_watch WHERE member = ? AND label = ?").bind(me, agent.label).first());
+  const acct = ownAgent ? accountOf(agent.account) : null;
   const fact = (ic: string, k: string, v: string, cls = "") => `<div class="ifr${cls ? ` ${cls}` : ""}"><span class="ifi">${icon(ic, 13)}</span><span class="ifk">${k}</span><span class="ifv">${v}</span></div>`;
   const facts = [
     modelVal ? fact("cpu", "Model", modelVal) : "",
@@ -713,18 +715,20 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
     agent.branch ? fact("branch", "Branch", `<span class="mono">${esc(agent.branch)}</span>`) : "",
     agent.host ? fact("monitor", "Machine", `${esc(hostOf(agent))}${ownAgent ? `<button type="button" class="btn ghost xs icon iedit" data-open="dlg-host" title="Rename this machine">${icon("pencil", 11)}</button>` : ""}`) : "",
     ownAgent && agent.cwd ? fact("folder", "Folder", `<span class="mono cwd" title="${esc(agent.cwd)}">${esc(agent.cwd)}</span>`) : "",
+    ownAgent && acct?.email ? fact("user", "Account", `<span class="iacct" title="${esc([acct.email, acct.org, acct.method].filter(Boolean).join(" · "))}">${esc(acct.email)}</span>${acct.plan ? `<span class="badge iplan">${esc(planName(acct.plan))}</span>` : ""}`) : "",
     fact("terminal", "Client", `${clientBadge(agent.client, true)}${agent.version ? `<span class="iver">${esc(agent.version)}</span>` : ""}`),
     ownAgent ? fact("users", "Your agents", takesCtl) : "",
   ].join("");
   const waitNote = on && agent.state === "waiting" && agent.state_detail ? `<div class="iwait">${esc(agent.state_detail)}</div>` : "";
   const session = `<section class="ipart" id="isess" data-region>
-    <div class="istate">${stateText}<span class="grow"></span>${agent.state_at && on ? `<span class="tiny muted">since ${esc(ago(agent.state_at))}</span>` : ""}</div>
     ${waitNote}
     ${agent.note ? `<p class="irole">${esc(plainSpaces(agent.note))}</p>` : ""}
     ${gauges}
     <div class="ifacts">${facts}</div>
-    ${ownAgent && agent.project ? `<details class="inotes"><summary><h3>Notes${note ? `<span class="muted">${ago(note.updated_at)}${note.updated_by && note.updated_by !== me ? ` · by ${esc(note.updated_by)}` : note.updated_by === me ? " · by you" : ""}</span>` : ""}<span class="grow"></span><span class="btn ghost xs">${icon(note ? "pencil" : "plus", 12)}${note ? "Edit" : "Write"}</span></h3>${note ? `<div class="md inote">${md(note.body, agent.origin, null)}</div>` : `<span class="small muted inoteempty">What it's on and what's next, for whoever has the name after a restart.</span>`}</summary>
-        <form method="post" action="/agent/notes" data-native>${hidden({ label: agent.label, project: agent.project, back: here })}<textarea name="body" rows="7" maxlength="4000" placeholder="On: …&#10;Next: …&#10;Watch out for: …">${esc(note?.body ?? "")}</textarea><div class="row" style="justify-content:flex-end;margin-top:6px"><button class="btn sm primary">Save</button></div></form>
+    ${ownAgent && agent.project ? `<details class="inotes${note ? "" : " empty"}"><summary>
+        <div class="inhd"><span class="inic">${icon("book", 14)}</span><span class="intl"><b>Notes</b><span>${note ? `${ago(note.updated_at)}${note.updated_by && note.updated_by !== me ? ` · by ${esc(note.updated_by)}` : note.updated_by === me ? " · by you" : ""}` : "for whoever has the name next"}</span></span><span class="btn sm inedit">${icon(note ? "pencil" : "plus", 12)}${note ? "Edit" : "Write"}</span></div>
+        ${note ? `<div class="md inote">${md(note.body, agent.origin, null)}</div>` : `<p class="inoteempty">What it's on, what's next and what to watch out for: kept on the intercom, so a restarted or renamed session picks up where this one left off.</p>`}</summary>
+        <form method="post" action="/agent/notes" data-native>${hidden({ label: agent.label, project: agent.project, back: here })}<textarea name="body" rows="9" maxlength="4000" placeholder="On: …&#10;Next: …&#10;Watch out for: …">${esc(note?.body ?? "")}</textarea><div class="row" style="justify-content:flex-end;gap:6px;margin-top:8px"><button type="button" class="btn sm ghost" data-closedetails>Cancel</button><button class="btn sm primary">Save</button></div></form>
       </details>` : ""}
     ${loopsOf(agent).length ? `<h3>Loops</h3><div class="loops">${loopsOf(agent).map((l) => loopCard(l, esc, icon("repeat", 13))).join("")}</div>` : ""}
     ${jobsOf(agent).length ? `<h3>Background jobs</h3><div class="ijobs">${jobsOf(agent).map((j) => `<div class="irow jobrow" title="${esc(j.command)}"><span class="ijic">${icon("clock", 12)}</span><span class="grow"><span class="ijn">${esc(jobName(j))}</span><span class="muted ijt">running ${duration(Date.now() - j.at)}</span></span><form method="post" action="/agent/job-dismiss" data-native>${hidden({ session: agent.session_id, id: j.id, back: here })}<button class="btn ghost xs icon jobx" title="Not running any more? Remove it from this list">${icon("x", 11)}</button></form></div>`).join("")}</div>` : ""}
@@ -791,7 +795,7 @@ ${(() => {
       </div>
       <div class="inspshade" data-insp aria-hidden="true"></div>
       <aside class="insp" id="insp" aria-label="Details">
-        <div class="ihead">${agentAvatar(agent.member, agent.label, "s")}<b>${esc(ownAgent ? agent.label : key(agent))}</b><span class="grow"></span><button type="button" class="btn ghost xs icon" data-insp title="Close">${icon("x", 14)}</button></div>
+        <div class="ihead"><span class="ihav">${agentAvatar(agent.member, agent.label, "s")}<i class="ihdot ${dot(agent)}"></i></span><div class="ihtx"><b>${esc(ownAgent ? agent.label : key(agent))}</b><span class="ihsub">${stateText}${agent.state_at && on ? `<span>· since ${esc(ago(agent.state_at))}</span>` : ""}</span></div><button type="button" class="btn ghost icon ihx" data-insp title="Close the panel" aria-label="Close">${icon("x", 16)}</button></div>
         ${codeOn || !ownAgent ? "" : subsRegion(subs, subs.length ? await subSteps(env, me, agent.session_id) : new Map(), agent.origin ?? null, Date.now(), subHref)}
         ${session}
       </aside></div>
@@ -845,3 +849,15 @@ function reviveBar(agent: Agent, g: Gone | undefined, back: string): string {
     ${icon("refresh", 15)}<span><b>${esc(agent.label)} ${agent.ended ? "ended" : "stopped"} ${esc(ago(agent.last_seen))}${agent.host ? ` on ${esc(agent.host)}` : ""}.</b> Bring it back to carry on in the same conversation: it starts in a new terminal there${agent.cwd ? ` in <code>${esc(agent.cwd)}</code>` : ""}, resumed by its session.${cmd ? `<details class="rvhand"><summary>Or by hand</summary><div class="stepcmd"><pre>${esc(cmd)}</pre><button type="button" class="mdcopy" data-copystep>Copy</button></div></details>` : ""}</span>
     <button class="btn primary sm">${icon("refresh", 13)}Bring back</button></form>`;
 }
+
+/** The Anthropic account a session reported (hub.ts, from `claude auth status`). */
+function accountOf(raw: string | undefined): { email: string; org: string; plan: string; method: string } | null {
+  try {
+    const a = JSON.parse(raw || "null");
+    return a && typeof a.email === "string" ? a : null;
+  } catch {
+    return null;
+  }
+}
+/** max_20x → Max 20×, pro → Pro. */
+const planName = (p: string) => p.replace(/^default_claude_/, "").replace(/_(\d+)x$/, " $1×").replace(/^\w/, (c) => c.toUpperCase());
