@@ -21,7 +21,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const VERSION = "0.12.56"; // kept in step with .claude-plugin/plugin.json (a test checks)
+const VERSION = "0.12.57"; // kept in step with .claude-plugin/plugin.json (a test checks)
 const DIR = path.join(os.homedir(), ".claude", "intercom");
 const CONFIG = path.join(DIR, "config");
 function readConf() {
@@ -602,6 +602,11 @@ function summarizeLine(line, side = false) {
       } catch {}
       const cmd = Array.isArray(args?.command) ? args.command.slice(-1)[0] : args?.command;
       if (name === "wait" || name.includes("intercom")) return out;
+      // What Codex says to you mid-turn (send_message_to_user, …_async): an answer in the chat, not a step.
+      if (/^send_message_to_user/.test(name) && typeof args?.message === "string") {
+        if (args.message.trim()) out.push({ at, kind: "text", text: clip(args.message, TEXT_MAX) });
+        return out;
+      }
       if (name === "apply_patch" || /\*\*\* (Update|Add|Delete) File:/.test(typeof args === "string" ? args : "")) {
         // The path ends at the line break, which a patch passed inside a quoted command shows as a literal "\n".
         const patch = String(typeof args === "string" ? args : args?.input ?? args?.command ?? "");
