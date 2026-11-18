@@ -4285,6 +4285,26 @@ describe("keeping agents running and current", () => {
   const page = async (w: World) => (await w.request("/dashboard?view=agents", { as: "bob", cookie: true })).text();
   const ok = (r: Response) => new URL(r.headers.get("location")!, ORIGIN).searchParams.get("ok") ?? new URL(r.headers.get("location")!, ORIGIN).searchParams.get("err");
 
+  test("the automatic update never types /restart, types its command once per version, and /restart waits while background tasks run", async () => {
+    const { updateIdle } = await import("../src/upkeep.ts");
+    const w = await setup();
+    await w.db.prepare("UPDATE sessions SET active_at = 0, state_at = 0 WHERE session_id = 'up1'").run();
+    const answer = (q: Record<string, unknown>) =>
+      q.op === "panes" ? { text: "", panes: [{ session: "up1", pane: "%5", paneIsAgent: false, current: "claude", launch: "claude", version: "0.12.6" }] } : { text: "✔ Update installed · /restart to apply\n❯ \n  ⏵⏵ bypass permissions on · 3 background tasks\n" };
+    const auto = () => updateIdle(w.env(), "bob", "by itself (automatic update)", 1, true);
+    const { result, seen } = await machine(w, auto, answer);
+    assert.deepEqual(result, ["core: /reload-plugins (intercom 0.12.6 → " + PLUGIN_VERSION + ")"]);
+    assert.deepEqual(seen.at(-1), { op: "keys", text: "/reload-plugins", enter: true, pane: "%5" });
+    // It didn't take (still the old version): the next round leaves it alone instead of typing it again.
+    const again = await machine(w, auto, answer);
+    assert.deepEqual(again.result, ["core: its update was sent already, left alone"]);
+    assert.equal(again.seen.length, 0);
+    // From the dashboard, with background tasks running: /reload-plugins, not /restart.
+    const { result: r2, seen: s2 } = await machine(w, () => w.form("/upkeep", "bob", { op: "update", back: "/dashboard" }), answer);
+    assert.equal(ok(r2), "Updating core");
+    assert.deepEqual(s2.at(-1), { op: "keys", text: "/reload-plugins", enter: true, pane: "%5" });
+  });
+
   test("an old agent is updated in place through another on its machine: /reload-plugins, or /restart when Claude Code waits for one", async () => {
     const w = await setup();
     assert.match(await page(w), /<article class="ask k-upkeep" data-mid="upd">[\s\S]*1 of your agents runs an older intercom[\s\S]*<b>core<\/b> <span class="muted">intercom 0\.12\.6 · vms01/);

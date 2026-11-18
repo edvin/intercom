@@ -109,19 +109,34 @@ export function staleAgents(rows: Row[], live: (r: Row) => boolean, reachable = 
  * loads the intercom files on its machine when it starts (they update themselves), so it's restarted in its pane: Ctrl+C
  * twice leaves the TUI (Codex keeps the session), then it's resumed by its id with the flags it was started with.
  */
-export async function updateAgent(env: Env, me: string, t: Row, rows: Row[], live: (r: Row) => boolean, by: string): Promise<string> {
+export async function updateAgent(env: Env, me: string, t: Row, rows: Row[], live: (r: Row) => boolean, by: string, auto = false): Promise<string> {
   if (t.state === "working") return `${t.label}: busy, left alone`;
   if (outOfUsage(t)) return `${t.label}: out of usage (${t.state_detail}), left alone`;
+  // Sent once for this version already: whatever it was didn't take (yet), and typing it again won't help.
+  const key = `${me} ${t.session_id}`;
+  const prev = typed.get(key);
+  if (auto && prev && prev.version === t.version && Date.now() - prev.at < RETRY_MS) return `${t.label}: its update was sent already, left alone`;
   if (t.client === "codex") return restartCodex(env, me, t, rows, live, by);
   const at = await locate(env, me, t, rows, live);
   if (!at) return `${t.label}: can't reach its terminal (not in tmux, or no updated agent on ${t.host || "its machine"} to go through)`;
   const screen = plainScreen((await ask(env, me, at, t, { op: "capture" }, by)).text);
-  const cli = /\/restart to apply/.test(screen);
-  if (!cli && !newer(PLUGIN_VERSION, t.version)) return `${t.label}: up to date`;
+  const behind = newer(PLUGIN_VERSION, t.version);
+  // /restart, for a Claude Code update, only when you ask for it and nothing runs in the background: Claude Code won't
+  // restart over background tasks, and the agent reads the refusal as a request to stop them. Updating intercom needs
+  // no restart: /reload-plugins loads it in the same session.
+  const cli = /\/restart to apply/.test(screen) && !auto && !BACKGROUND.test(screen);
+  if (!cli && !behind) return `${t.label}: ${/\/restart to apply/.test(screen) ? "a Claude Code update waits, left for you to restart (background tasks running)" : "up to date"}`;
   const cmd = cli ? "/restart" : "/reload-plugins";
   await ask(env, me, at, t, { op: "keys", text: cmd, enter: true }, by);
+  typed.set(key, { cmd, version: t.version, at: Date.now() });
   return `${t.label}: ${cmd}${cli ? " (a Claude Code update was waiting)" : ` (intercom ${t.version || "?"} → ${PLUGIN_VERSION})`}`;
 }
+
+/** What was last typed into each agent to update it, so the automatic update doesn't type it again every round. */
+const typed = new Map<string, { cmd: string; version: string | null; at: number }>();
+const RETRY_MS = 6 * 3600_000;
+/** Claude Code's footer while something runs in the background ("2 background tasks", "1 shell", "3 local agents"). */
+const BACKGROUND = /\b\d+ (?:background tasks?|bash(?:es)?|shells?|local agents?|agents? running)\b/i;
 
 const SHELL_PROMPT = /(?<![\d\w])[$#%>❯] ?$|[\w~\/\])][$#] ?$/;
 const lastLine = (text: string) => plainScreen(text).trimEnd().split("\n").pop() ?? "";
@@ -159,13 +174,13 @@ async function restartCodex(env: Env, me: string, t: Row, rows: Row[], live: (r:
 }
 
 /** Update every idle agent that's behind (or, `quietFor`, only those idle that long). */
-export async function updateIdle(env: Env, me: string, by: string, quietFor = 0): Promise<string[]> {
+export async function updateIdle(env: Env, me: string, by: string, quietFor = 0, auto = false): Promise<string[]> {
   const { rows, live } = await myRows(env, me);
   const out: string[] = [];
   for (const t of staleAgents(rows, live)) {
     if (quietFor && Date.now() - (t.active_at ?? t.state_at ?? 0) < quietFor) continue;
     try {
-      out.push(await updateAgent(env, me, t, rows, live, by));
+      out.push(await updateAgent(env, me, t, rows, live, by, auto));
     } catch (e) {
       if (!(e instanceof UserError)) throw e;
       out.push(`${t.label}: ${e.message}`);
@@ -412,7 +427,7 @@ export async function upkeepTick(env: Env): Promise<number | null> {
   const { results } = await env.DB.prepare("SELECT member FROM upkeep WHERE auto = 1").all<{ member: string }>();
   for (const { member } of results) {
     try {
-      const done = (await updateIdle(env, member, "by itself (automatic update)", IDLE_FOR_MS)).filter((x) => /\/(reload-plugins|restart)/.test(x));
+      const done = (await updateIdle(env, member, "by itself (automatic update)", IDLE_FOR_MS, true)).filter((x) => /\/(reload-plugins|restart)/.test(x));
       if (done.length) console.log("upkeep", member, done.join("; "));
     } catch (e) {
       console.log("upkeep", member, String(e));
