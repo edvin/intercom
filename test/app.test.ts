@@ -1250,6 +1250,25 @@ describe("activity mirroring", () => {
     const n = await w.db.prepare("SELECT COUNT(*) AS n FROM activity WHERE session_id = 'mir1'").first<{ n: number }>();
     assert.equal(n!.n, 300);
   });
+
+  test("the same item sent twice is stored once", async () => {
+    const w = await standardWorld();
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=dup1&client=codex", { as: "bob" });
+    const send = (items: object[]) =>
+      w.request("/api/activity?session=dup1", { method: "POST", as: "bob", body: JSON.stringify({ items }) }).then((r) => r.json() as Promise<{ stored: number }>);
+    const at = Date.now() - 60_000;
+    const answer = "Root has written the per-member group descriptions. The next check-in is at about 12:50.";
+    // Resent after a timeout, or by a second mirror: nothing new.
+    assert.equal((await send([{ at, kind: "cmd", text: "npm test" }, { at, kind: "text", text: answer }])).stored, 2);
+    assert.equal((await send([{ at, kind: "cmd", text: "npm test" }, { at, kind: "text", text: answer }])).stored, 0);
+    // Codex says it mid-turn and ends its turn with the same answer: once. In one batch as well.
+    assert.equal((await send([{ at: at + 5000, kind: "text", text: answer }])).stored, 0);
+    assert.equal((await send([{ at: at + 6000, kind: "text", text: "Done." }, { at: at + 7000, kind: "text", text: "Done." }])).stored, 1);
+    // The same command run again later is a step of its own.
+    assert.equal((await send([{ at: at + 8000, kind: "cmd", text: "npm test" }])).stored, 1);
+    const n = await w.db.prepare("SELECT COUNT(*) AS n FROM activity WHERE session_id = 'dup1' AND text = ?").bind(answer).first<{ n: number }>();
+    assert.equal(n!.n, 1);
+  });
 });
 
 describe("plugin versions", () => {

@@ -954,7 +954,7 @@ export async function addActivity(env: Env, me: string, sessionId: string, items
     }
   });
   await storeSubEvents(env, me, sessionId, subEvents);
-  const rows = [
+  const fresh = [
     ...main.slice(-100).flatMap((it) => {
       const i = it as { at?: unknown; kind?: unknown; text?: unknown };
       const kind = String(i.kind ?? "");
@@ -965,6 +965,19 @@ export async function addActivity(env: Env, me: string, sessionId: string, items
     }),
     ...loopLines,
   ];
+  // The same item sent twice is stored once: a batch resent after a timeout the hub had already stored, two mirrors
+  // of one transcript (a reload, a resumed session), or an answer Codex both sends mid-turn and ends its turn with.
+  // A step is the same when its time matches too (an agent runs the same command again); what it wrote, when the
+  // text matches one from the last 15 minutes.
+  const { results: recent } = fresh.length
+    ? await env.DB.prepare("SELECT kind, text, at FROM activity WHERE member = ? AND session_id = ? ORDER BY id DESC LIMIT 80").bind(me, sessionId).all<{ kind: string; text: string; at: number }>()
+    : { results: [] };
+  const seen = [...recent];
+  const rows = fresh.filter((r) => {
+    if (seen.some((s) => s.kind === r.kind && s.text === r.text && (s.at === r.at || (r.kind === "text" && Math.abs(s.at - r.at) < 15 * 60_000)))) return false;
+    seen.push(r);
+    return true;
+  });
   if (!rows.length) {
     if (loopEvents.length || jobEvents.length || subEvents.length) env.refreshWeb?.(me);
     return loopEvents.length + jobEvents.length + subEvents.length;
