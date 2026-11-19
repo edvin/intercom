@@ -306,9 +306,10 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   const pill = (n: number, tone = "") => (n ? `<span class="rpill${tone ? ` ${tone}` : ""}">${n > 99 ? "99+" : n}</span>` : "");
   const rail = `<nav class="irail" id="irail" data-region aria-label="Pages">
     <a class="rlogo" href="/" title="About the intercom">${LOGO.replace(/"lg"/, '"lgr"').replace("url(#lg)", "url(#lgr)")}</a>
+    ${rl(nav.view === "home", "/dashboard", "grid", "Overview: your agents' health and plan limits")}
     ${rl(nav.view === "agents", "/dashboard?view=agents", "terminal", "Agents")}
     <button type="button" class="rl" id="railasks" data-asksopen title="Waiting for you" aria-label="Waiting for you"${waitingN ? "" : " hidden"}>${icon("bell", 18)}<span class="rpill amber">${waitingN}</span></button>
-    ${rl(nav.view === "feed", "/dashboard", "layers", "Everything: your projects and messages", pill(nav.votesTotal))}
+    ${rl(nav.view === "feed", "/dashboard?view=feed", "layers", "Everything: your projects and messages", pill(nav.votesTotal))}
     ${rl(nav.view === "work", "/dashboard?view=work", "check", "Work")}
     ${rl(nav.view === "tracked", "/dashboard?view=tracked", "branch", "Tickets &amp; MRs", pill(trackedN, "amber"))}
     ${rl(nav.view === "handoffs", "/dashboard?view=handoffs", "arrow", "Handoffs")}

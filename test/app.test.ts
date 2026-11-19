@@ -225,7 +225,7 @@ describe("web security", () => {
   test("message text is escaped on the dashboard", async () => {
     const w = await standardWorld();
     await w.ok("bob", "post", { channel: "billing", message: '<img src=x onerror="alert(1)"><script>alert(2)</script>' });
-    const res = await w.request("/dashboard", { as: "alice", cookie: true });
+    const res = await w.request("/dashboard?view=feed", { as: "alice", cookie: true });
     const page = await res.text();
     assert.doesNotMatch(page, /<img src=x|<script>alert/);
     assert.match(page, /&lt;script&gt;alert\(2\)/);
@@ -850,7 +850,7 @@ describe("dead agents", () => {
     await w.request("/api/hook?event=SessionStart&project=billing-api&session=r1&name=core", { as: "bob" });
     await w.request("/api/hook?event=SessionStart&project=billing-api&session=r2&name=shop", { as: "bob" });
     await w.db.prepare("UPDATE sessions SET last_seen = ? WHERE session_id = 'r2'").bind(Date.now() - 11 * 60_000).run();
-    const to = (await (await w.request("/dashboard", { as: "bob", cookie: true })).text()).match(/<select name="to"[\s\S]*?<\/select>/)![0];
+    const to = (await (await w.request("/dashboard?view=feed", { as: "bob", cookie: true })).text()).match(/<select name="to"[\s\S]*?<\/select>/)![0];
     assert.match(to, /value="bob\/core"/);
     assert.doesNotMatch(to, /bob\/shop|not connected/);
   });
@@ -948,7 +948,7 @@ describe("answering agents from the dashboard, whoever answers first", () => {
     w.request(`/api/approval?session=${session}&client=${client}`, { method: "POST", as: "bob", body: JSON.stringify(body) });
   const poll = async (w: World, id: number) => (await (await w.request(`/api/approval/${id}`, { as: "bob" })).json()) as { status: string; output?: string; answers?: Record<string, string> };
   const dock = async (w: World) => {
-    const page = await (await w.request("/dashboard", { as: "bob", cookie: true })).text();
+    const page = await (await w.request("/dashboard?view=feed", { as: "bob", cookie: true })).text();
     return page.slice(page.indexOf('id="asks"') - 20);
   };
   const color = { tool_name: "AskUserQuestion", tool_input: { questions: [{ question: "Which color?", header: "Color", multiSelect: false, options: [{ label: "Red", description: "Warm" }, { label: "Blue", description: "Cool" }] }] } };
@@ -1302,7 +1302,7 @@ describe("plugin versions", () => {
 
   test("open dashboards can tell a new version is out: the page's build stamp matches /api/build", async () => {
     const w = await standardWorld();
-    const page = await (await w.request("/dashboard", { as: "bob", cookie: true })).text();
+    const page = await (await w.request("/dashboard?view=feed", { as: "bob", cookie: true })).text();
     const stamp = page.match(/<meta name="ic-build" content="([a-z0-9]+)">/)![1];
     assert.equal(((await (await w.request("/api/build")).json()) as { build: string }).build, stamp);
   });
@@ -1352,14 +1352,14 @@ describe("delivery marks", () => {
     assert.match(page, /<span class="rdir">from<\/span><span[^>]*>[^<]*<\/span>alice<\/span>/);
     assert.match(await view("bob", "/dashboard?view=agents&agent=bob/core"), /<span class="rdir">to<\/span><span[^>]*>[^<]*<\/span><a class="an"[^>]*>ghost<\/a>[\s\S]*?⚠ not connected/);
     const DM = /→ <a class="an"[^>]*>bob\/alder<\/a><\/span><span class="meta"><time[^>]*>[^<]*<\/time>(<span class="dlv[^"]*"[^>]*>[^<]*<\/span>)/;
-    assert.match((await view("alice", "/dashboard")).match(DM)![1]!, /dlv wait/);
+    assert.match((await view("alice", "/dashboard?view=feed")).match(DM)![1]!, /dlv wait/);
 
     // alder's next turn takes both messages into its context.
     await hook("UserPromptSubmit", "d1");
     page = await view("bob", "/dashboard?view=agents&agent=bob/alder");
     // Taken by alder, which it was sent to: just ✓ (the name only when another session took it).
     assert.match(page, /handoff: abc123[\s\S]*?class="dlv ok" title="Delivered to alder[^"]*">✓<\/span>/);
-    const alice = await view("alice", "/dashboard");
+    const alice = await view("alice", "/dashboard?view=feed");
     assert.equal(alice.match(DM)![1], '<span class="dlv ok" title="Delivered to an agent">✓</span>');
     assert.doesNotMatch(alice, /✓ alder/);
     // alice doesn't see bob's agents talking to each other.
@@ -1689,7 +1689,7 @@ describe("per-session delivery", () => {
     assert.match(shop, /claimed lock deploy:shop:prod/);
     assert.doesNotMatch(shop, /billing migration/);
     // The dashboard (the person) still sees everything.
-    const feed = await (await w.request("/dashboard", { as: "bob", cookie: true })).text();
+    const feed = await (await w.request("/dashboard?view=feed", { as: "bob", cookie: true })).text();
     assert.match(feed, /billing migration starts/);
     assert.match(feed, /shop freeze until Friday/);
   });
@@ -1844,7 +1844,7 @@ describe("images with messages", () => {
     assert.deepEqual([...Buffer.from(img.data!, "base64")], [...png]);
 
     // The dashboard shows a thumbnail; the image is served to the sender and recipient only.
-    assert.match(await (await w.request("/dashboard", { as: "bob", cookie: true })).text(), /<a class="att" href="\/attachment\/1"[^>]*><img src="\/attachment\/1\/thumb"/);
+    assert.match(await (await w.request("/dashboard?view=feed", { as: "bob", cookie: true })).text(), /<a class="att" href="\/attachment\/1"[^>]*><img src="\/attachment\/1\/thumb"/);
     assert.equal((await w.request("/attachment/1", { as: "alice", cookie: true })).status, 200);
     assert.equal((await w.request("/attachment/1", { as: "bob", cookie: true })).headers.get("content-type"), "image/png");
     assert.equal((await w.request("/attachment/1", { as: "carol", cookie: true })).status, 404);
@@ -1910,7 +1910,7 @@ describe("share_file", () => {
     // A log, to bob himself (the default): a DM to the dashboard with a file marker.
     const out = await w.ok("bob", "share_file", { path: "/work/build.log", message: "The failing build:", _file: { name: "build.log", mime: "text/plain", data: b64("step 3 failed\n") } }, s);
     assert.match(out, /Sent DM \[\d+\] to bob\. It carries \[📎 file #1: build\.log · 14 B\]/);
-    const page = await (await w.request("/dashboard", { as: "bob", cookie: true })).text();
+    const page = await (await w.request("/dashboard?view=feed", { as: "bob", cookie: true })).text();
     // A text file opens in the dashboard's reader; the raw bytes still only download.
     assert.match(page, /<a class="attf" href="\/attachment\/1\/view" target="_blank"[^>]*>.*build\.log.*14 B/);
     const read = await w.request("/attachment/1/view", { as: "bob", cookie: true });
@@ -2193,7 +2193,7 @@ describe("share_file", () => {
     const s = { id: "sf3", project: "billing-api" };
     const review = "# Review\n\n- **Blocker:** <img src=x onerror=alert(1)>\n\n| a | b |\n|---|---|\n| 1 | 2 |\n";
     await w.ok("bob", "share_file", { path: "/w/review.md", _file: { name: "review.md", mime: "text/markdown", data: Buffer.from(review).toString("base64") } }, s);
-    const page = await (await w.request("/dashboard", { as: "bob", cookie: true })).text();
+    const page = await (await w.request("/dashboard?view=feed", { as: "bob", cookie: true })).text();
     assert.match(page, /<a class="attf" href="\/attachment\/1\/view"[^>]*title="Read review\.md"/);
     const html = await (await w.request("/attachment/1/view", { as: "bob", cookie: true })).text();
     assert.match(html, /<article class="md rdmd"><div class="mdh mdh1">Review<\/div><ul><li[^>]*><b>Blocker:<\/b> &lt;img src=x onerror=alert\(1\)&gt;<\/li><\/ul><div class="mdtable">/);
@@ -2659,7 +2659,7 @@ describe("reference links", () => {
     const w = await standardWorld();
     await w.request(`/api/hook?event=SessionStart&project=billing-api&session=rf1&name=core&origin=${encodeURIComponent("git@gitlab.example.com:group/billing-api.git")}`, { as: "bob" });
     await w.ok("bob", "post", { channel: "billing", message: "Opened !3742 for the ledger fix (`a91c2e0`)." }, { id: "rf1", project: "billing-api" });
-    const feed = await (await w.request("/dashboard", { as: "alice", cookie: true })).text();
+    const feed = await (await w.request("/dashboard?view=feed", { as: "alice", cookie: true })).text();
     assert.match(feed, /href="https:\/\/gitlab\.example\.com\/group\/billing-api\/-\/merge_requests\/3742"[^>]*>!3742<\/a>/);
     assert.match(feed, /href="https:\/\/gitlab\.example\.com\/group\/billing-api\/-\/commit\/a91c2e0"[^>]*><code>a91c2e0<\/code><\/a>/);
   });
@@ -2680,7 +2680,7 @@ describe("tree order", () => {
     // Claude Code's idle reminder isn't activity: "older" keeps its time.
     await hook("o1", "older", "Notification", "&kind=idle_prompt");
 
-    const page = await w.request("/dashboard", { as: "bob", cookie: true }).then((r) => r.text());
+    const page = await w.request("/dashboard?view=feed", { as: "bob", cookie: true }).then((r) => r.text());
     const order = [...page.matchAll(/class="ta[^"]*" data-k="bob\/(\w+)"/g)].map((m) => m[1]);
     assert.deepEqual(order, ["asking", "busy", "newer", "older"]);
     assert.match(page, /data-k="bob\/older"[\s\S]*?<time class="tt"[^>]*>1h<\/time>/);
@@ -3447,7 +3447,7 @@ describe("context full after compacting", () => {
     const w = await standardWorld();
     await w.request(`/api/hook?event=SessionStart&project=billing-api&session=cc1&name=core&version=${PLUGIN_VERSION}`, { as: "bob" });
     const poll = async (q = "") => (await (await w.request(`/api/ui?project=billing-api&session=cc1&mod=0.2.10${q}`, { as: "bob" })).json()) as { compact: { id: string } | null };
-    const dock = async () => (await w.request("/dashboard", { as: "bob", cookie: true })).text();
+    const dock = async () => (await w.request("/dashboard?view=feed", { as: "bob", cookie: true })).text();
     await poll("&ctx=90&tok=900000&win=1000000");
     assert.match(await dock(), /core's context is 90% full/);
     const compact = () => w.request("/agent/compact", { as: "bob", cookie: true, method: "POST", headers: { origin: ORIGIN, "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ session: "cc1", back: "/dashboard" }) });
@@ -4239,6 +4239,34 @@ describe("Fable's weekly limit", () => {
       stop = true;
       await answer;
     }
+  });
+});
+
+describe("the overview", () => {
+  test("the landing page: how many work or wait, each account's limits with a verdict for the night, what needs attention with its fix, and a card per agent by machine", async () => {
+    const w = await standardWorld();
+    const now = Date.now();
+    const acct = JSON.stringify({ email: "bob@example.com", org: "", plan: "default_claude_max_20x", method: "claude.ai" });
+    const usage = (five: number, week: number) => JSON.stringify({ rl: [{ k: "five_hour", p: five, r: now + 2 * 3600_000 }, { k: "seven_day", p: week, r: now + 3 * 86400_000 }] });
+    for (const [id, name, state, ctx, week, version] of [["o1", "core", "working", 91, 61, PLUGIN_VERSION], ["o2", "docs", "waiting", 30, 61, "0.12.10"]] as const) {
+      await w.request(`/api/hook?event=SessionStart&project=billing-api&session=${id}&name=${name}&client=claude&version=${version}`, { as: "bob" });
+      await w.db.prepare("UPDATE sessions SET host = 'ultra', state = ?, state_detail = ?, ctx_pct = ?, usage = ?, account = ?, ui_at = ?, ui_version = '0.2.13', screen = 'keys', model = 'claude-opus-5-5', effort = 'high', note = ? WHERE session_id = ?")
+        .bind(state, state === "waiting" ? "Allow Bash: npm run build?" : "", ctx, usage(42, week), acct, now, name === "core" ? "rebasing the batch" : "", id)
+        .run();
+    }
+    const page = await (await w.request("/dashboard", { as: "bob", cookie: true })).text();
+    assert.match(page, /<h1>Overview<\/h1>[\s\S]*2 agents connected/);
+    assert.match(page, /class="hmtile t-work"[^>]*>[\s\S]*?<b>1<\/b><span>working[\s\S]*?<b>1<\/b><span>need you/);
+    assert.match(page, /bob@example\.com[\s\S]*Max 20× · Claude Code · 2 agents[\s\S]*5-hour[\s\S]*42%[\s\S]*Week[\s\S]*61%[\s\S]*Enough for tonight/);
+    assert.match(page, /Needs attention[\s\S]*docs<\/b><\/a><span class="hmtxt">needs you: Allow Bash: npm run build\?[\s\S]*data-asksopen/);
+    assert.match(page, /core<\/b><\/a><span class="hmtxt">context 91% full<\/span><span class="hmact"><form method="post" action="\/agent\/compact">/);
+    assert.match(page, /docs<\/b><\/a><span class="hmtxt">runs intercom 0\.12\.10<\/span>[\s\S]*?name="op" value="update-one"/);
+    assert.match(page, /class="hmhost"><h3>[\s\S]*ultra[\s\S]*class="hmcard s-working"[\s\S]*core[\s\S]*Opus 5\.5 · high[\s\S]*rebasing the batch[\s\S]*data-screen="bob\/core"/);
+    // Near the end of the week: a warning that they'd stop.
+    await w.db.prepare("UPDATE sessions SET usage = ?").bind(usage(42, 96)).run();
+    assert.match(await (await w.request("/dashboard", { as: "bob", cookie: true })).text(), /hmverdict red[\s\S]*Weekly limit nearly used: agents will stop until it resets in 3d/);
+    // The messages feed is a page of its own now.
+    assert.match(await (await w.request("/dashboard?view=feed", { as: "bob", cookie: true })).text(), /id="needs"/);
   });
 });
 

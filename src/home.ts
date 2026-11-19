@@ -1,0 +1,235 @@
+// The overview: the dashboard's landing page. Your agents at a glance, so one look tells you whether they're healthy
+// and whether there's enough left on your plans to go through the night: how many work, wait for you or sit idle; each
+// account's 5-hour and weekly limits with when they reset and a verdict; what needs attention (a question, a usage
+// limit, a full context, an old intercom, an agent that ended, one that's gone quiet, handoffs piling up), each with
+// the action that fixes it; and every connected agent as a card by machine, with its state, model, context and limit,
+// and Chat, Screen and Compact on it. Redrawn live like the rest of the dashboard.
+
+import { compactable } from "./btw";
+import { type Env, ago, hostNames, liveIds } from "./lib";
+import { effortName, modelName } from "./models";
+import { screenAttrs } from "./screen";
+import { agentAvatar, esc, hidden, icon } from "./ui";
+import { type Gone, endedAgents, outOfUsage } from "./upkeep";
+import { outdated } from "./version";
+
+interface Row {
+  session_id: string;
+  label: string;
+  project: string | null;
+  client: string | null;
+  host: string;
+  version: string;
+  last_seen: number;
+  state: string | null;
+  state_detail: string | null;
+  state_at: number | null;
+  active_at: number | null;
+  note: string | null;
+  model: string | null;
+  effort: string | null;
+  ctx_pct: number | null;
+  ctx_window: number | null;
+  usage: string | null;
+  account: string | null;
+  screen: string | null;
+  ui_at: number | null;
+  ui_version: string | null;
+  compact_req: string | null;
+  compact_prep: string | null;
+}
+
+type Window = { k: string; p: number; r: number | null };
+const WINDOW_NAME: Record<string, string> = { five_hour: "5-hour", seven_day: "Week", seven_day_opus: "Week (Opus)", spend_limit: "Spend" };
+const QUIET_MS = 20 * 60_000; // working, but nothing in its log for this long: worth a look
+const HOUR = 3600_000;
+
+function windowsOf(raw: string | null, now: number): Window[] {
+  try {
+    const u = JSON.parse(raw ?? "null") as { rl?: Window[] } | null;
+    return (u?.rl ?? []).filter((w) => typeof w.p === "number" && (!w.r || w.r > now));
+  } catch {
+    return [];
+  }
+}
+function accountOf(raw: string | null): { email: string; plan: string } | null {
+  try {
+    const a = JSON.parse(raw ?? "null") as { email?: string; plan?: string } | null;
+    return a?.email ? { email: a.email, plan: a.plan ?? "" } : null;
+  } catch {
+    return null;
+  }
+}
+const planName = (p: string) => p.replace(/^default_claude_/, "").replace(/_(\d+)x$/, " $1×").replace(/^\w/, (c) => c.toUpperCase());
+const tone = (p: number) => (p >= 90 ? "red" : p >= 70 ? "amber" : "green");
+const until = (t: number, now: number) => {
+  const m = Math.max(0, Math.round((t - now) / 60_000));
+  return m < 60 ? `${m}m` : m < 48 * 60 ? `${Math.floor(m / 60)}h${m % 60 ? ` ${m % 60}m` : ""}` : `${Math.round(m / 1440)}d`;
+};
+const meter = (p: number, t = tone(p)) => `<div class="meter ${t}"><i style="width:${Math.min(100, Math.max(2, p))}%"></i></div>`;
+
+/** Whether an account's limits last the night: the weekly window decides; a full 5-hour one only pauses. */
+function verdict(ws: Window[], now: number): { tone: string; text: string } {
+  const week = ws.find((w) => w.k === "seven_day");
+  const five = ws.find((w) => w.k === "five_hour");
+  if (week && week.p >= 95) return { tone: "red", text: `Weekly limit nearly used: agents will stop${week.r ? ` until it resets in ${until(week.r, now)}` : ""}` };
+  if (week && week.p >= 80 && (!week.r || week.r - now > 12 * HOUR)) return { tone: "amber", text: `Tight: ${100 - week.p}% of the week left${week.r ? `, resets in ${until(week.r, now)}` : ""}` };
+  if (five && five.p >= 90) return { tone: "amber", text: `5-hour limit nearly used: a pause${five.r ? ` until ${until(five.r, now)} from now` : ""}, then it carries on` };
+  if (!ws.length) return { tone: "", text: "No limits reported yet: they show after an agent's next answer" };
+  return { tone: "green", text: "Enough for tonight" };
+}
+
+export async function homeView(env: Env, me: string): Promise<string> {
+  const now = Date.now();
+  const { results } = await env.DB.prepare(
+    `SELECT session_id, label, project, client, host, version, last_seen, state, state_detail, state_at, active_at, note, model, effort, ctx_pct, ctx_window, usage, account, screen, ui_at, ui_version, compact_req, compact_prep
+     FROM sessions WHERE member = ? AND last_seen > ? ORDER BY label`,
+  )
+    .bind(me, now - 24 * HOUR)
+    .all<Row>();
+  const live = new Set(liveIds(env, me));
+  const on = (r: Row) => live.has(r.session_id) || now - r.last_seen < 10 * 60_000;
+  const agents = results.filter(on);
+  const nick = await hostNames(env, me);
+  const hostOf = (h: string) => nick.get(h) ?? (h || "unknown machine");
+  const gone: Gone[] = (await endedAgents(env, me, 1)).filter((g) => now - g.at < 12 * HOUR && !agents.some((a) => a.label === g.label));
+  // What each did last (one row per agent, by the activity index), and the handoffs waiting on each.
+  const ids = agents.map((a) => a.session_id);
+  const [{ results: lastSteps }, { results: handoffs }] = await Promise.all([
+    ids.length
+      ? env.DB.prepare(
+          "SELECT session_id, kind, text, at FROM activity WHERE id IN (SELECT (SELECT MAX(id) FROM activity a WHERE a.member = ?1 AND a.session_id = s.value) FROM json_each(?2) s)",
+        )
+          .bind(me, JSON.stringify(ids))
+          .all<{ session_id: string; kind: string; text: string; at: number }>()
+      : Promise.resolve({ results: [] as { session_id: string; kind: string; text: string; at: number }[] }),
+    env.DB.prepare("SELECT to_agent, COUNT(*) AS n, MIN(created_at) AS oldest FROM handoffs WHERE to_member = ? AND status = 'pending' GROUP BY to_agent")
+      .bind(me)
+      .all<{ to_agent: string | null; n: number; oldest: number }>(),
+  ]);
+  const stepOf = new Map(lastSteps.map((s) => [s.session_id, s]));
+  const handoffsOf = new Map(handoffs.map((h) => [h.to_agent ?? "", h]));
+
+  const chat = (label: string) => `/dashboard?view=agents&agent=${encodeURIComponent(`${me}/${label}`)}`;
+  const working = agents.filter((a) => a.state === "working");
+  const waiting = agents.filter((a) => a.state === "waiting");
+  const idle = agents.filter((a) => a.state !== "working" && a.state !== "waiting");
+
+  // ---- limits, per Anthropic account (Claude Code shares one per machine; the latest report of each window) ----
+  const accounts = new Map<string, { plan: string; ws: Map<string, Window & { at: number }>; agents: string[] }>();
+  for (const a of agents.filter((x) => x.client !== "codex")) {
+    const acct = accountOf(a.account);
+    const key = acct?.email ?? `machine ${hostOf(a.host)}`;
+    const e = accounts.get(key) ?? { plan: acct?.plan ?? "", ws: new Map<string, Window & { at: number }>(), agents: [] as string[] };
+    e.agents.push(a.label);
+    for (const w of windowsOf(a.usage, now)) {
+      const prev = e.ws.get(w.k);
+      if (!prev || (a.ui_at ?? 0) > prev.at) e.ws.set(w.k, { ...w, at: a.ui_at ?? 0 });
+    }
+    accounts.set(key, e);
+  }
+  const codex = agents.filter((a) => a.client === "codex");
+  const codexOut = codex.filter((a) => outOfUsage({ state: a.state ?? "", state_detail: a.state_detail ?? "" }));
+  const order = ["five_hour", "seven_day", "seven_day_opus", "spend_limit"];
+  const acctCards = [...accounts].map(([email, e]) => {
+    const ws = [...e.ws.values()].sort((x, y) => order.indexOf(x.k) - order.indexOf(y.k));
+    const v = verdict(ws, now);
+    return `<article class="hmacct">
+      <header><span class="hmlogo">${icon("sparkles", 14)}</span><div class="grow"><b title="${esc(email)}">${esc(email)}</b><span class="muted">${e.plan ? `${esc(planName(e.plan))} · ` : ""}Claude Code · ${e.agents.length} agent${e.agents.length === 1 ? "" : "s"}</span></div></header>
+      <div class="hmwins">${
+        ws.length
+          ? ws.map((w) => `<div class="hmwin"><div class="hmwh"><span>${esc(WINDOW_NAME[w.k] ?? w.k)}</span><b class="${tone(w.p)}">${w.p}%</b></div>${meter(w.p)}<span class="hmsub">${w.r ? `resets in ${until(w.r, now)}` : "&nbsp;"}</span></div>`).join("")
+          : `<p class="small muted" style="margin:0">Its agents haven't reported their limits yet.</p>`
+      }</div>
+      <div class="hmverdict ${v.tone}">${icon(v.tone === "green" ? "check" : v.tone === "red" ? "x" : "clock", 13)}<span>${esc(v.text)}</span></div>
+    </article>`;
+  });
+  if (codex.length)
+    acctCards.push(`<article class="hmacct">
+      <header><span class="hmlogo cx">${icon("terminal", 14)}</span><div class="grow"><b>Codex</b><span class="muted">${codex.length} agent${codex.length === 1 ? "" : "s"}</span></div></header>
+      <div class="hmwins"><p class="small muted" style="margin:0">${
+        codexOut.length ? `${codexOut.map((a) => esc(a.label)).join(", ")} ${codexOut.length === 1 ? "is" : "are"} out of usage: ${esc(codexOut[0]!.state_detail?.replace(/^usage limit · ?/, "") || "until the limit resets")}.` : "Codex doesn't say how much is left until an agent runs out."
+      }</p></div>
+      <div class="hmverdict ${codexOut.length ? "red" : "green"}">${icon(codexOut.length ? "x" : "check", 13)}<span>${codexOut.length ? `${codexOut.length} out of usage` : "None out of usage"}</span></div>
+    </article>`);
+
+  // ---- what needs attention, worst first, each with its fix ----
+  type Item = { tone: string; ic: string; who: string; text: string; act: string };
+  const items: Item[] = [];
+  const back = "/dashboard";
+  const post = (fields: Record<string, string>, label: string, cls = "btn sm", confirm = "") =>
+    `<form method="post" action="/upkeep"${confirm ? ` data-confirm="${esc(confirm)}"` : ""}>${hidden({ back, ...fields })}<button class="${cls}">${label}</button></form>`;
+  for (const a of waiting) {
+    if (outOfUsage({ state: a.state ?? "", state_detail: a.state_detail ?? "" }))
+      items.push({ tone: "red", ic: "clock", who: a.label, text: `out of usage: ${a.state_detail?.replace(/^usage limit · ?/, "") || "waits for its limit to reset"}`, act: a.client === "codex" && a.host ? post({ op: "reset-now", host: a.host }, "Redeem a reset") : "" });
+    else items.push({ tone: "amber", ic: "bell", who: a.label, text: `needs you${a.state_detail ? `: ${a.state_detail}` : ""}`, act: `<button type="button" class="btn sm primary" data-asksopen>Answer</button>` });
+  }
+  for (const a of agents) {
+    if (a.ctx_pct != null && a.ctx_pct >= 85 && a.client !== "codex" && !a.compact_req && !a.compact_prep)
+      items.push({
+        tone: a.ctx_pct >= 92 ? "red" : "amber",
+        ic: "layers",
+        who: a.label,
+        text: `context ${a.ctx_pct}% full`,
+        act: compactable(a, true) ? `<a class="btn sm" href="${chat(a.label)}">Open</a>` : `<form method="post" action="/agent/compact">${hidden({ session: a.session_id, back })}<button class="btn sm">Compact</button></form>`,
+      });
+    if (a.state === "working" && a.active_at && now - a.active_at > QUIET_MS)
+      items.push({ tone: "amber", ic: "eye", who: a.label, text: `working, but quiet for ${ago(a.active_at).replace(/ ago$/, "")}`, act: a.screen ? `<button type="button" class="btn sm" ${screenAttrs(`${me}/${a.label}`, a.label, a.screen, a.client ?? "")}>Screen</button>` : "" });
+    if (a.version && outdated(a.version)) items.push({ tone: "", ic: "download", who: a.label, text: `runs intercom ${a.version}`, act: post({ op: "update-one", session: a.session_id }, "Update") });
+    const h = handoffsOf.get(a.label);
+    if (h && now - h.oldest > 2 * HOUR) items.push({ tone: "", ic: "arrow", who: a.label, text: `${h.n} handoff${h.n === 1 ? "" : "s"} to it still pending, oldest ${ago(h.oldest)}`, act: `<a class="btn sm" href="/dashboard?view=handoffs&amp;who=${encodeURIComponent(`${me}/${a.label}`)}">Handoffs</a>` });
+  }
+  for (const g of gone) items.push({ tone: "amber", ic: "door", who: g.label, text: `${g.how === "exited" ? "exited" : "ended"} ${ago(g.at)}${g.host ? ` on ${hostOf(g.host)}` : ""}`, act: post({ op: "revive", label: g.label }, "Bring back") });
+  const rank = (t: string) => (t === "red" ? 0 : t === "amber" ? 1 : 2);
+  items.sort((x, y) => rank(x.tone) - rank(y.tone));
+  const attention = items.length
+    ? `<ul class="hmlist">${items
+        .map((i) => `<li class="${i.tone}"><span class="hmic">${icon(i.ic, 14)}</span><a class="hmwho" href="${chat(i.who)}">${agentAvatar(me, i.who, "s")}<b>${esc(i.who)}</b></a><span class="hmtxt">${esc(i.text)}</span>${i.act ? `<span class="hmact">${i.act}</span>` : ""}</li>`)
+        .join("")}</ul>`
+    : `<div class="hmok">${icon("check", 16)}<span>All healthy: nothing waits for you, no context is near full, every agent is current.</span></div>`;
+
+  // ---- every connected agent, by machine ----
+  const stateChip = (a: Row) => {
+    const since = a.state_at ? ` · ${ago(a.state_at).replace(/ ago$/, "")}` : "";
+    if (a.state === "waiting") return `<span class="hmst wait"><i></i>${outOfUsage({ state: a.state, state_detail: a.state_detail ?? "" }) ? "out of usage" : "needs you"}${since}</span>`;
+    if (a.state === "working") return `<span class="hmst work"><i></i>working${since}</span>`;
+    return `<span class="hmst idle"><i></i>idle${since}</span>`;
+  };
+  const card = (a: Row) => {
+    const five = windowsOf(a.usage, now).find((w) => w.k === "five_hour");
+    const step = stepOf.get(a.session_id);
+    const stepText = step ? (step.kind === "text" ? step.text.replace(/\s+/g, " ") : step.text.split("\n").pop()!.replace(/\s+/g, " ")) : "";
+    const canCompact = a.client !== "codex" && !compactable(a, true) && !a.compact_req && !a.compact_prep;
+    const model = [a.model ? modelName(a.model) : "", a.effort ? effortName(a.effort).toLowerCase() : ""].filter(Boolean).join(" · ");
+    return `<article class="hmcard s-${esc(a.state || "idle")}">
+      <header><a href="${chat(a.label)}" class="hmname">${agentAvatar(me, a.label, "s")}<b>${esc(a.label)}</b></a>${stateChip(a)}</header>
+      <div class="hmmeta">${a.project ? `<span>#${esc(a.project)}</span>` : ""}${model ? `<span>${esc(model)}</span>` : ""}${a.client === "codex" ? `<span>Codex</span>` : ""}</div>
+      ${a.note ? `<p class="hmnote">${esc(a.note)}</p>` : ""}
+      <div class="hmbars">
+        ${a.ctx_pct != null && a.client !== "codex" ? `<div class="hmbar"><span>Context</span>${meter(a.ctx_pct, a.ctx_pct >= 90 ? "red" : a.ctx_pct >= 75 ? "amber" : "")}<b>${a.ctx_pct}%</b></div>` : ""}
+        ${five ? `<div class="hmbar"><span>5-hour</span>${meter(five.p)}<b>${five.p}%</b></div>` : ""}
+      </div>
+      ${stepText ? `<p class="hmstep" title="${esc(stepText.slice(0, 300))}">${icon(step!.kind === "cmd" ? "terminal" : step!.kind === "edit" ? "pencil" : step!.kind === "text" ? "message" : "dots", 12)}<span>${esc(stepText.slice(0, 140))}</span><time>${esc(ago(step!.at))}</time></p>` : ""}
+      <footer><a class="btn ghost xs" href="${chat(a.label)}">${icon("message", 12)}Chat</a>${a.screen ? `<button type="button" class="btn ghost xs" ${screenAttrs(`${me}/${a.label}`, a.label, a.screen, a.client ?? "")}>${icon("monitor", 12)}Screen</button>` : ""}${
+        canCompact ? `<form method="post" action="/agent/compact" data-confirm="Compact ${esc(a.label)}? It saves what it would lose first, then its conversation becomes a summary.">${hidden({ session: a.session_id, back })}<button class="btn ghost xs">${icon("layers", 12)}Compact</button></form>` : ""
+      }</footer>
+    </article>`;
+  };
+  const hosts = [...new Set(agents.map((a) => a.host))].sort((x, y) => hostOf(x).localeCompare(hostOf(y)));
+  const machines = hosts
+    .map((h) => {
+      const here = agents.filter((a) => a.host === h).sort((x, y) => rank(x.state === "waiting" ? "red" : x.state === "working" ? "amber" : "") - rank(y.state === "waiting" ? "red" : y.state === "working" ? "amber" : "") || x.label.localeCompare(y.label));
+      return `<section class="hmhost"><h3>${icon("monitor", 14)}<span>${esc(hostOf(h))}</span><span class="muted">${here.length} agent${here.length === 1 ? "" : "s"}</span></h3><div class="hmgrid">${here.map(card).join("")}</div></section>`;
+    })
+    .join("");
+
+  const tile = (n: number, label: string, cls: string, ic: string) => `<div class="hmtile ${cls}"><span class="hmtic">${icon(ic, 15)}</span><b>${n}</b><span>${label}</span></div>`;
+  return `<div class="pane-in hmpane" id="home" data-region>
+    <header class="flhead"><div><h1>Overview</h1><p class="muted">${agents.length ? `${agents.length} agent${agents.length === 1 ? "" : "s"} connected${hosts.length > 1 ? ` on ${hosts.length} machines` : ""}.` : "None of your agents is connected right now."}</p></div><a class="btn sm ghost" href="/dashboard?view=feed">${icon("layers", 13)}Messages</a></header>
+    <div class="hmtiles">${tile(working.length, "working", "t-work", "refresh")}${tile(waiting.length, "need you", "t-wait", "bell")}${tile(idle.length, "idle", "t-idle", "clock")}${tile(gone.length, "ended, 12h", "t-gone", "door")}</div>
+    ${acctCards.length ? `<h2 class="hmh">Plan limits</h2><div class="hmaccts">${acctCards.join("")}</div>` : ""}
+    <h2 class="hmh">Needs attention${items.length ? ` <span class="badge ${items.some((i) => i.tone === "red") ? "red" : "amber"}">${items.length}</span>` : ""}</h2>
+    ${attention}
+    ${machines ? `<h2 class="hmh">Agents</h2>${machines}` : ""}
+  </div>`;
+}

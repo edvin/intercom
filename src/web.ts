@@ -1,4 +1,5 @@
 import { ticketView } from "./ticketview";
+import { homeView } from "./home";
 import { reviewView } from "./reviewview";
 import { workView } from "./work";
 import { fleetView } from "./fleet";
@@ -581,7 +582,7 @@ export async function dashboard(url: URL, env: Env, me: string, cookie = ""): Pr
   const ownerOf = (project: string) => admin || pmRes.results.some((m) => m.project === project && m.member === me && m.role === "owner");
   const shownLocks = channel ? locks.filter((l) => l.channel === channel) : locks;
   const asked = url.searchParams.get("view");
-  const view = asked === "admin" && admin ? "admin" : asked === "account" ? "account" : asked === "ticket" ? "ticket" : asked === "review" ? "review" : asked === "work" ? "work" : asked === "fleet" ? "fleet" : asked === "files" ? "files" : asked === "handoffs" ? "handoffs" : asked === "tracked" ? "tracked" : asked === "agents" ? "agents" : "feed";
+  const view = asked === "admin" && admin ? "admin" : asked === "account" ? "account" : asked === "ticket" ? "ticket" : asked === "review" ? "review" : asked === "work" ? "work" : asked === "fleet" ? "fleet" : asked === "files" ? "files" : asked === "handoffs" ? "handoffs" : asked === "tracked" ? "tracked" : asked === "agents" ? "agents" : asked === "feed" || channel ? "feed" : "home";
 
   const { results: requests } = await env.DB.prepare(
     `SELECT r.project, r.member, r.note, r.created_at, m.org, m.github_login FROM join_requests r JOIN members m ON m.name = r.member
@@ -753,6 +754,8 @@ export async function dashboard(url: URL, env: Env, me: string, cookie = ""): Pr
         ? `<main class="pane">${await ticketView(env, me, Number(url.searchParams.get("id")), localPath(url.searchParams.get("back"), "/dashboard?view=agents"))}</main>`
       : view === "agents"
         ? `<main class="pane chatpane">${ws.main}</main>`
+      : view === "home"
+        ? `<main class="pane">${await homeView(env, me)}</main>`
         : `<main class="pane"><div class="pane-in">${onboarding}${needs}${composer}${feed}</div></main><aside class="drawer" id="drawer">${projectBox}${lockPanel}${handoffPanel}${logPanel}${decisions}</aside>`;
   const treeHidden = /(?:^|;\s*)ic_tree=hidden/.test(cookie);
   const drawerOff = /(?:^|;\s*)ic_drawer=off/.test(cookie);
