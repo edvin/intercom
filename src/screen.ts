@@ -287,6 +287,20 @@ export async function sendNow(env: Env, me: string, label: string, text: string)
 }
 
 /** Stop what it's doing: Esc interrupts the running turn in Claude Code and in Codex; the session stays. */
+/**
+ * A line typed into an agent's terminal, then Enter. Claude Code and Codex take text that arrives in one burst as a
+ * paste, and an Enter inside a paste doesn't send it: so Enter goes on its own, after the text has landed, and again
+ * if the line still sits where the cursor is (it was taken as part of the paste).
+ */
+export async function typeEnter(env: Env, me: string, label: string, q: ScreenQuery & { op: "keys" }): Promise<ScreenData> {
+  await askScreen(env, me, label, { ...q, enter: false });
+  let d = await askScreen(env, me, label, { op: "keys", keys: ["enter"], history: q.history, ...(q.pane ? { pane: q.pane } : {}) });
+  const start = (q.text ?? "").trim().slice(0, 24);
+  const line = (x: ScreenData) => (x.cursor ? (plainScreen(x.text).split("\n")[x.cursor[1]] ?? "") : "");
+  if (start.length >= 3 && line(d).includes(start)) d = await askScreen(env, me, label, { op: "keys", keys: ["enter"], history: q.history, ...(q.pane ? { pane: q.pane } : {}) });
+  return d;
+}
+
 export async function stopAgent(env: Env, me: string, label: string): Promise<ScreenData> {
   return askScreen(env, me, label, { op: "keys", keys: ["esc"] });
 }
@@ -302,6 +316,7 @@ export function screenDialog(): string {
     <div class="scrbody" id="scrbody"><div class="screrr"><p>Loading its screen…</p></div></div>
     <div class="scrkeys" data-scrkeys>
       <div class="scrrow"><button type="button" class="btn sm danger scrstop" data-scrstop title="Interrupt what it's doing (Esc); the session stays">${icon("square", 12)}Stop</button><span class="scrsep"></span>${k("enter", "Enter")}${k("esc", "Esc")}${k("ctrl-c", "Ctrl+C", "Interrupts; twice exits")}${k("backspace", "⌫", "Backspace: deletes the character before the cursor")}${k("left", "←", "Left")}${k("right", "→", "Right")}${k("up", "↑", "Up")}${k("down", "↓", "Down")}${k("tab", "Tab")}${k("shift-tab", "⇧Tab", "Shift+Tab: switches mode in Claude Code")}${k("1", "1")}${k("2", "2")}${k("3", "3")}${k("y", "y")}${k("n", "n")}</div>
+      <p class="scrhint"><b>Click the terminal and type:</b> your keys go straight to it, Enter, Esc, arrows and Ctrl+C included. Click outside it to stop.</p>
       <div class="scrtype" data-scrtype><input name="text" maxlength="1000" placeholder="Message it, or type a line into its terminal" autocomplete="off"><label class="screnter" title="Press Enter after the text"><input type="checkbox" name="enter" value="1" checked>Enter</label><button type="button" class="btn sm" data-scrsend title="Type it (with Enter: sent when it's ready, after its current turn)">${icon("send", 13)}Send</button><button type="button" class="btn sm primary" data-scrnow title="Barge in: it reads this at its next step, not after the whole turn">${icon("arrow", 13)}Send now</button></div>
     </div>
     <p class="scrnokeys" data-scrnokeys hidden>Sending keys is turned off on its machine (INTERCOM_KEYS=0).</p>

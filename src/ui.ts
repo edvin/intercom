@@ -853,6 +853,8 @@ body:has(.ide) .top .in{max-width:none;padding:8px 14px}
 .scrfit{gap:5px}.scrfit[aria-pressed=true]{background:var(--accent-soft);color:var(--accent);border-color:color-mix(in srgb,var(--accent) 40%,transparent)}
 .scrlive{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--green)}.scrlive .dot{width:7px;height:7px;border-radius:50%;background:var(--green);animation:pulse 1.8s infinite}
 .scrbody{flex:0 1 auto;min-height:0;display:flex;flex-direction:column;background:#0b0d14}
+.scrbody.typable{cursor:text;outline:2px solid transparent;outline-offset:-2px;transition:outline-color .15s}.scrbody.typable:focus{outline-color:var(--accent)}
+.scrhint{display:none;font-size:12px;color:var(--ink-2);margin:0}@media (hover:hover) and (pointer:fine){.scrhint{display:block}}.scrdlg:has(.scrbody:focus) .scrhint b{color:var(--accent)}
 .scrwrap{flex:0 1 auto;height:calc(var(--rows,30) * 17.25px + 30px);min-height:120px;display:flex}
 pre.term{flex:1;margin:0;padding:14px 16px;overflow:auto;background:#0b0d14;color:#d6d8e4;font:12.5px/1.38 "JetBrains Mono","Geist Mono",ui-monospace,Menlo,monospace;white-space:pre;tab-size:8;font-variant-ligatures:none}
 pre.term .sb{font-weight:700}pre.term .sd{opacity:.6}pre.term .si{font-style:italic}pre.term .su{text-decoration:underline}pre.term .finv{color:#0b0d14}pre.term .binv{background:#d6d8e4}
@@ -2721,6 +2723,48 @@ ${markupScript()}
     d.querySelector("[data-scrsend]").onclick = () => send(false);
     d.querySelector("[data-scrnow]").onclick = () => send(true);
     input.onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); send(e.metaKey || e.ctrlKey); } };
+    // On a computer: click the terminal and type, and the keys go straight to it, like a terminal of your own. Letters
+    // are gathered for a moment and sent as text; Enter, Esc, arrows, Tab, Backspace and Ctrl+C as keys, in order,
+    // one request at a time. Cmd stays the browser's (copy, paste); Esc goes to the terminal, not the window.
+    const sb = d.querySelector("#scrbody");
+    if (sb && matchMedia("(hover: hover) and (pointer: fine)").matches) {
+      sb.tabIndex = 0; sb.classList.add("typable");
+      const KEYS = { Enter: "enter", Escape: "esc", ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right", Backspace: "backspace" };
+      const q = []; let sending = false, tm = 0;
+      const on = () => document.activeElement === sb && !d.querySelector("[data-scrkeys]").hidden;
+      const pump = async () => {
+        clearTimeout(tm);
+        if (sending || !q.length) return;
+        sending = true;
+        try {
+          while (q.length) {
+            const keys = []; while (q.length && q[0].k && keys.length < 20) keys.push(q.shift().k);
+            let text = ""; while (keys.length < 20 && q.length && !q[0].k && text.length < 900) text += q.shift().t;
+            await post([...keys.map((k) => ["key", k]), ...(text ? [["text", text]] : [])]);
+          }
+        } finally { sending = false; }
+      };
+      const add = (it, wait) => { q.push(it); if (wait) { clearTimeout(tm); tm = setTimeout(pump, 150); } else pump(); };
+      sb.addEventListener("keydown", (e) => {
+        if (!on() || e.metaKey || e.altKey || e.isComposing) return;
+        let k = "";
+        if (e.ctrlKey) { const c = e.key.toLowerCase(); if (!["c", "x", "s", "k"].includes(c)) return; k = "ctrl-" + c; }
+        else if (e.key === "Tab") k = e.shiftKey ? "shift-tab" : "tab";
+        else if (KEYS[e.key]) k = KEYS[e.key];
+        else if (e.key.length === 1) { e.preventDefault(); e.stopPropagation(); return add({ t: e.key }, true); }
+        else return;
+        e.preventDefault(); e.stopPropagation();
+        add({ k }, false);
+      });
+      sb.addEventListener("paste", (e) => {
+        if (!on()) return;
+        const t = (e.clipboardData && e.clipboardData.getData("text")) || "";
+        if (!t) return;
+        e.preventDefault();
+        add({ t: t.replace(/[\\r\\n]+/g, " ").slice(0, 1000) }, false);
+      });
+      d.addEventListener("cancel", (e) => { if (document.activeElement === sb) e.preventDefault(); });
+    }
   }
   // ⋯ in a chat's header on a phone: shows or hides the rest of the header; stays open across live updates.
   let hdOpen = false;

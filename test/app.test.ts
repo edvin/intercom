@@ -4222,7 +4222,7 @@ describe("an agent's screen", () => {
     const w = await setup();
     const dash = await (await w.request("/dashboard?view=agents&agent=bob/core", { as: "bob", cookie: true })).text();
     assert.match(dash, /data-screen="bob\/core" data-screenkeys="1"/);
-    assert.match(dash, /<dialog id="dlg-screen"[\s\S]*data-key="ctrl-c"/);
+    assert.match(dash, /<dialog id="dlg-screen"[\s\S]*data-key="ctrl-c"[\s\S]*Click the terminal and type:/);
     assert.doesNotMatch(await (await w.request("/dashboard?view=agents&agent=bob/docs", { as: "bob", cookie: true })).text(), /data-screen=/);
     const { result: r, ask } = await answering(w, () => w.request("/agent-screen?agent=bob/core", { as: "bob", cookie: true }).then((x) => x.text()));
     assert.deepEqual(ask!.q, { op: "capture", history: 200 });
@@ -4237,10 +4237,14 @@ describe("an agent's screen", () => {
     const { result: k, ask: ka } = await answering(w, () => w.form("/agent-keys", "bob", { agent: "bob/core", key: "2" }).then((x) => x.text()));
     assert.deepEqual(ka!.q, { op: "keys", keys: ["2"], text: "", enter: false, history: 200 });
     assert.match(k, /class="term"/);
-    const { ask: ta } = await answering(w, () => w.form("/agent-keys", "bob", { agent: "bob/core", text: "continue", enter: "1" }));
-    assert.deepEqual(ta!.q, { op: "keys", keys: [], text: "continue", enter: true, history: 200 });
-    const act = await w.db.prepare("SELECT text FROM activity WHERE session_id = 'sc1' AND kind = 'keys' ORDER BY id").all<{ text: string }>();
-    assert.deepEqual(act.results.map((x) => x.text), ["you sent keys from the dashboard: 2", "you sent keys from the dashboard: typed “continue”, Enter"]);
+    // Text with Enter: the text, then Enter on its own (in one burst it's a paste, whose Enter doesn't send it).
+    const { asks: ta } = await answeringAll(w, () => w.form("/agent-keys", "bob", { agent: "bob/core", text: "continue", enter: "1" }), { text: SCREEN, cols: 80, rows: 24, cursor: [2, 3], keys: true });
+    assert.deepEqual(ta, [{ op: "keys", keys: [], text: "continue", enter: false, history: 200 }, { op: "keys", keys: ["enter"], history: 200 }]);
+    // Still in its input box after that Enter: pressed once more.
+    const { asks: tb } = await answeringAll(w, () => w.form("/agent-keys", "bob", { agent: "bob/core", text: "run the tests", enter: "1" }), { text: "✻ Welcome\n> run the tests\n", cols: 80, rows: 24, cursor: [15, 1], keys: true });
+    assert.deepEqual(tb.map((q) => q.keys), [[], ["enter"], ["enter"]]);
+    const act = await w.db.prepare("SELECT text FROM activity WHERE session_id = 'sc1' AND kind = 'keys' ORDER BY id LIMIT 3").all<{ text: string }>();
+    assert.deepEqual(act.results.map((x) => x.text), ["you sent keys from the dashboard: 2", "you sent keys from the dashboard: typed “continue”", "you sent keys from the dashboard: Enter"]);
     // Not another person's agent, not an agent's token, not one that isn't in tmux; its machine's own answer is shown.
     assert.match(await (await w.request("/agent-screen?agent=alice/core", { as: "bob", cookie: true })).text(), /only see the screen of your own agents/);
     assert.match(await (await w.request("/agent-screen?agent=bob/core", { as: "bob" })).text(), /can only be opened by its person/);

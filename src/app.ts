@@ -8,7 +8,7 @@ import { dismissStuck, moveStuck, releaseSenders, setNudge, wakeStuck } from "./
 import { askModel, queueCodexModel } from "./models";
 import { CTX_STALE_MS, FIT_SINCE, compactAgent, compactOnStop, markCompacted, dismiss, myRows, newer, outOfUsage, restartAgent, reviveAgent, setAuto, updateAgent, updateIdle } from "./upkeep";
 import { activeLoops, loopReminder, parseLoops } from "./loops";
-import { KEY_NAMES, type ScreenQuery, askScreen, drawScreen, screenReply, sendNow, stopAgent } from "./screen";
+import { KEY_NAMES, type ScreenQuery, askScreen, drawScreen, screenReply, sendNow, stopAgent, typeEnter } from "./screen";
 import { answerBtw, pendingBtw } from "./btw";
 import { POSTER_MAX, getAttachment, isImage, playable, readImage, readable, savePoster, thumbnail, videoType } from "./attachments";
 import { fetchLocalFile, fileReply } from "./localfiles";
@@ -1163,7 +1163,8 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
         if (q.op === "keys" && !q.keys?.length && !q.text) throw new UserError("Pick a key or type something.");
         // Fit to this screen needs the machine's intercom to know it; an older one shows its own size, and says why.
         const old = q.op === "capture" && q.fit && q.fit !== "off" && newer(FIT_SINCE, (await env.DB.prepare("SELECT version FROM sessions WHERE member = ? AND label = ? ORDER BY last_seen DESC LIMIT 1").bind(me, label).first<{ version: string | null }>())?.version ?? "0");
-        body = drawScreen(await askScreen(env, me, label, q), old ? `fitting it to this screen needs intercom ${FIT_SINCE} on its machine` : undefined);
+        const data = q.op === "keys" && q.enter && q.text && !q.keys?.length ? await typeEnter(env, me, label, q) : await askScreen(env, me, label, q);
+        body = drawScreen(data, old ? `fitting it to this screen needs intercom ${FIT_SINCE} on its machine` : undefined);
       }
     } catch (e) {
       if (!(e instanceof UserError)) throw e;
