@@ -23,7 +23,7 @@ import { search } from "./search";
 import { updateSummary } from "./upkeep";
 import { closeTerm, newTerm, termsPanel } from "./terminals";
 import { type Env, type Message, type Proposal, type Session, LIVE, MEMBER_OF, isAdmin, postMessage, RECEIVES, UserError, activeLocks, address, isMyLock, ago, addActivity, lockIn, scopedLocks, cleanBranch, cleanClient, fromOwnUser, fromOwnAgent, DELEGATED_NOTE, staleFor, renameSession, setHost, setVersion, workingOn, authenticate, coMembers, fmtLock, fmtMessage, myProjects, moveSession, projectFor, resolveProject, setCwd, setOrigin, setPresence, setRepo, signedIn, tally, touchSession, unread } from "./lib";
-import { type Tool, instructions, tools } from "./tools";
+import { type Tool, instructions, missingArgs, tools } from "./tools";
 import { CONNECTOR, authorize, connectorMember, preflight, register, resourceMetadata, serverMetadata, token, unauthorized } from "./connector";
 import { cliPoll, cliStart, connectPage, discoverJoin, discoverPage, discoverRequest, githubCallback, githubCreate, githubStart, signOut } from "./accounts";
 import { type Approval, answersFrom, approvalStatus, closeApproval, closeSessionApprovals, decide, questionsOf, requestApproval, setAway } from "./approvals";
@@ -89,7 +89,10 @@ async function handleRpc(msg: RpcRequest, env: Env, me: string, server: McpServe
       if (!tool) return rpcError(msg.id, -32602, `Unknown tool: ${msg.params?.name}`);
       await setPresence(env, me, null, null);
       try {
-        const out = await tool.run(env, me, msg.params?.arguments ?? {});
+        const args = msg.params?.arguments ?? {};
+        const missing = missingArgs(tool, args);
+        if (missing) throw new UserError(missing);
+        const out = await tool.run(env, me, args);
         // Most tools answer in text; some (attachment) return content blocks, e.g. an image.
         return rpcResult(msg.id, { content: typeof out === "string" ? [{ type: "text", text: out }] : out });
       } catch (e) {

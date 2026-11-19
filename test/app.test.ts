@@ -335,6 +335,10 @@ describe("visibility", () => {
     const w = await standardWorld();
     await w.request("/api/hook?event=SessionStart&project=billing-api&session=aaaa1111&branch=feat/ledger-4.2", { as: "bob" });
     await w.ok("bob", "set_status", { note: "migrating invoices index" }, { id: "aaaa1111", project: "billing-api" });
+    // Sent under the wrong name: refused, saying so, and the status kept (never cleared by a call missing its note).
+    const wrong = await w.tool("bob", "set_status", { status: "something else" }, { id: "aaaa1111", project: "billing-api" });
+    assert.ok(wrong.error);
+    assert.match(wrong.text, /set_status needs "note" \(it got "status", which it doesn't take\)\. Its arguments: note, project\./);
     const team = await w.ok("alice", "team");
     assert.match(team, /bob\/billing-aaaa \[Claude Code\]: #billing · branch feat\/ledger-4\.2 · “migrating invoices index”/);
     // carol shares no project with bob: she can't even see him.

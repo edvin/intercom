@@ -59,6 +59,19 @@ export interface Tool {
   run(env: Env, me: string, args: Args): Promise<string | ToolContent[]>;
 }
 
+/**
+ * What the tool's schema requires, checked before it runs: a call missing an argument (often one sent under another
+ * name) is refused, naming what's missing and what it sent, instead of running as if it were empty.
+ */
+export function missingArgs(tool: Tool, args: Args): string | null {
+  const schema = tool.inputSchema as { properties?: Record<string, unknown>; required?: string[] };
+  const missing = (schema.required ?? []).filter((k) => args[k] === undefined || args[k] === null);
+  if (!missing.length) return null;
+  const known = Object.keys(schema.properties ?? {});
+  const stray = Object.keys(args).filter((k) => !known.includes(k));
+  return `${tool.name} needs ${missing.map((k) => `"${k}"`).join(" and ")}${stray.length ? ` (it got ${stray.map((k) => `"${k}"`).join(", ")}, which it doesn't take)` : ""}. Its arguments: ${known.join(", ")}.`;
+}
+
 export function str(args: Args, key: string, required: true): string;
 export function str(args: Args, key: string, required?: false): string | undefined;
 export function str(args: Args, key: string, required = false): string | undefined {
@@ -1112,7 +1125,7 @@ export const tools: Tool[] = [
   {
     name: "set_status",
     description:
-      "Tell your project members what this session is working on, in a few words (shown in `team` and on the dashboard), e.g. \"migrating invoices index\". Never include secrets, credentials, customer data or anything your user wants kept private. An empty note clears it.",
+      "Tell your project members what this session is working on, in a few words (shown in `team` and on the dashboard), e.g. \"migrating invoices index\". Never include secrets, credentials, customer data or anything your user wants kept private. note: \"\" (empty) clears it.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1123,7 +1136,8 @@ export const tools: Tool[] = [
     },
     async run(env, me, a) {
       const project = a.project ? await requireProject(env, me, a.project) : env.session?.project || null;
-      const note = (typeof a.note === "string" ? a.note : "").trim().slice(0, 120);
+      if (typeof a.note !== "string") throw new UserError(`set_status needs "note" as text${Object.keys(a).filter((k) => k !== "note" && k !== "project").length ? ` (not ${Object.keys(a).filter((k) => k !== "note" && k !== "project").map((k) => `"${k}"`).join(", ")})` : ""}; note: "" clears the status.`);
+      const note = a.note.trim().slice(0, 120);
       await setPresence(env, me, project, note);
       if (env.session) {
         await env.DB.prepare("UPDATE sessions SET note = ?, note_at = ? WHERE member = ? AND session_id = ?").bind(note, Date.now(), me, env.session.session_id).run();
