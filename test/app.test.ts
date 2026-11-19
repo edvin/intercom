@@ -4454,6 +4454,30 @@ describe("keeping agents running and current", () => {
     // Running ones aren't brought back; unknown names say so.
     assert.match(ok(await w.form("/upkeep", "bob", { op: "revive", label: "core", back: "/dashboard" }))!, /core is running: nothing to bring back/);
     assert.match(ok(await w.form("/upkeep", "bob", { op: "revive", label: "nobody", back: "/dashboard" }))!, /No agent of yours called nobody ended/);
+
+    // The only agent on its machine runs an older intercom (busy, so not updated yet): a shell in its folder, the resume
+    // command typed into it under its name, rather than a refusal (or a fresh session).
+    await w.db.prepare("UPDATE sessions SET host = 'vms01', cwd = '/home/bob/billing', pane = '%9', launch = 'claude --model opus' WHERE session_id = 'up1'").run();
+    await w.request("/api/hook?event=SessionEnd&session=up1", { as: "bob" });
+    await w.db.prepare("UPDATE sessions SET version = '0.12.57' WHERE member = 'bob' AND label = 'triage'").run();
+    seen.length = 0;
+    done = false;
+    const p2 = go().finally(() => (done = true));
+    n = w.screenAsked.length;
+    while (!done) {
+      while (w.screenAsked.length > n) {
+        const ask = w.screenAsked[n++]!;
+        seen.push(ask.q);
+        const a = (ask.q.op === "capture" ? { error: "tmux: can't find pane: %9" } : ask.q.op === "tmux-new" ? { text: "", made: { pane: "%12" } } : { text: "$ " }) as { error?: string };
+        await w.request("/api/screen-reply", { as: ask.member, method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(a.error ? { req: ask.req, error: a.error } : { req: ask.req, data: { cols: 80, rows: 24, cursor: null, keys: true, ...a } }) });
+      }
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    assert.match(ok(await p2)!, /^Bringing core back on vms01, in a new terminal \(%12\)/);
+    assert.deepEqual(seen.slice(1), [
+      { op: "tmux-new", name: "core", cwd: "/home/bob/billing", run: "shell" },
+      { op: "keys", pane: "%12", text: "INTERCOM_NAME=core claude --model opus --resume up1", enter: true },
+    ]);
   });
 
   test("the machine's side of bringing one back: plain flags only, its name and session, a free terminal name", async () => {

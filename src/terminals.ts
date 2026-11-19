@@ -68,9 +68,20 @@ export const RESUME_SINCE = "0.12.59";
 /** Start an agent that ended again, under its name, in a new terminal on its machine, resumed by its session id. */
 export async function resumeTerm(env: Env, me: string, host: string, label: string, cwd: string, run: "claude" | "codex", resume: { id: string; flags: string[]; channel: boolean }): Promise<string> {
   const via = await viaOn(env, me, host);
-  if (newer(RESUME_SINCE, via.version)) throw new UserError(`Bringing agents back needs intercom ${RESUME_SINCE} on ${host} (${via.label} runs ${via.version}): update it there first.`);
   const name = label.replace(/[^A-Za-z0-9_-]/g, "-").slice(0, 32) || "agent";
-  const r = await askSession(env, me, via, { op: "tmux-new", name, cwd, run, resume, label }, note(via));
+  let r: Awaited<ReturnType<typeof askSession>>;
+  if (newer(RESUME_SINCE, via.version)) {
+    // An older intercom there can't start one resumed (it would start a fresh session): a shell in its folder,
+    // with the resume command typed into it, under its name. Every part is a plain word (checked here as well).
+    const words = [...resume.flags, resume.id];
+    if (!/^[A-Za-z0-9_.-]{1,64}$/.test(label) || words.some((w) => !/^[A-Za-z0-9_=.:\/,@+%-]{1,200}$/.test(w)))
+      throw new UserError(`Its command line isn't plain words, so it can't be typed for you; update the intercom on ${host} to ${RESUME_SINCE} (${via.label} runs ${via.version}).`);
+    const cmd = [`INTERCOM_NAME=${label}`, ...(resume.channel ? ["INTERCOM_CHANNEL=1"] : []), run, ...resume.flags, ...(run === "codex" ? ["resume", resume.id] : ["--resume", resume.id])].join(" ");
+    r = await askSession(env, me, via, { op: "tmux-new", name, cwd, run: "shell" }, note(via));
+    const pane = r.made?.pane;
+    if (!pane) throw new UserError(`The intercom on ${host} started a terminal but didn't say which; update it there to ${RESUME_SINCE}.`);
+    await askSession(env, me, via, { op: "keys", pane, text: cmd, enter: true }, { ...note(via), label });
+  } else r = await askSession(env, me, via, { op: "tmux-new", name, cwd, run, resume, label }, note(via));
   await env.DB.prepare("INSERT INTO activity (member, session_id, at, kind, text) VALUES (?, ?, ?, 'keys', ?)")
     .bind(me, via.session_id, Date.now(), `you brought back ${label} on ${host} from the dashboard: ${run} --resume ${resume.id} in ${cwd}`)
     .run();
