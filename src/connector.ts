@@ -4,7 +4,7 @@
 // URL), never the agents' tools or the dashboard, so a connector can list, read and message your agents but can't
 // invite people, change rules, claim locks or vote.
 
-import { EFFORTS, MODELS, askModel, effortName, effortSwitchable, modelName } from "./models";
+import { EFFORTS, MODELS, askModel, codexEfforts, codexModels, effortName, effortSwitchable, modelName } from "./models";
 import { type Env, LIVE, UserError, ago, hostNames, issueToken, limit, liveIds, newToken, postMessage, rateLimit, sha256 } from "./lib";
 import type { McpServer } from "./app";
 import { type Tool, num, str, tools } from "./tools";
@@ -475,8 +475,8 @@ const connectorTools: Tool[] = [
       type: "object",
       properties: {
         agent: agentProp,
-        model: { type: "string", description: "The model to switch to: default, opus, sonnet, haiku, fable, or a full model id. Leave out to keep it." },
-        effort: { type: "string", enum: EFFORTS.map((e) => e.value), description: "How hard it thinks: low, medium, high, xhigh, max, or auto (the model's default). Leave out to keep it." },
+        model: { type: "string", description: "The model to switch to: default, opus, sonnet, haiku, fable, or a full model id; for a Codex agent, one its Codex lists (gpt-6.1-sol, …; the read-out says). Leave out to keep it." },
+        effort: { type: "string", enum: [...EFFORTS.map((e) => e.value), "ultra"], description: "How hard it thinks: low, medium, high, xhigh, max, or auto (the model's default); ultra too for a Codex model that takes it. Leave out to keep it." },
         cancel: { type: "boolean", description: "Call off a switch that's waiting to run." },
       },
       required: ["agent"],
@@ -484,7 +484,10 @@ const connectorTools: Tool[] = [
     annotations: { openWorldHint: false },
     async run(env, me, args) {
       const { agent } = await findAgent(env, me, str(args, "agent", true));
-      const row = await env.DB.prepare("SELECT model, model_req, model_err, effort FROM sessions WHERE member = ? AND session_id = ?").bind(me, agent.session_id).first<{ model: string | null; model_req: string | null; model_err: string | null; effort: string | null }>();
+      const row = await env.DB.prepare("SELECT model, model_req, model_err, effort, codex_models FROM sessions WHERE member = ? AND session_id = ?")
+        .bind(me, agent.session_id)
+        .first<{ model: string | null; model_req: string | null; model_err: string | null; effort: string | null; codex_models: string | null }>();
+      const codex = agent.client === "codex" ? codexModels(row?.codex_models) : null;
       if (args.cancel === true) {
         const r = await env.DB.prepare("UPDATE sessions SET model_req = NULL WHERE member = ? AND session_id = ? AND model_req IS NOT NULL RETURNING label").bind(me, agent.session_id).first();
         env.refreshWeb?.(me);
@@ -494,11 +497,14 @@ const connectorTools: Tool[] = [
       if (want || level) return askModel(env, me, agent.session_id, want, level);
       const pending = row?.model_req ? (JSON.parse(row.model_req) as { model?: string; effort?: string }) : null;
       return [
-        `${agent.label} runs ${row?.model ? `${modelName(row.model)} (${row.model})` : "a model the intercom hasn't heard yet (its intercom-ui mod reports it)"}${row?.effort ? ` at ${effortName(row.effort).toLowerCase()} effort (${row.effort})` : ""}.`,
+        `${agent.label} runs ${row?.model ? `${modelName(row.model)} (${row.model})` : `a model the intercom hasn't heard yet (${codex ? "its intercom reports it from its next turn" : "its intercom-ui mod reports it"})`}${row?.effort ? ` at ${effortName(row.effort).toLowerCase()} effort (${row.effort})` : ""}.`,
         pending ? `Switching to ${[pending.model ? modelName(pending.model) : "", pending.effort ? `${pending.effort} effort` : ""].filter(Boolean).join(" at ")} when its turn ends.` : "",
         row?.model_err && !pending ? `The last switch didn't take: ${row.model_err}` : "",
-        `Models: ${MODELS.map((m) => `${m.value}${m.hint ? ` (${m.hint})` : ""}`).join(", ")}, or a full model id.`,
-        `Effort: ${EFFORTS.map((e) => e.value).join(", ")}.`,
+        ...(codex
+          ? codex.length
+            ? [`Models (its Codex's): ${codex.map((m) => `${m.slug} (${m.name}; ${m.def || "?"} by default)`).join(", ")}.`, `Effort: ${codexEfforts(codex.find((m) => m.slug === row?.model)).map((e) => e.value).join(", ")}.`]
+            : []
+          : [`Models: ${MODELS.map((m) => `${m.value}${m.hint ? ` (${m.hint})` : ""}`).join(", ")}, or a full model id.`, `Effort: ${EFFORTS.map((e) => e.value).join(", ")}.`]),
         effortSwitchable(agent, true),
       ].filter(Boolean).join("\n");
     },

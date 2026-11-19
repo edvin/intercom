@@ -21,7 +21,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const VERSION = "0.12.60"; // kept in step with .claude-plugin/plugin.json (a test checks)
+const VERSION = "0.12.61"; // kept in step with .claude-plugin/plugin.json (a test checks)
 const DIR = path.join(os.homedir(), ".claude", "intercom");
 const CONFIG = path.join(DIR, "config");
 function readConf() {
@@ -800,6 +800,43 @@ function subLine(s, l) {
   }
 }
 
+// A Codex agent's model and reasoning level, from each turn's context in its log (the hub shows them and offers a
+// switch), and the models its Codex lists (models_cache.json), sent once and again when that file changes.
+function codexModelOf(line) {
+  if (!line.includes('"turn_context"')) return;
+  let d;
+  try {
+    d = JSON.parse(line);
+  } catch {
+    return;
+  }
+  const p = d?.type === "turn_context" ? d.payload : null;
+  if (typeof p?.model !== "string") return;
+  const effort = p.effort ?? p.collaboration_mode?.settings?.reasoning_effort ?? null;
+  mirror.outbox.push({ at: Date.parse(d.timestamp ?? "") || Date.now(), kind: "model", text: JSON.stringify({ model: p.model, effort: typeof effort === "string" ? effort : null }) });
+}
+let codexModelsAt = 0;
+function codexModelsTick() {
+  if (headers["x-intercom-client"] !== "codex") return;
+  const file = path.join(process.env.CODEX_HOME ? path.resolve(process.env.CODEX_HOME) : path.join(HOME, ".codex"), "models_cache.json");
+  let mtime;
+  try {
+    mtime = fs.statSync(file).mtimeMs;
+  } catch {
+    return;
+  }
+  if (mtime === codexModelsAt) return;
+  codexModelsAt = mtime;
+  try {
+    const list = (JSON.parse(fs.readFileSync(file, "utf8")).models ?? [])
+      .filter((m) => m?.visibility === "list" && typeof m.slug === "string")
+      .map((m) => ({ slug: m.slug, name: m.display_name ?? m.slug, def: m.default_reasoning_level ?? "", levels: (m.supported_reasoning_levels ?? []).map((x) => x?.effort).filter((x) => typeof x === "string") }));
+    if (list.length) mirror.outbox.push({ at: Date.now(), kind: "models", text: JSON.stringify(list) });
+  } catch (e) {
+    log("codex models:", e.message);
+  }
+}
+
 function mirrorTick() {
   if (!mirrorOn() || !BASE || !TOKEN) return;
   const file = transcriptFor(SESSION);
@@ -813,6 +850,22 @@ function mirrorTick() {
   if (file !== mirror.file) {
     // A new session (or a resumed one): start with its last ~32 KB, so the view isn't empty.
     Object.assign(mirror, { file, offset: Math.max(0, size - 32768), rest: Buffer.alloc(0), skipFirst: size > 32768 });
+    // What a Codex session runs, from its last turn before that (its last few MB).
+    if (headers["x-intercom-client"] === "codex" && size > 32768) {
+      try {
+        const len = Math.min(size, 4 << 20);
+        const buf = Buffer.alloc(len);
+        const fd = fs.openSync(file, "r");
+        try {
+          fs.readSync(fd, buf, 0, len, size - len);
+        } finally {
+          fs.closeSync(fd);
+        }
+        const text = buf.toString("utf8");
+        const at = text.lastIndexOf('"type":"turn_context"');
+        if (at >= 0) codexModelOf(text.slice(text.lastIndexOf("\n", at) + 1, (text.indexOf("\n", at) + 1 || text.length + 1) - 1));
+      } catch {}
+    }
   }
   if (size < mirror.offset) mirror.offset = 0;
   if (size > mirror.offset) {
@@ -837,6 +890,7 @@ function mirrorTick() {
       for (const l of lines)
         if (l.trim()) {
           if (codexTurn && headers["x-intercom-client"] === "codex") reportTurn(codexTurn(l));
+          if (headers["x-intercom-client"] === "codex") codexModelOf(l);
           const items = summarizeLine(l);
           mirror.outbox.push(...items);
           for (const it of items) noteMentions(it.text);
@@ -844,6 +898,7 @@ function mirrorTick() {
         }
     } else mirror.rest = all;
   }
+  codexModelsTick();
   try {
     subTick(file);
   } catch (e) {

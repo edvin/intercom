@@ -3658,7 +3658,7 @@ describe("Claude.ai connector", () => {
     assert.match(await call(w, t, "model", { agent: "kernel", cancel: true }), /Called off: kernel keeps its model and effort\./);
     assert.equal((await poll()).model, null);
     // Codex, and a session whose mod is too old (or not running), switch in their terminal.
-    assert.match(await call(w, t, "model", { agent: "alder", model: "opus" }), /alder is a Codex session: its model is chosen in its terminal/);
+    assert.match(await call(w, t, "model", { agent: "alder", model: "opus" }), /alder(?:'|’)s model can(?:'|’)t be switched from here until the intercom on its machine is 0\.12\.61/);
     await w.request("/api/ui?project=billing-api&session=m3&mod=0.2.10", { as: "bob" });
     assert.match(await call(w, t, "model", { agent: "docs", model: "opus" }), /intercom-ui mod \(0\.2\.11 or newer\) isn(?:'|’)t running/);
     html = await (await w.request("/dashboard?view=agents&agent=bob/docs", { as: "bob", cookie: true })).text();
@@ -4708,6 +4708,101 @@ describe("Codex usage limits and resets", () => {
     assert.match(new URL(r.headers.get("location")!, ORIGIN).searchParams.get("ok")!, /No usage resets left on that account; the agents on ultra wait for the limit to reset/);
     assert.ok(!none.cx1.log.includes("REDEEMED"));
     assert.match(await page(w), /No resets were left when one was tried just now/);
+  });
+
+  /** Codex's /model, as 0.162 shows it: a model, then its reasoning level (max and ultra under More reasoning…), "s" for this session. */
+  class FakeModelPicker {
+    view = "idle";
+    input = "";
+    at = 0;
+    model = 0;
+    level = "default";
+    said: string[] = [];
+    log: string[] = [];
+    busy = false;
+    models = [
+      { name: "GPT-6.1 Terra", slug: "gpt-6.1-terra", desc: "Efficient model" },
+      { name: "GPT-6.1-Sol", slug: "gpt-6.1-sol", desc: "Previous generation model" },
+      { name: "GPT-6-Luna", slug: "gpt-6-luna", desc: "Fast and affordable" },
+    ];
+    picked = 0;
+    screen(): string {
+      const opts = (xs: string[]) => xs.map((x, i) => `${i === this.at ? "›" : " "} ${i + 1}. ${x}`).join("\n");
+      const said = this.said.map((x) => `• ${x}\n`).join("");
+      const m = this.models[this.picked]!;
+      if (this.view === "models") return `${said}  Select Model and Effort\n${opts(this.models.map((x, i) => `${x.name}${i === this.model ? " (current)" : ""}  ${x.desc}`))}\n  enter select · esc back\n`;
+      if (this.view === "levels") return `${said}  Select Reasoning Level for ${m.name}\n${opts(["Low (default)    Fast responses", "Medium           Balances speed", "High             Greater depth", "Extra high       Extra high depth", "More reasoning…  Max and Ultra consume usage limits faster"])}\n  enter default · s session · esc back\n`;
+      if (this.view === "advanced") return `${said}  Advanced Reasoning\n  ⚠ Consumes usage limits faster\n${opts(["Max    For difficult problems", "Ultra  For demanding work"])}\n  enter default · s session · esc back\n`;
+      return `${said}${this.busy ? "• Working (3s • esc to interrupt)\n" : ""}› ${this.input || "Ask Codex to do anything"}\n  ${this.models[this.model]!.name} ${this.level} · ~/x\n`;
+    }
+    keys(q: Record<string, unknown>) {
+      if (typeof q.text === "string") {
+        this.log.push(`type ${q.text}`);
+        if (this.view === "idle") this.input += q.text;
+        else if (q.text === "s" && (this.view === "levels" || this.view === "advanced")) {
+          const levels = this.view === "levels" ? ["low", "medium", "high", "xhigh"] : ["max", "ultra"];
+          this.model = this.picked;
+          this.level = levels[this.at]!;
+          this.said.push(`Model changed to ${this.models[this.model]!.slug} ${this.level} for this session only`);
+          this.view = "idle";
+        }
+      }
+      for (const k of (q.keys as string[] | undefined) ?? []) {
+        this.log.push(k);
+        if (k === "down") this.at++;
+        else if (k === "up") this.at--;
+        else if (k === "esc") (this.view = "idle"), (this.at = 0);
+        else if (k === "enter") {
+          if (this.view === "idle" && this.input === "/model") (this.view = "models"), (this.input = ""), (this.at = this.model);
+          else if (this.view === "models") (this.picked = this.at), (this.view = "levels"), (this.at = 0);
+          else if (this.view === "levels" && this.at === 4) (this.view = "advanced"), (this.at = 0);
+          else if (this.view !== "idle") this.log.push("SAVED AS DEFAULT");
+        }
+      }
+    }
+  }
+
+  test("a Codex agent's model and effort: reported from its log, switched by typing /model for this session, now or when its turn ends", async () => {
+    const w = await setup();
+    const send = (items: object[]) => w.request("/api/activity?session=cx1", { method: "POST", as: "bob", body: JSON.stringify({ items }) });
+    const models = [
+      { slug: "gpt-6.1-terra", name: "GPT-6.1 Terra", def: "low", levels: ["low", "medium", "high", "xhigh", "max", "ultra"] },
+      { slug: "gpt-6.1-sol", name: "GPT-6.1-Sol", def: "low", levels: ["low", "medium", "high", "xhigh", "max", "ultra"] },
+      { slug: "gpt-6-luna", name: "GPT-6-Luna", def: "medium", levels: ["low", "medium", "high", "xhigh", "max"] },
+    ];
+    await send([{ at: Date.now(), kind: "models", text: JSON.stringify(models) }, { at: Date.now(), kind: "model", text: JSON.stringify({ model: "gpt-6.1-terra", effort: null }) }]);
+    const row = () => w.db.prepare("SELECT model, effort, model_req, model_err FROM sessions WHERE session_id = 'cx1'").first<{ model: string; effort: string; model_req: string | null; model_err: string | null }>();
+    assert.deepEqual({ ...(await row()) }, { model: "gpt-6.1-terra", effort: "default", model_req: null, model_err: null });
+    assert.equal(await w.db.prepare("SELECT 1 FROM activity WHERE session_id = 'cx1' AND kind IN ('model', 'models')").first(), null);
+    // The inspector and its dialog: its Codex's models, and the levels of the one it runs.
+    const html = await (await w.request("/dashboard?view=agents&agent=bob/prod", { as: "bob", cookie: true })).text();
+    assert.match(html, /GPT-6\.1-Terra[\s\S]*Default/);
+    assert.match(html, /<dialog id="dlg-model">[\s\S]*Model and effort for prod[\s\S]*value="gpt-6\.1-sol"[\s\S]*GPT-6\.1-Sol[\s\S]*value="ultra"[\s\S]*value="auto" checked[\s\S]*Default \(low\)/);
+    // Idle: typed now. Sol at max, picked with "s" (never Enter, which would make it every session's default).
+    const { askModel, codexModelDue } = await import("../src/models.ts");
+    assert.match(await askModel(w.env(), "bob", "cx1", "gpt-6.1-sol", "max"), /prod switches to GPT-6\.1-Sol at max reasoning now/);
+    assert.ok(await w.db.prepare("SELECT 1 FROM push_queue WHERE ref = 'ocx1'").first());
+    const tui = new FakeModelPicker();
+    assert.match(await codexes(w, { cx1: tui as unknown as FakeCodex }, () => codexModelDue(w.env(), "bob", "cx1")), /switched to gpt-6\.1-sol max/);
+    assert.ok(!tui.log.includes("SAVED AS DEFAULT"));
+    assert.deepEqual({ ...(await row()) }, { model: "gpt-6.1-sol", effort: "max", model_req: null, model_err: null });
+    // Working: left for its turn's end (its Stop hook), then typed; the model it runs kept.
+    await w.db.prepare("UPDATE sessions SET state = 'working' WHERE session_id = 'cx1'").run();
+    await w.db.prepare("DELETE FROM push_queue").run();
+    assert.match(await askModel(w.env(), "bob", "cx1", "", "high"), /prod switches to high reasoning when its turn ends/);
+    assert.equal(await w.db.prepare("SELECT 1 FROM push_queue WHERE ref = 'ocx1'").first(), null);
+    await w.request("/api/hook?event=Stop&session=cx1&client=codex&project=billing-api", { as: "bob", method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+    assert.ok(await w.db.prepare("SELECT 1 FROM push_queue WHERE ref = 'ocx1'").first());
+    await codexes(w, { cx1: tui as unknown as FakeCodex }, () => codexModelDue(w.env(), "bob", "cx1"));
+    assert.deepEqual({ ...(await row()) }, { model: "gpt-6.1-sol", effort: "high", model_req: null, model_err: null });
+    // Still busy when it looks: the switch waits.
+    tui.busy = true;
+    await askModel(w.env(), "bob", "cx1", "gpt-6-luna", "");
+    assert.match(await codexes(w, { cx1: tui as unknown as FakeCodex }, () => codexModelDue(w.env(), "bob", "cx1")), /busy/);
+    assert.ok((await row())!.model_req);
+    // What its Codex doesn't offer, said with what it does.
+    await assert.rejects(askModel(w.env(), "bob", "cx1", "gpt-9", ""), /doesn't offer gpt-9: gpt-6\.1-terra, gpt-6\.1-sol, gpt-6-luna/);
+    await assert.rejects(askModel(w.env(), "bob", "cx1", "gpt-6-luna", "ultra"), /GPT-6-Luna doesn't take ultra/);
   });
 
   test("reading Codex's screen: its input box, a menu and the option to pick, the goal, a running turn", async () => {

@@ -9,6 +9,7 @@
 
 import { lookForPrompt } from "./prompts";
 import { fableDue } from "./fable";
+import { codexModelDue } from "./models";
 import { daySummary, scheduleSummary } from "./work";
 import { NUDGE_WAIT_MS, nudgeStuck, stuckNote, stuckSessions } from "./stuck";
 import { compactDue } from "./upkeep";
@@ -273,6 +274,15 @@ export async function sendDuePushes(env: Env, now = Date.now()): Promise<number 
         console.log("fable", q.member, q.extra, await fableDue(env, q.member, q.extra));
       } catch (e) {
         console.log("fable", q.ref, String(e));
+      }
+      continue;
+    }
+    if (q.ref[0] === "o") {
+      // A Codex agent's model switch (models.ts): its /model typed for it.
+      try {
+        console.log("model", q.member, q.extra, await codexModelDue(env, q.member, q.extra));
+      } catch (e) {
+        console.log("model", q.ref, String(e));
       }
       continue;
     }

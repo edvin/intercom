@@ -901,9 +901,32 @@ export const TEXT_KEEP = 150;
 /** Store a batch of mirrored activity for one of `me`'s own sessions. */
 export async function addActivity(env: Env, me: string, sessionId: string, items: unknown): Promise<number> {
   if (!Array.isArray(items) || !sessionId) return 0;
-  const own = await env.DB.prepare("SELECT 1 FROM sessions WHERE member = ? AND session_id = ?").bind(me, sessionId).first();
+  const own = await env.DB.prepare("SELECT client FROM sessions WHERE member = ? AND session_id = ?").bind(me, sessionId).first<{ client: string | null }>();
   if (!own) return 0;
   const now = Date.now();
+  // A Codex agent's model and reasoning level, as each turn of its log says (intercom 0.12.61+), and the models its
+  // Codex lists (models.ts offers them for a switch). Not steps of their own.
+  let told = 0;
+  if (own.client === "codex") {
+    const last = (kind: string) => [...items].reverse().find((it) => (it as { kind?: unknown })?.kind === kind) as { text?: unknown } | undefined;
+    const turn = last("model"), list = last("models");
+    try {
+      const t = turn ? (JSON.parse(String(turn.text)) as { model?: unknown; effort?: unknown }) : null;
+      const model = typeof t?.model === "string" && /^[\w.:\/@-]{1,80}$/.test(t.model) ? t.model : null;
+      const effort = typeof t?.effort === "string" && /^[a-z]{1,12}$/.test(t.effort) ? t.effort : t && !t.effort ? "default" : null;
+      if (model) await env.DB.prepare("UPDATE sessions SET model = ?, effort = COALESCE(?, effort) WHERE member = ? AND session_id = ?").bind(model, effort, me, sessionId).run();
+      const ms = list ? (JSON.parse(String(list.text)) as unknown) : null;
+      if (Array.isArray(ms)) {
+        const clean = ms.slice(0, 40).flatMap((m: { slug?: unknown; name?: unknown; def?: unknown; levels?: unknown }) =>
+          typeof m?.slug === "string" && /^[\w.:-]{1,80}$/.test(m.slug)
+            ? [{ slug: m.slug, name: String(m.name ?? m.slug).slice(0, 60), def: String(m.def ?? "").slice(0, 12), levels: Array.isArray(m.levels) ? m.levels.map(String).filter((l) => /^[a-z]{1,12}$/.test(l)).slice(0, 10) : [] }]
+            : [],
+        );
+        await env.DB.prepare("UPDATE sessions SET codex_models = ? WHERE member = ? AND session_id = ?").bind(JSON.stringify(clean), me, sessionId).run();
+      }
+      told = (model ? 1 : 0) + (Array.isArray(ms) ? 1 : 0);
+    } catch {}
+  }
   const when = (raw: unknown) => {
     const at = Number(raw);
     return Number.isFinite(at) && at > now - 86400_000 && at < now + 60_000 ? at : now;
@@ -979,8 +1002,8 @@ export async function addActivity(env: Env, me: string, sessionId: string, items
     return true;
   });
   if (!rows.length) {
-    if (loopEvents.length || jobEvents.length || subEvents.length) env.refreshWeb?.(me);
-    return loopEvents.length + jobEvents.length + subEvents.length;
+    if (loopEvents.length || jobEvents.length || subEvents.length || told) env.refreshWeb?.(me);
+    return loopEvents.length + jobEvents.length + subEvents.length + told;
   }
   await env.DB.batch([
     ...rows.map((r) => env.DB.prepare("INSERT INTO activity (member, session_id, at, kind, text) VALUES (?, ?, ?, ?, ?)").bind(me, sessionId, r.at, r.kind, r.text)),

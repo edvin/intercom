@@ -58,7 +58,7 @@ import { type Gone, endedAgents, newer, reviveByHand } from "./upkeep";
 import { subMark, subMarkOf, subsRegion, subWhen } from "./subview";
 import { trackedNeedsYou } from "./tracked";
 import { BTW_TIMEOUT, NO_MOD, btwFor, compactable, modAnswers } from "./btw";
-import { EFFORTS, MODELS, effortName, effortSwitchable, modelName, switchable } from "./models";
+import { EFFORTS, MODELS, codexEfforts, codexModels, effortName, effortSwitchable, modelName, switchable } from "./models";
 import { type Activity, type Env, type Message, DELEGATE_PER_HOUR, LIVE, address, ago, deliveryMarks, short, hostNames, myProjects } from "./lib";
 import { LOGO, agentAvatar, agentHue, agentLink, agentName, avatar, deliveryMark, esc, hidden, icon, md, plainSpaces, time } from "./ui";
 
@@ -94,6 +94,7 @@ interface Agent {
   compact_prep?: string | null;
   model?: string | null;
   model_req?: string | null;
+  codex_models?: string | null;
   model_err?: string | null;
   effort?: string | null;
   screen?: string;
@@ -156,7 +157,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   const ph = (n: number) => Array.from({ length: n }, () => "?").join(",") || "NULL";
   const everyone = people.includes(me) ? people : [...people, me];
   const { results: agents } = await env.DB.prepare(
-    `SELECT member, session_id, label, project, project_pin, repo, loops, jobs, subagents, origin, branch, note, client, host, version, last_seen, state, state_detail, state_at, active_at, cwd, ui_at, ui_version, ctx_pct, ctx_tokens, ctx_window, ctx_at, compact_req, compact_prep, model, model_req, model_err, effort, screen, usage, account FROM sessions
+    `SELECT member, session_id, label, project, project_pin, repo, loops, jobs, subagents, origin, branch, note, client, host, version, last_seen, state, state_detail, state_at, active_at, cwd, ui_at, ui_version, ctx_pct, ctx_tokens, ctx_window, ctx_at, compact_req, compact_prep, model, model_req, model_err, effort, codex_models, screen, usage, account FROM sessions
      WHERE member IN (${ph(everyone.length)}) AND (member = ? OR project IN (${ph(mine.length)})) AND last_seen > ?
      ORDER BY member = ? DESC, last_seen DESC`,
   )
@@ -211,7 +212,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
     const [pm = "", pl = ""] = picked.split("/");
     agent =
       (await env.DB.prepare(
-        `SELECT member, session_id, label, project, project_pin, repo, loops, jobs, subagents, origin, branch, note, client, host, version, last_seen, state, state_detail, state_at, active_at, cwd, ui_at, ui_version, ctx_pct, ctx_tokens, ctx_window, ctx_at, compact_req, compact_prep, model, model_req, model_err, effort, screen, usage, account FROM sessions
+        `SELECT member, session_id, label, project, project_pin, repo, loops, jobs, subagents, origin, branch, note, client, host, version, last_seen, state, state_detail, state_at, active_at, cwd, ui_at, ui_version, ctx_pct, ctx_tokens, ctx_window, ctx_at, compact_req, compact_prep, model, model_req, model_err, effort, codex_models, screen, usage, account FROM sessions
          WHERE member = ? AND label = ? AND (member = ? OR project IN (${ph(mine.length)})) ORDER BY last_seen DESC LIMIT 1`,
       )
         .bind(pm, pl, me, ...mine)
@@ -607,13 +608,13 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   const effortWant = req?.effort ?? "";
   const modelVal = !agent.model && !canModel ? "" : `${agent.model ? `<span title="${esc(agent.model)}">${esc(modelName(agent.model))}</span>` : `<span class="muted">not known yet</span>`}${
     modelWant
-      ? `<form method="post" action="/agent/model" class="compacting">${hidden({ session: agent.session_id, back: here, cancel: "1" })}<span class="badge amber" title="Its intercom-ui mod runs /model ${esc(modelWant)} when the current turn ends">to ${esc(modelName(modelWant))} when idle…</span><button class="btn ghost xs">Call off</button></form>`
+      ? `<form method="post" action="/agent/model" class="compacting">${hidden({ session: agent.session_id, back: here, cancel: "1" })}<span class="badge amber" title="${agent.client === "codex" ? "The intercom types /model in its terminal" : `Its intercom-ui mod runs /model ${esc(modelWant)}`} when the current turn ends">to ${esc(modelName(modelWant))} when idle…</span><button class="btn ghost xs">Call off</button></form>`
       : canModel ? `<button type="button" class="btn ghost xs compactbtn" data-open="dlg-model" title="Switch its model (like /model)">Switch</button>` : ""
   }${agent.model_err && !req ? `<div class="small muted">Last switch didn't take: ${esc(agent.model_err)}</div>` : ""}`;
   // Its effort (thinking level), as its mod reports it; changed in the same dialog (/effort, mod 0.2.13+).
   const effortVal = !agent.effort && !canEffort ? "" : `${agent.effort ? `<span>${esc(effortName(agent.effort))}</span>` : `<span class="muted">not known yet</span>`}${
     effortWant
-      ? `<form method="post" action="/agent/model" class="compacting">${hidden({ session: agent.session_id, back: here, cancel: "1" })}<span class="badge amber" title="Its intercom-ui mod runs /effort ${esc(effortWant)} when the current turn ends">to ${esc(effortName(effortWant).toLowerCase())} when idle…</span><button class="btn ghost xs">Call off</button></form>`
+      ? `<form method="post" action="/agent/model" class="compacting">${hidden({ session: agent.session_id, back: here, cancel: "1" })}<span class="badge amber" title="${agent.client === "codex" ? "The intercom types /model in its terminal" : `Its intercom-ui mod runs /effort ${esc(effortWant)}`} when the current turn ends">to ${esc(effortName(effortWant).toLowerCase())} when idle…</span><button class="btn ghost xs">Call off</button></form>`
       : canEffort ? `<button type="button" class="btn ghost xs compactbtn" data-open="dlg-model" title="Change how hard it thinks (like /effort)">Change</button>` : ""
   }`;
   // Whether it takes work your other agents hand it (lib.ts delegatedTo): a switch on your own agents.
@@ -818,7 +819,17 @@ ${(() => {
           <label class="field">What the summary should keep (optional)<textarea name="instructions" rows="3" maxlength="500" placeholder="e.g. the deploy plan and the open review comments"></textarea></label>
           <label class="check"><input type="checkbox" name="first" value="1" checked> Tell it first, so it can save its state and say what to keep (one more turn)</label>
         </div><div class="ft"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary">${icon("layers", 14)}Compact</button></div></form></dialog>` : ""}
-      ${canModel ? (() => {
+      ${canModel && agent.client === "codex" ? (() => {
+        // A Codex agent: the models its Codex lists, and the reasoning levels of the one it runs (typed into /model).
+        const list = codexModels(agent.codex_models), cur = list.find((m) => m.slug === agent.model);
+        return `<dialog id="dlg-model"><div class="hd">${icon("cpu", 18)}<h2>Model and effort for ${esc(agent.label)}</h2></div>
+        <form method="post" action="/agent/model">${hidden({ session: agent.session_id, back: here })}<div class="bd stack">
+          <p class="small muted" style="margin:0">Like /model in its terminal, for this session only${agent.model ? `; it runs ${esc(modelName(agent.model))}${agent.effort ? ` at ${esc(effortName(agent.effort).toLowerCase())} effort` : ""} now` : ""}. The intercom types it for it ${agent.state === "working" ? "when its current turn ends" : "right away"}, and the conversation carries on.</p>
+          <input type="hidden" name="now_model" value="${esc(agent.model ?? "")}"><input type="hidden" name="now_effort" value="${esc(agent.effort === "default" ? "auto" : (agent.effort ?? ""))}">
+          <div class="mdlpick">${list.map((m) => `<label class="mdlopt"><input type="radio" name="model" value="${esc(m.slug)}"${m.slug === agent.model ? " checked autofocus" : ""}><b>${esc(m.name)}</b><span class="muted">${m.def ? `${esc(effortName(m.def).toLowerCase())} by default` : ""}</span></label>`).join("")}</div>
+          <div class="field">Effort <span class="tiny">(how hard it reasons; Default is the model's own)</span><div class="effpick">${codexEfforts(cur).map((x) => `<label class="effopt"><input type="radio" name="effort" value="${x.value}"${x.value === (agent.effort === "default" ? "auto" : agent.effort) ? " checked" : ""}><span>${esc(x.label)}</span></label>`).join("")}</div></div>
+        </div><div class="ft"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary">${icon("check", 14)}Switch</button></div></form></dialog>`;
+      })() : canModel ? (() => {
         // The one it runs is picked: an alias that names it (opus for claude-opus-…), else Other with its id.
         const now = (agent.model ?? "").toLowerCase(), fam = MODELS.find((m) => m.value !== "default" && now.startsWith(`claude-${m.value}-`))?.value ?? "";
         return `<dialog id="dlg-model"><div class="hd">${icon("cpu", 18)}<h2>${canEffort ? "Model and effort" : "Model"} for ${esc(agent.label)}</h2></div>

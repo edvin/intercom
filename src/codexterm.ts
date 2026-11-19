@@ -51,9 +51,9 @@ export function menu(text: string): { label: string; on: boolean }[] {
 }
 
 /** The keys that pick the option matching `re` in the menu on screen (null when there's no such option). */
-export function choose(text: string, re: RegExp): string[] | null {
+export function choose(text: string, re: RegExp | ((label: string) => boolean)): string[] | null {
   const opts = menu(text);
-  const want = opts.findIndex((o) => re.test(o.label));
+  const want = opts.findIndex((o) => (typeof re === "function" ? re(o.label) : re.test(o.label)));
   if (want < 0) return null;
   const at = Math.max(0, opts.findIndex((o) => o.on));
   const d = want - at;
@@ -116,7 +116,63 @@ export async function redeemReset(term: Term): Promise<Redeemed> {
   return "redeemed";
 }
 
-export const CARRY_ON = "Your usage limit was reset: carry on with your work.";
+/** A reasoning level as Codex's /model menu names it. */
+const LEVEL_LABEL: Record<string, string> = { low: "Low", medium: "Medium", high: "High", xhigh: "Extra high", max: "Max", ultra: "Ultra" };
+/** A model as the menu lists it ("GPT-6.1 Terra (current)  Efficient model…") → its id's form (gpt-6.1-terra). */
+export const menuModel = (label: string) =>
+  label.split(/\s{2,}/)[0]!.replace(/\s*\(current\)\s*$/i, "").trim().toLowerCase().replace(/\s+/g, "-");
+
+export type Switched = { model: string; effort: string } | "busy" | `failed: ${string}`;
+
+/**
+ * Switch a Codex session's model and reasoning level with /model, for this session only: its model (`model`, an id
+ * such as gpt-6.1-sol; the current one when left out), then its level ("auto": the one marked default; max and ultra
+ * sit under "More reasoning…"), picked with "s" (Enter would make it the default for every session on the machine).
+ * Answers with what Codex says it changed to.
+ */
+export async function switchModel(term: Term, want: { model?: string; effort: string }): Promise<Switched> {
+  const s = await keepModel(term, await term({ op: "capture" }));
+  if (busy(s.text)) return "busy";
+  const back = async (why: string): Promise<Switched> => {
+    await term({ op: "keys", keys: ["esc", "esc"] });
+    return `failed: ${why}`;
+  };
+  const picker = await waitFor(term, await typeLine(term, "/model"), /Select Model and Effort/, 3);
+  if (!picker) return back("its /model menu didn't open");
+  const pickModel = choose(picker.text, want.model ? (l) => menuModel(l) === want.model!.toLowerCase() : /\(current\)/i);
+  if (!pickModel) return back(`${want.model ?? "its model"} isn't in its /model menu`);
+  let levels = await waitFor(term, await term({ op: "keys", keys: pickModel }), /Select Reasoning Level/, 3);
+  if (!levels) return back("the reasoning levels didn't show");
+  let re: RegExp = /\(default\)/i;
+  if (want.effort !== "auto") {
+    const label = LEVEL_LABEL[want.effort];
+    if (!label) return back(`${want.effort} isn't a reasoning level`);
+    if (want.effort === "max" || want.effort === "ultra") {
+      const more = choose(levels.text, /^More reasoning/i);
+      if (!more) return back(`${label} isn't offered for this model`);
+      levels = await waitFor(term, await term({ op: "keys", keys: more }), /Advanced Reasoning/, 3);
+      if (!levels) return back("the advanced reasoning levels didn't show");
+    }
+    re = new RegExp(`^${label}\\b`, "i");
+  }
+  const pick = choose(levels.text, re);
+  if (!pick) return back(`${LEVEL_LABEL[want.effort] ?? "Its default level"} isn't offered for this model`);
+  // The cursor moves there; "s" then picks it for this session only.
+  if (pick.length > 1) await term({ op: "keys", keys: pick.slice(0, -1) });
+  // What Codex says it changed to: a line that wasn't on the screen before (an earlier switch's may still show).
+  const changes = (text: string) => [...plainScreen(text).matchAll(/Model changed to (\S+)(?: (\S+))? for this session/g)];
+  const before = changes(s.text).length;
+  let now = await term({ op: "keys", text: "s" });
+  for (let i = 0; changes(now.text).length <= before && i < 3; i++) {
+    await pause();
+    now = await term({ op: "capture" });
+  }
+  const said = changes(now.text).length > before ? changes(now.text).pop() : null;
+  if (!said) return back("Codex didn't say it changed");
+  return { model: said[1]!, effort: said[2] ?? "auto" };
+}
+
+export const CARRY_ON ="Your usage limit was reset: carry on with your work.";
 
 /** After a reset, or a restart that paused its goal: the goal resumed, or the agent told to carry on. */
 export async function carryOn(term: Term, opts: { tell?: boolean } = {}): Promise<string> {

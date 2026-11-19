@@ -5,7 +5,7 @@ import { pickPrompt, queuePromptLook } from "./prompts";
 import { recordsBrief } from "./records";
 import { saveWorkSettings, workCsv } from "./work";
 import { dismissStuck, moveStuck, releaseSenders, setNudge, wakeStuck } from "./stuck";
-import { askModel } from "./models";
+import { askModel, queueCodexModel } from "./models";
 import { CTX_STALE_MS, FIT_SINCE, compactAgent, compactOnStop, markCompacted, dismiss, myRows, newer, outOfUsage, restartAgent, reviveAgent, setAuto, updateAgent, updateIdle } from "./upkeep";
 import { activeLoops, loopReminder, parseLoops } from "./loops";
 import { KEY_NAMES, type ScreenQuery, askScreen, drawScreen, screenReply, sendNow, stopAgent } from "./screen";
@@ -261,6 +261,9 @@ async function handleHook(url: URL, env: Env, me: string, input: { last_assistan
   if (event === "Stop") {
     // A turn that ended isn't waiting on anything any more.
     if (session) await closeSessionApprovals(env, me, session.session_id);
+    // A Codex agent's model switch asked for mid-turn: its /model is typed now (models.ts).
+    if (session && client === "codex" && (await env.DB.prepare("SELECT 1 FROM sessions WHERE member = ? AND session_id = ? AND model_req IS NOT NULL").bind(me, session.session_id).first()))
+      await queueCodexModel(env, me, session.session_id);
     // Stopped by Fable's weekly limit (the dialog went unanswered): switched to Opus and told to carry on (fable.ts).
     if (session && /Fable/i.test(typeof input.last_assistant_message === "string" ? input.last_assistant_message.slice(-400) : "") && isFable(await modelOf(env, me, session.session_id)))
       await queueFableLook(env, me, session.session_id, 4000);
