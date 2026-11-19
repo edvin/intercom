@@ -855,9 +855,9 @@ ${(() => {
           </div>
           <div data-loginstep="2" class="stack" hidden>
             <div class="lstep"><span class="lnum">1</span><div class="grow"><b>Sign in with the account to use</b><div class="small muted">Pick or add the account on the page that opens; it then shows a code.</div><a class="btn sm" data-loginurl href="#" target="_blank" rel="noopener noreferrer">${icon("arrow", 13)}Open sign-in page</a></div></div>
-            <form class="lstep" data-loginform><span class="lnum">2</span><div class="grow"><b>Paste the code it shows</b><div class="lcode"><input name="code" required autocomplete="off" spellcheck="false" placeholder="Paste the code here" aria-label="Sign-in code"><button class="btn sm primary">${icon("check", 13)}Log in</button></div></div></form>
+            <form class="lstep" data-loginform><span class="lnum">2</span><div class="grow"><b>Paste the code it shows</b><div class="lcode"><input name="code" required autocomplete="off" spellcheck="false" placeholder="Paste the code here" aria-label="Sign-in code"><button class="btn sm primary">${icon("check", 13)}Log in</button></div><div class="small muted" data-loginwait hidden>Claude Code is trading the code for the login; this can take up to a minute.</div></div></form>
           </div>
-          <div data-loginstep="3" hidden><p class="lok" data-loginok></p></div>
+          <div data-loginstep="3" hidden><div class="lok">${icon("check", 15)}<span data-loginok></span></div></div>
           <p class="small lerr" data-loginerr hidden></p>
         </div>
         <div class="ft"><button type="button" class="btn ghost" data-login="cancel">Cancel</button><button type="button" class="btn primary" data-login="start">${icon("terminal", 14)}Start</button></div></dialog>` : ""}

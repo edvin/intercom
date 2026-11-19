@@ -4306,10 +4306,12 @@ describe("logging a machine into another account", () => {
     at = 0;
     log: string[] = [];
     good = "abcDEF123_good#state";
+    slow = 0; // looks Claude Code takes to trade the code for a login
     screen(): string {
       const conv = "⏺ The build failed with an error earlier.\n";
       if (this.view === "menu") return `${conv}  Login\n  Select login method:\n${["Claude account with subscription · Individual, Team, or Enterprise", "Anthropic Console account · API usage billing", "3rd-party platform · Bedrock"].map((x, i) => `  ${i === this.at ? "❯" : " "} ${i + 1}. ${x}`).join("\n")}\n  Esc to cancel\n`;
       if (this.view === "code") return `${conv}  Login\n  Browser didn't open? Use the URL below to sign in (c to copy)\n${URL1}\n${URL2}\n  Paste code here if prompted\n  │ ${this.input}\n  Esc to cancel\n`;
+      if (this.view === "busy") return --this.slow > 0 ? `${conv}  Login\n  Logging in…\n` : ((this.view = "ok"), this.screen());
       if (this.view === "ok") return `${conv}  Login\n  Login successful. Press Enter to continue…\n`;
       if (this.view === "bad") return `${conv}  Login\n  OAuth error: Invalid code. Please make sure the full code was copied\n  Paste code here if prompted\n`;
       return `${conv}❯ ${this.input}\n  ? for shortcuts\n`;
@@ -4323,7 +4325,7 @@ describe("logging a machine into another account", () => {
         else if (k === "enter") {
           if (this.view === "idle" && this.input === "/login") (this.view = "menu"), (this.input = "");
           else if (this.view === "menu") this.view = this.at === 0 ? "code" : "x";
-          else if (this.view === "code") (this.view = this.input === this.good ? "ok" : "bad"), (this.input = "");
+          else if (this.view === "code") (this.view = this.input === this.good ? (this.slow ? "busy" : "ok") : "bad"), (this.input = "");
           else if (this.view === "ok") this.view = "idle";
         }
       }
@@ -4364,8 +4366,11 @@ describe("logging a machine into another account", () => {
     assert.deepEqual(t.log.slice(0, 3), ["type /login", "enter", "enter"]);
     // A wrong code: what Claude Code says, and it still waits for one.
     await assert.rejects(drive(w, t, () => loginCode(w.env(), "bob", "lg1", "abcDEF123_wrong#state")), /Claude Code said: OAuth error: Invalid code/);
+    // It takes Claude Code a while: waited for, nothing pressed meanwhile.
     t.view = "code";
+    t.slow = 12;
     assert.match(await drive(w, t, () => loginCode(w.env(), "bob", "lg1", "  abcDEF123_good#state ")), /^Logged in\. docs on the same machine uses it too\.$/);
+    assert.ok(!t.log.slice(t.log.lastIndexOf("type abcDEF123_good#state")).includes("esc"));
     assert.equal(t.view, "idle");
     const acts = await w.db.prepare("SELECT text FROM activity WHERE session_id = 'lg1' AND kind = 'keys'").all<{ text: string }>();
     assert.ok(acts.results.some((a) => /the sign-in code/.test(a.text)));

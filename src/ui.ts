@@ -854,7 +854,13 @@ body:has(.ide) .top .in{max-width:none;padding:8px 14px}
 .scrlive{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--green)}.scrlive .dot{width:7px;height:7px;border-radius:50%;background:var(--green);animation:pulse 1.8s infinite}
 .scrbody{flex:0 1 auto;min-height:0;display:flex;flex-direction:column;background:#0b0d14}
 .hoclose{margin:0 0 0 auto}.hoclose .btn{color:var(--ink-2)}
-.logindlg{width:min(520px,calc(100vw - 32px))}.lstep{display:flex;gap:12px;align-items:flex-start;margin:0}.lstep .grow{display:flex;flex-direction:column;gap:6px;align-items:flex-start}.lnum{flex:none;width:24px;height:24px;border-radius:50%;display:grid;place-items:center;background:var(--accent-soft);color:var(--accent);font-weight:600;font-size:12.5px}.lcode{display:flex;gap:8px;width:100%}.lcode input{flex:1;min-width:0;font:13px "Geist Mono",ui-monospace,monospace}.lerr{color:var(--red);margin:0}.lok{margin:0;font-weight:500}
+.logindlg{width:min(540px,calc(100vw - 32px))}.logindlg .bd{gap:14px}.logindlg [data-loginstep="2"]{gap:0}
+.lstep{display:flex;gap:14px;align-items:flex-start;margin:0;padding:14px 0}.lstep+.lstep{border-top:1px solid var(--line)}.lstep:first-child{padding-top:2px}
+.lstep .grow{display:flex;flex-direction:column;gap:8px;align-items:flex-start;min-width:0}.lstep .grow>b{line-height:24px}.lstep .grow>.btn{margin-top:2px}
+.lnum{flex:none;width:24px;height:24px;border-radius:50%;display:grid;place-items:center;background:var(--accent-soft);color:var(--accent);font-weight:600;font-size:12.5px}
+.lcode{display:flex;gap:8px;width:100%}.lcode input{flex:1;min-width:0;height:34px;font:13px "Geist Mono",ui-monospace,monospace}
+.lerr{margin:0;padding:10px 12px;border-radius:10px;background:var(--red-soft);color:var(--red)}
+.lok{display:flex;gap:10px;align-items:flex-start;padding:12px 14px;border-radius:10px;background:var(--green-soft);color:var(--green-ink);font-weight:550;line-height:1.45}.lok svg{flex:none;margin-top:2px}
 .scrbody.typable{cursor:text;outline:2px solid transparent;outline-offset:-2px;transition:outline-color .15s}.scrbody.typable:focus{outline-color:var(--accent)}
 .scrhint{display:none;font-size:12px;color:var(--ink-2);margin:0}@media (hover:hover) and (pointer:fine){.scrhint{display:block}}.scrdlg:has(.scrbody:focus) .scrhint b{color:var(--accent)}
 .scrwrap{flex:0 1 auto;height:calc(var(--rows,30) * 17.25px + 30px);min-height:120px;display:flex}
@@ -2833,11 +2839,13 @@ ${markupScript()}
     const f = e.target.closest && e.target.closest("[data-loginform]"); if (!f) return;
     e.preventDefault(); e.stopImmediatePropagation(); // its own: not the page's form handling (which would close the window)
     const d = f.closest("dialog"), btn = f.querySelector("button"), input = f.querySelector("input");
-    loginErr(d, ""); btn.disabled = true;
+    // From here the login is Claude Code's: closing this window doesn't press anything in its terminal any more.
+    loginErr(d, ""); btn.disabled = true; d.dataset.started = ""; const label = btn.innerHTML; btn.textContent = "Logging in…";
+    const wait = d.querySelector("[data-loginwait]"); if (wait) wait.hidden = false;
     const r = await loginPost(d, "code", { code: input.value });
-    btn.disabled = false;
+    btn.disabled = false; btn.innerHTML = label; if (wait) wait.hidden = true;
     if (r.error) return loginErr(d, r.error);
-    d.dataset.started = ""; input.value = "";
+    input.value = "";
     d.querySelector("[data-loginok]").textContent = r.message; loginShow(d, 3);
     const c = d.querySelector("[data-login=cancel]"); c.textContent = "Done"; c.dataset.login = "done";
   }, true);

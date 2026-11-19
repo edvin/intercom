@@ -98,20 +98,34 @@ export async function loginCode(env: Env, me: string, sessionId: string, raw: st
     while (i > 0 && !/^\s*Login\s*$/.test(ls[i]!)) i--;
     return ls.slice(i > 0 ? i : Math.max(0, ls.length - 15)).join("\n");
   };
+  // Claude Code trades the code for a login and saves it, which can take a while: up to about 45 seconds. Nothing is
+  // pressed meanwhile (an Esc now would break the login half way and leave the machine logged out).
+  const OK = /Login successful/i;
+  const BAD = /OAuth error|Invalid code|invalid_grant|Authorization failed|Login failed|expired/i;
+  const OUT = /Not logged in|Please run \/login|Invalid API key/i;
   let said = "";
-  for (let i = 0; i < 9; i++) {
+  let left = false;
+  for (let i = 0; i < 36; i++) {
     said = dialog(s.text);
-    if (/Login successful|Logged in|successfully|invalid|error|failed|expired/i.test(said)) break;
+    // Gone from the screen without a word: the login dialog closed by itself.
+    left = !/Paste code here|^\s*Login\s*$/im.test(plainScreen(s.text));
+    if (OK.test(said) || BAD.test(said) || left) break;
     await pause();
     s = await term({ op: "capture" });
   }
-  const done = /Login successful|Logged in|successfully|invalid|error|failed|expired/i.test(said);
-  if (!done || /invalid|error|failed|expired/i.test(said) && !/Login successful|Logged in/i.test(said)) {
-    const why = said.split("\n").map((l) => l.trim()).filter((l) => /invalid|error|failed|expired/i.test(l)).pop();
-    throw new UserError(why ? `Claude Code said: ${why.slice(0, 200)}` : `Claude Code didn't say the login worked. Look at ${t.label}'s screen.`);
+  if (BAD.test(said) && !OK.test(said)) {
+    const why = said.split("\n").map((l) => l.trim()).filter((l) => BAD.test(l)).pop();
+    throw new UserError(`Claude Code said: ${(why ?? "the login failed").slice(0, 200)}. Start again for a new link and code.`);
   }
-  // "Press Enter to continue", when it asks.
-  if (/Press Enter/i.test(said)) await term({ op: "keys", keys: ["enter"] });
+  if (!OK.test(said) && !left) return `Claude Code is still finishing the login. Look at ${t.label}'s screen in a minute; it's done when the login box has closed.`;
+  // "Press Enter to continue", when it asks; then a last look that it isn't logged out.
+  if (/Press Enter/i.test(said)) {
+    await term({ op: "keys", keys: ["enter"] });
+    await pause(2);
+    s = await term({ op: "capture" });
+  }
+  if (OUT.test(plainScreen(s.text).split("\n").slice(-12).join("\n")))
+    throw new UserError(`Claude Code says ${t.label} isn't logged in after that. Start again; if it says so again, run /login in its terminal.`);
   const email = /([\w.+-]+@[\w-]+(?:\.[\w-]+)+)/.exec(said)?.[1];
   const moved = others.length ? ` ${others.map((o) => o.label).join(", ")} on the same machine ${others.length === 1 ? "uses" : "use"} it too.` : "";
   return `Logged in${email ? ` as ${email}` : ""}.${moved}`;
