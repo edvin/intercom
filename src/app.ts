@@ -505,7 +505,7 @@ async function handleUi(url: URL, env: Env, me: string): Promise<Response> {
   const cursor = Math.max(cursorRow?.last_read_id ?? 0, top - 1000);
   const sid = url.searchParams.get("session");
   const mySession = sid
-    ? await env.DB.prepare("SELECT session_id, label, project, cursor, version, compact_req, model, model_req, started_at, state, last_seen FROM sessions WHERE member = ? AND session_id = ?").bind(me, sid).first<Session & { cursor: number; version: string; compact_req: string | null; model: string | null; model_req: string | null; state: string | null; last_seen: number }>()
+    ? await env.DB.prepare("SELECT session_id, label, project, cursor, version, compact_req, model, model_req, effort, started_at, state, last_seen FROM sessions WHERE member = ? AND session_id = ?").bind(me, sid).first<Session & { cursor: number; version: string; compact_req: string | null; model: string | null; model_req: string | null; effort: string | null; state: string | null; last_seen: number }>()
     : null;
   // The mod polling for this session: side questions can go to it.
   if (mySession) {
@@ -545,6 +545,10 @@ async function handleUi(url: URL, env: Env, me: string): Promise<Response> {
   // The model it runs, as the mod reads it (/model in its terminal changes it too): shown on the agent.
   const model = (url.searchParams.get("model") ?? "").slice(0, 100);
   if (mySession && model && model !== mySession.model) await env.DB.prepare("UPDATE sessions SET model = ? WHERE member = ? AND session_id = ?").bind(model, me, mySession.session_id).run();
+  // And its effort (thinking level), as its main loop last sent it: a level, or a number on internal builds.
+  const effort = (url.searchParams.get("effort") ?? "").toLowerCase();
+  if (mySession && /^(low|medium|high|xhigh|max|auto|\d{1,6})$/.test(effort) && effort !== mySession.effort)
+    await env.DB.prepare("UPDATE sessions SET effort = ? WHERE member = ? AND session_id = ?").bind(effort, me, mySession.session_id).run();
   // On Fable, mid-turn and quiet: it may be sitting on the Fable-limit dialog (fable.ts), so its screen gets a look.
   if (mySession) await maybeFableLook(env, me, { session_id: mySession.session_id, model: model || mySession.model, state: mySession.state, last_seen: mySession.last_seen });
   // A session counts what it receives (its project's posts and its DMs); without one, the person's view.
@@ -588,7 +592,7 @@ async function handleUi(url: URL, env: Env, me: string): Promise<Response> {
     // A compaction you asked for from the dashboard: the mod runs it once the session is idle.
     compact: mySession?.compact_req ? (JSON.parse(mySession.compact_req) as { id: string; instructions: string }) : null,
     // A model switch you asked for from the dashboard: the mod runs /model <model> once the session is idle (models.ts).
-    model: mySession?.model_req ? (JSON.parse(mySession.model_req) as { id: string; model: string }) : null,
+    model: mySession?.model_req ? (JSON.parse(mySession.model_req) as { id: string; model?: string; effort?: string }) : null,
     // How to answer them (it depends on the session's plugin version); the mod adds it to the prompt it submits.
     reply: replyHow(mySession?.version, me),
     // Side questions for the mod to answer with a fork of this session's context.
@@ -1310,7 +1314,11 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
     } else {
       const pick = String(form.get("model") ?? "");
       try {
-        back.searchParams.set("ok", await askModel(env, me, sid, pick === "other" ? String(form.get("other") ?? "") : pick));
+        // Only what changed: the model picked may be the one it runs (the dialog starts on it), the effort too.
+        const want = pick === "other" ? String(form.get("other") ?? "").trim() : pick;
+        const now = String(form.get("now_model") ?? ""), nowEffort = String(form.get("now_effort") ?? "");
+        const effort = String(form.get("effort") ?? "");
+        back.searchParams.set("ok", await askModel(env, me, sid, want === now ? "" : want, effort === nowEffort ? "" : effort));
       } catch (e) {
         if (!(e instanceof UserError)) throw e;
         back.searchParams.set("err", e.message);
@@ -1322,12 +1330,13 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
   if (url.pathname.startsWith("/api/model/") && req.method === "POST") {
     // The mod ran the switch: the model it runs now, or Claude Code's answer when it didn't take.
     const id = decodeURIComponent(url.pathname.slice(11));
-    const body = (await req.json().catch(() => ({}))) as { session?: unknown; model?: unknown; error?: unknown };
+    const body = (await req.json().catch(() => ({}))) as { session?: unknown; model?: unknown; effort?: unknown; error?: unknown };
     const sid = String(body.session ?? "");
     const model = typeof body.model === "string" ? body.model.slice(0, 100) : null;
+    const effort = typeof body.effort === "string" && /^(low|medium|high|xhigh|max|auto|\d{1,6})$/.test(body.effort) ? body.effort : null;
     const error = typeof body.error === "string" && body.error ? body.error.slice(0, 300) : null;
-    await env.DB.prepare("UPDATE sessions SET model_req = NULL, model_err = ?, model = COALESCE(?, model) WHERE member = ? AND session_id = ? AND json_extract(model_req, '$.id') = ?")
-      .bind(error, model, me, sid, id)
+    await env.DB.prepare("UPDATE sessions SET model_req = NULL, model_err = ?, model = COALESCE(?, model), effort = COALESCE(?, effort) WHERE member = ? AND session_id = ? AND json_extract(model_req, '$.id') = ?")
+      .bind(error, model, effort, me, sid, id)
       .run();
     env.refreshWeb?.(me);
     return json({ ok: true });

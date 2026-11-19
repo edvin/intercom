@@ -3634,9 +3634,9 @@ describe("Claude.ai connector", () => {
     const bad = await w.form("/agent/model", "bob", { session: "m1", model: "other", other: "rm -rf /", back: "/dashboard?view=agents" });
     assert.match(decodeURIComponent(bad.headers.get("location")!).replace(/\+/g, " "), /err=That isn(?:'|’)t a model name/);
     // The connector: the current model and the choices, then a switch and calling it off.
-    assert.match(await call(w, t, "model", { agent: "kernel" }), /kernel runs Opus 5\.5 \(claude-opus-5-5\)[\s\S]*The last switch didn't take[\s\S]*Choices: default \(what its settings say\), opus/);
+    assert.match(await call(w, t, "model", { agent: "kernel" }), /kernel runs Opus 5\.5 \(claude-opus-5-5\)[\s\S]*The last switch didn't take[\s\S]*Models: default \(what its settings say\), opus/);
     assert.match(await call(w, t, "model", { agent: "kernel", model: "haiku" }), /kernel switches to Haiku now/);
-    assert.match(await call(w, t, "model", { agent: "kernel", cancel: true }), /Called off: kernel keeps its model\./);
+    assert.match(await call(w, t, "model", { agent: "kernel", cancel: true }), /Called off: kernel keeps its model and effort\./);
     assert.equal((await poll()).model, null);
     // Codex, and a session whose mod is too old (or not running), switch in their terminal.
     assert.match(await call(w, t, "model", { agent: "alder", model: "opus" }), /alder is a Codex session: its model is chosen in its terminal/);
@@ -3644,6 +3644,25 @@ describe("Claude.ai connector", () => {
     assert.match(await call(w, t, "model", { agent: "docs", model: "opus" }), /intercom-ui mod \(0\.2\.11 or newer\) isn(?:'|’)t running/);
     html = await (await w.request("/dashboard?view=agents&agent=bob/docs", { as: "bob", cookie: true })).text();
     assert.doesNotMatch(html, /dlg-model/);
+
+    // Effort (thinking level): mod 0.2.11 can switch the model but not the effort, and says how to get it.
+    assert.match(await call(w, t, "model", { agent: "kernel", effort: "high" }), /effort can(?:'|’)t be changed from here until its intercom-ui mod is 0\.2\.13/);
+    // From 0.2.13 it reports the effort its main loop sends, shown on the agent with the choices in the same dialog.
+    await w.request("/api/ui?project=billing-api&session=m1&mod=0.2.13&effort=medium", { as: "bob" });
+    html = await page();
+    assert.match(html, /<span class="ifk">Effort<\/span><span class="ifv"><span>Medium<\/span>/);
+    assert.match(html, /<h2>Model and effort for kernel<\/h2>[\s\S]*name="now_effort" value="medium"[\s\S]*name="effort" value="medium" checked/);
+    // Only what changed is asked for: the model it runs is left alone when just the effort moves.
+    await w.form("/agent/model", "bob", { session: "m1", model: "opus", now_model: "opus", effort: "max", now_effort: "medium", back: "/dashboard?view=agents" });
+    const ui3 = (await (await w.request("/api/ui?project=billing-api&session=m1&mod=0.2.13", { as: "bob" })).json()) as { model: { id: string; model?: string; effort?: string } };
+    assert.deepEqual([ui3.model.model, ui3.model.effort], [undefined, "max"]);
+    assert.match(await page(), /to max when idle/);
+    await w.request(`/api/model/${ui3.model.id}`, { as: "bob", method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ session: "m1", effort: "max" }) });
+    assert.match(await page(), /<span class="ifk">Effort<\/span><span class="ifv"><span>Max<\/span>/);
+    // The connector reads and sets it; a level /effort doesn't take is refused.
+    assert.match(await call(w, t, "model", { agent: "kernel" }), /kernel runs Opus 5\.5 \(claude-opus-5-5\) at max effort \(max\)\.[\s\S]*Effort: low, medium, high, xhigh, max, auto\./);
+    assert.match(await call(w, t, "model", { agent: "kernel", model: "sonnet", effort: "low" }), /kernel switches to Sonnet at low effort now/);
+    assert.match(await call(w, t, "model", { agent: "kernel", effort: "turbo" }), /isn(?:'|’)t an effort level/);
   });
 });
 

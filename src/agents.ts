@@ -58,7 +58,7 @@ import { type Gone, endedAgents, newer, reviveByHand } from "./upkeep";
 import { subMark, subMarkOf, subsRegion, subWhen } from "./subview";
 import { trackedNeedsYou } from "./tracked";
 import { BTW_TIMEOUT, NO_MOD, btwFor, compactable, modAnswers } from "./btw";
-import { MODELS, modelName, switchable } from "./models";
+import { EFFORTS, MODELS, effortName, effortSwitchable, modelName, switchable } from "./models";
 import { type Activity, type Env, type Message, DELEGATE_PER_HOUR, LIVE, address, ago, deliveryMarks, short, hostNames, myProjects } from "./lib";
 import { LOGO, agentAvatar, agentHue, agentLink, agentName, avatar, deliveryMark, esc, hidden, icon, md, plainSpaces, time } from "./ui";
 
@@ -95,6 +95,7 @@ interface Agent {
   model?: string | null;
   model_req?: string | null;
   model_err?: string | null;
+  effort?: string | null;
   screen?: string;
   usage?: string | null;
   account?: string;
@@ -155,7 +156,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   const ph = (n: number) => Array.from({ length: n }, () => "?").join(",") || "NULL";
   const everyone = people.includes(me) ? people : [...people, me];
   const { results: agents } = await env.DB.prepare(
-    `SELECT member, session_id, label, project, project_pin, repo, loops, jobs, subagents, origin, branch, note, client, host, version, last_seen, state, state_detail, state_at, active_at, cwd, ui_at, ui_version, ctx_pct, ctx_tokens, ctx_window, ctx_at, compact_req, compact_prep, model, model_req, model_err, screen, usage, account FROM sessions
+    `SELECT member, session_id, label, project, project_pin, repo, loops, jobs, subagents, origin, branch, note, client, host, version, last_seen, state, state_detail, state_at, active_at, cwd, ui_at, ui_version, ctx_pct, ctx_tokens, ctx_window, ctx_at, compact_req, compact_prep, model, model_req, model_err, effort, screen, usage, account FROM sessions
      WHERE member IN (${ph(everyone.length)}) AND (member = ? OR project IN (${ph(mine.length)})) AND last_seen > ?
      ORDER BY member = ? DESC, last_seen DESC`,
   )
@@ -210,7 +211,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
     const [pm = "", pl = ""] = picked.split("/");
     agent =
       (await env.DB.prepare(
-        `SELECT member, session_id, label, project, project_pin, repo, loops, jobs, subagents, origin, branch, note, client, host, version, last_seen, state, state_detail, state_at, active_at, cwd, ui_at, ui_version, ctx_pct, ctx_tokens, ctx_window, ctx_at, compact_req, compact_prep, model, model_req, model_err, screen, usage, account FROM sessions
+        `SELECT member, session_id, label, project, project_pin, repo, loops, jobs, subagents, origin, branch, note, client, host, version, last_seen, state, state_detail, state_at, active_at, cwd, ui_at, ui_version, ctx_pct, ctx_tokens, ctx_window, ctx_at, compact_req, compact_prep, model, model_req, model_err, effort, screen, usage, account FROM sessions
          WHERE member = ? AND label = ? AND (member = ? OR project IN (${ph(mine.length)})) ORDER BY last_seen DESC LIMIT 1`,
       )
         .bind(pm, pl, me, ...mine)
@@ -600,12 +601,21 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
       : `<button type="button" class="btn ghost xs compactbtn" data-open="dlg-compact" title="Compact its context (like /compact)">Compact</button>`;
   // Its model, switched from here: its mod runs /model between turns (models.ts; Claude Code only).
   const canModel = ownAgent && !switchable(agent, isOn(agent));
-  const modelWant = agent.model_req ? (JSON.parse(agent.model_req) as { model: string }).model : "";
+  const canEffort = ownAgent && !effortSwitchable(agent, isOn(agent));
+  const req = agent.model_req ? (JSON.parse(agent.model_req) as { model?: string; effort?: string }) : null;
+  const modelWant = req?.model ?? "";
+  const effortWant = req?.effort ?? "";
   const modelVal = !agent.model && !canModel ? "" : `${agent.model ? `<span title="${esc(agent.model)}">${esc(modelName(agent.model))}</span>` : `<span class="muted">not known yet</span>`}${
     modelWant
       ? `<form method="post" action="/agent/model" class="compacting">${hidden({ session: agent.session_id, back: here, cancel: "1" })}<span class="badge amber" title="Its intercom-ui mod runs /model ${esc(modelWant)} when the current turn ends">to ${esc(modelName(modelWant))} when idle…</span><button class="btn ghost xs">Call off</button></form>`
       : canModel ? `<button type="button" class="btn ghost xs compactbtn" data-open="dlg-model" title="Switch its model (like /model)">Switch</button>` : ""
-  }${agent.model_err && !modelWant ? `<div class="small muted">Last switch didn't take: ${esc(agent.model_err)}</div>` : ""}`;
+  }${agent.model_err && !req ? `<div class="small muted">Last switch didn't take: ${esc(agent.model_err)}</div>` : ""}`;
+  // Its effort (thinking level), as its mod reports it; changed in the same dialog (/effort, mod 0.2.13+).
+  const effortVal = !agent.effort && !canEffort ? "" : `${agent.effort ? `<span>${esc(effortName(agent.effort))}</span>` : `<span class="muted">not known yet</span>`}${
+    effortWant
+      ? `<form method="post" action="/agent/model" class="compacting">${hidden({ session: agent.session_id, back: here, cancel: "1" })}<span class="badge amber" title="Its intercom-ui mod runs /effort ${esc(effortWant)} when the current turn ends">to ${esc(effortName(effortWant).toLowerCase())} when idle…</span><button class="btn ghost xs">Call off</button></form>`
+      : canEffort ? `<button type="button" class="btn ghost xs compactbtn" data-open="dlg-model" title="Change how hard it thinks (like /effort)">Change</button>` : ""
+  }`;
   // Whether it takes work your other agents hand it (lib.ts delegatedTo): a switch on your own agents.
   const takesWork = ownAgent && !(await env.DB.prepare("SELECT 1 FROM agent_prefs WHERE member = ? AND label = ? AND takes_work = 0").bind(me, agent.label).first());
   const takesCtl = ownAgent
@@ -711,6 +721,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   const fact = (ic: string, k: string, v: string, cls = "") => `<div class="ifr${cls ? ` ${cls}` : ""}"><span class="ifi">${icon(ic, 13)}</span><span class="ifk">${k}</span><span class="ifv">${v}</span></div>`;
   const facts = [
     modelVal ? fact("cpu", "Model", modelVal) : "",
+    effortVal ? fact("sparkles", "Effort", effortVal) : "",
     fact("hash", "Project", `${agent.project ? `<a href="/dashboard?channel=${encodeURIComponent(agent.project)}">#${esc(agent.project)}</a>` : `<span class="muted">none</span>`}${ownAgent && agent.project_pin ? ` <span class="badge" title="Set from the dashboard for this session; its repo would put it in ${esc(agent.repo ? `whatever ${agent.repo} maps to` : "no project")}">pinned</span>` : ""}${ownAgent ? `<button type="button" class="btn ghost xs icon iedit" data-open="dlg-project" title="Choose its project">${icon("pencil", 11)}</button>` : ""}`),
     agent.branch ? fact("branch", "Branch", `<span class="mono">${esc(agent.branch)}</span>`) : "",
     agent.host ? fact("monitor", "Machine", `${esc(hostOf(agent))}${ownAgent ? `<button type="button" class="btn ghost xs icon iedit" data-open="dlg-host" title="Rename this machine">${icon("pencil", 11)}</button>` : ""}`) : "",
@@ -810,11 +821,13 @@ ${(() => {
       ${canModel ? (() => {
         // The one it runs is picked: an alias that names it (opus for claude-opus-…), else Other with its id.
         const now = (agent.model ?? "").toLowerCase(), fam = MODELS.find((m) => m.value !== "default" && now.startsWith(`claude-${m.value}-`))?.value ?? "";
-        return `<dialog id="dlg-model"><div class="hd">${icon("cpu", 18)}<h2>Model for ${esc(agent.label)}</h2></div>
+        return `<dialog id="dlg-model"><div class="hd">${icon("cpu", 18)}<h2>${canEffort ? "Model and effort" : "Model"} for ${esc(agent.label)}</h2></div>
         <form method="post" action="/agent/model">${hidden({ session: agent.session_id, back: here })}<div class="bd stack">
-          <p class="small muted" style="margin:0">Like /model in its terminal, for this session only${agent.model ? `; it runs ${esc(modelName(agent.model))} now` : ""}. It switches ${agent.state === "working" ? "when its current turn ends" : "right away"}, and the conversation carries on.</p>
-          <div class="mdlpick">${MODELS.map((m) => `<label class="mdlopt"><input type="radio" name="model" value="${m.value}"${m.value === fam ? " checked autofocus" : ""} required><b>${m.label}</b>${m.hint ? `<span class="muted">${m.hint}</span>` : ""}</label>`).join("")}
+          <p class="small muted" style="margin:0">Like /model${canEffort ? " and /effort" : ""} in its terminal, for this session only${agent.model ? `; it runs ${esc(modelName(agent.model))}${agent.effort ? ` at ${esc(effortName(agent.effort).toLowerCase())} effort` : ""} now` : ""}. It switches ${agent.state === "working" ? "when its current turn ends" : "right away"}, and the conversation carries on.</p>
+          <input type="hidden" name="now_model" value="${esc(fam || (agent.model ?? ""))}"><input type="hidden" name="now_effort" value="${esc(agent.effort ?? "")}">
+          <div class="mdlpick">${MODELS.map((m) => `<label class="mdlopt"><input type="radio" name="model" value="${m.value}"${m.value === fam ? " checked autofocus" : ""}><b>${m.label}</b>${m.hint ? `<span class="muted">${m.hint}</span>` : ""}</label>`).join("")}
             <label class="mdlopt mdlother"><input type="radio" name="model" value="other"${!fam && now ? " checked autofocus" : ""}><b>Other</b><input name="other" placeholder="a model id, e.g. claude-opus-5-5[1m]" value="${!fam && now ? esc(agent.model ?? "") : ""}" autocomplete="off" spellcheck="false" maxlength="80"></label></div>
+          ${canEffort ? `<div class="field">Effort <span class="tiny">(how hard it thinks; Auto is the model's default)</span><div class="effpick">${EFFORTS.map((x) => `<label class="effopt"><input type="radio" name="effort" value="${x.value}"${x.value === agent.effort ? " checked" : ""}><span>${x.label}</span></label>`).join("")}</div></div>` : `<p class="tiny muted" style="margin:0">${esc(effortSwitchable(agent, isOn(agent)))}</p>`}
         </div><div class="ft"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary">${icon("check", 14)}Switch</button></div></form></dialog>`;
       })() : ""}
       <dialog id="dlg-rename"><div class="hd">${icon("pencil", 18)}<h2>Rename ${esc(agent.label)}</h2></div>

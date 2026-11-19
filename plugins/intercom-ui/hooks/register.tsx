@@ -17,7 +17,7 @@ const error = atom({ plugin: 'intercom-ui', key: 'error' } as const, null)
 const hidden = atom({ plugin: 'intercom-ui', key: 'hidden' } as const, [])
 
 const POLL_MS = 8_000
-const MOD_VERSION = '0.2.12' // kept in step with ../.claude-plugin/plugin.json; the hub knows from it that this session answers side questions
+const MOD_VERSION = '0.2.13' // kept in step with ../.claude-plugin/plugin.json; the hub knows from it that this session answers side questions
 
 type Conf = { url: string; token: string }
 
@@ -35,7 +35,7 @@ const left = (ts: number, now: number) => {
 const short = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s)
 
 /** Module state; a reload starts it over (the snapshot itself lives in $.state). */
-const ctx = { conf: null as Conf | null, repo: '', sessionId: '', seen: -1, busy: false, turning: false, submitted: new Set<number>(), ownLine: false, btwBusy: false, btwDone: new Set<number>(), compacting: false, compacted: new Set<string>(), switching: false, switched: new Set<string>() }
+const ctx = { conf: null as Conf | null, repo: '', sessionId: '', seen: -1, busy: false, turning: false, submitted: new Set<number>(), ownLine: false, btwBusy: false, btwDone: new Set<number>(), compacting: false, compacted: new Set<string>(), switching: false, switched: new Set<string>(), effort: '' }
 
 /** Claude Code's own status line already shows the intercom (the setup sets it): then the mod adds no line of its own. */
 async function hasOwnLine($: Engine): Promise<boolean> {
@@ -113,7 +113,8 @@ async function refresh($: Engine): Promise<void> {
     const spend = `${rl ? `&rl=${encodeURIComponent(rl)}` : ''}${usage?.cost ? `&usd=${usage.cost.usd.toFixed(2)}` : ''}`
     // And the model it runs (shown on the agent; /model in the terminal changes it too).
     const model = await $.session.model().catch(() => '')
-    const res = await $.http.fetch(`${ctx.conf.url}/api/ui?project=${encodeURIComponent(ctx.repo)}&session=${encodeURIComponent(ctx.sessionId)}&mod=${MOD_VERSION}${fill}${spend}${model ? `&model=${encodeURIComponent(model)}` : ''}`, {
+    // And its effort, as its main loop last sent it (turn.step below): /effort in the terminal changes it too.
+    const res = await $.http.fetch(`${ctx.conf.url}/api/ui?project=${encodeURIComponent(ctx.repo)}&session=${encodeURIComponent(ctx.sessionId)}&mod=${MOD_VERSION}${fill}${spend}${model ? `&model=${encodeURIComponent(model)}` : ''}${ctx.effort ? `&effort=${encodeURIComponent(ctx.effort)}` : ''}`, {
       headers: { authorization: `Bearer ${ctx.conf.token}` },
     })
     if (!res.ok) {
@@ -149,33 +150,48 @@ async function refresh($: Engine): Promise<void> {
 }
 
 /**
- * A model switch asked for from the dashboard: /model <name> between turns, for this session only, then the model
- * it runs reported back, or Claude Code's answer when it didn't take (an unknown name leaves the model as it was).
- * Each request once.
+ * A model or effort switch asked for from the dashboard: /model <name> and /effort <level> between turns, for this
+ * session only, then what it runs reported back, or Claude Code's answer when it didn't take (an unknown name leaves
+ * the model as it was). Each request once.
  */
 async function modelIfAsked($: Engine, s: Snapshot): Promise<void> {
   const want = s.model
   if (!ctx.conf || !want || ctx.turning || ctx.compacting || ctx.switching || ctx.switched.has(want.id)) return
   ctx.switching = true
   ctx.switched.add(want.id)
-  let error: string | undefined
+  const errors: string[] = []
+  const done: string[] = []
   let model = ''
+  let effort = ''
   try {
-    const before = await $.session.model()
-    const { text } = await $.command.run({ command: 'model', args: want.model })
-    model = await $.session.model()
-    const said = (text ?? '').replace(/`/g, '').trim()
-    if (model === before && /not found|invalid|unknown|not available|isn't available|unavailable|can't|cannot|not allowed|error/i.test(said)) error = said.slice(0, 300) || 'it didn\'t switch'
-    else $.ui.toast(`📻 ${s.label ?? 'intercom'}: ${said || `now on ${model}`}, as asked from the dashboard`)
+    if (want.model) {
+      const before = await $.session.model()
+      const { text } = await $.command.run({ command: 'model', args: want.model })
+      model = await $.session.model()
+      const said = (text ?? '').replace(/`/g, '').trim()
+      if (model === before && /not found|invalid|unknown|not available|isn't available|unavailable|can't|cannot|not allowed|error/i.test(said)) errors.push(said.slice(0, 300) || 'the model didn\'t switch')
+      else done.push(said || `now on ${model}`)
+    }
+    if (want.effort) {
+      const { text } = await $.command.run({ command: 'effort', args: want.effort })
+      const said = (text ?? '').replace(/`/g, '').trim()
+      // "Set effort level to high (this session only): …"; anything else (a usage line, a refusal) is the reason.
+      const set = /effort level to (\w+)/i.exec(said)?.[1]?.toLowerCase() ?? (/auto|default/i.test(said) && want.effort === 'auto' ? 'auto' : '')
+      if (set) {
+        effort = ctx.effort = set
+        done.push(`effort ${set}`)
+      } else errors.push(said.slice(0, 300) || 'the effort didn\'t change')
+    }
+    if (done.length) $.ui.toast(`📻 ${s.label ?? 'intercom'}: ${done.join(', ')}, as asked from the dashboard`)
   } catch (e) {
-    error = e instanceof Error ? e.message : String(e)
+    errors.push(e instanceof Error ? e.message : String(e))
   } finally {
     ctx.switching = false
   }
   await $.http.fetch(`${ctx.conf.url}/api/model/${encodeURIComponent(want.id)}`, {
     method: 'POST',
     headers: { authorization: `Bearer ${ctx.conf.token}`, 'content-type': 'application/json' },
-    body: JSON.stringify({ session: ctx.sessionId, model: model || undefined, error }),
+    body: JSON.stringify({ session: ctx.sessionId, model: model || undefined, effort: effort || undefined, error: errors.join('; ') || undefined }),
   })
   void refresh($)
 }
@@ -302,6 +318,12 @@ export const register: Register = on => {
   })
 
   // Fresh numbers right after each of your turns (the main loop's, not subagents').
+  // The effort the main loop sends (how hard it thinks), for the dashboard: /effort and the model change it.
+  on('turn.step', async function* ($, e, next) {
+    if (e.agentId === undefined && e.effort !== undefined) ctx.effort = String(e.effort)
+    return yield* next(e)
+  })
+
   on('turn.start', async ($, e, next) => {
     // Mid-turn, the Stop hook carries dashboard messages; a new prompt only goes to an idle session.
     if (e.agentId === undefined) ctx.turning = true

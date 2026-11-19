@@ -54,7 +54,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     const clock = world(on, SNAP, urls)
     await $.session.start({ cwd: '/work/billing-api', surface } as never)
     await clock.advance(1) // the first snapshot loads in the background
-    expect(urls[0]).toBe('https://hub.example/api/ui?project=billing-api&session=sess-1&mod=0.2.12')
+    expect(urls[0]).toBe('https://hub.example/api/ui?project=billing-api&session=sess-1&mod=0.2.13')
     const ui = await $.ui.mount({ plugin: 'intercom-ui', surface, component: 'AbovePrompt', props: { hasSurvey: false } as never })
     expect(await ui.findAll({ type: 'Text', text: /deploy:billing:prod/ })).toHaveLength(1)
     // A lock on another project stays out of the band.
@@ -172,4 +172,29 @@ test('a switch to a model Claude Code does not know reports its answer', async (
   const done = seen.filter(u => u.startsWith('POST https://hub.example/api/model/m2'))
   expect(done).toHaveLength(1)
   expect(done[0]).toContain("Model 'nonsense' not found")
+})
+
+test('an effort switch asked for from the dashboard runs /effort once and reports the level, or its answer', async ($, on) => {
+  on('session.model', async () => ({ value: 'claude-opus-5-5' }) as never)
+  const runs: string[] = []
+  on('command.run', { command: 'effort' }, async (_$, e) => {
+    const args = (e as { args: string }).args
+    runs.push(args)
+    return args === 'max' ? { text: 'Set effort level to max (this session only): Maximum capability' } : { text: 'Usage: /effort <low|medium|high|xhigh|max|auto>' }
+  })
+  on('ui.toast', async () => ({ value: undefined }) as never)
+  const seen: string[] = []
+  const clock = world(on, { ...SNAP, locks: [], votes: [], model: { id: 'e1', effort: 'max' } }, seen)
+  await $.session.start({ cwd: '/work/billing-api', surface: 'terminal' } as never)
+  await clock.advance(1)
+  expect(runs).toEqual(['max'])
+  const done = seen.filter(u => u.startsWith('POST https://hub.example/api/model/e1'))
+  expect(done).toHaveLength(1)
+  expect(done[0]).toContain('"effort":"max"')
+  expect(done[0]).not.toContain('"model"')
+  expect(done[0]).not.toContain('error')
+  // The next poll carries it, so the dashboard shows it.
+  await clock.advance(8_000)
+  expect(seen.some(u => u.includes('/api/ui?') && u.includes('&effort=max'))).toBe(true)
+  expect(runs).toHaveLength(1)
 })
