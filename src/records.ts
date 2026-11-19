@@ -376,3 +376,67 @@ export async function recordsBrief(env: Env, me: string, project: string): Promi
     );
   return out;
 }
+
+/**
+ * Close open handoffs as withdrawn, with a note (a later handoff superseded them, or you closed them from the
+ * dashboard). Only ones you can see that you or your agents handed over, or that were handed to you; what was closed.
+ */
+export async function withdrawHandoffs(env: Env, me: string, ids: number[], note: string, by: string): Promise<number[]> {
+  if (!ids.length) return [];
+  const { results } = await env.DB.prepare(
+    `UPDATE handoffs SET status = 'withdrawn', note = ?, updated_by = ?, updated_at = ?
+     WHERE id IN (SELECT value FROM json_each(?)) AND status IN ('pending', 'held') AND (author = ? OR to_member = ?)
+       AND project IN (SELECT project FROM project_members WHERE member = ?) RETURNING id, ref, to_member, to_agent, created_at`,
+  )
+    .bind(note.slice(0, 1000), by, Date.now(), JSON.stringify(ids.slice(0, 200)), me, me, me)
+    .all<{ id: number; ref: string; to_member: string | null; to_agent: string | null; created_at: number }>();
+  // Its message to the receiver, if not taken yet, says there's nothing to do instead of handing the work over.
+  for (const h of results.filter((r) => r.to_member && r.to_agent))
+    await env.DB.prepare(
+      "UPDATE messages SET body = ? WHERE recipient = ? AND recipient_agent = ? AND created_at BETWEEN ? AND ? AND body LIKE ? AND kind != 'event'",
+    )
+      .bind(`H${h.id} (${h.ref.slice(0, 120)}) was withdrawn before you took it (${note.slice(0, 200)}): nothing to do.`, h.to_member, h.to_agent, h.created_at - 5000, h.created_at + 60_000, `handed off H${h.id}:%`)
+      .run();
+  return results.map((r) => r.id);
+}
+
+/** Handoff ids from what an agent sent: [12, "H13", "14"]. */
+export function handoffIds(raw: unknown): number[] {
+  const list = Array.isArray(raw) ? raw : typeof raw === "string" || typeof raw === "number" ? String(raw).split(/[\s,]+/) : [];
+  return [...new Set(list.map((x) => Number(String(x).replace(/^H/i, ""))).filter((n) => Number.isInteger(n) && n > 0))];
+}
+
+const nudged = new Map<string, number>(); // "member session" → when it was last asked to settle its handoffs
+export const NUDGE_EVERY_MS = 3 * 3600_000;
+const NUDGE_AFTER_MS = 30 * 60_000;
+
+/**
+ * At the end of an agent's turn: the handoffs to it still pending after half an hour, as a request to record what
+ * became of each before it stops. Asked at most once every few hours per session; null when there's nothing to ask.
+ */
+export async function handoffNudge(env: Env, me: string, s: { session_id: string; label: string }): Promise<string | null> {
+  const key = `${me} ${s.session_id}`;
+  if (Date.now() - (nudged.get(key) ?? 0) < NUDGE_EVERY_MS) return null;
+  const { results } = await env.DB.prepare(
+    "SELECT id, ref, summary, author, author_agent, created_at FROM handoffs WHERE to_member = ? AND to_agent = ? AND status = 'pending' AND created_at < ? ORDER BY id LIMIT 40",
+  )
+    .bind(me, s.label, Date.now() - NUDGE_AFTER_MS)
+    .all<{ id: number; ref: string; summary: string; author: string; author_agent: string | null; created_at: number }>();
+  if (!results.length) return null;
+  nudged.set(key, Date.now());
+  if (nudged.size > 2000) nudged.delete(nudged.keys().next().value!);
+  const line = (h: (typeof results)[number]) => {
+    const sum = h.summary.replace(/\s+/g, " ").trim();
+    return `- H${h.id} · ${h.ref.slice(0, 80)} — ${sum.length > 140 ? `${sum.slice(0, 139)}…` : sum} (from ${address(h.author, h.author_agent)}, ${ago(h.created_at)})`;
+  };
+  return [
+    `Before you stop: ${results.length === 1 ? "a handoff to you is" : `${results.length}${results.length === 40 ? "+" : ""} handoffs to you are`} still pending on the intercom. Record what became of each with update_handoff, so they don't pile up:`,
+    `- integrated (result: the sha it went in as), when it's in;`,
+    `- withdrawn (note: "superseded by H…"), when a later handoff replaced it, or it was folded into one you integrated;`,
+    `- rejected (note: why), when you won't take it;`,
+    `- held (note: what it waits for), when you'll come back to it.`,
+    `One you haven't got to: hold it with a note rather than leave it pending. Then stop as you were going to. (You're asked at most every ${NUDGE_EVERY_MS / 3600_000} hours.)`,
+    "",
+    ...results.map(line),
+  ].join("\n");
+}

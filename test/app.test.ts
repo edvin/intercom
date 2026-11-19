@@ -1425,6 +1425,46 @@ describe("unsend", () => {
 });
 
 describe("decision log and handoffs", () => {
+  test("handoffs don't pile up: a new one closes those it supersedes, the receiver is asked to settle old ones when its turn ends, and stale ones close from the dashboard", async () => {
+    const w = await standardWorld();
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=p1&name=alder", { as: "bob" });
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=p2&name=core", { as: "bob" });
+    const alder = { id: "p1", project: "billing-api" };
+    for (const ref of ["aaa1111", "bbb2222", "ccc3333"]) await w.ok("bob", "handoff", { ref, summary: `fix ${ref}`, to: "bob/core" }, alder);
+    // A rebase of the first two: they close as superseded; an id that isn't open is said so.
+    assert.match(await w.ok("bob", "handoff", { ref: "ddd4444", summary: "the stack, rebased", to: "bob/core", supersedes: [1, "H2", 99] }, alder), /Recorded handoff H4 .* It supersedes H1, H2 \(closed as withdrawn\); H99 was already settled or not yours to close\./);
+    const st = (id: number) => w.db.prepare("SELECT status, note FROM handoffs WHERE id = ?").bind(id).first<{ status: string; note: string }>();
+    assert.deepEqual({ ...(await st(1)) }, { status: "withdrawn", note: "superseded by H4" });
+    assert.equal((await st(3))!.status, "pending");
+    // Fresh ones don't hold up its turn; half an hour on, its Stop asks it to record each outcome, once.
+    const stop = () => w.request("/api/hook?event=Stop&session=p2&project=billing-api", { as: "bob", method: "POST", headers: { "content-type": "application/json" }, body: "{}" }).then((r) => r.text());
+    // Its messages: the superseded ones say there's nothing to do.
+    const handed = JSON.parse(await stop()) as { reason: string };
+    assert.match(handed.reason, /H1 \(aaa1111\) was withdrawn before you took it \(superseded by H4\): nothing to do\.[\s\S]*handed off H3: ccc3333[\s\S]*handed off H4: ddd4444/);
+    assert.doesNotMatch(handed.reason, /handed off H1:/);
+    assert.equal(await stop(), "");
+    await w.db.prepare("UPDATE handoffs SET created_at = created_at - 3600000").run();
+    const ask = JSON.parse(await stop()) as { decision: string; reason: string };
+    assert.equal(ask.decision, "block");
+    assert.match(ask.reason, /^Before you stop: 2 handoffs to you are still pending[\s\S]*withdrawn \(note: "superseded by H…"\)[\s\S]*- H3 · ccc3333 — fix ccc3333 \(from bob\/alder, [\s\S]*- H4 · ddd4444/);
+    assert.doesNotMatch(ask.reason, /H1 ·|H2 ·/);
+    assert.equal(await stop(), "");
+    // The Handoffs page: Withdraw on each open one, and the stale ones (no change for 3 days) in one go.
+    let page = await (await w.request("/dashboard?view=handoffs", { as: "bob", cookie: true })).text();
+    assert.match(page, /<form method="post" action="\/handoffs\/withdraw"[^>]*>[\s\S]*name="ids" value="4"/);
+    assert.doesNotMatch(page, /Close \d+ stale/);
+    await w.db.prepare("UPDATE handoffs SET updated_at = updated_at - 4 * 86400000 WHERE id = 3").run();
+    page = await (await w.request("/dashboard?view=handoffs", { as: "bob", cookie: true })).text();
+    assert.match(page, /Close 1 stale/);
+    const r = await w.form("/handoffs/withdraw", "bob", { stale: "1", project: "", who: "", back: "/dashboard?view=handoffs" });
+    assert.match(new URL(r.headers.get("location")!, ORIGIN).searchParams.get("ok")!, /Closed H3 as withdrawn/);
+    assert.match((await st(3))!.note, /closed as stale from the dashboard/);
+    // One by hand; alice can't close bob's.
+    assert.match(new URL((await w.form("/handoffs/withdraw", "alice", { ids: "4", back: "/dashboard" })).headers.get("location")!, ORIGIN).searchParams.get("err")!, /Nothing to close/);
+    await w.form("/handoffs/withdraw", "bob", { ids: "4", back: "/dashboard" });
+    assert.equal((await st(4))!.status, "withdrawn");
+  });
+
   test("handoff → integrated notifies the author, lands in the log, and shows at session start; others' projects stay private", async () => {
     const w = await standardWorld();
     const hook = async (event: string, sid: string, extra = "") => {

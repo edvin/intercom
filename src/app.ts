@@ -2,7 +2,8 @@ import { sqlCtx, sqlStatsText } from "./db";
 import { queueReset, resetHost, setResets } from "./resets";
 import { isFable, maybeFableLook, queueFableLook, setFableOpus } from "./fable";
 import { pickPrompt, queuePromptLook } from "./prompts";
-import { recordsBrief } from "./records";
+import { STALE_MS } from "./handoffs";
+import { handoffIds, handoffNudge, recordsBrief, withdrawHandoffs } from "./records";
 import { saveWorkSettings, workCsv } from "./work";
 import { dismissStuck, moveStuck, releaseSenders, setNudge, wakeStuck } from "./stuck";
 import { loginCancel, loginCode, loginStart } from "./login";
@@ -307,6 +308,14 @@ async function handleHook(url: URL, env: Env, me: string, input: { last_assistan
           reason,
           ...(url.searchParams.get("show") !== "0" ? { systemMessage: `📻 ${session.label} · continuing with your message from the dashboard` } : {}),
         });
+      }
+    }
+    // Handoffs to it still pending: it records what became of them before it stops (at most every few hours).
+    if (session) {
+      const ask = await handoffNudge(env, me, session);
+      if (ask) {
+        await setState("working");
+        return json({ decision: "block", reason: ask, ...(url.searchParams.get("show") !== "0" ? { systemMessage: `📻 ${session.label} · recording what became of its pending handoffs` } : {}) });
       }
     }
     // A Codex turn that failed on a usage limit ends with this hook too, around when its local server reports the limit.
@@ -1320,6 +1329,30 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
       }
     }
     return redirect(back.pathname + back.search);
+  }
+  if (url.pathname === "/handoffs/withdraw" && req.method === "POST") {
+    // Closing open handoffs from the Handoffs page: one (ids), or every one untouched for days (stale) in its filters.
+    if (!sameOrigin(req) || env.authKind !== "web") return new Response("Cross-origin request refused", { status: 403 });
+    const form = await req.formData();
+    const back = new URL(localPath(form.get("back"), "/dashboard?view=handoffs"), url);
+    let ids = handoffIds(String(form.get("ids") ?? ""));
+    if (form.get("stale") === "1") {
+      const project = String(form.get("project") ?? "");
+      const who = String(form.get("who") ?? "");
+      const [wm, wa] = who.includes("/") ? [who.slice(0, who.indexOf("/")), who.slice(who.indexOf("/") + 1)] : [who, ""];
+      const { results } = await env.DB.prepare(
+        `SELECT id FROM handoffs WHERE status IN ('pending', 'held') AND updated_at < ? AND (author = ?1 OR to_member = ?1)
+           AND project IN (SELECT project FROM project_members WHERE member = ?1) AND (?2 = '' OR project = ?2)
+           AND (?3 = '' OR (?4 = '' AND (author = ?3 OR to_member = ?3)) OR (author = ?3 AND author_agent = ?4) OR (to_member = ?3 AND to_agent = ?4)) LIMIT 500`.replace("updated_at < ?", "updated_at < ?5"),
+      )
+        .bind(me, project, wm, wa, Date.now() - STALE_MS)
+        .all<{ id: number }>();
+      ids = results.map((r) => r.id);
+    }
+    const closed = await withdrawHandoffs(env, me, ids, form.get("stale") === "1" ? `closed as stale from the dashboard (no change for ${STALE_MS / 86400_000} days)` : "withdrawn from the dashboard", me);
+    back.searchParams.set(closed.length ? "ok" : "err", closed.length ? `Closed ${closed.length === 1 ? `H${closed[0]}` : `${closed.length} handoffs`} as withdrawn` : "Nothing to close: it was settled already");
+    env.refreshWeb?.(me);
+    return redirect(back.pathname + back.search + back.hash);
   }
   if (url.pathname === "/agent/login" && req.method === "POST") {
     // Logging its machine's Claude Code into another account (login.ts): start (the sign-in link), code, cancel.

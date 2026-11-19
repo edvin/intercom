@@ -5,7 +5,7 @@
 
 import { type Env, address } from "./lib";
 import { type Handoff, OPEN_HANDOFF, gatesOf, obligationsOf } from "./records";
-import { agentAvatar, avatar, esc, icon, md, time } from "./ui";
+import { agentAvatar, avatar, esc, hidden, icon, md, time } from "./ui";
 
 const HANDOFF_PILL: Record<string, string> = { pending: "accent", integrated: "green", held: "amber", rejected: "red", withdrawn: "" };
 
@@ -65,7 +65,7 @@ function refChip(ref: string): string {
 }
 
 /** A handoff: status, title and ref, then the summary, gates, the receiver's checklist, the outcome and who handed it to whom. */
-export function handoffCard(h: Handoff, showProject: boolean, opts: { decision?: { id: number; verdict: string } | null; who?: (member: string, agent: string | null) => string } = {}): string {
+export function handoffCard(h: Handoff, showProject: boolean, opts: { decision?: { id: number; verdict: string } | null; who?: (member: string, agent: string | null) => string; close?: { me: string; back: string } } = {}): string {
   const face = (m: string, a: string | null) => (a ? agentAvatar(m, a, "s") : avatar(m, "s"));
   const who = (m: string, a: string | null) =>
     `<span class="hop">${face(m, a)}${opts.who ? `<a href="${esc(opts.who(m, a))}" title="Only handoffs by or to ${esc(address(m, a))}">${esc(address(m, a))}</a>` : `<span>${esc(address(m, a))}</span>`}</span>`;
@@ -86,7 +86,11 @@ export function handoffCard(h: Handoff, showProject: boolean, opts: { decision?:
       ${handoffGates(h)}
       ${handoffChecklist(h)}
       ${outcome}
-      <div class="horoute">${who(h.author, h.author_agent)}<span class="hoarr">${icon("arrow", 13)}</span>${h.to_member ? who(h.to_member, h.to_agent) : `<span class="hop"><span class="hohash">#</span><span>${esc(h.project)}</span></span>`}</div>
+      <div class="horoute">${who(h.author, h.author_agent)}<span class="hoarr">${icon("arrow", 13)}</span>${h.to_member ? who(h.to_member, h.to_agent) : `<span class="hop"><span class="hohash">#</span><span>${esc(h.project)}</span></span>`}${
+        open && opts.close && (h.author === opts.close.me || h.to_member === opts.close.me)
+          ? `<form method="post" action="/handoffs/withdraw" class="hoclose" data-confirm="Close H${h.id} as withdrawn? Its receiver no longer has it to do.">${hidden({ ids: String(h.id), back: opts.close.back })}<button class="btn ghost xs" title="Stale, or done some other way: close it as withdrawn">${icon("x", 11)}Withdraw</button></form>`
+          : ""
+      }</div>
     </div>
   </article>`;
 }
@@ -94,6 +98,8 @@ export function handoffCard(h: Handoff, showProject: boolean, opts: { decision?:
 const PAGE = 30;
 const SHOWS = { open: OPEN_HANDOFF, pending: ["pending"], held: ["held"], settled: ["integrated", "rejected", "withdrawn"], all: [] as string[] } as const;
 type Show = keyof typeof SHOWS;
+/** An open handoff nobody has touched for this long can be closed with the rest from the Handoffs page. */
+export const STALE_MS = 3 * 86400_000;
 
 export async function handoffsView(env: Env, me: string, url: URL): Promise<string> {
   const p = url.searchParams;
@@ -164,6 +170,12 @@ export async function handoffsView(env: Env, me: string, url: URL): Promise<stri
     : { results: [] };
   const decisionOf = new Map(ds.map((d) => [d.handoff_id, d]));
   const n = (s: string) => cs.find((c) => c.status === s)?.n ?? 0;
+  // Untouched for days: closed in one go from here (yours, or handed to you).
+  const staleN = (
+    await env.DB.prepare(`SELECT COUNT(*) AS n FROM handoffs WHERE ${where.join(" AND ")} AND status IN ('pending', 'held') AND updated_at < ? AND (author = ? OR to_member = ?)`)
+      .bind(...binds, Date.now() - STALE_MS, me, me)
+      .first<{ n: number }>()
+  )?.n ?? 0;
   const pending = n("pending");
   const held = n("held");
   const oldest = cs.find((c) => c.status === "pending")?.oldest;
@@ -207,10 +219,14 @@ export async function handoffsView(env: Env, me: string, url: URL): Promise<stri
     ${tile("", "t-rejected", "x", wn("rejected") + wn("withdrawn"), "Rejected", "or withdrawn, 7 days")}
   </div>`;
   return `<div class="pane-in hopane">
-    <header class="flhead"><div><h1>Handoffs</h1><p class="muted">${pending + held ? `${(pending + held).toLocaleString("en")} open${scopeTxt}: work handed over and waiting for an outcome.` : `Nothing open${scopeTxt}.`}</p></div></header>
+    <header class="flhead"><div><h1>Handoffs</h1><p class="muted">${pending + held ? `${(pending + held).toLocaleString("en")} open${scopeTxt}: work handed over and waiting for an outcome.` : `Nothing open${scopeTxt}.`}</p></div>${
+      staleN
+        ? `<form method="post" action="/handoffs/withdraw" data-confirm="Close ${staleN} handoff${staleN === 1 ? "" : "s"} nobody has touched for ${STALE_MS / 86400_000} days as withdrawn?">${hidden({ stale: "1", project, who: whoRaw, back: link({}) })}<button class="btn sm" title="Open handoffs${scopeTxt} with no change for ${STALE_MS / 86400_000} days">${icon("x", 13)}Close ${staleN} stale</button></form>`
+        : ""
+    }</header>
     ${tiles}
     ${bar}
-    ${shown.length ? `<section class="holist">${shown.map((h) => handoffCard(h, !project, { decision: decisionOf.get(h.id), who: whoLink })).join("")}</section>` : empty}
+    ${shown.length ? `<section class="holist">${shown.map((h) => handoffCard(h, !project, { decision: decisionOf.get(h.id), who: whoLink, close: { me, back: `${link({})}#h${h.id}` } })).join("")}</section>` : empty}
     ${more || bAt ? `<nav class="galmore">${bAt ? `<a class="btn ghost sm" href="${esc(link({ before: "" }))}">${icon("back", 13)}Newest</a>` : ""}${more ? `<a class="btn sm" href="${esc(link({ before: `${last!.updated_at}-${last!.id}` }))}">Older${icon("arrow", 13)}</a>` : ""}</nav>` : ""}
   </div>`;
 }

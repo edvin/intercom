@@ -5,7 +5,7 @@ import { sendWarning, teamNote } from "./stuck";
 import { KINDS, STAGES, TRACK_LIMITS, listBoard, publish, removeItems } from "./tracked";
 import { TICKET_OUTCOMES, TLIMITS, answerTicket, finishTicket, openTicket, pendingTickets, withdrawTicket } from "./tickets";
 import { RETENTION_DAYS as ATTACHMENT_DAYS, fileMarker, getAttachment, isImage, isText, linkImages, marker, readImage, size, storeFile, toBase64 } from "./attachments";
-import { HANDOFF_STATES, MAX_OBLIGATIONS, OPEN_HANDOFF, VERDICTS, createHandoff, crewRoles, findDecisions, decisionById, fmtCrew, fmtDecision, fmtHandoff, listHandoffs, logDecision, updateHandoff } from "./records";
+import { HANDOFF_STATES, MAX_OBLIGATIONS, OPEN_HANDOFF, VERDICTS, createHandoff, crewRoles, findDecisions, decisionById, fmtCrew, fmtDecision, fmtHandoff, handoffIds, listHandoffs, logDecision, updateHandoff, withdrawHandoffs } from "./records";
 import { adminsInvite, githubRepo } from "./github";
 import {
   type Env,
@@ -793,6 +793,7 @@ export const tools: Tool[] = [
         },
         evidence: { type: "string", description: "Where the evidence is (path, benchmark output, log)." },
         to: { type: "string", description: "Who should take it: an address like \"edvin/core\" or \"anna\". Omit to post it to the project." },
+        supersedes: { type: "array", items: { type: "number" }, description: "Earlier handoffs this one replaces (a rebase or combined stack of them): they're closed as withdrawn, \"superseded by\" this one. Always pass them, so the receiver isn't left with stale ones." },
         channel: channelProp,
       },
       required: ["ref", "summary"],
@@ -812,7 +813,11 @@ export const tools: Tool[] = [
       const asked = to_agent;
       if (moved) to_agent = moved.label;
       const h = await createHandoff(env, me, { project, ref: str(a, "ref", true), summary: str(a, "summary", true), evidence: str(a, "evidence"), gates: a.gates, obligations: a.obligations, to_member, to_agent });
-      return `Recorded handoff H${h.id}${to_member ? ` and sent it to ${address(to_member, to_agent)}` : ` in #${project}`}.${moved ? renameNote(to_member!, asked!, moved) : ""} You'll hear when its status changes.${to_member && to_agent ? await sendWarning(env, to_member, to_agent) : ""}`;
+      const old = handoffIds(a.supersedes).filter((id) => id !== h.id);
+      const closed = await withdrawHandoffs(env, me, old, `superseded by H${h.id}`, address(me, env.session?.label));
+      const missed = old.filter((id) => !closed.includes(id));
+      const sup = old.length ? ` It supersedes ${closed.length ? closed.map((id) => `H${id}`).join(", ") : "nothing still open"}${closed.length ? " (closed as withdrawn)" : ""}${missed.length ? `; ${missed.map((id) => `H${id}`).join(", ")} ${missed.length === 1 ? "was" : "were"} already settled or not yours to close` : ""}.` : "";
+      return `Recorded handoff H${h.id}${to_member ? ` and sent it to ${address(to_member, to_agent)}` : ` in #${project}`}.${sup}${moved ? renameNote(to_member!, asked!, moved) : ""} You'll hear when its status changes.${to_member && to_agent ? await sendWarning(env, to_member, to_agent) : ""}`;
     },
   },
   {
@@ -839,7 +844,7 @@ export const tools: Tool[] = [
   {
     name: "update_handoff",
     description:
-      "Record what became of a handoff: integrated (give the resulting sha as result), held, rejected (say why in note), withdrawn (author only) or back to pending. A handoff with obligations can be integrated only once each is ticked off in obligations: done (with what you did), na (it doesn't apply, and why) or waived (with the reason); ticks can also be sent earlier, with any status. The author is told, and integrated/held/rejected outcomes are added to the decision log.",
+      "Record what became of a handoff: integrated (give the resulting sha as result), held, rejected (say why in note), withdrawn (the author's, or note \"superseded by H…\" when a later handoff replaced it) or back to pending. Record an outcome for every handoff you take, as soon as you know it; pending ones pile up and you're asked about them when your turn ends. A handoff with obligations can be integrated only once each is ticked off in obligations: done (with what you did), na (it doesn't apply, and why) or waived (with the reason); ticks can also be sent earlier, with any status. The author is told, and integrated/held/rejected outcomes are added to the decision log.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1323,7 +1328,7 @@ Etiquette:
 - When your work affects others (shared libs, breaking API changes, pipeline changes, holding deploys), \`post\` a short note to the project's channel.
 - Use \`propose\` when the project needs to agree on something (holding deployments, who runs a release). When a proposal is open and your user hasn't voted, ask them; never vote without their answer.
 - Calls that were made (a candidate rejected, an option approved, something held) go in the decision log with \`decide\`. Before proposing or re-proposing work, search it with \`decisions\` (by commit or keyword).
-- Handing work to another agent (a commit, branch or worktree with evidence and gates): use \`handoff\`, not a plain DM, so its status stays on record. Put what the receiver must do or keep to in its obligations, one per item, not in the summary. When you take one, do each obligation, then record the outcome with \`update_handoff\` (integrated as <sha>, held, rejected), ticking each obligation off with what you did.
+- Handing work to another agent (a commit, branch or worktree with evidence and gates): use \`handoff\`, not a plain DM, so its status stays on record. Put what the receiver must do or keep to in its obligations, one per item, not in the summary. When you take one, do each obligation, then record the outcome with \`update_handoff\` (integrated as <sha>, held, rejected, or withdrawn "superseded by H…"), ticking each obligation off with what you did; never leave one pending. A handoff that replaces earlier ones (a rebase, a combined stack) names them in \`supersedes\`, which closes them.
 - Messages can carry images, shown as [📎 image #N: name]. Open them with \`attachment\` (id N) to see them; an image from your user is part of their request. Other files show as [📎 file #N: name · size]: save one to this machine with \`save_attachment\` (where your user says, or your working folder) before using it.
 - To show your user a file from this machine (a screenshot, a generated report, a log), use \`share_file\` with its path: it lands in their dashboard. To give a file to another agent, \`share_file\` it to that agent's address; the receiver keeps it with \`save_attachment\`.
 - Reviewing an MR or PR: findings that need your user's call (security, data loss, breaking clients, design trade-offs, doubts) go to them with \`review\`, briefly, not as a file or a long message; then hold off on the MR until their decision comes. Nits and mechanical fixes you handle yourself.
