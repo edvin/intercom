@@ -8,6 +8,7 @@
 import { compactable } from "./btw";
 import { type Env, ago, hostNames, liveIds } from "./lib";
 import { effortName, modelName } from "./models";
+import { HANDOFF_PING_MS, queueHandoffCheck } from "./records";
 import { screenAttrs } from "./screen";
 import { agentAvatar, esc, hidden, icon } from "./ui";
 import { type Gone, endedAgents, outOfUsage } from "./upkeep";
@@ -108,6 +109,11 @@ export async function homeView(env: Env, me: string): Promise<string> {
       .all<{ to_agent: string | null; n: number; oldest: number }>(),
   ]);
   const stepOf = new Map(lastSteps.map((s) => [s.session_id, s]));
+  // Handoffs from before the daily check existed have none queued: one is set for when the oldest is a day old.
+  if (handoffs.length && !(await env.DB.prepare("SELECT 1 FROM push_queue WHERE member = ? AND ref = ?").bind(me, `w${me}`.slice(0, 120)).first())) {
+    const oldest = await env.DB.prepare("SELECT MIN(created_at) AS at FROM handoffs WHERE to_member = ? AND status = 'pending' AND pinged_at IS NULL AND to_agent IS NOT NULL").bind(me).first<{ at: number | null }>();
+    if (oldest?.at) await queueHandoffCheck(env, me, oldest.at + HANDOFF_PING_MS);
+  }
   const handoffsOf = new Map(handoffs.map((h) => [h.to_agent ?? "", h]));
 
   const chat = (label: string) => `/dashboard?view=agents&agent=${encodeURIComponent(`${me}/${label}`)}`;
@@ -179,6 +185,10 @@ export async function homeView(env: Env, me: string): Promise<string> {
     const h = handoffsOf.get(a.label);
     if (h && now - h.oldest > 2 * HOUR) items.push({ tone: "", ic: "arrow", who: a.label, text: `${h.n} handoff${h.n === 1 ? "" : "s"} to it still pending, oldest ${ago(h.oldest)}`, act: `<a class="btn sm" href="/dashboard?view=handoffs&amp;who=${encodeURIComponent(`${me}/${a.label}`)}">Handoffs</a>` });
   }
+  // Handoffs to an agent that isn't connected, a day on: nobody will take them; hand them on or withdraw them.
+  for (const h of handoffs)
+    if (h.to_agent && !agents.some((a) => a.label === h.to_agent) && now - h.oldest > 24 * HOUR)
+      items.push({ tone: "amber", ic: "arrow", who: h.to_agent, text: `${h.n} handoff${h.n === 1 ? "" : "s"} to it pending, and it isn't connected`, act: `<a class="btn sm" href="/dashboard?view=handoffs&amp;who=${encodeURIComponent(`${me}/${h.to_agent}`)}">Withdraw…</a>` });
   for (const g of gone) items.push({ tone: "amber", ic: "door", who: g.label, text: `${g.how === "exited" ? "exited" : "ended"} ${ago(g.at)}${g.host ? ` on ${hostOf(g.host)}` : ""}`, act: post({ op: "revive", label: g.label }, "Bring back") });
   const rank = (t: string) => (t === "red" ? 0 : t === "amber" ? 1 : 2);
   items.sort((x, y) => rank(x.tone) - rank(y.tone));

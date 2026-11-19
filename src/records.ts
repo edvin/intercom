@@ -264,6 +264,7 @@ export async function createHandoff(
     : "";
   const text = `handed off H${row!.id}: ${row!.ref} — ${row!.summary}${row!.evidence ? `\nevidence: ${row!.evidence}` : ""}${g ? `\ngates: ${g}` : ""}${must}\nRecord the outcome with update_handoff (id ${row!.id}).`;
   if (h.to_member) await postMessage(env, { channel: h.project, sender: me, recipient: h.to_member, recipient_agent: h.to_agent ?? null, body: text });
+  if (h.to_member && h.to_agent) await queueHandoffCheck(env, h.to_member, row!.created_at + HANDOFF_PING_MS);
   else await postMessage(env, { channel: h.project, sender: me, kind: "event", body: `handed off H${row!.id}: ${row!.ref} — ${row!.summary.split("\n")[0]!.slice(0, 160)}` });
   return row!;
 }
@@ -439,4 +440,86 @@ export async function handoffNudge(env: Env, me: string, s: { session_id: string
     "",
     ...results.map(line),
   ].join("\n");
+}
+
+/** A pending handoff is looked at after this long by the daily check. */
+export const HANDOFF_PING_MS = 24 * 3600_000;
+/** Who the check's reminders come from: shown as one of your agents (it's your intercom, about your agents' work). */
+export const CHECKER = "handoff-check";
+
+/** The daily check, for the handoffs to `member`: looked at when the oldest unchecked one is a day old (push.ts ref "w"). */
+export async function queueHandoffCheck(env: Env, member: string, at: number): Promise<void> {
+  const ref = `w${member}`.slice(0, 120);
+  const due = Math.max(at, Date.now() + 60_000);
+  const q = await env.DB.prepare("SELECT id, due_at FROM push_queue WHERE member = ? AND ref = ?").bind(member, ref).first<{ id: number; due_at: number }>();
+  if (q && q.due_at <= due) return;
+  if (q) await env.DB.prepare("UPDATE push_queue SET due_at = ? WHERE id = ?").bind(due, q.id).run();
+  else await env.DB.prepare("INSERT INTO push_queue (member, ref, due_at, extra) VALUES (?, ?, ?, ?)").bind(member, ref, due, member).run();
+  await env.wake?.(due);
+}
+
+/**
+ * A day on, each pending handoff to `member` that nobody settled is raised once: with its receiver when that agent is
+ * connected (a message listing them, which wakes it if it's idle), else with its author (hand it to another agent, or
+ * withdraw it). Then the next check is set for when the next one turns a day old; none, when nothing is left.
+ */
+export async function handoffCheck(env: Env, member: string, now = Date.now()): Promise<string> {
+  const { results } = await env.DB.prepare(
+    "SELECT * FROM handoffs WHERE to_member = ? AND status = 'pending' AND pinged_at IS NULL AND created_at < ? AND to_agent IS NOT NULL ORDER BY id LIMIT 200",
+  )
+    .bind(member, now - HANDOFF_PING_MS)
+    .all<Handoff>();
+  const liveOf = async (m: string, label: string | null) => {
+    if (!label) return false;
+    const s = await env.DB.prepare("SELECT session_id, last_seen FROM sessions WHERE member = ? AND label = ? ORDER BY last_seen DESC LIMIT 1").bind(m, label).first<{ session_id: string; last_seen: number }>();
+    return !!s && ((env.live?.() ?? new Set<string>()).has(`${m}/${s.session_id}`) || now - s.last_seen < 10 * 60_000);
+  };
+  const line = (h: Handoff) => `- H${h.id} · ${h.ref.slice(0, 80)} — ${h.summary.replace(/\s+/g, " ").slice(0, 140)} (from ${address(h.author, h.author_agent)}, ${ago(h.created_at)})`;
+  const told: string[] = [];
+  const byAgent = new Map<string, Handoff[]>();
+  for (const h of results) byAgent.set(h.to_agent!, [...(byAgent.get(h.to_agent!) ?? []), h]);
+  for (const [agent, hs] of byAgent) {
+    if (await liveOf(member, agent)) {
+      await postMessage(env, {
+        channel: hs[0]!.project,
+        sender: member,
+        sender_agent: CHECKER,
+        recipient: member,
+        recipient_agent: agent,
+        body: [
+          `${hs.length === 1 ? "A handoff to you has" : `${hs.length} handoffs to you have`} been pending for over a day. Record what became of each with update_handoff: integrated (result: the sha), withdrawn (note: "superseded by H…") when a later one replaced it, rejected (note: why), or held (note: what it waits for).`,
+          "",
+          ...hs.map(line),
+        ].join("\n"),
+      });
+      told.push(`${agent} (${hs.length})`);
+      continue;
+    }
+    // Nobody to take them: their authors decide (another agent, or withdraw); one message per author.
+    const byAuthor = new Map<string, Handoff[]>();
+    for (const h of hs) byAuthor.set(`${h.author}\n${h.author_agent ?? ""}`, [...(byAuthor.get(`${h.author}\n${h.author_agent ?? ""}`) ?? []), h]);
+    for (const [k, mine] of byAuthor) {
+      const [author, authorAgent] = k.split("\n") as [string, string];
+      if (!authorAgent || !(await liveOf(author, authorAgent))) continue; // shown on the Overview instead
+      await postMessage(env, {
+        channel: mine[0]!.project,
+        sender: author,
+        sender_agent: CHECKER,
+        recipient: author,
+        recipient_agent: authorAgent,
+        body: [
+          `${mine.length === 1 ? "A handoff you made has" : `${mine.length} handoffs you made have`} been pending for over a day, and ${address(member, agent)} isn't connected to take ${mine.length === 1 ? "it" : "them"}. Hand ${mine.length === 1 ? "it" : "each"} to an agent that is (handoff again, with supersedes naming the old one), or withdraw it with update_handoff (note: why).`,
+          "",
+          ...mine.map(line),
+        ].join("\n"),
+      });
+      told.push(`${address(author, authorAgent)} about ${agent} (${mine.length})`);
+    }
+  }
+  if (results.length)
+    await env.DB.prepare("UPDATE handoffs SET pinged_at = ? WHERE id IN (SELECT value FROM json_each(?))").bind(now, JSON.stringify(results.map((h) => h.id))).run();
+  // The next one to turn a day old, if any.
+  const next = await env.DB.prepare("SELECT MIN(created_at) AS at FROM handoffs WHERE to_member = ? AND status = 'pending' AND pinged_at IS NULL AND to_agent IS NOT NULL").bind(member).first<{ at: number | null }>();
+  if (next?.at) await queueHandoffCheck(env, member, next.at + HANDOFF_PING_MS);
+  return told.length ? `reminded ${told.join(", ")}` : `nothing to remind (${results.length} checked)`;
 }

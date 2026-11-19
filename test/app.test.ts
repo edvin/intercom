@@ -1425,6 +1425,32 @@ describe("unsend", () => {
 });
 
 describe("decision log and handoffs", () => {
+  test("a day on, the daily check reminds a connected receiver of its pending handoffs once, or the author when the receiver is gone", async () => {
+    const w = await standardWorld();
+    for (const [id, name] of [["q1", "alder"], ["q2", "core"], ["q3", "gone"]] as const) await w.request(`/api/hook?event=SessionStart&project=billing-api&session=${id}&name=${name}`, { as: "bob" });
+    const alder = { id: "q1", project: "billing-api" };
+    await w.ok("bob", "handoff", { ref: "aaa1111", summary: "fix one", to: "bob/core" }, alder);
+    await w.ok("bob", "handoff", { ref: "bbb2222", summary: "fix two", to: "bob/gone" }, alder);
+    // Queued for when the first turns a day old.
+    const q = await w.db.prepare("SELECT due_at FROM push_queue WHERE ref = 'wbob'").first<{ due_at: number }>();
+    assert.ok(q && q.due_at > Date.now() + 23 * 3600_000);
+    const { handoffCheck } = await import("../src/records.ts");
+    assert.match(await handoffCheck(w.env(), "bob"), /nothing to remind \(0 checked\)/);
+    // A day on: core is connected and gets the list; gone isn't, so alder (its author) is asked to hand it on or withdraw it.
+    await w.db.prepare("UPDATE sessions SET last_seen = ? WHERE session_id = 'q3'").bind(Date.now() - 3600_000).run();
+    await w.db.prepare("UPDATE handoffs SET created_at = created_at - 25 * 3600000").run();
+    assert.match(await handoffCheck(w.env(), "bob"), /reminded core \(1\), bob\/alder about gone \(1\)/);
+    const to = (agent: string) => w.db.prepare("SELECT body, sender_agent FROM messages WHERE recipient_agent = ? ORDER BY id DESC LIMIT 1").bind(agent).first<{ body: string; sender_agent: string }>();
+    const c = (await to("core"))!;
+    assert.equal(c.sender_agent, "handoff-check");
+    assert.match(c.body, /^A handoff to you has been pending for over a day\. Record what became of each with update_handoff[\s\S]*- H1 · aaa1111 — fix one/);
+    assert.match((await to("alder"))!.body, /A handoff you made has been pending for over a day, and bob\/gone isn't connected[\s\S]*- H2 · bbb2222/);
+    // Once each.
+    assert.match(await handoffCheck(w.env(), "bob"), /nothing to remind \(0 checked\)/);
+    // The Overview offers to withdraw what's waiting on an agent that isn't there.
+    assert.match(await (await w.request("/dashboard", { as: "bob", cookie: true })).text(), /gone<\/b><\/a><span class="hmtxt">1 handoff to it pending, and it isn(?:'|&#39;)t connected/);
+  });
+
   test("handoffs don't pile up: a new one closes those it supersedes, the receiver is asked to settle old ones when its turn ends, and stale ones close from the dashboard", async () => {
     const w = await standardWorld();
     await w.request("/api/hook?event=SessionStart&project=billing-api&session=p1&name=alder", { as: "bob" });

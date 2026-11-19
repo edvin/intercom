@@ -10,6 +10,7 @@
 import { lookForPrompt } from "./prompts";
 import { fableDue } from "./fable";
 import { codexModelDue } from "./models";
+import { handoffCheck } from "./records";
 import { daySummary, scheduleSummary } from "./work";
 import { NUDGE_WAIT_MS, nudgeStuck, stuckNote, stuckSessions } from "./stuck";
 import { compactDue } from "./upkeep";
@@ -274,6 +275,15 @@ export async function sendDuePushes(env: Env, now = Date.now()): Promise<number 
         console.log("fable", q.member, q.extra, await fableDue(env, q.member, q.extra));
       } catch (e) {
         console.log("fable", q.ref, String(e));
+      }
+      continue;
+    }
+    if (q.ref[0] === "w") {
+      // Handoffs pending for a day (records.ts): their receiver, or their author, reminded once.
+      try {
+        console.log("handoffs", q.member, await handoffCheck(env, q.member));
+      } catch (e) {
+        console.log("handoffs", q.ref, String(e));
       }
       continue;
     }
