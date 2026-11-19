@@ -37,7 +37,7 @@ export function menu(text: string): { label: string; on: boolean }[] {
   const ls = lines(text);
   const out: { label: string; on: boolean; n: number }[] = [];
   for (let i = ls.length - 1; i >= 0; i--) {
-    const m = /^\s*(›)?\s*(\d+)\.\s+(.+?)\s*$/.exec(ls[i]!);
+    const m = /^\s*([›❯])?\s*(\d+)\.\s+(.+?)\s*$/.exec(ls[i]!); // Codex's cursor, or Claude Code's
     if (!m) {
       if (out.length) break;
       continue;

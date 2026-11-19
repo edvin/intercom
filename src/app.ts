@@ -5,6 +5,7 @@ import { pickPrompt, queuePromptLook } from "./prompts";
 import { recordsBrief } from "./records";
 import { saveWorkSettings, workCsv } from "./work";
 import { dismissStuck, moveStuck, releaseSenders, setNudge, wakeStuck } from "./stuck";
+import { loginCancel, loginCode, loginStart } from "./login";
 import { askModel, queueCodexModel } from "./models";
 import { CTX_STALE_MS, FIT_SINCE, compactAgent, compactOnStop, markCompacted, dismiss, myRows, newer, outOfUsage, restartAgent, reviveAgent, setAuto, updateAgent, updateIdle } from "./upkeep";
 import { activeLoops, loopReminder, parseLoops } from "./loops";
@@ -768,6 +769,17 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
   if (url.pathname === "/api/hook") return handleHook(url, env, me, req.method === "POST" ? ((await req.json().catch(() => ({}))) as Record<string, unknown>) : {});
   if (url.pathname === "/api/whoami") return text(me);
   if (url.pathname === "/api/statusline") return handleStatusline(url, env, me);
+  if (url.pathname === "/api/account" && req.method === "POST") {
+    // The account its machine's Claude Code is signed in with changed (a /login, here or by hand): {email, org, plan, method}.
+    const sid = url.searchParams.get("session") ?? "";
+    const a = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+    if (a && typeof a === "object" && typeof a.email === "string") {
+      const account = JSON.stringify(Object.fromEntries(["email", "org", "plan", "method"].map((k) => [k, typeof a[k] === "string" ? (a[k] as string).slice(0, 120) : ""])));
+      await env.DB.prepare("UPDATE sessions SET account = ? WHERE member = ? AND session_id = ? AND client != 'codex'").bind(account, me, sid).run();
+      env.refreshWeb?.(me);
+    }
+    return json({ ok: true });
+  }
   if (url.pathname === "/api/guard" && req.method === "POST") return handleGuard(req, url, env, me);
   if (url.pathname === "/api/brief") return handleBrief(url, env, me);
   if (url.pathname === "/api/ui") return handleUi(url, env, me);
@@ -1305,6 +1317,35 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
       }
     }
     return redirect(back.pathname + back.search);
+  }
+  if (url.pathname === "/agent/login" && req.method === "POST") {
+    // Logging its machine's Claude Code into another account (login.ts): start (the sign-in link), code, cancel.
+    if (!sameOrigin(req) || env.authKind !== "web") return new Response("Cross-origin request refused", { status: 403 });
+    const form = await req.formData();
+    const sid = String(form.get("session") ?? "");
+    const op = String(form.get("op") ?? "");
+    try {
+      if (op === "start") return json(await loginStart(env, me, sid));
+      if (op === "code") {
+        const said = await loginCode(env, me, sid, String(form.get("code") ?? ""));
+        // The account it shows: the new email on its machine's Claude Code agents now, the rest when they report it.
+        const email = /as ([^\s]+@[^\s]+?)\.(?:\s|$)/.exec(said)?.[1];
+        if (email)
+          await env.DB.prepare("UPDATE sessions SET account = ? WHERE member = ? AND client != 'codex' AND host = (SELECT host FROM sessions WHERE member = ? AND session_id = ?) AND host != ''")
+            .bind(JSON.stringify({ email, org: "", plan: "", method: "claude.ai" }), me, me, sid)
+            .run();
+        env.refreshWeb?.(me);
+        return json({ ok: true, message: said });
+      }
+      if (op === "cancel") {
+        await loginCancel(env, me, sid);
+        return json({ ok: true });
+      }
+      return json({ error: "Unknown step." }, 400);
+    } catch (e) {
+      if (!(e instanceof UserError)) throw e;
+      return json({ error: e.message });
+    }
   }
   if (url.pathname === "/agent/model" && req.method === "POST") {
     // Switch one of your agents' model from the dashboard: its intercom-ui mod runs /model between turns (models.ts).

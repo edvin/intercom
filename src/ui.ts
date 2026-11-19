@@ -853,6 +853,7 @@ body:has(.ide) .top .in{max-width:none;padding:8px 14px}
 .scrfit{gap:5px}.scrfit[aria-pressed=true]{background:var(--accent-soft);color:var(--accent);border-color:color-mix(in srgb,var(--accent) 40%,transparent)}
 .scrlive{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--green)}.scrlive .dot{width:7px;height:7px;border-radius:50%;background:var(--green);animation:pulse 1.8s infinite}
 .scrbody{flex:0 1 auto;min-height:0;display:flex;flex-direction:column;background:#0b0d14}
+.logindlg{width:min(520px,calc(100vw - 32px))}.lstep{display:flex;gap:12px;align-items:flex-start;margin:0}.lstep .grow{display:flex;flex-direction:column;gap:6px;align-items:flex-start}.lnum{flex:none;width:24px;height:24px;border-radius:50%;display:grid;place-items:center;background:var(--accent-soft);color:var(--accent);font-weight:600;font-size:12.5px}.lcode{display:flex;gap:8px;width:100%}.lcode input{flex:1;min-width:0;font:13px "Geist Mono",ui-monospace,monospace}.lerr{color:var(--red);margin:0}.lok{margin:0;font-weight:500}
 .scrbody.typable{cursor:text;outline:2px solid transparent;outline-offset:-2px;transition:outline-color .15s}.scrbody.typable:focus{outline-color:var(--accent)}
 .scrhint{display:none;font-size:12px;color:var(--ink-2);margin:0}@media (hover:hover) and (pointer:fine){.scrhint{display:block}}.scrdlg:has(.scrbody:focus) .scrhint b{color:var(--accent)}
 .scrwrap{flex:0 1 auto;height:calc(var(--rows,30) * 17.25px + 30px);min-height:120px;display:flex}
@@ -2766,6 +2767,37 @@ ${markupScript()}
       d.addEventListener("cancel", (e) => { if (document.activeElement === sb) e.preventDefault(); });
     }
   }
+  // Logging a machine's Claude Code into another account (login.ts): Start types /login and shows the sign-in link;
+  // the code from that page is typed back in; Cancel (or closing the window) backs out of the login.
+  const loginPost = (d, op, extra) => { const f = new FormData(); f.set("session", d.dataset.session); f.set("op", op); for (const k in extra || {}) f.set(k, extra[k]);
+    return fetch("/agent/login", { method: "POST", body: f, credentials: "same-origin" }).then((r) => r.json()).catch(() => ({ error: "The intercom didn't answer; try again." })); };
+  const loginShow = (d, n) => $$("[data-loginstep]", d).forEach((x) => (x.hidden = x.dataset.loginstep !== String(n)));
+  const loginErr = (d, msg) => { const e = d.querySelector("[data-loginerr]"); e.textContent = msg || ""; e.hidden = !msg; };
+  document.addEventListener("click", async (e) => {
+    const b = e.target.closest && e.target.closest("[data-login]"); if (!b) return;
+    const d = b.closest("dialog"); if (!d) return;
+    if (b.dataset.login === "cancel") { if (d.dataset.started) { d.dataset.started = ""; loginPost(d, "cancel"); } return d.close(); }
+    if (b.dataset.login === "done") return d.close();
+    loginErr(d, ""); b.disabled = true; const label = b.innerHTML; b.textContent = "Typing /login…";
+    const r = await loginPost(d, "start");
+    b.disabled = false; b.innerHTML = label;
+    if (r.error) return loginErr(d, r.error);
+    d.dataset.started = "1"; d.querySelector("[data-loginurl]").href = r.url; loginShow(d, 2); b.hidden = true;
+  });
+  document.addEventListener("click", (e) => { const a = e.target.closest && e.target.closest("[data-loginurl]"); if (a) setTimeout(() => { const i = a.closest("dialog").querySelector("[data-loginform] input"); if (i) i.focus(); }, 300); });
+  document.addEventListener("submit", async (e) => {
+    const f = e.target.closest && e.target.closest("[data-loginform]"); if (!f) return;
+    e.preventDefault(); e.stopImmediatePropagation(); // its own: not the page's form handling (which would close the window)
+    const d = f.closest("dialog"), btn = f.querySelector("button"), input = f.querySelector("input");
+    loginErr(d, ""); btn.disabled = true;
+    const r = await loginPost(d, "code", { code: input.value });
+    btn.disabled = false;
+    if (r.error) return loginErr(d, r.error);
+    d.dataset.started = ""; input.value = "";
+    d.querySelector("[data-loginok]").textContent = r.message; loginShow(d, 3);
+    const c = d.querySelector("[data-login=cancel]"); c.textContent = "Done"; c.dataset.login = "done";
+  }, true);
+  document.addEventListener("close", (e) => { const d = e.target; if (d.id === "dlg-login" && d.dataset.started) { d.dataset.started = ""; loginPost(d, "cancel"); } }, true);
   // ⋯ in a chat's header on a phone: shows or hides the rest of the header; stays open across live updates.
   let hdOpen = false;
   document.addEventListener("click", (e) => {

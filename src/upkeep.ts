@@ -86,14 +86,14 @@ async function locate(env: Env, me: string, t: Row, rows: Row[], live: (r: Row) 
   return found?.pane ? { via: h, pane: found.pane, info: found } : null;
 }
 
-async function ask(env: Env, me: string, at: Located, t: Row, q: ScreenQuery, by: string): Promise<ScreenData> {
-  return askSession(env, me, at.via, { ...q, ...(at.pane ? { pane: at.pane } : {}) } as ScreenQuery, { label: t.label, by, target: t.session_id });
+async function ask(env: Env, me: string, at: Located, t: Row, q: ScreenQuery, by: string, secret?: string): Promise<ScreenData> {
+  return askSession(env, me, at.via, { ...q, ...(at.pane ? { pane: at.pane } : {}) } as ScreenQuery, { label: t.label, by, target: t.session_id, ...(secret ? { secret } : {}) });
 }
 
 /** An agent's terminal to drive (codexterm.ts), itself or through another agent on its machine; null when unreachable. */
-export async function termFor(env: Env, me: string, t: Row, rows: Row[], live: (r: Row) => boolean, by: string): Promise<Term | null> {
+export async function termFor(env: Env, me: string, t: Row, rows: Row[], live: (r: Row) => boolean, by: string, secret?: string): Promise<Term | null> {
   const at = await locate(env, me, t, rows, live);
-  return at ? (q) => ask(env, me, at, t, q, by) : null;
+  return at ? (q) => ask(env, me, at, t, q, by, secret) : null;
 }
 
 /** Out of usage: its last turn failed on a usage limit (app.ts stopFailure), until a turn runs again. */

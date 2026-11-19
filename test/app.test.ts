@@ -4198,6 +4198,91 @@ describe("Fable's weekly limit", () => {
   });
 });
 
+describe("logging a machine into another account", () => {
+  const URL1 = "https://claude.com/cai/oauth/authorize?code=true&client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e&response_type=code&redir";
+  const URL2 = "ect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback&scope=user%3Ainference&code_challenge=abc&state=x";
+  /** Claude Code's /login, as 2.1 shows it: the method menu, the sign-in link wrapped at the terminal's edge, the code box. */
+  class FakeLogin {
+    view = "idle";
+    input = "";
+    at = 0;
+    log: string[] = [];
+    good = "abcDEF123_good#state";
+    screen(): string {
+      const conv = "⏺ The build failed with an error earlier.\n";
+      if (this.view === "menu") return `${conv}  Login\n  Select login method:\n${["Claude account with subscription · Individual, Team, or Enterprise", "Anthropic Console account · API usage billing", "3rd-party platform · Bedrock"].map((x, i) => `  ${i === this.at ? "❯" : " "} ${i + 1}. ${x}`).join("\n")}\n  Esc to cancel\n`;
+      if (this.view === "code") return `${conv}  Login\n  Browser didn't open? Use the URL below to sign in (c to copy)\n${URL1}\n${URL2}\n  Paste code here if prompted\n  │ ${this.input}\n  Esc to cancel\n`;
+      if (this.view === "ok") return `${conv}  Login\n  Login successful. Press Enter to continue…\n`;
+      if (this.view === "bad") return `${conv}  Login\n  OAuth error: Invalid code. Please make sure the full code was copied\n  Paste code here if prompted\n`;
+      return `${conv}❯ ${this.input}\n  ? for shortcuts\n`;
+    }
+    keys(q: Record<string, unknown>) {
+      if (typeof q.text === "string") (this.input += q.text), this.log.push(`type ${q.text}`);
+      for (const k of (q.keys as string[] | undefined) ?? []) {
+        this.log.push(k);
+        if (k === "down") this.at++;
+        else if (k === "esc") (this.view = "idle"), (this.input = ""), (this.at = 0);
+        else if (k === "enter") {
+          if (this.view === "idle" && this.input === "/login") (this.view = "menu"), (this.input = "");
+          else if (this.view === "menu") this.view = this.at === 0 ? "code" : "x";
+          else if (this.view === "code") (this.view = this.input === this.good ? "ok" : "bad"), (this.input = "");
+          else if (this.view === "ok") this.view = "idle";
+        }
+      }
+    }
+  }
+  const drive = async <T>(w: World, t: FakeLogin, go: () => Promise<T>) => {
+    let done = false;
+    const p = go().finally(() => (done = true));
+    p.catch(() => {}); // a refusal is the caller's to check
+    let n = w.screenAsked.length;
+    while (!done) {
+      while (w.screenAsked.length > n) {
+        const ask = w.screenAsked[n++]!;
+        if (ask.q.op === "keys") t.keys(ask.q);
+        await w.request("/api/screen-reply", { as: ask.member, method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ req: ask.req, data: { text: t.screen(), cols: 120, rows: 40, cursor: null, keys: true } }) });
+      }
+      await new Promise((r) => setTimeout(r, 2));
+    }
+    return p;
+  };
+
+  test("/login typed for you, the wrapped sign-in link read off its screen, your code typed back (kept out of its activity); every Claude Code agent there moves", async () => {
+    const w = await standardWorld();
+    for (const [id, name, pane] of [["lg1", "core", "%5"], ["lg2", "docs", "%6"]] as const) {
+      await w.request(`/api/hook?event=SessionStart&project=billing-api&session=${id}&name=${name}&client=claude&version=${PLUGIN_VERSION}`, { as: "bob" });
+      await w.db.prepare("UPDATE sessions SET host = 'ultra', screen = 'keys', pane = ? WHERE session_id = ?").bind(pane, id).run();
+    }
+    const { loginStart, loginCode, loginCancel, loginUrl } = await import("../src/login.ts");
+    assert.equal(loginUrl(`  Login\n${URL1}\n${URL2}\n  Paste code here`), URL1 + URL2);
+    assert.equal(loginUrl("https://evil.example/oauth/authorize?x=1\n"), null);
+    // The dashboard: a Switch by its account, and a dialog saying who moves with it.
+    const html = await (await w.request("/dashboard?view=agents&agent=bob/core", { as: "bob", cookie: true })).text();
+    assert.match(html, /data-open="dlg-login"/);
+    assert.match(html, /<dialog id="dlg-login"[\s\S]*every Claude Code agent on ultra moves to the new account \(docs too/);
+    const t = new FakeLogin();
+    const r = await drive(w, t, () => loginStart(w.env(), "bob", "lg1"));
+    assert.deepEqual(r, { url: URL1 + URL2, label: "core", others: ["docs"] });
+    assert.deepEqual(t.log.slice(0, 3), ["type /login", "enter", "enter"]);
+    // A wrong code: what Claude Code says, and it still waits for one.
+    await assert.rejects(drive(w, t, () => loginCode(w.env(), "bob", "lg1", "abcDEF123_wrong#state")), /Claude Code said: OAuth error: Invalid code/);
+    t.view = "code";
+    assert.match(await drive(w, t, () => loginCode(w.env(), "bob", "lg1", "  abcDEF123_good#state ")), /^Logged in\. docs on the same machine uses it too\.$/);
+    assert.equal(t.view, "idle");
+    const acts = await w.db.prepare("SELECT text FROM activity WHERE session_id = 'lg1' AND kind = 'keys'").all<{ text: string }>();
+    assert.ok(acts.results.some((a) => /the sign-in code/.test(a.text)));
+    assert.ok(!acts.results.some((a) => /abcDEF123/.test(a.text)));
+    await assert.rejects(loginCode(w.env(), "bob", "lg1", "x y"), /doesn't look like the code/);
+    // Called off: Esc out of it.
+    await drive(w, t, () => loginStart(w.env(), "bob", "lg1"));
+    await drive(w, t, () => loginCancel(w.env(), "bob", "lg1"));
+    assert.equal(t.view, "idle");
+    // Its local server says when the account changed.
+    await w.request("/api/account?session=lg1", { method: "POST", as: "bob", body: JSON.stringify({ email: "second@example.com", org: "", plan: "max", method: "claude.ai" }) });
+    assert.match(await (await w.request("/dashboard?view=agents&agent=bob/core", { as: "bob", cookie: true })).text(), /second@example\.com/);
+  });
+});
+
 describe("an agent's screen", () => {
   const SCREEN = "\x1b[1m\x1b[32m✻ Welcome\x1b[0m\n\x1b[38;5;208mDo you want to proceed?\x1b[39m\n❯ 1. Yes\n  2. No\n";
   const setup = async () => {

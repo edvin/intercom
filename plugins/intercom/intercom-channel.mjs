@@ -21,7 +21,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const VERSION = "0.12.61"; // kept in step with .claude-plugin/plugin.json (a test checks)
+const VERSION = "0.12.62"; // kept in step with .claude-plugin/plugin.json (a test checks)
 const DIR = path.join(os.homedir(), ".claude", "intercom");
 const CONFIG = path.join(DIR, "config");
 function readConf() {
@@ -42,6 +42,7 @@ const TOKEN = fromEnv ? process.env.INTERCOM_TOKEN : conf.INTERCOM_TOKEN;
 // Claude Code tells us its session; Codex doesn't, but its SessionStart hook leaves a note (see codexSession).
 // (Our own pid too: under Codex's app-server daemon every server has the same parent.)
 let SESSION = process.env.CLAUDE_CODE_SESSION_ID || `pid-${process.ppid}-${process.pid}`;
+let lastAccount = ""; // the account last reported (JSON), so a change is sent once
 const STARTED = Math.floor(Date.now() / 1000);
 const CHANNEL = process.env.INTERCOM_CHANNEL === "1";
 const MODE = CHANNEL ? "push" : "peek";
@@ -1322,9 +1323,22 @@ async function locate() {
     if (headers["x-intercom-client"] !== "codex" && !headers["x-intercom-account"]) {
       const acct = await account();
       if (acct) headers["x-intercom-account"] = encodeURIComponent(JSON.stringify(acct));
+      lastAccount = acct ? JSON.stringify(acct) : lastAccount;
     }
   } catch {}
 }
+
+// Looked at again every few minutes: a /login (from the dashboard or by hand) moves the whole machine to another
+// account, and the dashboard shows the one it runs on now.
+setInterval(async () => {
+  if (headers["x-intercom-client"] === "codex" || !BASE || !TOKEN || SESSION.startsWith("pid-")) return;
+  const acct = await account();
+  const now = acct ? JSON.stringify(acct) : "";
+  if (!now || now === lastAccount) return;
+  lastAccount = now;
+  headers["x-intercom-account"] = encodeURIComponent(now);
+  fetch(`${BASE}/api/account?session=${encodeURIComponent(SESSION)}`, { method: "POST", headers: { ...headers, "content-type": "application/json" }, body: now, signal: AbortSignal.timeout(10_000) }).catch(() => {});
+}, 5 * 60_000).unref();
 
 /** The account this machine's Claude Code is signed in with: its email, organization and plan. Null when unknown. */
 function account() {

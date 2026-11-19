@@ -107,7 +107,7 @@ export async function askSession(
   me: string,
   via: { session_id: string; label: string },
   q: ScreenQuery | { op: "panes" } | { op: "tmux" } | { op: "tmux-new"; name: string; cwd: string; run: string; prompt?: string; label?: string; resume?: { id: string; flags: string[]; channel: boolean } } | { op: "tmux-kill"; name: string },
-  note: { label: string; by: string; target?: string },
+  note: { label: string; by: string; target?: string; secret?: string },
 ): Promise<ScreenData & Extra> {
   if (!env.askScreen) throw new UserError("The screen isn't available here.");
   const req = crypto.randomUUID();
@@ -124,7 +124,7 @@ export async function askSession(
   const r = await reply;
   if ("error" in r) throw new UserError(r.error);
   if (q.op === "keys") {
-    const what = [...(q.keys ?? []).map((k) => KEY_NAMES[k] ?? k), q.text ? `typed “${q.text.slice(0, 120)}”` : "", q.enter && q.text ? "Enter" : "", q.after?.length ? q.after.map((k) => KEY_NAMES[k] ?? k).join(" ") : ""].filter(Boolean).join(", ");
+    const what = [...(q.keys ?? []).map((k) => KEY_NAMES[k] ?? k), q.text ? (note.secret ? note.secret : `typed “${q.text.slice(0, 120)}”`) : "", q.enter && q.text ? "Enter" : "", q.after?.length ? q.after.map((k) => KEY_NAMES[k] ?? k).join(" ") : ""].filter(Boolean).join(", ");
     await env.DB.prepare("INSERT INTO activity (member, session_id, at, kind, text) VALUES (?, ?, ?, 'keys', ?)")
       .bind(me, note.target ?? via.session_id, Date.now(), `${note.by.startsWith("by itself") ? "intercom sent keys" : "you sent keys"} ${note.by}${note.target && note.target !== via.session_id ? ` (through ${via.label})` : ""}: ${what}`)
       .run();

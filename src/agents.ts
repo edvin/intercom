@@ -58,6 +58,7 @@ import { type Gone, endedAgents, newer, reviveByHand } from "./upkeep";
 import { subMark, subMarkOf, subsRegion, subWhen } from "./subview";
 import { trackedNeedsYou } from "./tracked";
 import { BTW_TIMEOUT, NO_MOD, btwFor, compactable, modAnswers } from "./btw";
+import { loginInfo } from "./login";
 import { EFFORTS, MODELS, codexEfforts, codexModels, effortName, effortSwitchable, modelName, switchable } from "./models";
 import { type Activity, type Env, type Message, DELEGATE_PER_HOUR, LIVE, address, ago, deliveryMarks, short, hostNames, myProjects } from "./lib";
 import { LOGO, agentAvatar, agentHue, agentLink, agentName, avatar, deliveryMark, esc, hidden, icon, md, plainSpaces, time } from "./ui";
@@ -719,6 +720,10 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   const note = ownAgent && agent.project ? await getNote(env, me, agent.project, agent.label) : null;
   const watching = ownAgent && !!(await env.DB.prepare("SELECT 1 FROM agent_watch WHERE member = ? AND label = ?").bind(me, agent.label).first());
   const acct = ownAgent ? accountOf(agent.account) : null;
+  // Logging its machine into another account (login.ts): /login typed in its terminal, the sign-in done in your browser.
+  const canLogin = ownAgent && agent.client !== "codex" && agent.screen === "keys" && isOn(agent);
+  const loginWith = canLogin ? await loginInfo(env, me, agent.session_id).catch(() => null) : null;
+  const loginBtn = canLogin ? `<button type="button" class="btn ghost xs compactbtn" data-open="dlg-login" title="Log this machine's Claude Code into another account (like /login)">Switch</button>` : "";
   const fact = (ic: string, k: string, v: string, cls = "") => `<div class="ifr${cls ? ` ${cls}` : ""}"><span class="ifi">${icon(ic, 13)}</span><span class="ifk">${k}</span><span class="ifv">${v}</span></div>`;
   const facts = [
     modelVal ? fact("cpu", "Model", modelVal) : "",
@@ -727,7 +732,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
     agent.branch ? fact("branch", "Branch", `<span class="mono">${esc(agent.branch)}</span>`) : "",
     agent.host ? fact("monitor", "Machine", `${esc(hostOf(agent))}${ownAgent ? `<button type="button" class="btn ghost xs icon iedit" data-open="dlg-host" title="Rename this machine">${icon("pencil", 11)}</button>` : ""}`) : "",
     ownAgent && agent.cwd ? fact("folder", "Folder", `<span class="mono cwd" title="${esc(agent.cwd)}">${esc(agent.cwd)}</span>`) : "",
-    ownAgent && acct?.email ? fact("user", "Account", `<span class="iacct" title="${esc([acct.email, acct.org, acct.method].filter(Boolean).join(" · "))}">${esc(acct.email)}</span>${acct.plan ? `<span class="badge iplan">${esc(planName(acct.plan))}</span>` : ""}`) : "",
+    ownAgent && acct?.email ? fact("user", "Account", `<span class="iacct" title="${esc([acct.email, acct.org, acct.method].filter(Boolean).join(" · "))}">${esc(acct.email)}</span>${acct.plan ? `<span class="badge iplan">${esc(planName(acct.plan))}</span>` : ""}${loginBtn}`) : canLogin ? fact("user", "Account", `<span class="muted">not known yet</span>${loginBtn}`) : "",
     fact("terminal", "Client", `${clientBadge(agent.client, true)}${agent.version ? `<span class="iver">${esc(agent.version)}</span>` : ""}`),
     ownAgent ? fact("users", "Your agents", takesCtl) : "",
   ].join("");
@@ -841,6 +846,20 @@ ${(() => {
           ${canEffort ? `<div class="field">Effort <span class="tiny">(how hard it thinks; Auto is the model's default)</span><div class="effpick">${EFFORTS.map((x) => `<label class="effopt"><input type="radio" name="effort" value="${x.value}"${x.value === agent.effort ? " checked" : ""}><span>${x.label}</span></label>`).join("")}</div></div>` : `<p class="tiny muted" style="margin:0">${esc(effortSwitchable(agent, isOn(agent)))}</p>`}
         </div><div class="ft"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary">${icon("check", 14)}Switch</button></div></form></dialog>`;
       })() : ""}
+      ${canLogin ? `<dialog id="dlg-login" class="logindlg" data-session="${esc(agent.session_id)}"><div class="hd">${icon("user", 18)}<h2>Log in to another account</h2></div>
+        <div class="bd stack">
+          <div data-loginstep="1" class="stack">
+            <p class="small" style="margin:0">Like <span class="mono">/login</span> in ${esc(agent.label)}'s terminal; you sign in with the new account in your own browser. ${acct?.email ? `It runs on <b>${esc(acct.email)}</b> now. ` : ""}</p>
+            <p class="small muted" style="margin:0">Claude Code keeps one login per machine: every Claude Code agent on ${esc(loginWith?.host ?? "its machine")} moves to the new account${loginWith?.others.length ? ` (${esc(loginWith.others.join(", "))} too, when they next renew their sign-in)` : ""}.${agent.state === "working" ? ` ${esc(agent.label)} is working right now: start when it's idle, so /login doesn't land in its turn.` : ""}</p>
+          </div>
+          <div data-loginstep="2" class="stack" hidden>
+            <div class="lstep"><span class="lnum">1</span><div class="grow"><b>Sign in with the account to use</b><div class="small muted">Pick or add the account on the page that opens; it then shows a code.</div><a class="btn sm" data-loginurl href="#" target="_blank" rel="noopener noreferrer">${icon("arrow", 13)}Open sign-in page</a></div></div>
+            <form class="lstep" data-loginform><span class="lnum">2</span><div class="grow"><b>Paste the code it shows</b><div class="lcode"><input name="code" required autocomplete="off" spellcheck="false" placeholder="Paste the code here" aria-label="Sign-in code"><button class="btn sm primary">${icon("check", 13)}Log in</button></div></div></form>
+          </div>
+          <div data-loginstep="3" hidden><p class="lok" data-loginok></p></div>
+          <p class="small lerr" data-loginerr hidden></p>
+        </div>
+        <div class="ft"><button type="button" class="btn ghost" data-login="cancel">Cancel</button><button type="button" class="btn primary" data-login="start">${icon("terminal", 14)}Start</button></div></dialog>` : ""}
       <dialog id="dlg-rename"><div class="hd">${icon("pencil", 18)}<h2>Rename ${esc(agent.label)}</h2></div>
         <form method="post" action="/agent/rename" data-native>${hidden({ session: agent.session_id, back: "/dashboard?view=agents" })}<div class="bd stack">
           <label class="field">Name<input name="name" required value="${esc(agent.label)}" pattern="[A-Za-z][A-Za-z0-9-]{0,23}" autocomplete="off"></label>
