@@ -145,7 +145,8 @@ export async function reviewView(env: Env, me: string, id: number, back: string)
         return `<div class="rvpost">
           <div class="rvposth">${sev(f)}<span class="rvpostsum">${esc(f.summary)}</span>
             <span class="rvseg"><label><input type="radio" name="f${n}" value="post"${f.post ? " checked" : ""}>Post</label><label><input type="radio" name="f${n}" value="drop"${f.post ? "" : " checked"}>Drop</label></span></div>
-          ${f.comment ? `<details class="rvpostc"><summary>Edit the comment</summary><textarea name="c${n}" id="rvc${r.id}-${n}" rows="5" class="tkta">${esc(f.comment)}</textarea></details>` : ""}
+          ${f.file ? `<span class="rvpostat">${icon("file", 12)}${esc(f.file)}${f.line ? `:${f.line}` : ""}</span>` : ""}
+          ${f.comment ? `<div class="rvpostq"><span class="rvpostql">The comment it would post</span><p>${esc(f.comment)}</p></div><details class="rvpostc"><summary>${icon("pencil", 12)}Edit the comment</summary><textarea name="c${n}" id="rvc${r.id}-${n}" rows="${Math.min(14, Math.max(4, Math.ceil(f.comment.length / 90) + f.comment.split("\n").length))}" class="tkta">${esc(f.comment)}</textarea></details>` : ""}
         </div>`;
       })
       .join("");

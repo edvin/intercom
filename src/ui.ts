@@ -1173,7 +1173,7 @@ details.trksec.s-parked>summary{list-style:none;cursor:pointer}
 tr.dnote td{padding:0;background:var(--surface-2)}
 .rvposts{display:flex;flex-direction:column;gap:8px;margin-bottom:18px}
 .rvpost{padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--surface)}
-.rvposth{display:flex;align-items:center;gap:10px}.rvpostsum{flex:1;min-width:0;font-size:14px;line-height:1.4;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.rvposth{display:flex;align-items:center;gap:10px}.rvpostsum{flex:1;min-width:0;font-size:14px;line-height:1.5;font-weight:500;overflow-wrap:anywhere;padding-top:2px}.rvposth{align-items:flex-start}.rvpostat{display:inline-flex;align-items:center;gap:4px;margin-top:6px;font:12px "Geist Mono",ui-monospace,monospace;color:var(--mute);overflow-wrap:anywhere}.rvpostq{margin-top:8px;padding:8px 12px;border-left:3px solid var(--line-strong);background:var(--surface-2);border-radius:0 8px 8px 0}.rvpostq p{margin:2px 0 0;font-size:13.5px;line-height:1.55;color:var(--ink-2);white-space:pre-wrap;overflow-wrap:anywhere}.rvpostql{font-size:11px;font-weight:650;letter-spacing:.03em;text-transform:uppercase;color:var(--mute)}.rvpost:has(.rvpostc[open]) .rvpostq{display:none}.rvpost:has(input[value=drop]:checked) .rvpostq{opacity:.55}.rvpostc summary{display:inline-flex;align-items:center;gap:5px}
 .rvpost:has(input[value=drop]:checked) .rvpostsum{color:var(--mute);text-decoration:line-through;text-decoration-color:var(--line-strong)}
 .rvpostc{margin-top:8px}.rvpostc summary{cursor:pointer;font-size:12.5px;font-weight:600;color:var(--ink-2)}.rvpostc textarea{margin-top:8px}
 .rvdecide .rvgone{margin-bottom:14px}
