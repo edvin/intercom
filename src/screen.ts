@@ -50,6 +50,30 @@ export const KEY_NAMES: Record<string, string> = {
 };
 
 const WAIT_MS = 12_000;
+/** A browser slot on a machine (browsers.ts), as its intercom lists it. */
+export interface Slot {
+  slot: number;
+  claimed: boolean;
+  profile: string | null;
+  idle: number | null;
+  alive: boolean;
+  mem: number | null;
+  mcp: string;
+  cdp: string;
+  tabs: { id: string; title: string; url: string }[];
+}
+/** A picture of one: a JPEG of its tab with the page's CSS size, so clicks map back. */
+export interface Shot {
+  img: string;
+  w: number;
+  h: number;
+  tab: string;
+  title: string;
+  url: string;
+  tabs: { id: string; title: string; url: string }[];
+  slot: number;
+  claimed: boolean;
+}
 export interface Term {
   session: string;
   window: number;
@@ -61,7 +85,7 @@ export interface Term {
   created: number;
   active: boolean;
 }
-type Extra = { panes?: AgentPane[]; terms?: Term[]; made?: { pane: string; closed: string } };
+type Extra = { panes?: AgentPane[]; terms?: Term[]; made?: { pane: string; closed: string }; browsers?: Slot[]; shot?: Shot; claimed?: Record<string, unknown> };
 type Reply = { data: ScreenData & Extra } | { error: string };
 const waiting = new Map<string, { member: string; done: (r: Reply) => void }>();
 
@@ -106,7 +130,7 @@ export async function askSession(
   env: Env,
   me: string,
   via: { session_id: string; label: string },
-  q: ScreenQuery | { op: "panes" } | { op: "tmux" } | { op: "tmux-new"; name: string; cwd: string; run: string; prompt?: string; label?: string; resume?: { id: string; flags: string[]; channel: boolean } } | { op: "tmux-kill"; name: string },
+  q: ScreenQuery | { op: "panes" } | { op: "browsers" } | { op: "browser-shot"; slot: number; tab?: string; scale?: number; quality?: number; ev?: unknown[] } | { op: "browser-claim"; profile?: string; copy?: boolean } | { op: "browser-release"; slot: number; keep?: boolean } | { op: "tmux" } | { op: "tmux-new"; name: string; cwd: string; run: string; prompt?: string; label?: string; resume?: { id: string; flags: string[]; channel: boolean } } | { op: "tmux-kill"; name: string },
   note: { label: string; by: string; target?: string; secret?: string },
 ): Promise<ScreenData & Extra> {
   if (!env.askScreen) throw new UserError("The screen isn't available here.");
@@ -165,7 +189,30 @@ export function screenReply(me: string, body: { req?: unknown; data?: unknown; e
         }))
       : undefined;
     const made = dt.made && typeof dt.made === "object" ? { pane: String((dt.made as { pane?: unknown }).pane ?? "").slice(0, 12), closed: String((dt.made as { closed?: unknown }).closed ?? "").slice(0, 64) } : undefined;
-    w.done({ data: { text: d.text.slice(0, 400_000), cols: Number(d.cols) || 0, rows: Number(d.rows) || 0, cursor: Array.isArray(d.cursor) ? [Number(d.cursor[0]), Number(d.cursor[1])] : null, keys: !!d.keys, ...(panes ? { panes } : {}), ...(terms ? { terms } : {}), ...(made ? { made } : {}) } });;
+    // Browsers (browsers.ts): the slots, a picture of one, a claim or release.
+    const db = d as { browsers?: unknown; shot?: unknown; claimed?: unknown };
+    const tabs = (v: unknown) =>
+      Array.isArray(v) ? (v as Record<string, unknown>[]).slice(0, 20).map((t) => ({ id: String(t.id ?? "").slice(0, 64), title: String(t.title ?? "").slice(0, 200), url: String(t.url ?? "").slice(0, 500) })) : [];
+    const browsers = Array.isArray(db.browsers)
+      ? (db.browsers as Record<string, unknown>[]).slice(0, 12).map((s) => ({
+          slot: Number(s.slot) || 0,
+          claimed: !!s.claimed,
+          profile: typeof s.profile === "string" ? s.profile.slice(0, 41) : null,
+          idle: Number.isFinite(Number(s.idle)) && s.idle !== null ? Number(s.idle) : null,
+          alive: s.alive !== false,
+          mem: Number.isFinite(Number(s.mem)) && s.mem !== null ? Number(s.mem) : null,
+          mcp: String(s.mcp ?? "").slice(0, 60),
+          cdp: String(s.cdp ?? "").slice(0, 60),
+          tabs: tabs(s.tabs),
+        }))
+      : undefined;
+    const sh = db.shot && typeof db.shot === "object" ? (db.shot as Record<string, unknown>) : null;
+    const shot =
+      sh && typeof sh.img === "string" && /^[A-Za-z0-9+/=]{1,3000000}$/.test(sh.img)
+        ? { img: sh.img, w: Number(sh.w) || 0, h: Number(sh.h) || 0, tab: String(sh.tab ?? "").slice(0, 64), title: String(sh.title ?? "").slice(0, 200), url: String(sh.url ?? "").slice(0, 500), tabs: tabs(sh.tabs), slot: Number(sh.slot) || 0, claimed: !!sh.claimed }
+        : undefined;
+    const claimed = db.claimed && typeof db.claimed === "object" ? Object.fromEntries(Object.entries(db.claimed as Record<string, unknown>).slice(0, 8).map(([k, v]) => [k.slice(0, 20), typeof v === "string" ? v.slice(0, 100) : typeof v === "number" || typeof v === "boolean" || v === null ? v : String(v).slice(0, 100)])) : undefined;
+    w.done({ data: { ...(browsers ? { browsers } : {}), ...(shot ? { shot } : {}), ...(claimed ? { claimed } : {}), text: d.text.slice(0, 400_000), cols: Number(d.cols) || 0, rows: Number(d.rows) || 0, cursor: Array.isArray(d.cursor) ? [Number(d.cursor[0]), Number(d.cursor[1])] : null, keys: !!d.keys, ...(panes ? { panes } : {}), ...(terms ? { terms } : {}), ...(made ? { made } : {}) } });;
   } else w.done({ error: "The agent sent an empty answer." });
   return true;
 }

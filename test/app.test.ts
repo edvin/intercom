@@ -4343,6 +4343,76 @@ describe("codex usage", () => {
   });
 });
 
+describe("browsers", () => {
+  const machine = async <T>(w: World, go: () => Promise<T>, answer: (q: Record<string, unknown>) => object) => {
+    const seen: Record<string, unknown>[] = [];
+    let done = false;
+    const p = go().finally(() => (done = true));
+    let n = w.screenAsked.length;
+    while (!done) {
+      while (w.screenAsked.length > n) {
+        const ask = w.screenAsked[n++]!;
+        seen.push(ask.q);
+        await w.request("/api/screen-reply", { as: ask.member, method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ req: ask.req, data: { text: "", cols: 0, rows: 0, cursor: null, keys: true, ...answer(ask.q) } }) });
+      }
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    return { result: await p, seen };
+  };
+  const tabs = [{ id: "T1", title: "Checkout · Shop", url: "https://dev.shop.test/checkout" }];
+  const slots = [
+    { slot: 1, claimed: true, profile: null, idle: 3, alive: true, mem: 900, mcp: "remote-chrome-slot1", cdp: "http://127.0.0.1:9222", tabs },
+    { slot: 2, claimed: false, profile: null, idle: null, alive: true, mem: 880, mcp: "remote-chrome-slot2", cdp: "http://127.0.0.1:9223", tabs: [] },
+  ];
+  const answer = (q: Record<string, unknown>) =>
+    q.op === "browser-claim" ? { claimed: { slot: 1, mcp: "remote-chrome-slot1", cdp: "http://127.0.0.1:9222" } }
+    : q.op === "browsers" ? { browsers: slots }
+    : q.op === "browser-shot" ? { shot: { img: "aGVsbG8=", w: 1440, h: 813, tab: "T1", title: "Checkout · Shop", url: "https://dev.shop.test/checkout", tabs, slot: q.slot, claimed: true } }
+    : q.op === "browser-release" ? { claimed: { slot: q.slot, released: true } }
+    : {};
+
+  test("an agent claims a browser for something; the overview says whose it is and what for; you watch it, click in it, take it over and hand it back", async () => {
+    const w = await standardWorld();
+    await w.request(`/api/hook?event=SessionStart&project=billing-api&session=b1&name=core&version=${PLUGIN_VERSION}`, { as: "bob" });
+    await w.db.prepare("UPDATE sessions SET host = 'ultra' WHERE session_id = 'b1'").run();
+    const core = { id: "b1", project: "billing-api" };
+    const { result, seen } = await machine(w, () => w.ok("bob", "browser", { action: "claim", purpose: "checking the checkout on dev" }, core), answer);
+    assert.equal(seen[0]!.op, "browser-claim");
+    assert.match(result, /You have browser slot 1\. Drive it with the remote-chrome-slot1 MCP server's tools only/);
+    assert.match((await w.tool("bob", "browser", { action: "claim", purpose: "again" }, core)).text, /already have browser slot 1/);
+    // The overview: on the agent's card, and the machine's Browsers panel.
+    const page = await (await w.request("/dashboard", { as: "bob", cookie: true })).text();
+    assert.match(page, /class="hmbrowse">[\s\S]*?browser 1 · checking the checkout on dev[\s\S]*?data-browser="ultra" data-brslot="1" data-brname="core"/);
+    assert.match(page, /data-browsers="ultra"[\s\S]*?Browsers on ultra/);
+    assert.match(page, /id="dlg-browser"/);
+    const panel = await machine(w, async () => (await w.request("/browsers?host=ultra", { as: "bob", cookie: true })).text(), answer);
+    assert.match(panel.result, /<b>core<\/b><\/a><span class="brwhy">checking the checkout on dev<\/span>[\s\S]*?Checkout · Shop[\s\S]*?data-brslot="1"/);
+    assert.match(panel.result, /class="brn">2<\/span>[\s\S]*?free/);
+    // Watching: a picture, and your click goes with the next one; opening a page goes in its log.
+    const shot = await machine(w, async () => (await w.request("/browser/shot?host=ultra&slot=1", { as: "bob", cookie: true })).json() as Promise<Record<string, unknown>>, answer);
+    assert.equal(shot.result.img, "aGVsbG8=");
+    assert.equal(shot.result.holder, "core");
+    const post = (path: string, body: object) => w.request(path, { as: "bob", cookie: true, method: "POST", headers: { origin: ORIGIN, "content-type": "application/json" }, body: JSON.stringify(body) });
+    const clicked = await machine(w, async () => (await post("/browser/shot", { host: "ultra", slot: 1, tab: "T1", ev: [{ type: "click", x: 10, y: 20 }, { type: "nav", url: "dev.shop.test/cart" }] })).json() as Promise<Record<string, unknown>>, answer);
+    assert.equal(clicked.result.ok, true);
+    assert.deepEqual(clicked.seen[0]!.ev, [{ type: "click", x: 10, y: 20 }, { type: "nav", url: "dev.shop.test/cart" }]);
+    assert.ok(await w.db.prepare("SELECT 1 FROM activity WHERE session_id = 'b1' AND text LIKE 'you used its browser (slot 1) from the dashboard: opened dev.shop.test/cart'").first());
+    // Take over and hand back: the agent is told, as from you.
+    assert.match(((await (await post("/browser/hand", { host: "ultra", slot: 1, op: "take" })).json()) as { text: string }).text, /core is told to keep off its browser/);
+    const last = () => w.db.prepare("SELECT body, recipient_agent FROM messages ORDER BY id DESC LIMIT 1").first<{ body: string; recipient_agent: string }>();
+    assert.match((await last())!.body, /^I'm using your browser \(slot 1 on ultra\) myself now from the dashboard\. Don't drive it until I hand it back/);
+    await post("/browser/hand", { host: "ultra", slot: 1, op: "back" });
+    assert.match((await last())!.body, /^I've handed your browser \(slot 1 on ultra\) back/);
+    // Another site can't drive it.
+    assert.equal((await w.request("/browser/shot", { as: "bob", cookie: true, method: "POST", headers: { origin: "https://evil.example", "content-type": "application/json" }, body: "{}" })).status, 403);
+    // Releasing: the card no longer shows it.
+    const rel = await machine(w, () => w.ok("bob", "browser", { action: "release" }, core), answer);
+    assert.equal(rel.seen[0]!.op, "browser-release");
+    assert.match(rel.result, /Released slot 1/);
+    assert.doesNotMatch(await (await w.request("/dashboard", { as: "bob", cookie: true })).text(), /class="hmbrowse"/);
+  });
+});
+
 describe("logging a machine into another account", () => {
   const URL1 = "https://claude.com/cai/oauth/authorize?code=true&client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e&response_type=code&redir";
   const URL2 = "ect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback&scope=user%3Ainference&code_challenge=abc&state=x";

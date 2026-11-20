@@ -21,7 +21,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const VERSION = "0.12.63"; // kept in step with .claude-plugin/plugin.json (a test checks)
+const VERSION = "0.12.64"; // kept in step with .claude-plugin/plugin.json (a test checks)
 const DIR = path.join(os.homedir(), ".claude", "intercom");
 const CONFIG = path.join(DIR, "config");
 function readConf() {
@@ -383,13 +383,14 @@ let PANE = null;
 const screenOn = () => setting("INTERCOM_SCREEN") !== "0";
 const keysOn = () => screenOn() && setting("INTERCOM_KEYS") !== "0";
 const termsOn = () => screenOn() && keysOn() && setting("INTERCOM_TERMINALS") !== "0";
+const browsersOn = () => screenOn() && setting("INTERCOM_BROWSERS") !== "0";
 
 async function answerScreenRequest(f) {
   let body;
   try {
     if (!screenOn()) throw new Error("Seeing the screen is turned off on that machine (INTERCOM_SCREEN=0 in its intercom config).");
     const { screenRequest } = await import("./code.mjs");
-    body = { data: await screenRequest(f.q ?? {}, { pane: PANE, keysOn: keysOn(), termsOn: termsOn() }) };
+    body = { data: await screenRequest(f.q ?? {}, { pane: PANE, keysOn: keysOn(), termsOn: termsOn(), browsersOn: browsersOn(), browsersUrl: setting("INTERCOM_BROWSERS_URL") || "http://127.0.0.1:9230" }) };
   } catch (e) {
     body = { error: String(e.message ?? e).slice(0, 300) };
   }

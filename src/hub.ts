@@ -78,6 +78,7 @@ import m0068 from "../migrations/0068_session_account.sql";
 import m0069 from "../migrations/0069_session_effort.sql";
 import m0070 from "../migrations/0070_codex_models.sql";
 import m0071 from "../migrations/0071_handoff_pinged.sql";
+import m0072 from "../migrations/0072_session_browser.sql";
 import { upkeepTick } from "./upkeep";
 
 /** A short fingerprint of the MCP tools (names, descriptions, schemas) this code offers. */
@@ -159,6 +160,7 @@ const MIGRATIONS: [string, string][] = [
   ["0069_session_effort", m0069],
   ["0070_codex_models", m0070],
   ["0071_handoff_pinged", m0071],
+  ["0072_session_browser", m0072],
 ];
 
 const DAY = 86400_000;

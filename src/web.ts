@@ -5,6 +5,7 @@ import { workView } from "./work";
 import { galleryFilters, galleryView, pruneFiles } from "./gallery";
 import { trackedView } from "./tracked";
 import { bargeIn, screenDialog } from "./screen";
+import { browserDialog } from "./browsers";
 import { type Delivery, type Env, type Lock, deliveryMarks, issueToken, type Message, type Project, type Proposal, DELEGATE_PER_HOUR, LIVE, MAX_BODY, MEMBER_OF, RECEIVES, activeLocks, address, authenticate, coMembers, isAdmin, myProjects, normChannel, postMessage, roleIn, sha256, workingOn, newToken, HANDLE, limit, UserError, unsend, ago } from "./lib";
 import { agentsView } from "./agents";
 import { askBtw } from "./btw";
@@ -723,6 +724,7 @@ export async function dashboard(url: URL, env: Env, me: string, cookie = ""): Pr
       : ""
   }
   ${screenDialog()}
+  ${browserDialog()}
   <dialog id="invite-dlg"><div class="hd">${icon("link", 18)}<h2>Invite link</h2></div><div class="bd stack">
     <p class="muted small" style="margin:0">Send it privately. Anyone with the link can join, until it's used up or expires.</p>
     <div class="code"><pre id="invite-link"></pre><button type="button" class="btn ghost xs copy" id="invite-copy" data-copy="">${icon("copy", 14)}<span>Copy</span></button></div>

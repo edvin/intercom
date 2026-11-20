@@ -15,6 +15,7 @@ import { type Gone, HELPER_SINCE, endedAgents, newer, outOfUsage, upkeepOf } fro
 import { resetsOf } from "./resets";
 import { fableOpusOn } from "./fable";
 import { PLUGIN_VERSION } from "./version";
+import { BROWSERS_SINCE, browserAttrs } from "./browsers";
 
 interface Row {
   session_id: string;
@@ -42,6 +43,7 @@ interface Row {
   compact_prep: string | null;
   pane: string | null;
   launch: string | null;
+  browser: string | null;
 }
 
 type Window = { k: string; p: number; r: number | null };
@@ -87,7 +89,7 @@ function verdict(ws: Window[], now: number): { tone: string; text: string } {
 export async function homeView(env: Env, me: string): Promise<string> {
   const now = Date.now();
   const { results } = await env.DB.prepare(
-    `SELECT session_id, label, project, client, host, version, last_seen, state, state_detail, state_at, active_at, note, model, effort, ctx_pct, ctx_window, usage, account, screen, ui_at, ui_version, compact_req, compact_prep, pane, launch
+    `SELECT session_id, label, project, client, host, version, last_seen, state, state_detail, state_at, active_at, note, model, effort, ctx_pct, ctx_window, usage, account, screen, ui_at, ui_version, compact_req, compact_prep, pane, launch, browser
      FROM sessions WHERE member = ? AND last_seen > ? ORDER BY label`,
   )
     .bind(me, now - 24 * HOUR)
@@ -270,6 +272,14 @@ export async function homeView(env: Env, me: string): Promise<string> {
         ${a.ctx_pct != null ? `<div class="hmbar"><span>Context</span>${meter(a.ctx_pct, a.ctx_pct >= 90 ? "red" : a.ctx_pct >= 75 ? "amber" : "")}<b>${a.ctx_pct}%</b></div>` : ""}
         ${five ? `<div class="hmbar"><span>${five.k === "five_hour" ? "5-hour" : "Week"}</span>${meter(five.p)}<b>${five.p}%</b></div>` : ""}
       </div>
+      ${(() => {
+        try {
+          const b = a.browser ? (JSON.parse(a.browser) as { slot: number; purpose?: string }) : null;
+          return b ? `<p class="hmbrowse">${icon("globe", 12)}<span>browser ${b.slot}${b.purpose ? ` · ${esc(b.purpose)}` : ""}</span><button type="button" class="btn ghost xs" ${browserAttrs(a.host, b.slot, a.label)}>${icon("eye", 12)}Watch</button></p>` : "";
+        } catch {
+          return "";
+        }
+      })()}
       ${stepText ? `<p class="hmstep" title="${esc(stepText.slice(0, 300))}">${icon(step!.kind === "cmd" ? "terminal" : step!.kind === "edit" ? "pencil" : step!.kind === "text" ? "message" : "dots", 12)}<span>${esc(stepText.slice(0, 140))}</span><time>${esc(ago(step!.at))}</time></p>` : ""}
       <footer><a class="btn ghost xs" href="${chat(a.label)}">${icon("message", 12)}Chat</a>${a.screen ? `<button type="button" class="btn ghost xs" ${screenAttrs(`${me}/${a.label}`, a.label, a.screen, a.client ?? "")}>${icon("monitor", 12)}Screen</button>` : ""}${
         canCompact ? `<form method="post" action="/agent/compact" data-confirm="Compact ${esc(a.label)}? It saves what it would lose first, then its conversation becomes a summary.">${hidden({ session: a.session_id, back })}<button class="btn ghost xs">${icon("layers", 12)}Compact</button></form>` : ""
@@ -309,6 +319,10 @@ export async function homeView(env: Env, me: string): Promise<string> {
       <div class="flctl">${sw("auto", auto, "Update idle agents by themselves")}${sw("resets", resets, "Redeem a usage reset when Codex runs out", "When your Codex agents hit their usage limit, redeem a usage reset (if the account has one) and have them carry on. At most once in two hours per machine.")}${sw("fable", fable, "Switch Fable agents to Opus when Fable's weekly limit runs out", "When an agent on Fable uses up Fable's weekly limit, Claude Code asks in its terminal whether to switch models. This answers Switch to Opus for that session, so it keeps working (its terminal has to be in tmux).")}</div>
       <p class="flhow">Updating an agent types <code>/reload-plugins</code> into its terminal when it's idle: it loads the new intercom in the same session. If Claude Code itself has an update waiting (“/restart to apply”), it types <code>/restart</code> instead, which also continues the same session. Busy agents are left alone.</p>
     </div>
+    ${termHosts
+      .filter((h) => agents.some((a) => a.host === h && a.version && !newer(BROWSERS_SINCE, a.version)))
+      .map((h) => `<details class="terms brs" data-browsers="${esc(h)}"><summary>${icon("globe", 14)}<b>Browsers on ${esc(hostOf(h))}</b><span class="small muted">remote-chrome slots there: whose each is, what's open, watch and step in</span></summary><div class="termsbody"><p class="small muted">Asking ${esc(hostOf(h))}…</p></div></details>`)
+      .join("")}
     ${termHosts.map((h) => `<details class="terms" id="terms-${esc(h.replace(/[^\w-]/g, "_"))}" data-terms="${esc(h)}"><summary>${icon("terminal", 14)}<b>Terminals on ${esc(hostOf(h))}</b><span class="small muted">tmux sessions there: open, start or close them</span></summary><div class="termsbody"><p class="small muted">Asking ${esc(hostOf(h))}…</p></div></details>`).join("")}
   </section>`;
 

@@ -7,6 +7,7 @@ import { TICKET_OUTCOMES, TLIMITS, answerTicket, finishTicket, openTicket, pendi
 import { RETENTION_DAYS as ATTACHMENT_DAYS, fileMarker, getAttachment, isImage, isText, linkImages, marker, readImage, size, storeFile, toBase64 } from "./attachments";
 import { HANDOFF_STATES, MAX_OBLIGATIONS, OPEN_HANDOFF, VERDICTS, createHandoff, crewRoles, findDecisions, decisionById, fmtCrew, fmtDecision, fmtHandoff, handoffIds, listHandoffs, logDecision, updateHandoff, withdrawHandoffs } from "./records";
 import { adminsInvite, githubRepo } from "./github";
+import { claimBrowser, releaseBrowser, shootOwn, statusOwn } from "./browsers";
 import {
   type Env,
   type Lock,
@@ -199,6 +200,38 @@ export const tools: Tool[] = [
       const { id, text } = await send(env, me, { ...a, to }, line ? `${line}\n\n${tag}` : tag);
       await linkImages(env, me, [att.id], id);
       return `${text} It carries ${tag}.`;
+    },
+  },
+  {
+    name: "browser",
+    description:
+      "A browser on this machine (remote-chrome slots) that your user can watch and step into from the dashboard. claim one before you drive it (say what for), drive it with the MCP server the claim names, screenshot to show your user what it shows, release it when done. status lists the slots here and whose they are.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        action: { type: "string", enum: ["claim", "release", "screenshot", "status"] },
+        purpose: { type: "string", description: "claim: what you'll use it for, in a few words (shown on the dashboard), e.g. \"checking the checkout flow on dev\"." },
+        profile: { type: "string", description: "claim: a named persistent profile (logins kept across claims), e.g. \"github\". Omit for a fresh, throwaway browser." },
+        copy: { type: "boolean", description: "claim with profile: a throwaway copy of it (when it's open elsewhere)." },
+        keep: { type: "boolean", description: "release: keep its tabs open (only drop your claim) instead of wiping it." },
+        message: { type: "string", description: "screenshot: a line to go with it." },
+      },
+      required: ["action"],
+    },
+    async run(env, me, a) {
+      const action = str(a, "action", true);
+      if (action === "claim") return claimBrowser(env, me, { purpose: str(a, "purpose", true)!, profile: str(a, "profile") ?? undefined, copy: a.copy === true });
+      if (action === "release") return releaseBrowser(env, me, a.keep === true);
+      if (action === "status") return statusOwn(env, me);
+      if (action === "screenshot") {
+        const shot = await shootOwn(env, me);
+        const att = await storeFile(env, me, { name: `browser-slot${shot.slot}.jpg`, mime: "image/jpeg", data: shot.data });
+        const line = str(a, "message") ?? `${shot.title || "Browser"} · ${shot.url}`;
+        const { id, text } = await send(env, me, { to: me }, `${line}\n\n${marker(att)}`);
+        await linkImages(env, me, [att.id], id);
+        return `${text} It carries ${marker(att)}.`;
+      }
+      throw new UserError(`Unknown action "${action}": claim, release, screenshot or status.`);
     },
   },
   {

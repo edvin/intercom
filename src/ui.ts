@@ -69,6 +69,8 @@ const ICONS: Record<string, string> = {
   trash: '<path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>',
   key: '<circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/>',
   chevron: '<path d="m9 18 6-6-6-6"/>',
+  globe: '<circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/>',
+  hand: '<path d="M18 11V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2"/><path d="M14 10V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v2"/><path d="M10 10.5V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/>',
   eye: '<path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/>',
   eyeOff: '<path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49"/><path d="M14.084 14.158a3 3 0 0 1-4.242-4.242"/><path d="M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143"/><path d="m2 2 20 20"/>',
   messages: '<path d="M14 9a2 2 0 0 1-2 2H6l-4 4V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z"/><path d="M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1"/>',
@@ -1040,7 +1042,7 @@ details.hoobl>summary{cursor:pointer}details.hoobl>summary svg{transition:transf
 .glist .attgone{opacity:.5}.glist a.glrow.attgone{padding:6px 14px!important}.glist .attgone::before{content:none}.glist .attgone .glth img{display:none!important}
 @media (max-width:640px){.glhd{display:none}.glist a.glrow{grid-template-columns:36px minmax(0,1fr) auto;grid-template-areas:"th nm sz" "th by dt";row-gap:1px;column-gap:10px;padding:8px 10px}.glth{grid-area:th}.glnm{grid-area:nm}.glsz{grid-area:sz;font-size:12px}.glby{grid-area:by;font-size:12px}.gldt{grid-area:dt;font-size:12px;text-align:right}}
 [data-gallery] [hidden]{display:none!important}.galq{position:relative;display:flex;align-items:center;flex:0 1 200px;width:200px;min-width:140px}.galq .i{position:absolute;left:10px;color:var(--mute);pointer-events:none}.galq input{width:100%;height:32px;padding-left:31px;font-size:13px}
-.galempty{padding:64px 16px;text-align:center}.galprune{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--mute)}.galprune select{width:auto;height:30px;font-size:13px}.galprune .btn{color:var(--red)}.galmore{display:flex;gap:8px;justify-content:center}.galmore .loading{opacity:.6;pointer-events:none}
+.galempty{padding:64px 16px;text-align:center}.galprune{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--mute)}.galprune select{width:auto;height:30px;font-size:13px}.galprune .btn{color:var(--red)}.brdlg{width:min(96vw,1240px);max-width:none;max-height:96vh;padding:0;display:none;flex-direction:column;overflow:hidden}.brdlg[open]{display:flex}.brdlg .hd{gap:8px}.brdlg .hd h2{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.brbar{display:flex;align-items:center;gap:4px;padding:8px 12px;border-bottom:1px solid var(--line);background:var(--surface)}.brurl{flex:1;min-width:0}.brurl input{width:100%;height:32px;font:13px "Geist Mono",ui-monospace,monospace}.brbar select{width:auto;max-width:220px;height:32px;font-size:13px}.brbody{position:relative;flex:1;min-height:240px;overflow:auto;background:#0b0c10;display:flex;align-items:flex-start;justify-content:center;outline:none}.brbody:focus-visible{box-shadow:inset 0 0 0 2px var(--accent)}.brbody img{display:block;width:100%;height:auto;cursor:pointer;user-select:none;-webkit-user-drag:none}.brmsg{margin:auto;padding:40px 16px;color:#aab}.brhint{margin:0;padding:8px 14px;font-size:12.5px;color:var(--mute);border-top:1px solid var(--line)}.brlist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}.brslot{display:flex;align-items:center;gap:12px;padding:10px 0}.brslot+.brslot{border-top:1px solid var(--line)}.brslot.dead{opacity:.6}.brn{flex:none;width:24px;height:24px;border-radius:7px;display:grid;place-items:center;background:var(--surface-2);font:600 12px "Geist Mono",ui-monospace,monospace;color:var(--ink-2)}.brmain{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}.brhd{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13.5px}.brwho{display:inline-flex;align-items:center;gap:6px;color:var(--ink);text-decoration:none}.brwhy{color:var(--ink-2)}.brtab{display:flex;align-items:baseline;gap:8px;min-width:0;font-size:12.5px}.brtab b{font-weight:550;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:45%}.brtab .muted{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;font-family:"Geist Mono",ui-monospace,monospace;font-size:12px}.hmbrowse{display:flex;align-items:center;gap:6px;margin:0;font-size:12.5px;color:var(--ink-2)}.hmbrowse span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}@media (max-width:640px){.brdlg{width:100vw;max-height:100dvh;border-radius:0}.brhint{display:none}}.galmore{display:flex;gap:8px;justify-content:center}.galmore .loading{opacity:.6;pointer-events:none}
 @media (max-width:640px){.galpane{padding:12px 12px 88px}.gal{grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:4px}.gtile{border-radius:6px}.galbar select{min-width:0;flex:1}}
 /* Tickets & MRs (tracked.ts): grouped by who they wait on, an MR under its ticket, each row opening to its history. */
 .trkpane{max-width:1180px;gap:18px;padding-bottom:96px}
@@ -2319,7 +2321,96 @@ ${markupScript()}
     try { const r = await fetch("/terminals?host=" + encodeURIComponent(d.dataset.terms), { credentials: "same-origin" }); body.innerHTML = await r.text(); } catch { body.innerHTML = '<p class="small muted">Couldn’t reach it.</p>'; }
     bindScreen();
   }
-  document.addEventListener("toggle", (e) => { const d = e.target; if (d.matches && d.matches("details.terms") && d.open) loadTerms(d); }, true);
+
+  // A machine's browsers (the Overview's Machines section, browsers.ts): asked for when you open the panel.
+  async function loadBrowsers(d) {
+    const body = d.querySelector(".termsbody");
+    try { const r = await fetch("/browsers?host=" + encodeURIComponent(d.dataset.browsers), { credentials: "same-origin" }); body.innerHTML = await r.text(); } catch { body.innerHTML = '<p class="small muted">Couldn’t reach it.</p>'; }
+  }
+  // The browser window: a live picture of one browser slot (every 1.5 s while open and in view); clicks, keys and
+  // scrolling on it go to the browser; take over and hand back tell its agent.
+  const brd = document.getElementById("dlg-browser");
+  let br = null;
+  const brQ = (s) => brd.querySelector(s);
+  function brOpen(b) {
+    if (!brd) return;
+    if (br) clearTimeout(br.timer);
+    br = { host: b.dataset.browser, slot: Number(b.dataset.brslot), label: b.dataset.brname || "", tab: "", w: 0, h: 0, busy: false, q: [], timer: null, took: false, tabsWas: "" };
+    brQ("[data-brtitle]").textContent = "Browser " + br.slot + (br.label ? " · " + br.label : "") + " · " + br.host;
+    brQ("[data-brimg]").hidden = true; brQ(".brmsg").hidden = false; brQ(".brmsg").textContent = "Loading…";
+    brQ("[data-brurl] input").value = "";
+    brHands();
+    if (!brd.open) brd.showModal();
+    brTick();
+    brQ("[data-brbody]").focus();
+  }
+  function brHands() { const has = !!(br && br.label); brQ('[data-brhand="take"]').hidden = !has || br.took; brQ('[data-brhand="back"]').hidden = !has || !br.took; }
+  function brMsg(t) { const m = brQ(".brmsg"); m.textContent = t; m.hidden = false; brQ("[data-brimg]").hidden = !br || !br.w; }
+  function brDraw(d) {
+    const img = brQ("[data-brimg]"); img.src = "data:image/jpeg;base64," + d.img; img.hidden = false; brQ(".brmsg").hidden = true;
+    br.w = d.w; br.h = d.h; br.tab = d.tab;
+    const u = brQ("[data-brurl] input"); if (document.activeElement !== u) u.value = d.url || "";
+    const tabs = d.tabs || [], sig = JSON.stringify(tabs.map((t) => [t.id, t.title]).concat([d.tab]));
+    const sel = brQ("[data-brtabs]"); sel.hidden = tabs.length < 2;
+    if (sig !== br.tabsWas && document.activeElement !== sel) {
+      br.tabsWas = sig; sel.innerHTML = "";
+      tabs.forEach((t) => { const o = document.createElement("option"); o.value = t.id; o.textContent = (t.title || t.url).slice(0, 60); o.selected = t.id === d.tab; sel.appendChild(o); });
+    }
+    if (typeof d.holder === "string" && d.holder !== br.label) { br.label = d.holder; brHands(); }
+  }
+  async function brSend(ev) {
+    if (!br) return;
+    if (ev) br.q.push(...ev);
+    if (br.busy) return;
+    const me = br; me.busy = true;
+    const evs = me.q.splice(0, 40);
+    try {
+      const r = evs.length
+        ? await fetch("/browser/shot", { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: JSON.stringify({ host: me.host, slot: me.slot, tab: me.tab, ev: evs, scale: brScale() }) })
+        : await fetch("/browser/shot?" + new URLSearchParams({ host: me.host, slot: String(me.slot), tab: me.tab, scale: brScale() }), { credentials: "same-origin" });
+      const d = await r.json();
+      if (br === me) d.ok ? brDraw(d) : brMsg(d.error || "It didn't answer.");
+    } catch { if (br === me) brMsg("Couldn’t reach it."); }
+    me.busy = false;
+    if (br === me && me.q.length) brSend();
+  }
+  // As sharp as it's shown here (its width on screen, times the screen's density), no sharper: fewer bytes per picture.
+  function brScale() { const w = brQ("[data-brbody]").clientWidth * (window.devicePixelRatio || 1); return String(br && br.w ? Math.max(0.3, Math.min(1, Math.round((w / br.w) * 20) / 20)) : 0.6); }
+  function brTick() { if (!br) return; clearTimeout(br.timer); if (!document.hidden && !br.busy && !br.q.length) brSend(); br.timer = setTimeout(brTick, 1500); }
+  // Typing: characters gathered for a moment and sent as text; special keys one by one.
+  const BRKEYS = ["Enter", "Backspace", "Tab", "Escape", "Delete", "ArrowLeft", "ArrowUp", "ArrowRight", "ArrowDown", "Home", "End", "PageUp", "PageDown"];
+  let brText = "", brTextT = null, brWheel = 0, brWheelAt = null, brWheelT = null;
+  const brFlushText = () => { clearTimeout(brTextT); if (brText) { const t = brText; brText = ""; brSend([{ type: "text", text: t }]); } };
+  const brAt = (e) => { const img = brQ("[data-brimg]"), r = img.getBoundingClientRect(); return { x: Math.round(((e.clientX - r.left) / r.width) * br.w), y: Math.round(((e.clientY - r.top) / r.height) * br.h) }; };
+  if (brd) {
+    brQ("[data-brimg]").addEventListener("click", (e) => { if (!br || !br.w) return; brFlushText(); brQ("[data-brbody]").focus(); brSend([{ type: "click", ...brAt(e) }]); });
+    brQ("[data-brbody]").addEventListener("keydown", (e) => {
+      if (!br || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key.length === 1) { e.preventDefault(); brText += e.key; clearTimeout(brTextT); brTextT = setTimeout(brFlushText, 150); return; }
+      if (BRKEYS.includes(e.key)) { e.preventDefault(); e.stopPropagation(); brFlushText(); brSend([{ type: "key", key: e.key }]); }
+    });
+    brQ("[data-brbody]").addEventListener("paste", (e) => { const t = e.clipboardData && e.clipboardData.getData("text"); if (!t || !br) return; e.preventDefault(); brFlushText(); brSend([{ type: "text", text: t.slice(0, 1000) }]); });
+    brQ("[data-brimg]").addEventListener("wheel", (e) => {
+      if (!br || !br.w) return; e.preventDefault();
+      brWheel += e.deltaY; brWheelAt = brAt(e);
+      if (!brWheelT) brWheelT = setTimeout(() => { brWheelT = null; const dy = Math.round(brWheel); brWheel = 0; if (dy) brSend([{ type: "scroll", ...brWheelAt, dy }]); }, 200);
+    }, { passive: false });
+    // Its own: not the page's form handling (which would send the form and close the window).
+    document.addEventListener("submit", (e) => { if (!e.target.matches || !e.target.matches("[data-brurl]")) return; e.preventDefault(); e.stopImmediatePropagation(); const v = brQ("[data-brurl] input").value.trim(); if (v) { brSend([{ type: "nav", url: v }]); brQ("[data-brbody]").focus(); } }, true);
+    brd.querySelectorAll("[data-brev]").forEach((b) => b.addEventListener("click", () => brSend([{ type: b.dataset.brev }])));
+    brQ("[data-brtabs]").addEventListener("change", (e) => { if (!br) return; br.tab = e.target.value; brSend(); });
+    brd.querySelectorAll("[data-brhand]").forEach((b) => b.addEventListener("click", async () => {
+      if (!br) return; const op = b.dataset.brhand;
+      try {
+        const r = await fetch("/browser/hand", { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: JSON.stringify({ host: br.host, slot: br.slot, op }) });
+        const d = await r.json(); icToast(d.ok ? d.text : d.error || "It didn't work.");
+        if (d.ok) { br.took = op === "take"; brHands(); }
+      } catch { icToast("Couldn’t reach the intercom."); }
+    }));
+    brd.addEventListener("close", () => { if (!br) return; clearTimeout(br.timer); if (br.took) icToast((br.label || "Its agent") + " still waits for you to hand its browser back."); br = null; });
+  }
+  document.addEventListener("click", (e) => { const b = e.target.closest && e.target.closest("[data-browser]"); if (!b) return; e.preventDefault(); brOpen(b); });
+  document.addEventListener("toggle", (e) => { const d = e.target; if (!(d.matches && d.matches("details.terms") && d.open)) return; if (d.dataset.browsers) loadBrowsers(d); else loadTerms(d); }, true);
   function termsOpen() { const h = new URL(location.href).searchParams.get("terms"); if (!h) return; const d = $$("details.terms").find((x) => x.dataset.terms === h); if (d && !d.open) d.open = true; }
   // The bell in an agent's header: a notification when its turn ends (and a toast here, if this page is open).
   const stateWas = {};

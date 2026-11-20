@@ -23,6 +23,7 @@ import { notesBrief, setNote } from "./notes";
 import { search } from "./search";
 import { updateSummary } from "./upkeep";
 import { closeTerm, newTerm, termsPanel } from "./terminals";
+import { browserShot, browsersPanel, handBrowser } from "./browsers";
 import { type Env, type Message, type Proposal, type Session, LIVE, MEMBER_OF, isAdmin, postMessage, RECEIVES, UserError, activeLocks, address, isMyLock, ago, addActivity, lockIn, scopedLocks, cleanBranch, cleanClient, fromOwnUser, fromOwnAgent, DELEGATED_NOTE, staleFor, renameSession, setHost, setVersion, workingOn, authenticate, coMembers, fmtLock, fmtMessage, myProjects, moveSession, projectFor, resolveProject, setCwd, setOrigin, setPresence, setRepo, signedIn, tally, touchSession, unread } from "./lib";
 import { type Tool, instructions, missingArgs, tools } from "./tools";
 import { CONNECTOR, authorize, connectorMember, preflight, register, resourceMetadata, serverMetadata, token, unauthorized } from "./connector";
@@ -1195,6 +1196,37 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
       body = `<div class="screrr">${icon("monitor", 22)}<p>${esc(e.message)}</p></div>`;
     }
     return new Response(body, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "content-security-policy": "default-src 'none'; frame-ancestors 'none'" } });
+  }
+  if (url.pathname === "/browsers" && req.method === "GET") {
+    // A machine's browsers, as a panel for the Overview (browsers.ts).
+    let body: string;
+    try {
+      body = await browsersPanel(env, me, String(url.searchParams.get("host") ?? "").slice(0, 120));
+    } catch (e) {
+      if (!(e instanceof UserError)) throw e;
+      body = `<p class="small muted">${esc(e.message)}</p>`;
+    }
+    return new Response(body, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "content-security-policy": "default-src 'none'; frame-ancestors 'none'" } });
+  }
+  if (url.pathname === "/browser/shot" || url.pathname === "/browser/hand") {
+    // The browser window (browsers.ts): a picture of one slot, after your clicks and keys; take over, hand back.
+    const post = req.method === "POST";
+    if (post && !sameOrigin(req)) return new Response("Cross-origin request refused", { status: 403 });
+    const b = post ? ((await req.json().catch(() => ({}))) as Record<string, unknown>) : Object.fromEntries(url.searchParams);
+    const host = String(b.host ?? "").slice(0, 120);
+    const slot = Number(b.slot);
+    try {
+      if (url.pathname === "/browser/hand") {
+        if (!post) return new Response("POST only", { status: 405 });
+        return json({ ok: true, text: await handBrowser(env, me, host, slot, b.op === "back" ? "back" : "take", String(b.note ?? "")) });
+      }
+      const scale = Number(b.scale);
+      const shot = await browserShot(env, me, host, slot, { tab: typeof b.tab === "string" ? b.tab.slice(0, 64) : undefined, ev: post && Array.isArray(b.ev) ? b.ev : undefined, scale: Number.isFinite(scale) && scale >= 0.2 && scale <= 1 ? scale : undefined });
+      return json({ ok: true, ...shot });
+    } catch (e) {
+      if (!(e instanceof UserError)) throw e;
+      return json({ ok: false, error: e.message });
+    }
   }
   if (url.pathname === "/terminals" && req.method === "GET") {
     // A machine's terminals, as a panel for the Overview (terminals.ts).

@@ -447,7 +447,17 @@ async function terminalOp(q) {
   return null;
 }
 
-export async function screenRequest(q, { pane, keysOn = true, termsOn = false } = {}) {
+export async function screenRequest(q, { pane, keysOn = true, termsOn = false, browsersOn = false, browsersUrl = "http://127.0.0.1:9230" } = {}) {
+  // Browsers on this machine (below): listed, pictured, used from the dashboard; claimed and released by agents.
+  if (typeof q.op === "string" && q.op.startsWith("browser")) {
+    if (!browsersOn) throw new Error("Browsers are turned off on that machine (INTERCOM_BROWSERS=0, or seeing screens is off there).");
+    const empty = { text: "", cols: 0, rows: 0, cursor: null, keys: keysOn };
+    if (q.op === "browsers") return { ...empty, browsers: await listBrowsers(browsersUrl) };
+    if (q.op === "browser-shot") return { ...empty, shot: await shootBrowser(browsersUrl, q, { inputOn: keysOn }) };
+    if (q.op === "browser-claim") return { ...empty, claimed: await claimBrowser(browsersUrl, q) };
+    if (q.op === "browser-release") return { ...empty, claimed: await releaseBrowser(browsersUrl, q) };
+    throw new Error(`Unknown browser request "${q.op}".`);
+  }
   if (q.op === "tmux" || q.op === "tmux-new" || q.op === "tmux-kill") {
     if (!termsOn) throw new Error("Terminals are turned off on that machine (INTERCOM_TERMINALS=0, or seeing screens or sending keys is off there).");
     if (q.op !== "tmux" && !keysOn) throw new Error("Sending keys is turned off on that machine (INTERCOM_KEYS=0), so terminals can't be started or closed from here.");
@@ -662,4 +672,182 @@ export function codexTurn(line) {
   const info = String(p.error?.codex_error_info ?? "");
   if (p.type === "task_complete" && /usage_limit/.test(info)) return { at, event: "StopFailure", body: { error: "rate_limit", error_details: String(p.error?.message ?? "usage limit") } };
   return null;
+}
+
+// ---- browsers ----
+// Browsers on this machine (remote-chrome: a few Chromium "slots", each with its own DevTools port, and a small slot
+// API). The hub asks through this machine's intercom for what's open in them, a picture of one, and, from your
+// dashboard only, your clicks and keys in it; an agent claims and releases its slot through it too, so the dashboard
+// knows whose browser is whose. All of it stays on 127.0.0.1: the browsers are driven here, and only the answers (a
+// list of tabs, a JPEG while you watch) go to the hub. INTERCOM_BROWSERS=0 turns it off; INTERCOM_BROWSERS_URL points
+// elsewhere than http://127.0.0.1:9230.
+
+const brLocal = (u) => {
+  const url = new URL(u);
+  if (!["127.0.0.1", "localhost", "::1", "[::1]"].includes(url.hostname)) throw new Error("The browsers' API has to be on this machine (127.0.0.1).");
+  return url;
+};
+
+async function brApi(base, path, timeout = 8000) {
+  const url = brLocal(new URL(path, base).href);
+  let r;
+  try {
+    r = await fetch(url, { signal: AbortSignal.timeout(timeout) });
+  } catch {
+    throw new Error(`No browsers here: nothing answers on ${brLocal(base).origin} (is remote-chrome running?).`);
+  }
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(String(body.error ?? body.detail ?? `the slot API said ${r.status}`).slice(0, 200));
+  return body;
+}
+
+async function brSlotOf(base, slot) {
+  const st = await brApi(base, "/status");
+  const s = st.slots?.[String(slot)];
+  if (!s) throw new Error(`There's no browser slot ${slot} here.`);
+  return { ...s, cdp: brLocal(String(s.cdp)).origin };
+}
+
+const brShown = (t) => t.type === "page" && !/^(devtools|chrome-extension|chrome):\/\//.test(t.url ?? "");
+
+async function brTabsOf(cdp) {
+  try {
+    const r = await fetch(`${cdp}/json/list`, { signal: AbortSignal.timeout(4000) });
+    return ((await r.json()) ?? []).filter(brShown).slice(0, 20).map((t) => ({ id: String(t.id), title: String(t.title ?? "").slice(0, 200), url: String(t.url ?? "").slice(0, 500), ws: String(t.webSocketDebuggerUrl ?? "") }));
+  } catch {
+    return [];
+  }
+}
+
+/** One DevTools connection to a tab: send commands in turn, then close. */
+async function brSession(ws, fn) {
+  const u = new URL(ws);
+  if (!["ws:", "wss:"].includes(u.protocol) || !["127.0.0.1", "localhost", "::1", "[::1]"].includes(u.hostname)) throw new Error("That browser tab isn't on this machine.");
+  const sock = new WebSocket(u.href);
+  await new Promise((ok, fail) => {
+    sock.onopen = ok;
+    sock.onerror = () => fail(new Error("Couldn't reach that browser tab."));
+    setTimeout(() => fail(new Error("That browser tab didn't answer.")), 5000);
+  });
+  let id = 0;
+  const wait = new Map();
+  sock.onmessage = (m) => {
+    const d = JSON.parse(String(m.data));
+    const w = d.id && wait.get(d.id);
+    if (!w) return;
+    wait.delete(d.id);
+    d.error ? w.fail(new Error(`The browser said: ${String(d.error.message ?? "error").slice(0, 160)}`)) : w.ok(d.result ?? {});
+  };
+  const send = (method, params = {}) =>
+    new Promise((ok, fail) => {
+      const n = ++id;
+      wait.set(n, { ok, fail });
+      sock.send(JSON.stringify({ id: n, method, params }));
+      setTimeout(() => wait.has(n) && (wait.delete(n), fail(new Error(`The browser didn't answer ${method}.`))), 8000);
+    });
+  try {
+    return await fn(send);
+  } finally {
+    sock.close();
+  }
+}
+
+const brKEYS = {
+  Enter: [13, "\r"], Backspace: [8], Tab: [9], Escape: [27], Delete: [46], ArrowLeft: [37], ArrowUp: [38], ArrowRight: [39], ArrowDown: [40],
+  Home: [36], End: [35], PageUp: [33], PageDown: [34], " ": [32, " "],
+};
+
+async function brInput(send, ev, size) {
+  const at = (v, max) => Math.max(0, Math.min(max, Number(v) || 0));
+  for (const e of ev.slice(0, 40)) {
+    const x = at(e.x, size.w), y = at(e.y, size.h);
+    if (e.type === "click") {
+      await send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y });
+      await send("Input.dispatchMouseEvent", { type: "mousePressed", x, y, button: "left", clickCount: 1 });
+      await send("Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: "left", clickCount: 1 });
+    } else if (e.type === "scroll") {
+      await send("Input.dispatchMouseEvent", { type: "mouseWheel", x, y, deltaX: 0, deltaY: Math.max(-3000, Math.min(3000, Number(e.dy) || 0)) });
+    } else if (e.type === "text") {
+      const text = String(e.text ?? "").slice(0, 1000);
+      if (text) await send("Input.insertText", { text });
+    } else if (e.type === "key") {
+      const k = brKEYS[e.key];
+      if (!k) throw new Error(`Unknown key "${e.key}".`);
+      await send("Input.dispatchKeyEvent", { type: "keyDown", key: e.key, code: e.key === " " ? "Space" : e.key, windowsVirtualKeyCode: k[0], ...(k[1] ? { text: k[1] } : {}) });
+      await send("Input.dispatchKeyEvent", { type: "keyUp", key: e.key, code: e.key === " " ? "Space" : e.key, windowsVirtualKeyCode: k[0] });
+    } else if (e.type === "nav") {
+      let u = String(e.url ?? "").trim();
+      if (!/^[a-z]+:/i.test(u)) u = `https://${u}`;
+      if (!/^https?:\/\//i.test(u)) throw new Error("Only http and https addresses.");
+      await send("Page.navigate", { url: u.slice(0, 2000) });
+    } else if (e.type === "back" || e.type === "forward") {
+      const h = await send("Page.getNavigationHistory");
+      const to = h.entries?.[h.currentIndex + (e.type === "back" ? -1 : 1)];
+      if (to) await send("Page.navigateToHistoryEntry", { entryId: to.id });
+    } else if (e.type === "reload") await send("Page.reload");
+    else throw new Error(`Unknown browser input "${e.type}".`);
+  }
+}
+
+/** Which browsers are here, who claimed them (as the slot API knows) and their tabs. */
+async function listBrowsers(base) {
+  const st = await brApi(base, "/status");
+  const slots = [];
+  for (const [n, s] of Object.entries(st.slots ?? {}).slice(0, 12)) {
+    const cdp = (() => {
+      try {
+        return brLocal(String(s.cdp)).origin;
+      } catch {
+        return null;
+      }
+    })();
+    const tabs = cdp && s.cdp_alive !== false ? (await brTabsOf(cdp)).map(({ ws, ...t }) => t) : [];
+    slots.push({ slot: Number(n), claimed: !!s.claimed, profile: s.profile ?? null, copy: !!s.copy, idle: s.idle_seconds ?? null, alive: s.cdp_alive !== false, mem: s.usage?.mem_mb ?? null, mcp: String(s.mcp ?? ""), cdp: cdp ?? "", tabs });
+  }
+  return slots;
+}
+
+/**
+ * A picture of a slot's tab (the one asked for, else the frontmost), after any input: a JPEG at `scale` of its CSS
+ * size, with the size, so clicks on the picture map back to the page.
+ */
+async function shootBrowser(base, q, { inputOn }) {
+  const s = await brSlotOf(base, Number(q.slot));
+  const tabs = await brTabsOf(s.cdp);
+  const tab = tabs.find((t) => t.id === q.tab) ?? tabs[0];
+  if (!tab) throw new Error(`Browser slot ${q.slot} has no tab open.`);
+  const scale = Math.max(0.2, Math.min(1, Number(q.scale) || 0.6));
+  const quality = Math.max(30, Math.min(90, Number(q.quality) || 60));
+  return brSession(tab.ws, async (send) => {
+    const m = await send("Page.getLayoutMetrics");
+    const vp = m.cssVisualViewport ?? m.layoutViewport ?? { clientWidth: 1280, clientHeight: 800 };
+    const size = { w: Math.round(vp.clientWidth), h: Math.round(vp.clientHeight) };
+    if (Array.isArray(q.ev) && q.ev.length) {
+      if (!inputOn) throw new Error("Using the browsers from the dashboard is turned off on that machine (INTERCOM_KEYS=0).");
+      await brInput(send, q.ev, size);
+      await new Promise((r) => setTimeout(r, q.ev.some((e) => ["nav", "back", "forward", "reload"].includes(e.type)) ? 1200 : 350)); // let it draw
+    }
+    const shot = await send("Page.captureScreenshot", { format: "jpeg", quality, clip: { x: 0, y: 0, width: size.w, height: size.h, scale }, captureBeyondViewport: false });
+    const now = (await brTabsOf(s.cdp)).find((t) => t.id === tab.id) ?? tab;
+    return { img: shot.data, w: size.w, h: size.h, tab: tab.id, title: now.title, url: now.url, tabs: (await brTabsOf(s.cdp)).map(({ ws, ...t }) => t), slot: Number(q.slot), claimed: !!s.claimed };
+  });
+}
+
+async function claimBrowser(base, q) {
+  const qs = new URLSearchParams();
+  if (q.profile) {
+    if (!/^[a-z0-9][a-z0-9_-]{0,40}$/.test(String(q.profile))) throw new Error("A profile name is lowercase letters, digits, - and _.");
+    qs.set("profile", String(q.profile));
+    if (q.copy) qs.set("copy", "1");
+  }
+  const r = await brApi(base, `/claim${qs.size ? `?${qs}` : ""}`, 30_000);
+  const s = await brSlotOf(base, Number(r.slot));
+  return { slot: Number(r.slot), mcp: String(r.mcp ?? s.mcp ?? ""), cdp: s.cdp, profile: q.profile ?? null };
+}
+
+async function releaseBrowser(base, q) {
+  const n = Number(q.slot);
+  if (!Number.isInteger(n) || n < 1) throw new Error("Which slot?");
+  await brApi(base, `/${q.keep ? "unclaim" : "release"}?slot=${n}`, 30_000);
+  return { slot: n, released: true };
 }
