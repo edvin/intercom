@@ -45,6 +45,7 @@ import {
   workingOn,
   agentUp,
   renameNote,
+  requireKnownAgent,
   renamedTo,
 } from "./lib";
 
@@ -135,6 +136,7 @@ async function send(env: Env, me: string, a: Args, body: string): Promise<{ id: 
     // An old name of an agent that was renamed: it goes to the new name, and the sender learns it.
     const moved = asked ? await renamedTo(env, recipient, asked) : null;
     const recipient_agent = moved?.label ?? asked;
+    if (recipient_agent && !moved) await requireKnownAgent(env, recipient, recipient_agent, env.session?.project);
     const channel = env.session?.project || "dm";
     const id = await postMessage(env, { channel, sender: me, recipient, recipient_agent, body });
     const sent = `Sent DM [${id}] to ${address(recipient, recipient_agent)}.${moved ? renameNote(recipient, asked!, moved) : ""}`;
@@ -201,7 +203,7 @@ export const tools: Tool[] = [
   },
   {
     name: "inbox",
-    description: "Fetch unread messages (posts in your projects and DMs to you) and mark them as read.",
+    description: "Fetch unread messages (posts in your projects and DMs to you) and mark them as read. Only the agent itself should call it, not a sub-agent or helper it started: messages it reads are taken from the agent.",
     inputSchema: {
       type: "object",
       properties: {
@@ -812,6 +814,7 @@ export const tools: Tool[] = [
       const moved = to_member && to_agent ? await renamedTo(env, to_member, to_agent) : null;
       const asked = to_agent;
       if (moved) to_agent = moved.label;
+      else if (to_member && to_agent) await requireKnownAgent(env, to_member, to_agent, project);
       const h = await createHandoff(env, me, { project, ref: str(a, "ref", true), summary: str(a, "summary", true), evidence: str(a, "evidence"), gates: a.gates, obligations: a.obligations, to_member, to_agent });
       const old = handoffIds(a.supersedes).filter((id) => id !== h.id);
       const closed = await withdrawHandoffs(env, me, old, `superseded by H${h.id}`, address(me, env.session?.label));
@@ -1329,6 +1332,7 @@ Etiquette:
 - Use \`propose\` when the project needs to agree on something (holding deployments, who runs a release). When a proposal is open and your user hasn't voted, ask them; never vote without their answer.
 - Calls that were made (a candidate rejected, an option approved, something held) go in the decision log with \`decide\`. Before proposing or re-proposing work, search it with \`decisions\` (by commit or keyword).
 - Handing work to another agent (a commit, branch or worktree with evidence and gates): use \`handoff\`, not a plain DM, so its status stays on record. Put what the receiver must do or keep to in its obligations, one per item, not in the summary. When you take one, do each obligation, then record the outcome with \`update_handoff\` (integrated as <sha>, held, rejected, or withdrawn "superseded by H…"), ticking each obligation off with what you did; never leave one pending. A handoff that replaces earlier ones (a rebase, a combined stack) names them in \`supersedes\`, which closes them.
+- Sub-agents and helpers you start share your intercom address: what they send goes out under your name, and answers come to you, often after the helper has finished. So do the messaging yourself, or have a helper only send and never wait for an answer or call \`inbox\` (that would take your messages with it when it ends). Address other agents by their own name only: another agent's sub-agents and lanes have no address of their own, so message the agent itself.
 - Messages can carry images, shown as [📎 image #N: name]. Open them with \`attachment\` (id N) to see them; an image from your user is part of their request. Other files show as [📎 file #N: name · size]: save one to this machine with \`save_attachment\` (where your user says, or your working folder) before using it.
 - To show your user a file from this machine (a screenshot, a generated report, a log), use \`share_file\` with its path: it lands in their dashboard. To give a file to another agent, \`share_file\` it to that agent's address; the receiver keeps it with \`save_attachment\`.
 - Reviewing an MR or PR: findings that need your user's call (security, data loss, breaking clients, design trade-offs, doubts) go to them with \`review\`, briefly, not as a file or a long message; then hold off on the MR until their decision comes. Nits and mechanical fixes you handle yourself.

@@ -66,7 +66,13 @@ export async function cantTake(env: Env, member: string, agent: string): Promise
   )
     .bind(member, agent)
     .all<SessionRow>();
-  if (!results.length) return { reason: "", client: "", activeAt: null, host: "", wake: false };
+  if (!results.length) {
+    // No session has the name now: it ended (and none took over), or it never existed (a name an agent made up for a
+    // sub-agent or lane, which nothing will ever read).
+    const ended = await env.DB.prepare("SELECT ended_at, client, host FROM ended_sessions WHERE member = ? AND label = ?").bind(member, agent).first<{ ended_at: number; client: string | null; host: string | null }>();
+    if (ended) return { reason: `not connected (ended ${ago(ended.ended_at)})`, client: ended.client ?? "", activeAt: null, host: ended.host ?? "", wake: false };
+    return { reason: "never connected (no agent has ever had this name)", client: "", activeAt: null, host: "", wake: false };
+  }
   const live = new Set(liveIds(env, member));
   const up = results.filter((s) => live.has(s.session_id) || Date.now() - s.last_seen < GONE_MS);
   const s = results[0]!;
@@ -126,7 +132,9 @@ export async function stuckSessions(env: Env, me: string, now = Date.now()): Pro
       ? `It's a Codex session that finished its last turn${why.activeAt ? ` ${ago(why.activeAt)}` : ""}. Codex only reads new messages when a turn starts, so it won't see these until someone types in its terminal${on}.`
       : why.reason.startsWith("stopped")
         ? `Its last turn stopped (${why.reason.slice(9)}), so it isn't reading. It picks them up when it runs again: type in its terminal${on}.`
-        : why.reason.startsWith("not connected")
+        : why.reason.startsWith("never")
+          ? `No agent has ever had this name: it's probably a sub-agent or lane inside another agent, which has no address of its own. Nothing will read these here: give them to the agent that runs it.`
+          : why.reason.startsWith("not connected")
           ? `Its session isn't running (${why.reason.slice(15, -1)}). The next session with that name gets them.`
           : `It hasn't read anything since ${ago(oldest)}, though it's connected. It may be stuck in a long task or waiting on its terminal${on}.`;
     out.push({ agent, reason: why.reason || `hasn't picked them up since ${ago(oldest)}`, since: oldest, messages: msgs, handoffs, maxId, client: why.client, explain, wake: why.wake, nudgedAt });

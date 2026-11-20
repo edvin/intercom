@@ -306,7 +306,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   const pill = (n: number, tone = "") => (n ? `<span class="rpill${tone ? ` ${tone}` : ""}">${n > 99 ? "99+" : n}</span>` : "");
   const rail = `<nav class="irail" id="irail" data-region aria-label="Pages">
     <a class="rlogo" href="/" title="About the intercom">${LOGO.replace(/"lg"/, '"lgr"').replace("url(#lg)", "url(#lgr)")}</a>
-    ${rl(nav.view === "home", "/dashboard", "grid", "Overview: your agents' health and plan limits")}
+    ${rl(nav.view === "home", "/dashboard", "grid", "Overview: your agents' health, plan limits, versions and machines", pill(stale.length, "amber"))}
     ${rl(nav.view === "agents", "/dashboard?view=agents", "terminal", "Agents")}
     <button type="button" class="rl" id="railasks" data-asksopen title="Waiting for you" aria-label="Waiting for you"${waitingN ? "" : " hidden"}>${icon("bell", 18)}<span class="rpill amber">${waitingN}</span></button>
     ${rl(nav.view === "feed", "/dashboard?view=feed", "layers", "Everything: your projects and messages", pill(nav.votesTotal))}
@@ -314,7 +314,6 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
     ${rl(nav.view === "tracked", "/dashboard?view=tracked", "branch", "Tickets &amp; MRs", pill(trackedN, "amber"))}
     ${rl(nav.view === "handoffs", "/dashboard?view=handoffs", "arrow", "Handoffs")}
     ${rl(nav.view === "files", "/dashboard?view=files", "image", "Files from agents")}
-    ${rl(nav.view === "fleet", "/dashboard?view=fleet", "monitor", "Agents · versions", pill(stale.length, "amber"))}
     <span class="rsp"></span>
     <button type="button" class="rl${away ? " away" : ""}" data-open="dlg-away" title="${away ? `Away: what your agents ask is denied after ${waitMin} min unless you answer` : "At your desk: what your agents ask waits for your answer"}" aria-label="Away mode">${icon(away ? "door" : "clock", 18)}</button>
     ${rl(false, "/discover", "users", "Find projects to join")}
@@ -343,7 +342,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   const updateBar =
     stale.length && !dismissed
       ? `<div class="updatebar" id="updatebar" data-region title="${esc(`Outdated: ${stale.map((a) => a.label).join(", ")}. ${selfUpdating ? "The new version is downloaded on each machine by itself; restart them to load it." : "Run /intercom:update in one session per machine, then restart them to load it."}`)}">${icon("download", 14)}
-        <span class="grow"><b>intercom ${PLUGIN_VERSION}</b> · ${stale.length} of your agents on an older version · <a href="/dashboard?view=fleet">See and update them</a></span>
+        <span class="grow"><b>intercom ${PLUGIN_VERSION}</b> · ${stale.length} of your agents on an older version · <a href="/dashboard">See and update them</a></span>
         <button type="button" class="btn ghost xs icon" data-dismiss="ic_upd=${PLUGIN_VERSION}" title="Dismiss until the next version">${icon("x", 13)}</button></div>`
       : "";
   if (!nav.withChat) return { tree, main: "" };

@@ -778,6 +778,35 @@ export async function agentUp(env: Env, member: string, agent: string): Promise<
 }
 
 /**
+ * A DM or handoff to `member/agent` can only wait for a name an agent of theirs has had (a session, one that ended, a
+ * crew name) or a project of theirs. Any other name (a sub-agent, a helper or a "lane" inside an agent, a guessed
+ * name) never connects, so what's sent there would wait forever: refused, naming the agents that are there.
+ */
+export async function requireKnownAgent(env: Env, member: string, agent: string, project?: string | null): Promise<void> {
+  const known = await env.DB.prepare(
+    `SELECT 1 FROM sessions WHERE member = ?1 AND (label = ?2 OR project = ?2)
+     UNION ALL SELECT 1 FROM ended_sessions WHERE member = ?1 AND label = ?2
+     UNION ALL SELECT 1 FROM agent_names WHERE member = ?1 AND name = ?2
+     UNION ALL SELECT 1 FROM project_members WHERE member = ?1 AND project = ?2
+     LIMIT 1`,
+  )
+    .bind(member, agent)
+    .first();
+  if (known) return;
+  const { results } = await env.DB.prepare("SELECT session_id, label, project, last_seen FROM sessions WHERE member = ? ORDER BY last_seen DESC LIMIT 200")
+    .bind(member)
+    .all<{ session_id: string; label: string; project: string; last_seen: number }>();
+  const live = new Set(liveIds(env, member));
+  const up = results.filter((s) => live.has(s.session_id) || Date.now() - s.last_seen < GONE_MS);
+  const near = [...up.filter((s) => project && s.project === project), ...up.filter((s) => !project || s.project !== project)].map((s) => address(member, s.label));
+  throw new UserError(
+    `${address(member, agent)} isn't an agent on the intercom: no session has ever had that name, so nothing would read it. ` +
+      `Sub-agents, helpers and lanes inside an agent have no address of their own (what they send goes out under their agent's name): send it to the agent that runs them, which passes it on. ` +
+      (near.length ? `Connected now: ${[...new Set(near)].slice(0, 12).join(", ")}.` : `None of ${member}'s agents is connected now; "${member}" alone reaches whichever starts next.`),
+  );
+}
+
+/**
  * The name an agent goes by now, when `agent` is an old name of it that no running session holds (renamed within
  * the last two weeks, following later renames too); else null.
  */

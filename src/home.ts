@@ -11,8 +11,10 @@ import { effortName, modelName } from "./models";
 import { HANDOFF_PING_MS, queueHandoffCheck } from "./records";
 import { screenAttrs } from "./screen";
 import { agentAvatar, esc, hidden, icon } from "./ui";
-import { type Gone, endedAgents, outOfUsage } from "./upkeep";
-import { outdated } from "./version";
+import { type Gone, HELPER_SINCE, endedAgents, newer, outOfUsage, upkeepOf } from "./upkeep";
+import { resetsOf } from "./resets";
+import { fableOpusOn } from "./fable";
+import { PLUGIN_VERSION } from "./version";
 
 interface Row {
   session_id: string;
@@ -38,6 +40,8 @@ interface Row {
   ui_version: string | null;
   compact_req: string | null;
   compact_prep: string | null;
+  pane: string | null;
+  launch: string | null;
 }
 
 type Window = { k: string; p: number; r: number | null };
@@ -83,7 +87,7 @@ function verdict(ws: Window[], now: number): { tone: string; text: string } {
 export async function homeView(env: Env, me: string): Promise<string> {
   const now = Date.now();
   const { results } = await env.DB.prepare(
-    `SELECT session_id, label, project, client, host, version, last_seen, state, state_detail, state_at, active_at, note, model, effort, ctx_pct, ctx_window, usage, account, screen, ui_at, ui_version, compact_req, compact_prep
+    `SELECT session_id, label, project, client, host, version, last_seen, state, state_detail, state_at, active_at, note, model, effort, ctx_pct, ctx_window, usage, account, screen, ui_at, ui_version, compact_req, compact_prep, pane, launch
      FROM sessions WHERE member = ? AND last_seen > ? ORDER BY label`,
   )
     .bind(me, now - 24 * HOUR)
@@ -93,6 +97,21 @@ export async function homeView(env: Env, me: string): Promise<string> {
   const agents = results.filter(on);
   const nick = await hostNames(env, me);
   const hostOf = (h: string) => nick.get(h) ?? (h || "unknown machine");
+  // Versions: an agent behind is updated by itself (its terminal is in tmux), through another agent on its machine that
+  // can type into the others' terminals, or by hand. Codex is quit and resumed by its id.
+  const current = (a: Row) => !!a.version && !newer(PLUGIN_VERSION, a.version);
+  const atLeast = (v: string, want: string) => v === want || newer(v, want);
+  const helperOn = (host: string) => agents.find((r) => r.host === host && r.screen === "keys" && atLeast(r.version, HELPER_SINCE));
+  const updateHow = (a: Row): { can: boolean; how: string } => {
+    const helper = helperOn(a.host);
+    const viaOther = !!helper && helper.session_id !== a.session_id;
+    if (a.client === "codex" && !a.launch) return { can: false, how: "by hand: restart it" };
+    if (a.client === "codex" && ((a.screen === "keys" && a.pane) || viaOther)) return { can: true, how: "Codex is quit and resumed by its id: same session" };
+    if (a.screen === "keys" && a.pane) return { can: true, how: "it reloads itself: same session" };
+    if (viaOther) return { can: true, how: `through ${helper!.label}, which types /reload-plugins into its terminal` };
+    return { can: false, how: "by hand: /intercom:update on its machine, then /reload-plugins in it" };
+  };
+  const behind = agents.filter((a) => !current(a));
   const gone: Gone[] = (await endedAgents(env, me, 1)).filter((g) => now - g.at < 12 * HOUR && !agents.some((a) => a.label === g.label));
   // What each did last (one row per agent, by the activity index), and the handoffs waiting on each.
   const ids = agents.map((a) => a.session_id);
@@ -181,7 +200,10 @@ export async function homeView(env: Env, me: string): Promise<string> {
       });
     if (a.state === "working" && a.active_at && now - a.active_at > QUIET_MS)
       items.push({ tone: "amber", ic: "eye", who: a.label, text: `working, but quiet for ${ago(a.active_at).replace(/ ago$/, "")}`, act: a.screen ? `<button type="button" class="btn sm" ${screenAttrs(`${me}/${a.label}`, a.label, a.screen, a.client ?? "")}>Screen</button>` : "" });
-    if (a.version && outdated(a.version)) items.push({ tone: "", ic: "download", who: a.label, text: `runs intercom ${a.version}`, act: post({ op: "update-one", session: a.session_id }, "Update") });
+    if (a.version && !current(a)) {
+      const u = updateHow(a);
+      items.push({ tone: "", ic: "download", who: a.label, text: `runs intercom ${a.version}${u.can ? "" : `; update it ${u.how}`}`, act: u.can ? post({ op: "update-one", session: a.session_id }, "Update") : "" });
+    }
     const h = handoffsOf.get(a.label);
     if (h && now - h.oldest > 2 * HOUR) items.push({ tone: "", ic: "arrow", who: a.label, text: `${h.n} handoff${h.n === 1 ? "" : "s"} to it still pending, oldest ${ago(h.oldest)}`, act: `<a class="btn sm" href="/dashboard?view=handoffs&amp;who=${encodeURIComponent(`${me}/${a.label}`)}">Handoffs</a>` });
   }
@@ -211,9 +233,11 @@ export async function homeView(env: Env, me: string): Promise<string> {
     const stepText = step ? (step.kind === "text" ? step.text.replace(/\s+/g, " ") : step.text.split("\n").pop()!.replace(/\s+/g, " ")) : "";
     const canCompact = a.client !== "codex" && !compactable(a, true) && !a.compact_req && !a.compact_prep;
     const model = [a.model ? modelName(a.model) : "", a.effort ? effortName(a.effort).toLowerCase() : ""].filter(Boolean).join(" · ");
+    const ok = current(a);
+    const u = ok ? null : updateHow(a);
     return `<article class="hmcard s-${esc(a.state || "idle")}">
       <header><a href="${chat(a.label)}" class="hmname">${agentAvatar(me, a.label, "s")}<b>${esc(a.label)}</b></a>${stateChip(a)}</header>
-      <div class="hmmeta">${a.project ? `<span>#${esc(a.project)}</span>` : ""}${model ? `<span>${esc(model)}</span>` : ""}${a.client === "codex" ? `<span>Codex</span>` : ""}</div>
+      <div class="hmmeta">${a.project ? `<span>#${esc(a.project)}</span>` : ""}${model ? `<span>${esc(model)}</span>` : ""}${a.client === "codex" ? `<span>Codex</span>` : ""}<span class="hmver${ok ? "" : " old"}" title="${esc(ok ? `Intercom ${a.version}: the newest` : `Intercom ${a.version || "?"}; ${PLUGIN_VERSION} is out. Updated ${u!.how}.`)}">${ok ? "" : icon("download", 11)}${esc(a.version || "?")}</span></div>
       ${a.note ? `<p class="hmnote">${esc(a.note)}</p>` : ""}
       <div class="hmbars">
         ${a.ctx_pct != null && a.client !== "codex" ? `<div class="hmbar"><span>Context</span>${meter(a.ctx_pct, a.ctx_pct >= 90 ? "red" : a.ctx_pct >= 75 ? "amber" : "")}<b>${a.ctx_pct}%</b></div>` : ""}
@@ -222,6 +246,10 @@ export async function homeView(env: Env, me: string): Promise<string> {
       ${stepText ? `<p class="hmstep" title="${esc(stepText.slice(0, 300))}">${icon(step!.kind === "cmd" ? "terminal" : step!.kind === "edit" ? "pencil" : step!.kind === "text" ? "message" : "dots", 12)}<span>${esc(stepText.slice(0, 140))}</span><time>${esc(ago(step!.at))}</time></p>` : ""}
       <footer><a class="btn ghost xs" href="${chat(a.label)}">${icon("message", 12)}Chat</a>${a.screen ? `<button type="button" class="btn ghost xs" ${screenAttrs(`${me}/${a.label}`, a.label, a.screen, a.client ?? "")}>${icon("monitor", 12)}Screen</button>` : ""}${
         canCompact ? `<form method="post" action="/agent/compact" data-confirm="Compact ${esc(a.label)}? It saves what it would lose first, then its conversation becomes a summary.">${hidden({ session: a.session_id, back })}<button class="btn ghost xs">${icon("layers", 12)}Compact</button></form>` : ""
+      }${
+        u?.can
+          ? `<form method="post" action="/upkeep">${hidden({ back, op: "update-one", session: a.session_id })}<button class="btn ghost xs"${a.state === "working" ? ' disabled title="Busy: updated when it\'s idle"' : ` title="${esc(`Update it ${u.how}`)}"`}>${icon("refresh", 12)}Update</button></form>`
+          : ""
       }</footer>
     </article>`;
   };
@@ -229,17 +257,40 @@ export async function homeView(env: Env, me: string): Promise<string> {
   const machines = hosts
     .map((h) => {
       const here = agents.filter((a) => a.host === h).sort((x, y) => rank(x.state === "waiting" ? "red" : x.state === "working" ? "amber" : "") - rank(y.state === "waiting" ? "red" : y.state === "working" ? "amber" : "") || x.label.localeCompare(y.label));
-      return `<section class="hmhost"><h3>${icon("monitor", 14)}<span>${esc(hostOf(h))}</span><span class="muted">${here.length} agent${here.length === 1 ? "" : "s"}</span></h3><div class="hmgrid">${here.map(card).join("")}</div></section>`;
+      const old = here.filter((a) => !current(a));
+      const note = !old.length || helperOn(h)
+        ? ""
+        : here.some((a) => a.screen)
+          ? `<p class="flnote warn">${icon("flag", 12)}No agent here can update the others yet. Update one that runs in tmux by hand (<code>/intercom:update</code>, then <code>/reload-plugins</code> in it); after that the rest can be updated from here.</p>`
+          : `<p class="flnote warn">${icon("flag", 12)}None of these run in tmux, so they're updated by hand: <code>/intercom:update</code> once on this machine, then <code>/reload-plugins</code> in each. Started in tmux, they can be updated (and seen) from here.</p>`;
+      return `<section class="hmhost"><h3>${icon("monitor", 14)}<span>${esc(hostOf(h))}</span><span class="muted">${here.length} agent${here.length === 1 ? "" : "s"}</span></h3>${note}<div class="hmgrid">${here.map(card).join("")}</div></section>`;
     })
     .join("");
 
   const tile = (n: number, label: string, cls: string, ic: string) => `<div class="hmtile ${cls}"><span class="hmtic">${icon(ic, 15)}</span><b>${n}</b><span>${label}</span></div>`;
-  return `<div class="pane-in hmpane" id="home" data-region>
+  // ---- machines and upkeep: drawn once (not redrawn live), so an open Terminals panel stays as it is ----
+  const { auto } = await upkeepOf(env, me);
+  const { on: resets } = await resetsOf(env, me);
+  const fable = await fableOpusOn(env, me);
+  const sw = (op: string, on: boolean, label: string, title = "") =>
+    `<form method="post" action="/upkeep" class="flauto">${hidden({ back, op: `${op}-${on ? "off" : "on"}` })}<label class="wkswitch"${title ? ` title="${esc(title)}"` : ""}><input type="checkbox" ${on ? "checked " : ""}onchange="this.form.requestSubmit()"><span>${label}</span></label></form>`;
+  const termHosts = hosts.filter((h) => h);
+  const upkeep = `<section class="hmupkeep">
+    <h2 class="hmh">Machines and upkeep</h2>
+    <div class="hmupk">
+      <div class="hmupkhd"><div class="grow"><b>Intercom ${esc(PLUGIN_VERSION)}</b><span class="muted">${behind.length ? `${behind.length} of ${agents.length} connected agent${agents.length === 1 ? " runs" : "s run"} an older one` : agents.length ? "Every connected agent runs it" : ""}</span></div>${behind.length ? `<form method="post" action="/upkeep">${hidden({ back, op: "update" })}<button class="btn sm primary">${icon("refresh", 13)}Update the idle ones now</button></form>` : ""}</div>
+      <div class="flctl">${sw("auto", auto, "Update idle agents by themselves")}${sw("resets", resets, "Redeem a usage reset when Codex runs out", "When your Codex agents hit their usage limit, redeem a usage reset (if the account has one) and have them carry on. At most once in two hours per machine.")}${sw("fable", fable, "Switch Fable agents to Opus when Fable's weekly limit runs out", "When an agent on Fable uses up Fable's weekly limit, Claude Code asks in its terminal whether to switch models. This answers Switch to Opus for that session, so it keeps working (its terminal has to be in tmux).")}</div>
+      <p class="flhow">Updating an agent types <code>/reload-plugins</code> into its terminal when it's idle: it loads the new intercom in the same session. If Claude Code itself has an update waiting (“/restart to apply”), it types <code>/restart</code> instead, which also continues the same session. Busy agents are left alone.</p>
+    </div>
+    ${termHosts.map((h) => `<details class="terms" id="terms-${esc(h.replace(/[^\w-]/g, "_"))}" data-terms="${esc(h)}"><summary>${icon("terminal", 14)}<b>Terminals on ${esc(hostOf(h))}</b><span class="small muted">tmux sessions there: open, start or close them</span></summary><div class="termsbody"><p class="small muted">Asking ${esc(hostOf(h))}…</p></div></details>`).join("")}
+  </section>`;
+
+  return `<div class="pane-in hmpane"><div class="hmlive" id="home" data-region>
     <header class="flhead"><div><h1>Overview</h1><p class="muted">${agents.length ? `${agents.length} agent${agents.length === 1 ? "" : "s"} connected${hosts.length > 1 ? ` on ${hosts.length} machines` : ""}.` : "None of your agents is connected right now."}</p></div><a class="btn sm ghost" href="/dashboard?view=feed">${icon("layers", 13)}Messages</a></header>
     <div class="hmtiles">${tile(working.length, "working", "t-work", "refresh")}${tile(waiting.length, "need you", "t-wait", "bell")}${tile(idle.length, "idle", "t-idle", "clock")}${tile(gone.length, "ended, 12h", "t-gone", "door")}</div>
     ${acctCards.length ? `<h2 class="hmh">Plan limits</h2><div class="hmaccts">${acctCards.join("")}</div>` : ""}
     <h2 class="hmh">Needs attention${items.length ? ` <span class="badge ${items.some((i) => i.tone === "red") ? "red" : "amber"}">${items.length}</span>` : ""}</h2>
     ${attention}
     ${machines ? `<h2 class="hmh">Agents</h2>${machines}` : ""}
-  </div>`;
+  </div>${upkeep}</div>`;
 }

@@ -1197,14 +1197,14 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
     return new Response(body, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "content-security-policy": "default-src 'none'; frame-ancestors 'none'" } });
   }
   if (url.pathname === "/terminals" && req.method === "GET") {
-    // A machine's terminals, as a panel for the Versions page (terminals.ts).
-    const body = await termsPanel(env, me, String(url.searchParams.get("host") ?? "").slice(0, 120), "/dashboard?view=fleet");
+    // A machine's terminals, as a panel for the Overview (terminals.ts).
+    const body = await termsPanel(env, me, String(url.searchParams.get("host") ?? "").slice(0, 120), "/dashboard");
     return new Response(body, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "content-security-policy": "default-src 'none'; frame-ancestors 'none'" } });
   }
   if ((url.pathname === "/terminals/new" || url.pathname === "/terminals/close") && req.method === "POST") {
     if (!sameOrigin(req)) return new Response("Cross-origin request refused", { status: 403 });
     const form = await req.formData();
-    const back = new URL(localPath(form.get("back"), "/dashboard?view=fleet"), url);
+    const back = new URL(localPath(form.get("back"), "/dashboard"), url);
     const host = String(form.get("host") ?? "").slice(0, 120);
     const name = String(form.get("name") ?? "").trim().slice(0, 64);
     try {

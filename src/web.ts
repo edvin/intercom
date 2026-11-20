@@ -2,7 +2,6 @@ import { ticketView } from "./ticketview";
 import { homeView } from "./home";
 import { reviewView } from "./reviewview";
 import { workView } from "./work";
-import { fleetView } from "./fleet";
 import { galleryFilters, galleryView, pruneFiles } from "./gallery";
 import { trackedView } from "./tracked";
 import { bargeIn, screenDialog } from "./screen";
@@ -582,7 +581,7 @@ export async function dashboard(url: URL, env: Env, me: string, cookie = ""): Pr
   const ownerOf = (project: string) => admin || pmRes.results.some((m) => m.project === project && m.member === me && m.role === "owner");
   const shownLocks = channel ? locks.filter((l) => l.channel === channel) : locks;
   const asked = url.searchParams.get("view");
-  const view = asked === "admin" && admin ? "admin" : asked === "account" ? "account" : asked === "ticket" ? "ticket" : asked === "review" ? "review" : asked === "work" ? "work" : asked === "fleet" ? "fleet" : asked === "files" ? "files" : asked === "handoffs" ? "handoffs" : asked === "tracked" ? "tracked" : asked === "agents" ? "agents" : asked === "feed" || channel ? "feed" : "home";
+  const view = asked === "admin" && admin ? "admin" : asked === "account" ? "account" : asked === "ticket" ? "ticket" : asked === "review" ? "review" : asked === "work" ? "work"  : asked === "files" ? "files" : asked === "handoffs" ? "handoffs" : asked === "tracked" ? "tracked" : asked === "agents" ? "agents" : asked === "feed" || channel ? "feed" : "home";
 
   const { results: requests } = await env.DB.prepare(
     `SELECT r.project, r.member, r.note, r.created_at, m.org, m.github_login FROM join_requests r JOIN members m ON m.name = r.member
@@ -740,8 +739,6 @@ export async function dashboard(url: URL, env: Env, me: string, cookie = ""): Pr
         ? `<main class="pane"><div class="pane-in acctpane"><div class="pagehead"><h1>Account${admin ? ' <span class="badge accent">admin</span>' : ""}</h1><form method="post" action="/logout" data-native><button class="btn sm">${icon("logout", 14)}Sign out</button></form></div>${await accountSection(env, me, url.origin)}</div></main>`
       : view === "review"
         ? `<main class="pane">${await reviewView(env, me, Number(url.searchParams.get("id")), localPath(url.searchParams.get("back"), "/dashboard?view=agents"))}</main>`
-      : view === "fleet"
-        ? `<main class="pane">${await fleetView(env, me)}</main>`
       : view === "files"
         ? `<main class="pane">${await galleryView(env, me, url)}</main>`
       : view === "handoffs"

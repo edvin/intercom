@@ -1,4 +1,4 @@
-// Terminals on your machines (view=fleet): a machine's tmux sessions, opened in the screen window to watch and type
+// Terminals on your machines (the Overview): a machine's tmux sessions, opened in the screen window to watch and type
 // into, new ones started (a shell, Claude Code or Codex in a folder) and old ones closed. Only you, from the dashboard,
 // on every machine unless it's turned off there (INTERCOM_TERMINALS=0 in its intercom config); the requests go through one of
 // your agents connected there (its local server runs tmux), and every start and close is noted in its activity.

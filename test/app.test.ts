@@ -1313,7 +1313,7 @@ describe("plugin versions", () => {
     await w.request("/api/hook?event=SessionStart&project=billing-api&session=u1&name=core&version=0.1.0", { as: "bob" });
     const page = async (extra = "") =>
       (await w.request("/dashboard?view=agents", { headers: { cookie: `intercom_token=${w.tokens.bob}${extra}` } })).text();
-    assert.match(await page(), /id="updatebar"[^>]*title="Outdated: core\.[^"]*"[\s\S]*1 of your agents on an older version · <a href="\/dashboard\?view=fleet">See and update them<\/a>[\s\S]*data-dismiss="ic_upd=/);
+    assert.match(await page(), /id="updatebar"[^>]*title="Outdated: core\.[^"]*"[\s\S]*1 of your agents on an older version · <a href="\/dashboard">See and update them<\/a>[\s\S]*data-dismiss="ic_upd=/);
     assert.doesNotMatch(await page(`; ic_upd=${PLUGIN_VERSION}`), /id="updatebar"/);
     assert.match(await page("; ic_upd=0.0.1"), /id="updatebar"/); // an older dismissal doesn't hide a newer version
   });
@@ -1334,12 +1334,35 @@ describe("locks per project", () => {
   });
 });
 
+describe("addresses", () => {
+  test("a DM or handoff to a name no agent has had (a sub-agent, a lane) is refused, naming who is there; one already waiting says so on its card", async () => {
+    const w = await standardWorld();
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=n1&name=alder", { as: "bob" });
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=n2&name=core", { as: "bob" });
+    await w.request("/api/hook?event=SessionEnd&session=n2", { as: "bob" });
+    const s = { id: "n1", project: "billing-api" };
+    const r = await w.tool("bob", "post", { to: "bob/ux-editors", message: "the editors lane: please check" }, s);
+    assert.ok(r.error);
+    assert.match(r.text, /bob\/ux-editors isn't an agent on the intercom[\s\S]*Sub-agents, helpers and lanes[\s\S]*Connected now: bob\/alder\./);
+    assert.match((await w.tool("bob", "handoff", { ref: "abc1234", summary: "x", to: "bob/ux-editors" }, s)).text, /isn't an agent on the intercom/);
+    // Names that were there keep working: one that ended, a project, a person.
+    assert.match(await w.ok("bob", "post", { to: "bob/core", message: "for when you're back" }, s), /Sent DM \[\d+\] to bob\/core\. Note: no bob\/core session is connected/);
+    assert.match(await w.ok("bob", "post", { to: "bob/billing", message: "anyone in billing" }, s), /Sent DM/);
+    assert.match((await w.tool("bob", "post", { to: "alice/whoever", message: "hi" }, s)).text, /alice\/whoever isn't an agent/);
+    // From before this check: a message already waiting on such a name says it'll never be read here.
+    await w.db.prepare("INSERT INTO messages (channel, sender, sender_agent, recipient, recipient_agent, body, created_at) VALUES ('billing-api', 'bob', 'alder', 'bob', 'ux-lane', 'old', ?)").bind(Date.now() - 3600_000).run();
+    assert.match(await (await w.request("/dashboard?view=feed", { as: "bob", cookie: true })).text(), /ux-lane[\s\S]*No agent has ever had this name/);
+  });
+});
+
 describe("delivery marks", () => {
   test("agent-to-agent DMs show in the agent's thread with ✓ / ⏳ / ⚠; teammates see only delivered or not", async () => {
     const w = await standardWorld();
     const hook = (event: string, sid: string, as = "bob", extra = "") => w.request(`/api/hook?event=${event}&project=billing-api&session=${sid}${extra}`, { as });
     await hook("SessionStart", "d1", "bob", "&client=codex&name=alder");
     await hook("SessionStart", "d2", "bob", "&name=core");
+    await hook("SessionStart", "d3", "bob", "&name=ghost");
+    await hook("SessionEnd", "d3");
     await w.ok("bob", "post", { to: "bob/alder", message: "handoff: abc123, gates green" }, { id: "d2", project: "billing-api" });
     await w.ok("bob", "post", { to: "bob/ghost", message: "anyone?" }, { id: "d2", project: "billing-api" });
     await w.ok("alice", "post", { to: "bob/alder", message: "please hold the deploy" });
@@ -2076,6 +2099,7 @@ describe("share_file", () => {
     const w = await standardWorld();
     await w.request("/api/hook?event=SessionStart&project=billing-api&session=ho1&name=alder", { as: "bob" });
     await w.request("/api/hook?event=SessionStart&project=shop&session=ho2&name=cart", { as: "carol" });
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=ho3&name=core", { as: "bob" });
     const alder = { id: "ho1", project: "billing-api" };
     await w.ok("bob", "handoff", { ref: "aaa111", summary: "first fix", to: "alice", obligations: ["Re-run the suite"] }, alder); // H1 pending
     await w.ok("bob", "handoff", { ref: "bbb222", summary: "second fix", to: "bob/core" }, alder); // H2 → integrated
@@ -2736,9 +2760,9 @@ describe("terminals", () => {
     const shown = await answeringAll(w, () => w.request("/agent-screen?agent=bob%2Fcore%40%257", { as: "bob", cookie: true }).then((r) => r.text()), { text: "$ ls\n", cols: 80, rows: 24, cursor: null, keys: true });
     assert.equal(shown.asks[0]!.pane, "%7");
     // Starting and closing are noted in core's activity.
-    const made = await answeringAll(w, () => w.form("/terminals/new", "bob", { host: "ultra", name: "term-2", cwd: "~/work", run: "claude", back: "/dashboard?view=fleet" }), { text: "", cols: 0, rows: 0, cursor: null, keys: true, made: { pane: "%9" } });
+    const made = await answeringAll(w, () => w.form("/terminals/new", "bob", { host: "ultra", name: "term-2", cwd: "~/work", run: "claude", back: "/dashboard" }), { text: "", cols: 0, rows: 0, cursor: null, keys: true, made: { pane: "%9" } });
     assert.deepEqual(made.asks[0], { op: "tmux-new", name: "term-2", cwd: "~/work", run: "claude" });
-    await answeringAll(w, () => w.form("/terminals/close", "bob", { host: "ultra", name: "term-1", back: "/dashboard?view=fleet" }), { text: "", cols: 0, rows: 0, cursor: null, keys: true, made: { closed: "term-1" } });
+    await answeringAll(w, () => w.form("/terminals/close", "bob", { host: "ultra", name: "term-1", back: "/dashboard" }), { text: "", cols: 0, rows: 0, cursor: null, keys: true, made: { closed: "term-1" } });
     const acts = (await w.db.prepare("SELECT text FROM activity WHERE session_id = 't1' ORDER BY id").all<{ text: string }>()).results.map((r) => r.text).join("\n");
     assert.match(acts, /started a terminal on ultra from the dashboard: term-2 \(claude in ~\/work\)[\s\S]*closed the terminal term-1 on ultra/);
     // A machine whose intercom says no: its reason is shown.
@@ -4257,8 +4281,8 @@ describe("Fable's weekly limit", () => {
       const told = await w.db.prepare("SELECT body FROM messages WHERE recipient_agent = 'writer' AND kind = 'event' ORDER BY id DESC LIMIT 1").first<{ body: string }>();
       assert.match(told!.body, /Fable's weekly limit ran out, so intercom picked “Switch to Opus 5\.5” in your terminal/);
       // Turned off in Agents and versions: no more looks.
-      assert.match(await (await w.request("/dashboard?view=fleet", { as: "bob", cookie: true })).text(), /value="fable-off"[^]*?checked[^>]*><span>Switch Fable agents to Opus/);
-      await w.form("/upkeep", "bob", { op: "fable-off", back: "/dashboard?view=fleet" });
+      assert.match(await (await w.request("/dashboard", { as: "bob", cookie: true })).text(), /value="fable-off"[^]*?checked[^>]*><span>Switch Fable agents to Opus/);
+      await w.form("/upkeep", "bob", { op: "fable-off", back: "/dashboard" });
       const { fableDue } = await import("../src/fable.ts");
       assert.equal(await fableDue(w.env(), "bob", "fb1"), "off");
     } finally {
@@ -4717,18 +4741,19 @@ describe("keeping agents running and current", () => {
     await assert.rejects(screenRequest({ op: "tmux-new", name: "core", cwd: "~", run: "claude", resume: { id: "../x", flags: [], channel: false } }, on), /Not a session id/);
   });
 
-  test("a page of your agents and versions, by machine, updating one at a time", async () => {
+  test("the overview shows each agent's intercom, how it gets updated, and the machines' upkeep; updating one at a time", async () => {
     const w = await setup();
-    const v = await (await w.request("/dashboard?view=fleet", { as: "bob", cookie: true })).text();
-    assert.match(v, /<h1>Agents and versions<\/h1><p class="muted">Intercom [\d.]+ is the newest\. 1 of 2 connected agents run an older one\./);
-    assert.match(v, /<h2 class="flh">[\s\S]*vms01<span class="badge">2<\/span><\/h2><p class="flnote">[\s\S]*triage can update the others here/);
-    assert.match(v, /<b>core<\/b>[\s\S]*?<span class="flver">0\.12\.6<\/span>[\s\S]*?through triage[\s\S]*?name="op" value="update-one"[\s\S]*?name="session" value="up1"/);
-    assert.match(v, /<b>triage<\/b>[\s\S]*?<span class="flver ok">[\s\S]*?up to date/);
+    const v = await (await w.request("/dashboard", { as: "bob", cookie: true })).text();
+    assert.match(v, /<b>core<\/b>[\s\S]*?<span class="hmver old" title="Intercom 0\.12\.6; [\d.]+ is out\. Updated through triage, which types \/reload-plugins into its terminal\.">[\s\S]*?0\.12\.6<\/span>[\s\S]*?name="op" value="update-one"[\s\S]*?name="session" value="up1"/);
+    assert.match(v, /<b>triage<\/b>[\s\S]*?<span class="hmver" title="Intercom [\d.]+: the newest">/);
+    assert.match(v, /Machines and upkeep[\s\S]*1 of 2 connected agents run an older one[\s\S]*value="update"[\s\S]*Update idle agents by themselves[\s\S]*data-terms="vms01"/);
+    // The old page's address lands here.
+    assert.match(await (await w.request("/dashboard?view=fleet", { as: "bob", cookie: true })).text(), /<h1>Overview<\/h1>/);
     const answer = (q: Record<string, unknown>) => (q.op === "panes" ? { text: "", panes: [{ session: "up1", pane: "%5", paneIsAgent: false, current: "claude", launch: "claude", version: "0.12.6" }] } : { text: "❯ \n" });
-    const { result } = await machine(w, () => w.form("/upkeep", "bob", { op: "update-one", session: "up1", back: "/dashboard?view=fleet" }), answer);
+    const { result } = await machine(w, () => w.form("/upkeep", "bob", { op: "update-one", session: "up1", back: "/dashboard" }), answer);
     assert.match(ok(result)!, /^core: \/reload-plugins/);
     // The dashboard's banner leads here.
-    assert.match(await page(w), /1 of your agents on an older version · <a href="\/dashboard\?view=fleet">See and update them<\/a>/);
+    assert.match(await page(w), /1 of your agents on an older version · <a href="\/dashboard">See and update them<\/a>/);
   });
 
   test("the resume command keeps how it was started, never --continue", async () => {
@@ -4870,7 +4895,7 @@ describe("Codex usage limits and resets", () => {
   test("with resets on, one is redeemed for the machine and each agent that ran out carries on; not again within two hours", async () => {
     const w = await setup();
     assert.match(new URL((await w.form("/upkeep", "bob", { op: "resets-on", back: "/dashboard" })).headers.get("location")!, ORIGIN).searchParams.get("ok")!, /a reset is redeemed if one is available/);
-    assert.match(await (await w.request("/dashboard?view=fleet", { as: "bob", cookie: true })).text(), /value="resets-off"[\s\S]*checked[^>]*>[\s\S]*Redeem a usage reset when Codex runs out/);
+    assert.match(await (await w.request("/dashboard", { as: "bob", cookie: true })).text(), /value="resets-off"[\s\S]*checked[^>]*>[\s\S]*Redeem a usage reset when Codex runs out/);
     await limit(w, "cx1");
     await limit(w, "cx2");
     const queued = await w.db.prepare("SELECT ref, extra FROM push_queue WHERE ref LIKE 'x%'").all<{ ref: string; extra: string }>();
