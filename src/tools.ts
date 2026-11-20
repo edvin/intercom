@@ -621,7 +621,7 @@ export const tools: Tool[] = [
         url: { type: "string", description: "The MR's (or PR's) web link." },
         title: { type: "string", description: `The MR's title (max ${LIMITS.title} chars).` },
         verdict: { type: "string", description: `Your verdict in one line (max ${LIMITS.verdict} chars), e.g. "Sound fix, but it drops refunds for split payments".` },
-        recommend: { type: "string", enum: Object.keys(OUTCOMES), description: "The outcome you recommend: approve, approve_after (approve once the findings are fixed), request_changes, hold." },
+        recommend: { type: "string", enum: Object.keys(OUTCOMES), description: "The outcome you recommend: approve, approve_after (approve once the findings are fixed), request_changes, hold (wait), close (close the MR: a duplicate, superseded, or not wanted). Pick the one that says what should happen: it's preselected and marked suggested." },
         findings: {
           type: "array",
           maxItems: LIMITS.findings,

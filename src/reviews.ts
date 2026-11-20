@@ -9,7 +9,7 @@ import { queuePush } from "./push";
 import { logDecision } from "./records";
 import { type TicketMR, TLIMITS, mrOf } from "./tickets";
 
-export const OUTCOMES = { approve: "Approve", approve_after: "Approve once fixed", request_changes: "Request changes", hold: "Hold" } as const;
+export const OUTCOMES = { approve: "Approve", approve_after: "Approve once fixed", request_changes: "Request changes", hold: "Hold", close: "Close the MR" } as const;
 export type Outcome = keyof typeof OUTCOMES;
 export const SEVERITIES = ["blocker", "important", "question"] as const;
 
@@ -182,7 +182,7 @@ export async function decideReview(env: Env, me: string, id: number, d: ReviewDe
     await logDecision(env, me, {
       project: r.project,
       subject: `review of ${r.title}`.slice(0, 200),
-      verdict: d.outcome === "approve" || d.outcome === "approve_after" ? "approved" : "held",
+      verdict: d.outcome === "approve" || d.outcome === "approve_after" ? "approved" : d.outcome === "close" ? "rejected" : "held",
       reason: `${OUTCOMES[d.outcome]}${posted.length ? `; posted: ${posted.join(" | ")}` : ""}${d.findings.some((c) => c.reply?.trim()) ? `; answers: ${d.findings.map((c, i) => (c.reply?.trim() ? `${i + 1}. ${c.reply.trim()}` : "")).filter(Boolean).join(" | ")}` : ""}${d.note ? `; note: ${d.note}` : ""}`,
       refs: r.url,
     }).catch(() => undefined);

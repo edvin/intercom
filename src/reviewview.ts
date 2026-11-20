@@ -155,7 +155,7 @@ export async function reviewView(env: Env, me: string, id: number, back: string)
       })
       .join("");
     const outcomes = (Object.keys(OUTCOMES) as (keyof typeof OUTCOMES)[])
-      .map((o) => `<label class="o-${o}"><input type="radio" name="outcome" value="${o}"${o === r.recommend ? " checked" : ""}>${OUTCOMES[o]}</label>`)
+      .map((o) => `<label class="o-${o}${o === r.recommend ? " rec" : ""}"${o === r.recommend ? ' title="What it suggests"' : ""}><input type="radio" name="outcome" value="${o}"${o === r.recommend ? " checked" : ""}>${OUTCOMES[o]}${o === r.recommend ? `<i class="rvsug">suggested</i>` : ""}</label>`)
       .join("");
     decision = `<form method="post" action="/review/${r.id}" class="tkcard tkdecide rvdecide">${hidden({ back: self })}<button name="enter" value="1" hidden></button>
       <h2 class="tkh2">${icon("check", 16)}Your decision</h2>

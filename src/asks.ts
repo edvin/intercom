@@ -154,7 +154,7 @@ function reviewCard(r: Review, me: string, back: string, online: boolean, others
     })
     .join("");
   const outcomes = (Object.keys(OUTCOMES) as (keyof typeof OUTCOMES)[])
-    .map((o) => `<label><input type="radio" name="outcome" value="${o}"${o === r.recommend ? " checked" : ""}>${OUTCOMES[o]}</label>`)
+    .map((o) => `<label${o === r.recommend ? ' class="rec" title="What it suggests"' : ""}><input type="radio" name="outcome" value="${o}"${o === r.recommend ? " checked" : ""}>${OUTCOMES[o]}</label>`)
     .join("");
   const move = online
     ? ""
