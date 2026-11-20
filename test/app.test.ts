@@ -4357,15 +4357,25 @@ describe("questions for you", () => {
         { question: "Open a follow-up ticket for the four other callers?", options: ["Yes", "No"] },
       ],
     };
-    const asked = await w.ok("bob", "question", { ...qs, ticket: "shop-15" }, core);
+    // Every ticket and MR it mentions has to open from the card.
+    assert.match((await w.tool("bob", "question", { ...qs, ticket: "shop-15" }, core)).text, /Your user can't open SHOP-15 from the card[\s\S]*Pass refs/);
+    const refs = [{ key: "SHOP-15", url: "https://tracker.example.com/browse/SHOP-15", title: "Termination dates for contracts", status: "In Review", about: "The ticket this MR implements" }];
+    const asked = await w.ok("bob", "question", { ...qs, ticket: "shop-15", refs }, core);
     assert.match(asked, /Asked your user \(Q1\): it's a card in their dashboard, and a page of its own: \S*\/dashboard\?view=question&id=1\nWherever you mention these questions/);
     // Its page, and the ticket's: linked.
     const qpage = await (await w.request("/dashboard?view=question&id=1", { as: "bob", cookie: true })).text();
-    assert.match(qpage, /<span class="tkkeyl">Q1<\/span><span class="badge">SHOP-15<\/span>[\s\S]*<h1>SHOP-15: dates for a contract without a term<\/h1>[\s\S]*action="\/question\/1"[\s\S]*name="back" value="\/dashboard\?view=question&amp;id=1&amp;back=/);
+    assert.match(qpage, /<span class="tkkeyl">Q1<\/span><span class="badge">SHOP-15<\/span>[\s\S]*action="\/question\/1"[\s\S]*name="back" value="\/dashboard\?view=question&amp;id=1&amp;back=/);
+    assert.match(qpage, /What it's about[\s\S]*class="qrkey">SHOP-15[\s\S]*<b>Termination dates for contracts<\/b><span class="tklz">In Review<\/span><span class="qrabout">The ticket this MR implements/);
+    assert.match(qpage, /<h1><a href="https:\/\/tracker\.example\.com\/browse\/SHOP-15"[^>]*class="qkey"[^>]*>SHOP-15<\/a>: dates for a contract without a term<\/h1>/);
+    // One the intercom already tracks for you links by itself.
+    await w.db.prepare("INSERT INTO tracked (member, board, key, url, title, state, created_at, changed_at, seen_at) VALUES ('bob', 'b', 'PAY-7', 'https://tracker.example.com/browse/PAY-7', 'Refunds', 'Done', 1, 1, 1)").run();
+    assert.match(await w.ok("bob", "question", { title: "PAY-7 again?", questions: [{ question: "Reopen PAY-7?", options: ["Yes", "No"] }] }, core), /Asked your user \(Q2\)/);
+    assert.match(await (await w.request("/dashboard?view=question&id=2", { as: "bob", cookie: true })).text(), /class="qrkey">PAY-7[\s\S]*<b>Refunds<\/b><span class="tklz">Done<\/span>/);
+    await w.ok("bob", "question", { action: "withdraw", id: 2 }, core);
     const { questionsAbout } = await import("../src/questions.ts");
     assert.match(await questionsAbout(w.env(), "bob", "SHOP-15"), /href="\/dashboard\?view=question&id=1"[\s\S]*to answer/);
     const page = await (await w.request("/dashboard", { as: "bob", cookie: true })).text();
-    assert.match(page, /class="ask k-question"[\s\S]*?core<\/span><span class="askk">asks you[\s\S]*?SHOP-15: dates for a contract without a term[\s\S]*?Should a contract without a term[\s\S]*?The reviewer leans to <b>none<\/b>[\s\S]*?name="o1" value="0"><span><b>None is right<\/b><em class="qsug">suggested<\/em><span class="qdet">I update AC1 and the QA steps[\s\S]*?name="o2" value="1"><span><b>No<\/b>[\s\S]*?Send answers to core/);
+    assert.match(page, /class="ask k-question"[\s\S]*?core<\/span><span class="askk">asks you[\s\S]*?SHOP-15<\/a>: dates for a contract without a term[\s\S]*?Should a contract without a term[\s\S]*?The reviewer leans to <b>none<\/b>[\s\S]*?name="o1" value="0"><span><b>None is right<\/b><em class="qsug">suggested<\/em><span class="qdet">I update AC1 and the QA steps[\s\S]*?name="o2" value="1"><span><b>No<\/b>[\s\S]*?Send answers to core/);
     assert.match(page, /id="railasks"[^>]*>[\s\S]*?<span class="rpill amber">1<\/span>/);
     assert.match(loc(await w.form("/question/1", "bob", {})).get("err")!, /Answer at least one/);
     assert.match(loc(await w.form("/question/1", "bob", { o1: "0", t1: "and say so in the MR description", o2: "0" })).get("ok")!, /Sent your answers to core/);

@@ -26,11 +26,64 @@ export interface Question {
   title: string;
   url: string;
   ticket: string;
+  refs: string;
   items: string;
   status: string;
   answer: string | null;
   created_at: number;
   answered_at: number | null;
+}
+
+/** A ticket or MR a question mentions: linked wherever its key appears, and listed with it. */
+export interface QRef {
+  key: string;
+  url: string;
+  title: string;
+  status: string;
+  about: string;
+}
+// Ticket keys (PAY-1234) and MR refs (shop!456, !456), as they're written in a question.
+const KEY_RE = /(?<![\w!/.-])(?:[A-Z][A-Z0-9]{1,9}-\d{1,7}|[a-z][\w.-]{0,40}!\d{1,7}|!\d{2,7})(?![\w-])/g;
+const mentions = (s: string): string[] => [...s.matchAll(KEY_RE)].map((m) => m[0]);
+
+export const refsOf = (q: Question): QRef[] => {
+  try {
+    return JSON.parse(q.refs || "[]") as QRef[];
+  } catch {
+    return [];
+  }
+};
+
+/** Each ref's key as a link (outside tags and existing links) in already-escaped HTML. */
+function linkKeys(html: string, refs: QRef[]): string {
+  const by = new Map(refs.filter((r) => r.url).map((r) => [r.key.toLowerCase(), r]));
+  if (!by.size) return html;
+  let inA = 0;
+  return html
+    .split(/(<[^>]+>)/)
+    .map((part) => {
+      if (part.startsWith("<")) {
+        if (/^<a[\s>]/i.test(part)) inA++;
+        else if (/^<\/a>/i.test(part)) inA = Math.max(0, inA - 1);
+        return part;
+      }
+      if (inA) return part;
+      return part.replace(KEY_RE, (k) => {
+        const r = by.get(k.toLowerCase());
+        return r ? `<a href="${esc(r.url)}" target="_blank" rel="noopener noreferrer" class="qkey" title="${esc([r.title, r.status].filter(Boolean).join(" · "))}">${k}</a>` : k;
+      });
+    })
+    .join("");
+}
+
+/** What they're about, on top: each ticket and MR with its title, status and a line on what it is. */
+function refsBox(refs: QRef[]): string {
+  if (!refs.length) return "";
+  return `<ul class="qrefs">${refs
+    .map(
+      (r) => `<li>${r.url ? `<a href="${esc(r.url)}" target="_blank" rel="noopener noreferrer" class="qrkey">${esc(r.key)}${icon("link", 11)}</a>` : `<b class="qrkey">${esc(r.key)}</b>`}<div class="qrmain">${r.title ? `<b>${esc(r.title)}</b>` : ""}${r.status ? `<span class="tklz">${esc(r.status)}</span>` : ""}${r.about ? `<span class="qrabout">${esc(r.about)}</span>` : ""}</div></li>`,
+    )
+    .join("")}</ul>`;
 }
 
 export const itemsOf = (q: Question): QItem[] => {
@@ -74,12 +127,40 @@ export async function askQuestion(env: Env, me: string, a: Record<string, unknow
   });
   const url = typeof a.url === "string" && /^https?:\/\/\S{1,400}$/.test(a.url.trim()) ? a.url.trim() : "";
   const ticket = typeof a.ticket === "string" && /^[A-Za-z][A-Za-z0-9_]*-\d+$/.test(a.ticket.trim()) ? a.ticket.trim().toUpperCase() : "";
+  // Every ticket and MR it mentions has to be something your user can open from the card: given in refs, or known here
+  // (what agents track for them, tickets and reviews they decided).
+  const given: QRef[] = (Array.isArray(a.refs) ? (a.refs as Record<string, unknown>[]) : []).slice(0, 10).flatMap((r) => {
+    const key = typeof r?.key === "string" ? r.key.trim().slice(0, 60) : "";
+    const u = typeof r?.url === "string" && /^https?:\/\/\S{1,500}$/.test(r.url.trim()) ? r.url.trim() : "";
+    return key ? [{ key, url: u, title: String(r.title ?? "").trim().slice(0, 160), status: String(r.status ?? "").trim().slice(0, 40), about: String(r.about ?? "").trim().slice(0, 240) }] : [];
+  });
+  const said = [title, ...items.flatMap((it) => [it.question, it.context, ...it.options.flatMap((o) => [o.label, o.detail])])].join("\n");
+  const named = [...new Set([...mentions(said), ...(ticket ? [ticket] : [])])];
+  const refs: QRef[] = [...given];
+  const missing: string[] = [];
+  for (const k of named) {
+    if (refs.some((r) => r.key.toLowerCase() === k.toLowerCase() && r.url)) continue;
+    const t = await env.DB.prepare("SELECT key, url, title, state FROM tracked WHERE member = ? AND lower(key) = lower(?) ORDER BY seen_at DESC LIMIT 1").bind(me, k).first<{ key: string; url: string; title: string; state: string }>();
+    const tk = t?.url ? null : await env.DB.prepare("SELECT key, url, title FROM tickets WHERE member = ? AND lower(key) = lower(?) ORDER BY id DESC LIMIT 1").bind(me, k).first<{ key: string; url: string; title: string }>();
+    const found = t?.url ? { key: k, url: t.url, title: t.title, status: t.state, about: "" } : tk?.url ? { key: k, url: tk.url, title: tk.title, status: "", about: "" } : null;
+    if (!found) {
+      missing.push(k);
+      continue;
+    }
+    const at = refs.findIndex((r) => r.key.toLowerCase() === k.toLowerCase());
+    if (at >= 0) refs[at] = { ...found, ...Object.fromEntries(Object.entries(refs[at]!).filter(([, v]) => v)) } as QRef;
+    else refs.push(found);
+  }
+  if (missing.length)
+    throw new UserError(
+      `Your user can't open ${missing.join(", ")} from the card, and may have nothing else open. Pass refs: one per ticket or MR you mention, with key, url, title, status and about (a line on what it is), e.g. refs: [{ key: "${missing[0]}", url: "https://…", title: "…", status: "Done", about: "…" }].`,
+    );
   // The same title from the same agent while one is open: replaced, not stacked.
   await env.DB.prepare("UPDATE questions SET status = 'withdrawn' WHERE member = ? AND label = ? AND title = ? AND status = 'open'").bind(me, s.label, title).run();
   const row = await env.DB.prepare(
-    "INSERT INTO questions (member, label, session_id, project, title, url, ticket, items, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'open', ?) RETURNING id",
+    "INSERT INTO questions (member, label, session_id, project, title, url, ticket, refs, items, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?) RETURNING id",
   )
-    .bind(me, s.label, s.session_id, s.project ?? "", title, url, ticket, JSON.stringify(items), Date.now())
+    .bind(me, s.label, s.session_id, s.project ?? "", title, url, ticket, JSON.stringify(refs), JSON.stringify(items), Date.now())
     .first<{ id: number }>();
   await queuePush(env, me, `y${row!.id}`);
   env.refreshWeb?.(me);
@@ -158,7 +239,7 @@ export async function questionView(env: Env, me: string, id: number, back: strin
         .map((it, i) => {
           const a = ans[i] ?? { choices: [], text: "" };
           const picked = a.choices.map((c) => it.options[c]?.label).filter(Boolean).join(" + ");
-          return `<div class="qitem"><div class="qlegend"><span class="qn">${i + 1}</span>${esc(it.question)}</div>${it.context ? `<div class="qctx md">${md(it.context)}</div>` : ""}${
+          return `<div class="qitem"><div class="qlegend"><span class="qn">${i + 1}</span>${linkKeys(esc(it.question), refsOf(q))}</div>${it.context ? `<div class="qctx md">${linkKeys(md(it.context), refsOf(q))}</div>` : ""}${
             q.status === "answered" ? `<p class="qans">${icon("arrow", 13)}<span>${esc([picked, a.text.trim()].filter(Boolean).join(". ") || "No answer")}</span></p>` : ""
           }</div>`;
         })
@@ -166,24 +247,26 @@ export async function questionView(env: Env, me: string, id: number, back: strin
   }
   return `<div class="pane-in tkpane qpane">
     <div class="tkcrumb"><a class="btn ghost sm tkback" href="${esc(back)}">${icon("back", 14)}Back</a><span class="tksep">/</span>${icon("message", 15)}<span class="tkkeyl">Q${q.id}</span>${q.ticket ? `<span class="badge">${esc(q.ticket)}</span>` : ""}${q.url ? `<a href="${esc(q.url)}" target="_blank" rel="noopener noreferrer" class="tkkeyl" title="Open it">${icon("link", 12)}</a>` : ""}<span class="grow"></span><span class="tkfrom">${agentAvatar(me, q.label, "s")}<a href="${esc(agent)}">${esc(q.label)}</a><span>asked ${time(q.created_at)}</span></span></div>
-    <header class="tkhead"><h1>${esc(q.title)}</h1></header>
+    <header class="tkhead"><h1>${linkKeys(esc(q.title), refsOf(q))}</h1></header>
+    ${refsOf(q).length ? `<section class="tkcard qcard qrefcard"><span class="askh">What it's about</span>${refsBox(refsOf(q))}</section>` : ""}
     <section class="tkcard qcard">${body}</section>
   </div>`;
 }
 
 function questionForm(q: Question, back: string): string {
   const items = itemsOf(q);
+  const refs = refsOf(q);
   const qs = items
     .map((it, i) => {
       const n = i + 1;
       const opts = it.options
         .map(
           (o, j) =>
-            `<label class="qopt"><input type="${it.multi ? "checkbox" : "radio"}" name="o${n}" value="${j}"><span><b>${esc(o.label)}</b>${j === it.suggest ? `<em class="qsug">suggested</em>` : ""}${o.detail ? `<span class="qdet">${esc(o.detail)}</span>` : ""}</span></label>`,
+            `<label class="qopt"><input type="${it.multi ? "checkbox" : "radio"}" name="o${n}" value="${j}"><span><b>${linkKeys(esc(o.label), refs)}</b>${j === it.suggest ? `<em class="qsug">suggested</em>` : ""}${o.detail ? `<span class="qdet">${linkKeys(esc(o.detail), refs)}</span>` : ""}</span></label>`,
         )
         .join("");
-      return `<fieldset class="qitem"><legend><span class="qn">${n}</span>${esc(it.question)}</legend>
-        ${it.context ? `<div class="qctx md">${md(it.context)}</div>` : ""}
+      return `<fieldset class="qitem"><legend><span class="qn">${n}</span>${linkKeys(esc(it.question), refs)}</legend>
+        ${it.context ? `<div class="qctx md">${linkKeys(md(it.context), refs)}</div>` : ""}
         ${opts ? `<div class="qopts">${opts}</div>` : ""}
         <textarea name="t${n}" rows="${opts ? 1 : 2}" class="tkta" maxlength="${QLIMITS.answer}" placeholder="${opts ? "Or in your own words (optional)" : "Your answer"}"></textarea>
       </fieldset>`;
@@ -198,7 +281,8 @@ function questionForm(q: Question, back: string): string {
 export function questionCard(q: Question, back: string): string {
   return `<article class="ask k-question" data-mid="y${q.id}">
     <header class="askwho"><span class="upic">${icon("message", 14)}</span><span class="askname">${esc(q.label)}</span><span class="askk">asks you</span><span class="grow"></span><a class="btn ghost xs" href="${questionHref(q.id)}" title="Its own page">${icon("arrow", 12)}Open</a></header>
-    <p class="stkhead">${esc(q.title)}${q.ticket ? ` <span class="badge">${esc(q.ticket)}</span>` : ""}${q.url ? ` <a href="${esc(q.url)}" target="_blank" rel="noopener" class="qlink">${icon("link", 12)}link</a>` : ""}</p>
+    <p class="stkhead">${linkKeys(esc(q.title), refsOf(q))}${q.url ? ` <a href="${esc(q.url)}" target="_blank" rel="noopener" class="qlink">${icon("link", 12)}link</a>` : ""}</p>
+    ${refsBox(refsOf(q))}
     ${questionForm(q, back)}
   </article>`;
 }
