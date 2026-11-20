@@ -1862,8 +1862,20 @@ export const SCRIPT = `
   const soonAt = (ts) => { const d = new Date(ts), hm = d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
     return d.toDateString() === new Date().toDateString() ? hm : ts - Date.now() < 6 * 86400_000 ? d.toLocaleDateString(undefined, { weekday: "short" }) + " " + hm : d.toLocaleDateString(undefined, { day: "numeric", month: "short" }); };
   const left = (ts) => { const m = Math.max(0, Math.round((ts - Date.now()) / 60000)); return m < 60 ? m + "m left" : Math.floor(m / 60) + "h " + (m % 60) + "m left"; };
+  // The text you've selected (not in a field): its range, or null.
+  function selRange() {
+    const s = window.getSelection && window.getSelection();
+    if (!s || !s.rangeCount || s.isCollapsed) return null;
+    const a = document.activeElement; if (a && /INPUT|TEXTAREA/.test(a.tagName)) return null;
+    return s.getRangeAt(0);
+  }
+  // Whether el holds (part of) your selection: then it is not redrawn or retexted under it.
+  function selIn(el, r = selRange()) { try { return !!r && r.intersectsNode(el); } catch { return false; } }
+  let selHeld = false;
+  document.addEventListener("selectionchange", () => { if (selHeld && !selRange()) { selHeld = false; refresh(); } });
   function tick() {
-    $$("time[data-ts]").forEach((t) => (t.textContent = "short" in t.dataset ? short(+t.dataset.ts) : "date" in t.dataset ? stamp(+t.dataset.ts) : "at" in t.dataset ? soonAt(+t.dataset.ts) : rel(+t.dataset.ts)));
+    const r = selRange();
+    $$("time[data-ts]").filter((t) => !selIn(t, r)).forEach((t) => (t.textContent = "short" in t.dataset ? short(+t.dataset.ts) : "date" in t.dataset ? stamp(+t.dataset.ts) : "at" in t.dataset ? soonAt(+t.dataset.ts) : rel(+t.dataset.ts)));
     $$("[data-until]").forEach((t) => (t.textContent = left(+t.dataset.until)));
     $$(".loopnx[data-cron], .loopnx[data-next]").forEach((t) => { const at = t.dataset.next ? +t.dataset.next : cronNext(t.dataset.cron, Date.now()); const m = Math.round((at - Date.now()) / 60000);
       t.textContent = !at ? "" : m <= 0 ? "due now" : m < 60 ? "next in " + m + "m" : "next " + stamp(at).replace("Today ", ""); t.classList.toggle("soon", at > 0 && m < 5); });
@@ -2122,7 +2134,7 @@ ${markupScript()}
   }
   // How long it has been at it (the live line above the composer), every second.
   const span = (ms) => { const s = Math.max(0, Math.floor(ms / 1000)); return s < 60 ? s + "s" : s < 3600 ? Math.floor(s / 60) + "m " + String(s % 60).padStart(2, "0") + "s" : Math.floor(s / 3600) + "h " + Math.floor((s % 3600) / 60) + "m"; };
-  setInterval(() => $$("[data-elapsed]").forEach((e) => (e.textContent = span(Date.now() - Number(e.dataset.elapsed)))), 1000);
+  setInterval(() => { const r = selRange(); $$("[data-elapsed]").forEach((e) => { if (!selIn(e, r)) e.textContent = span(Date.now() - Number(e.dataset.elapsed)); }); }, 1000);
   // On a message: Copy, Quote (into the composer) and Ask about it (a side question, like /btw).
   // Copy for Slack: the reply as rich text, which Slack keeps when you paste it (bold, links, lists, quotes, code), and
   // as Slack's own markup (*bold*, _italic_, ~struck~, code fences, • lists) for anywhere that only takes plain text.
@@ -3537,6 +3549,7 @@ ${markupScript()}
       // its question box, so an answer shows while you're typing the next question.
       if (!el.isConnected) return;
       const next = doc.getElementById(el.id); if (!next) return;
+      if (selIn(el)) { selHeld = true; return; } // you're selecting text in it: it catches up once you're done
       const src = sig(next.outerHTML); if (el._src === src) return;
       if (el.id === "asks" && !el.hidden && !next.hidden && $(".asklist", el) && $(".asklist", next)) return asksMerge(el, next, src);
       if (el.contains(document.activeElement) && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) return;
@@ -3595,7 +3608,12 @@ ${markupScript()}
   ["scroll", "wheel", "touchmove"].forEach((ev) => addEventListener(ev, moved, { passive: true, capture: true }));
   addEventListener("touchstart", () => { touching = true; moved(); }, { passive: true, capture: true });
   ["touchend", "touchcancel"].forEach((ev) => addEventListener(ev, () => { touching = false; moved(); }, { passive: true, capture: true }));
-  const settled = () => !touching && Date.now() - movedAt > 900;
+  // Selecting text: nothing is redrawn while the mouse button is down (a drag in progress), and the part of the page
+  // that holds a selection isn't redrawn until it's gone (selIn below), so what you select can be copied.
+  let pressing = false;
+  addEventListener("mousedown", () => (pressing = true), { capture: true });
+  addEventListener("mouseup", () => { pressing = false; moved(); }, { capture: true });
+  const settled = () => !touching && !pressing && Date.now() - movedAt > 900;
   window.icRefresh = () => refresh(); // a redraw now, as a live update would (also for tests)
   // Busy agents poke the page every few seconds each: the redraws are spaced (one at a time, 1.5 s apart at most
   // once a second's worth of pokes came in) and none is fetched for a tab you can't see (it redraws when shown).
