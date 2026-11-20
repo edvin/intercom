@@ -239,7 +239,7 @@ export async function questionView(env: Env, me: string, id: number, back: strin
         .map((it, i) => {
           const a = ans[i] ?? { choices: [], text: "" };
           const picked = a.choices.map((c) => it.options[c]?.label).filter(Boolean).join(" + ");
-          return `<div class="qitem"><div class="qlegend"><span class="qn">${i + 1}</span>${linkKeys(esc(it.question), refsOf(q))}</div>${it.context ? `<div class="qctx md">${linkKeys(md(it.context), refsOf(q))}</div>` : ""}${
+          return `<div class="qitem"><div class="qlegend"><span class="qn">${i + 1}</span><span class="qq">${linkKeys(esc(it.question), refsOf(q))}</span></div>${it.context ? `<div class="qctx md">${linkKeys(md(it.context), refsOf(q))}</div>` : ""}${
             q.status === "answered" ? `<p class="qans">${icon("arrow", 13)}<span>${esc([picked, a.text.trim()].filter(Boolean).join(". ") || "No answer")}</span></p>` : ""
           }</div>`;
         })
@@ -265,7 +265,7 @@ function questionForm(q: Question, back: string): string {
             `<label class="qopt"><input type="${it.multi ? "checkbox" : "radio"}" name="o${n}" value="${j}"><span><b>${linkKeys(esc(o.label), refs)}</b>${j === it.suggest ? `<em class="qsug">suggested</em>` : ""}${o.detail ? `<span class="qdet">${linkKeys(esc(o.detail), refs)}</span>` : ""}</span></label>`,
         )
         .join("");
-      return `<fieldset class="qitem"><legend><span class="qn">${n}</span>${linkKeys(esc(it.question), refs)}</legend>
+      return `<fieldset class="qitem"><legend><span class="qn">${n}</span><span class="qq">${linkKeys(esc(it.question), refs)}</span></legend>
         ${it.context ? `<div class="qctx md">${linkKeys(md(it.context), refs)}</div>` : ""}
         ${opts ? `<div class="qopts">${opts}</div>` : ""}
         <textarea name="t${n}" rows="${opts ? 1 : 2}" class="tkta" maxlength="${QLIMITS.answer}" placeholder="${opts ? "Or in your own words (optional)" : "Your answer"}"></textarea>
