@@ -938,7 +938,24 @@ export async function addActivity(env: Env, me: string, sessionId: string, items
   let told = 0;
   if (own.client === "codex") {
     const last = (kind: string) => [...items].reverse().find((it) => (it as { kind?: unknown })?.kind === kind) as { text?: unknown } | undefined;
-    const turn = last("model"), list = last("models");
+    const turn = last("model"), list = last("models"), use = last("usage");
+    // Its plan's limits and its context, as Codex logs them after each model call (intercom 0.12.63+).
+    try {
+      const u = use ? (JSON.parse(String(use.text)) as { rl?: unknown; plan?: unknown; ctx?: { tok?: unknown; win?: unknown } | null }) : null;
+      if (u) {
+        const rl = (Array.isArray(u.rl) ? u.rl : []).slice(0, 4).flatMap((w: { k?: unknown; p?: unknown; r?: unknown }) =>
+          typeof w?.k === "string" && /^[a-z_]{1,24}$/.test(w.k) && Number.isFinite(Number(w.p)) ? [{ k: w.k, p: Math.max(0, Math.min(100, Math.round(Number(w.p)))), r: Number(w.r) > 0 ? Number(w.r) : null }] : [],
+        );
+        const plan = typeof u.plan === "string" ? u.plan.replace(/[^\w-]/g, "").slice(0, 30) : "";
+        if (rl.length) await env.DB.prepare("UPDATE sessions SET usage = ?1 WHERE member = ?2 AND session_id = ?3 AND usage IS NOT ?1").bind(JSON.stringify({ rl, usd: null, plan }), me, sessionId).run();
+        const tok = Math.round(Number(u.ctx?.tok)), win = Math.round(Number(u.ctx?.win));
+        if (tok > 0 && win > 0)
+          await env.DB.prepare("UPDATE sessions SET ctx_pct = ?, ctx_tokens = ?, ctx_window = ?, ctx_at = ?, ctx_stale = NULL WHERE member = ? AND session_id = ?")
+            .bind(Math.min(100, Math.round((tok / win) * 100)), tok, win, now, me, sessionId)
+            .run();
+        told++;
+      }
+    } catch {}
     try {
       const t = turn ? (JSON.parse(String(turn.text)) as { model?: unknown; effort?: unknown }) : null;
       const model = typeof t?.model === "string" && /^[\w.:\/@-]{1,80}$/.test(t.model) ? t.model : null;
@@ -953,7 +970,7 @@ export async function addActivity(env: Env, me: string, sessionId: string, items
         );
         await env.DB.prepare("UPDATE sessions SET codex_models = ? WHERE member = ? AND session_id = ?").bind(JSON.stringify(clean), me, sessionId).run();
       }
-      told = (model ? 1 : 0) + (Array.isArray(ms) ? 1 : 0);
+      told += (model ? 1 : 0) + (Array.isArray(ms) ? 1 : 0);
     } catch {}
   }
   const when = (raw: unknown) => {

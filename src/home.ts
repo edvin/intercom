@@ -45,7 +45,7 @@ interface Row {
 }
 
 type Window = { k: string; p: number; r: number | null };
-const WINDOW_NAME: Record<string, string> = { five_hour: "5-hour", seven_day: "Week", seven_day_opus: "Week (Opus)", spend_limit: "Spend" };
+const WINDOW_NAME: Record<string, string> = { five_hour: "5-hour", seven_day: "Week", seven_day_opus: "Week (Opus)", spend_limit: "Spend", short: "Short window", long: "Long window" };
 const QUIET_MS = 20 * 60_000; // working, but nothing in its log for this long: worth a look
 const HOUR = 3600_000;
 
@@ -154,7 +154,6 @@ export async function homeView(env: Env, me: string): Promise<string> {
     accounts.set(key, e);
   }
   const codex = agents.filter((a) => a.client === "codex");
-  const codexOut = codex.filter((a) => outOfUsage({ state: a.state ?? "", state_detail: a.state_detail ?? "" }));
   const order = ["five_hour", "seven_day", "seven_day_opus", "spend_limit"];
   const acctCards = [...accounts].map(([email, e]) => {
     const ws = [...e.ws.values()].sort((x, y) => order.indexOf(x.k) - order.indexOf(y.k));
@@ -169,14 +168,41 @@ export async function homeView(env: Env, me: string): Promise<string> {
       <div class="hmverdict ${v.tone}">${icon(v.tone === "green" ? "check" : v.tone === "red" ? "x" : "clock", 13)}<span>${esc(v.text)}</span></div>
     </article>`;
   });
-  if (codex.length)
+  // Codex: its limits come with each model call (intercom 0.12.63+), per machine (each logs in on its own), plan from Codex.
+  const planOf = (raw: string | null) => {
+    try {
+      return String((JSON.parse(raw ?? "null") as { plan?: unknown } | null)?.plan ?? "");
+    } catch {
+      return "";
+    }
+  };
+  const codexHosts = [...new Set(codex.map((a) => a.host))].sort((x, y) => hostOf(x).localeCompare(hostOf(y)));
+  for (const h of codexHosts) {
+    const here = codex.filter((a) => a.host === h);
+    const ws = new Map<string, Window & { at: number }>();
+    for (const a of here)
+      for (const w of windowsOf(a.usage, now)) {
+        const prev = ws.get(w.k);
+        if (!prev || (a.state_at ?? 0) > prev.at) ws.set(w.k, { ...w, at: a.state_at ?? 0 });
+      }
+    const list = [...ws.values()].sort((x, y) => order.indexOf(x.k) - order.indexOf(y.k));
+    const out = here.filter((a) => outOfUsage({ state: a.state ?? "", state_detail: a.state_detail ?? "" }));
+    const plan = here.map((a) => planOf(a.usage)).find(Boolean) ?? "";
+    const v = out.length
+      ? { tone: "red", text: `${out.map((a) => a.label).join(", ")} ${out.length === 1 ? "is" : "are"} out of usage${out[0]!.state_detail ? `: ${out[0]!.state_detail.replace(/^usage limit · ?/, "")}` : ""}` }
+      : list.length
+        ? verdict(list, now)
+        : { tone: "", text: "No limits reported yet: they show after its next answer (intercom 0.12.63+)" };
     acctCards.push(`<article class="hmacct">
-      <header><span class="hmlogo cx">${icon("terminal", 14)}</span><div class="grow"><b>Codex</b><span class="muted">${codex.length} agent${codex.length === 1 ? "" : "s"}</span></div></header>
-      <div class="hmwins"><p class="small muted" style="margin:0">${
-        codexOut.length ? `${codexOut.map((a) => esc(a.label)).join(", ")} ${codexOut.length === 1 ? "is" : "are"} out of usage: ${esc(codexOut[0]!.state_detail?.replace(/^usage limit · ?/, "") || "until the limit resets")}.` : "Codex doesn't say how much is left until an agent runs out."
-      }</p></div>
-      <div class="hmverdict ${codexOut.length ? "red" : "green"}">${icon(codexOut.length ? "x" : "check", 13)}<span>${codexOut.length ? `${codexOut.length} out of usage` : "None out of usage"}</span></div>
+      <header><span class="hmlogo cx">${icon("terminal", 14)}</span><div class="grow"><b>Codex${codexHosts.length > 1 ? ` on ${esc(hostOf(h))}` : ""}</b><span class="muted">${plan ? `${esc(/^pro_?max$/i.test(plan) ? "Pro Max" : plan.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase()))} · ` : ""}${here.length} agent${here.length === 1 ? "" : "s"}</span></div></header>
+      <div class="hmwins">${
+        list.length
+          ? list.map((w) => `<div class="hmwin"><div class="hmwh"><span>${esc(WINDOW_NAME[w.k] ?? w.k)}</span><b class="${tone(w.p)}">${w.p}%</b></div>${meter(w.p)}<span class="hmsub">${w.r ? `resets in ${until(w.r, now)}` : "&nbsp;"}</span></div>`).join("")
+          : `<p class="small muted" style="margin:0">Its agents haven't reported their limits yet.</p>`
+      }</div>
+      <div class="hmverdict ${v.tone}">${icon(v.tone === "green" ? "check" : v.tone === "red" ? "x" : "clock", 13)}<span>${esc(v.text)}</span></div>
     </article>`);
+  }
 
   // ---- what needs attention, worst first, each with its fix ----
   type Item = { tone: string; ic: string; who: string; text: string; act: string };
@@ -228,7 +254,8 @@ export async function homeView(env: Env, me: string): Promise<string> {
     return `<span class="hmst idle"><i></i>idle${since}</span>`;
   };
   const card = (a: Row) => {
-    const five = windowsOf(a.usage, now).find((w) => w.k === "five_hour");
+    const wins = windowsOf(a.usage, now);
+    const five = wins.find((w) => w.k === "five_hour") ?? wins.find((w) => w.k === "seven_day");
     const step = stepOf.get(a.session_id);
     const stepText = step ? (step.kind === "text" ? step.text.replace(/\s+/g, " ") : step.text.split("\n").pop()!.replace(/\s+/g, " ")) : "";
     const canCompact = a.client !== "codex" && !compactable(a, true) && !a.compact_req && !a.compact_prep;
@@ -240,8 +267,8 @@ export async function homeView(env: Env, me: string): Promise<string> {
       <div class="hmmeta">${a.project ? `<span>#${esc(a.project)}</span>` : ""}${model ? `<span>${esc(model)}</span>` : ""}${a.client === "codex" ? `<span>Codex</span>` : ""}<span class="hmver${ok ? "" : " old"}" title="${esc(ok ? `Intercom ${a.version}: the newest` : `Intercom ${a.version || "?"}; ${PLUGIN_VERSION} is out. Updated ${u!.how}.`)}">${ok ? "" : icon("download", 11)}${esc(a.version || "?")}</span></div>
       ${a.note ? `<p class="hmnote">${esc(a.note)}</p>` : ""}
       <div class="hmbars">
-        ${a.ctx_pct != null && a.client !== "codex" ? `<div class="hmbar"><span>Context</span>${meter(a.ctx_pct, a.ctx_pct >= 90 ? "red" : a.ctx_pct >= 75 ? "amber" : "")}<b>${a.ctx_pct}%</b></div>` : ""}
-        ${five ? `<div class="hmbar"><span>5-hour</span>${meter(five.p)}<b>${five.p}%</b></div>` : ""}
+        ${a.ctx_pct != null ? `<div class="hmbar"><span>Context</span>${meter(a.ctx_pct, a.ctx_pct >= 90 ? "red" : a.ctx_pct >= 75 ? "amber" : "")}<b>${a.ctx_pct}%</b></div>` : ""}
+        ${five ? `<div class="hmbar"><span>${five.k === "five_hour" ? "5-hour" : "Week"}</span>${meter(five.p)}<b>${five.p}%</b></div>` : ""}
       </div>
       ${stepText ? `<p class="hmstep" title="${esc(stepText.slice(0, 300))}">${icon(step!.kind === "cmd" ? "terminal" : step!.kind === "edit" ? "pencil" : step!.kind === "text" ? "message" : "dots", 12)}<span>${esc(stepText.slice(0, 140))}</span><time>${esc(ago(step!.at))}</time></p>` : ""}
       <footer><a class="btn ghost xs" href="${chat(a.label)}">${icon("message", 12)}Chat</a>${a.screen ? `<button type="button" class="btn ghost xs" ${screenAttrs(`${me}/${a.label}`, a.label, a.screen, a.client ?? "")}>${icon("monitor", 12)}Screen</button>` : ""}${

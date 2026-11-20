@@ -21,7 +21,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const VERSION = "0.12.62"; // kept in step with .claude-plugin/plugin.json (a test checks)
+const VERSION = "0.12.63"; // kept in step with .claude-plugin/plugin.json (a test checks)
 const DIR = path.join(os.homedir(), ".claude", "intercom");
 const CONFIG = path.join(DIR, "config");
 function readConf() {
@@ -816,6 +816,36 @@ function codexModelOf(line) {
   const effort = p.effort ?? p.collaboration_mode?.settings?.reasoning_effort ?? null;
   mirror.outbox.push({ at: Date.parse(d.timestamp ?? "") || Date.now(), kind: "model", text: JSON.stringify({ model: p.model, effort: typeof effort === "string" ? effort : null }) });
 }
+// Its plan's limits and how full its context is, from the token count Codex logs after each model call: the
+// rate-limit windows (by their length: 5 hours, a week) with when they reset, and the last call's tokens against the
+// model's context window. Sent when they change.
+let codexUsageWas = "";
+function codexUsageOf(line) {
+  if (!line.includes('"token_count"')) return;
+  let d;
+  try {
+    d = JSON.parse(line);
+  } catch {
+    return;
+  }
+  const p = d?.type === "event_msg" && d.payload?.type === "token_count" ? d.payload : null;
+  if (!p) return;
+  const win = (w) => {
+    if (!w || typeof w.used_percent !== "number") return null;
+    const m = Number(w.window_minutes);
+    const k = m === 300 ? "five_hour" : m === 10080 ? "seven_day" : m > 0 && m < 1440 ? "short" : "long";
+    return { k, p: Math.round(w.used_percent), r: Number(w.resets_at) > 0 ? Number(w.resets_at) * 1000 : null };
+  };
+  const rl = p.rate_limits ? [win(p.rate_limits.primary), win(p.rate_limits.secondary)].filter(Boolean) : [];
+  const last = p.info?.last_token_usage, size = Number(p.info?.model_context_window);
+  const tok = Number(last?.total_tokens ?? 0);
+  const ctx = size > 0 && tok > 0 ? { tok, win: size } : null;
+  if (!rl.length && !ctx) return;
+  const text = JSON.stringify({ rl, plan: typeof p.rate_limits?.plan_type === "string" ? p.rate_limits.plan_type : "", ctx });
+  if (text === codexUsageWas) return;
+  codexUsageWas = text;
+  mirror.outbox.push({ at: Date.parse(d.timestamp ?? "") || Date.now(), kind: "usage", text });
+}
 let codexModelsAt = 0;
 function codexModelsTick() {
   if (headers["x-intercom-client"] !== "codex") return;
@@ -863,8 +893,11 @@ function mirrorTick() {
           fs.closeSync(fd);
         }
         const text = buf.toString("utf8");
+        const lineAt = (at) => text.slice(text.lastIndexOf("\n", at) + 1, (text.indexOf("\n", at) + 1 || text.length + 1) - 1);
         const at = text.lastIndexOf('"type":"turn_context"');
-        if (at >= 0) codexModelOf(text.slice(text.lastIndexOf("\n", at) + 1, (text.indexOf("\n", at) + 1 || text.length + 1) - 1));
+        if (at >= 0) codexModelOf(lineAt(at));
+        const tc = text.lastIndexOf('"type":"token_count"');
+        if (tc >= 0) codexUsageOf(lineAt(tc));
       } catch {}
     }
   }
@@ -891,7 +924,10 @@ function mirrorTick() {
       for (const l of lines)
         if (l.trim()) {
           if (codexTurn && headers["x-intercom-client"] === "codex") reportTurn(codexTurn(l));
-          if (headers["x-intercom-client"] === "codex") codexModelOf(l);
+          if (headers["x-intercom-client"] === "codex") {
+            codexModelOf(l);
+            codexUsageOf(l);
+          }
           const items = summarizeLine(l);
           mirror.outbox.push(...items);
           for (const it of items) noteMentions(it.text);

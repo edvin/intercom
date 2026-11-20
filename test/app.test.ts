@@ -4320,6 +4320,29 @@ describe("the overview", () => {
   });
 });
 
+describe("codex usage", () => {
+  test("a Codex agent's limits and context, from the token counts in its log, show on the overview per machine with a verdict", async () => {
+    const w = await standardWorld();
+    const now = Date.now();
+    await w.request(`/api/hook?event=SessionStart&project=billing-api&session=cx1&name=alder&client=codex`, { as: "bob" });
+    await w.db.prepare("UPDATE sessions SET host = 'ultra' WHERE session_id = 'cx1'").run();
+    const send = (u: unknown) => w.request("/api/activity?session=cx1", { method: "POST", as: "bob", body: JSON.stringify({ items: [{ at: now, kind: "usage", text: JSON.stringify(u) }] }) });
+    await send({ rl: [{ k: "seven_day", p: 26, r: now + 3 * 86400_000 }], plan: "promax", ctx: { tok: 76078, win: 258400 } });
+    const row = await w.db.prepare("SELECT usage, ctx_pct, ctx_window FROM sessions WHERE session_id = 'cx1'").first<{ usage: string; ctx_pct: number; ctx_window: number }>();
+    assert.equal(row!.ctx_pct, 29);
+    assert.equal(row!.ctx_window, 258400);
+    assert.deepEqual(JSON.parse(row!.usage).rl, [{ k: "seven_day", p: 26, r: now + 3 * 86400_000 }]);
+    let page = await (await w.request("/dashboard", { as: "bob", cookie: true })).text();
+    assert.match(page, /<b>Codex<\/b><span class="muted">Pro Max · 1 agent<\/span>[\s\S]*?Week[\s\S]*?26%[\s\S]*?resets in 3d[\s\S]*?Enough for tonight/);
+    assert.match(page, /class="hmcard[\s\S]*?alder[\s\S]*?Context[\s\S]*?29%[\s\S]*?<span>Week<\/span>[\s\S]*?26%/);
+    // Junk is dropped; a week nearly used turns red.
+    await send({ rl: [{ k: "seven_day", p: 97, r: now + 86400_000 }, { k: "Bad Key!", p: 5 }], ctx: { tok: "x", win: 0 } });
+    page = await (await w.request("/dashboard", { as: "bob", cookie: true })).text();
+    assert.match(page, /hmverdict red[\s\S]*?Weekly limit nearly used/);
+    assert.equal(JSON.parse((await w.db.prepare("SELECT usage FROM sessions WHERE session_id = 'cx1'").first<{ usage: string }>())!.usage).rl.length, 1);
+  });
+});
+
 describe("logging a machine into another account", () => {
   const URL1 = "https://claude.com/cai/oauth/authorize?code=true&client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e&response_type=code&redir";
   const URL2 = "ect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback&scope=user%3Ainference&code_challenge=abc&state=x";
