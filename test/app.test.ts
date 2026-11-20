@@ -4775,7 +4775,21 @@ describe("keeping agents running and current", () => {
       q.op === "panes" ? answer(q) : q.op === "keys" && (q.keys as string[] | undefined)?.[0] === "ctrl-c" ? { text: "To reconnect, run:\n  codex resume up1\nedvin@vms01:~/projects/billing$ " } : { text: "" };
     const { result: r3, seen: s3 } = await machine(w, () => w.form("/upkeep", "bob", { op: "update", back: "/dashboard" }), codex);
     assert.equal(ok(r3), "Updating core");
-    assert.deepEqual(s3.slice(1), [{ op: "capture", pane: "%5" }, { op: "keys", keys: ["ctrl-c", "ctrl-c"], pane: "%5" }, { op: "keys", text: "codex --dangerously-bypass-approvals-and-sandbox resume up1", enter: true, pane: "%5" }]);
+    assert.deepEqual(s3.slice(1, 4), [{ op: "capture", pane: "%5" }, { op: "keys", keys: ["ctrl-c", "ctrl-c"], pane: "%5" }, { op: "keys", text: "codex --dangerously-bypass-approvals-and-sandbox resume up1", enter: true, pane: "%5" }]);
+    // With its folder known, its machine is told which session it is first (so it's on the intercom at once, not only at
+    // its next turn); and Codex's own "Update available" choice is skipped.
+    await w.db.prepare("UPDATE sessions SET cwd = '/home/edvin/projects/billing', version = '0.12.10' WHERE session_id = 'up1'").run();
+    let resumed = false;
+    const codexUpd = (q: Record<string, unknown>) => {
+      if (q.op === "keys" && String(q.text ?? "").includes("resume up1")) resumed = true;
+      if (q.op === "keys" && (q.keys as string[] | undefined)?.[0] === "2") resumed = false;
+      return q.op === "keys" && (q.keys as string[] | undefined)?.[0] === "ctrl-c" ? { text: "edvin@vms01:~/projects/billing$ " } : resumed ? { text: "  Update available · 0.170.0 → 0.171.0\n› 1. Update now\n  2. Skip\n  3. Skip until next version\n" } : codex(q);
+    };
+    const { seen: s6 } = await machine(w, () => w.form("/upkeep", "bob", { op: "update", back: "/dashboard" }), codexUpd);
+    const ops = s6.map((q) => (q.op === "keys" ? `keys:${q.text ?? (q.keys as string[]).join("+")}` : String(q.op)));
+    assert.ok(ops.indexOf("codex-note") >= 0 && ops.indexOf("codex-note") < ops.findIndex((o) => o.includes("resume up1")), ops.join(" "));
+    assert.deepEqual(s6.find((q) => q.op === "codex-note"), { op: "codex-note", id: "up1", cwd: "/home/edvin/projects/billing", pane: "%5" });
+    assert.ok(ops.includes("keys:2"), ops.join(" "));
     // A turn running in its terminal (a goal's turns don't always show as working): left alone, not cut off.
     const running = (q: Record<string, unknown>) => (q.op === "panes" ? answer(q) : { text: "• Working (1m 05s • esc to interrupt)\n› Ask Codex to do anything\n  gpt · ~/billing                Pursuing goal (2h 3m)\n" });
     const { result: r4, seen: s4 } = await machine(w, () => w.form("/upkeep", "bob", { op: "update", back: "/dashboard" }), running);

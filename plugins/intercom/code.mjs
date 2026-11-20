@@ -424,6 +424,7 @@ async function terminalOp(q) {
       if (!Array.isArray(flags) || flags.length > 30 || !flags.every((f) => typeof f === "string" && /^[A-Za-z0-9_=.:\/,@+%-]{1,200}$/.test(f))) throw new Error("Its flags aren't plain words; start it by hand.");
       if (!/^[A-Za-z0-9_.-]{1,64}$/.test(label)) throw new Error("Not an agent name.");
       args.push("-e", `INTERCOM_NAME=${label}`, ...(channel ? ["-e", "INTERCOM_CHANNEL=1"] : []), TERM_RUN[run], ...flags, ...(run === "codex" ? ["resume", id] : ["--resume", id]));
+      if (run === "codex") codexNote(id, dir);
       const r = await tmux(args);
       if (r.err) throw new Error(`tmux: ${r.err}`);
       return { pane: r.out.trim(), name: free };
@@ -447,6 +448,20 @@ async function terminalOp(q) {
   return null;
 }
 
+/**
+ * A Codex session the intercom resumes itself (a restart in place, an agent brought back): the note its hook would
+ * write when a turn starts (hook.sh codex-sessions), written now, so the session's intercom server knows which session
+ * it is at once, not only at its next turn (until then it's off the intercom, and looks ended).
+ */
+function codexNote(id, cwd) {
+  if (typeof id !== "string" || !/^[\w-]{8,80}$/.test(id)) throw new Error("Not a session id.");
+  const dir = path.resolve(String(cwd || "~").replace(/^~(?=$|\/)/, os.homedir()));
+  if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) throw new Error(`${dir} isn't a folder on this machine.`);
+  const notes = path.join(os.homedir(), ".claude", "intercom", "codex-sessions");
+  fs.mkdirSync(notes, { recursive: true });
+  fs.writeFileSync(path.join(notes, id), `0\n${dir}\n${Math.floor(Date.now() / 1000)}\n`);
+}
+
 export async function screenRequest(q, { pane, keysOn = true, termsOn = false, browsersOn = false, browsersUrl = "http://127.0.0.1:9230" } = {}) {
   // Browsers on this machine (below): listed, pictured, used from the dashboard; claimed and released by agents.
   if (typeof q.op === "string" && q.op.startsWith("browser")) {
@@ -457,6 +472,11 @@ export async function screenRequest(q, { pane, keysOn = true, termsOn = false, b
     if (q.op === "browser-claim") return { ...empty, claimed: await claimBrowser(browsersUrl, q) };
     if (q.op === "browser-release") return { ...empty, claimed: await releaseBrowser(browsersUrl, q) };
     throw new Error(`Unknown browser request "${q.op}".`);
+  }
+  if (q.op === "codex-note") {
+    if (!keysOn) throw new Error("Sending keys is turned off on that machine (INTERCOM_KEYS=0).");
+    codexNote(q.id, q.cwd);
+    return { text: "", cols: 0, rows: 0, cursor: null, keys: keysOn, noted: true };
   }
   if (q.op === "tmux" || q.op === "tmux-new" || q.op === "tmux-kill") {
     if (!termsOn) throw new Error("Terminals are turned off on that machine (INTERCOM_TERMINALS=0, or seeing screens or sending keys is off there).");

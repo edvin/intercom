@@ -143,6 +143,27 @@ const BACKGROUND = /\b\d+ (?:background tasks?|bash(?:es)?|shells?|local agents?
 const SHELL_PROMPT = /(?<![\d\w])[$#%>❯] ?$|[\w~\/\])][$#] ?$/;
 const lastLine = (text: string) => plainScreen(text).trimEnd().split("\n").pop() ?? "";
 
+/** Before resuming a Codex session: tell its machine which session it is (code.mjs codexNote), so it's back at once. */
+async function noteCodex(term: Term, t: { session_id: string; cwd?: string | null }): Promise<void> {
+  if (t.cwd) await term({ op: "codex-note", id: t.session_id, cwd: t.cwd } as never).catch(() => undefined);
+}
+
+/** Codex can stop at its own "Update available" choice when it starts: skip it (updating Codex is your call). */
+async function skipCodexUpdate(term: Term): Promise<void> {
+  for (let i = 0; i < 6; i++) {
+    await pause();
+    const s = plainScreen((await term({ op: "capture" })).text);
+    if (/Update available[\s\S]*Skip/i.test(s)) {
+      await term({ op: "keys", keys: ["2"] });
+      await pause();
+      const again = plainScreen((await term({ op: "capture" })).text);
+      if (/Update available[\s\S]*Skip/i.test(again)) await term({ op: "keys", keys: ["enter"] });
+      return;
+    }
+    if (/Ask Codex|Resuming|esc to interrupt/i.test(s)) return;
+  }
+}
+
 async function restartCodex(env: Env, me: string, t: Row, rows: Row[], live: (r: Row) => boolean, by: string): Promise<string> {
   if (!t.launch) return `${t.label}: how it was started isn't known; restart it by hand (codex resume ${t.session_id})`;
   const cmd = resumeCommand(t);
@@ -161,7 +182,9 @@ async function restartCodex(env: Env, me: string, t: Row, rows: Row[], live: (r:
   }
   const end = lastLine(screen.text);
   if (!SHELL_PROMPT.test(end)) return `${t.label}: Codex didn't exit to a shell (its pane ends with “${end.slice(-60)}”); look at it`;
+  await noteCodex(term, t);
   await term({ op: "keys", text: cmd, enter: true });
+  await skipCodexUpdate(term);
   if (!hadGoal) return `${t.label}: restarted in place, same session (${cmd})`;
   // Back in its TUI (its footer shows the goal again), the goal carries on.
   for (let i = 0; i < 8; i++) {
@@ -334,11 +357,19 @@ export async function reviveAgent(env: Env, me: string, label: string): Promise<
   // Its old pane, if it's still there at a shell prompt (a crash leaves it so): the same terminal, typed into.
   if (g.pane && helper) {
     const at: Located = { via: helper, pane: g.pane };
-    const end = await ask(env, me, at, tr, { op: "capture" }, "from the dashboard").then((d) => lastLine(d.text), () => null);
+    const shown = await ask(env, me, at, tr, { op: "capture" }, "from the dashboard").then((d) => d.text, () => null);
+    const end = shown === null ? null : lastLine(shown);
     if (end !== null && SHELL_PROMPT.test(end)) {
+      const term: Term = (q) => ask(env, me, at, tr, q, "from the dashboard");
+      if (g.client === "codex") await noteCodex(term, g);
       await ask(env, me, at, tr, { op: "keys", text: resumeCommand(g), enter: true }, "from the dashboard");
+      if (g.client === "codex") await skipCodexUpdate(term);
       return `Bringing ${label} back in its terminal: ${resumeCommand(g)}`;
     }
+    // Codex itself still runs there, idle at its prompt, only off the intercom (its server lost track of its session):
+    // restarted in place, the same session, which puts it back on the intercom.
+    if (shown !== null && g.client === "codex" && /Ask Codex to do anything|for shortcuts/i.test(plainScreen(shown)) && !busy(shown))
+      return restartCodex(env, me, { ...(g as unknown as Row), label, pane: g.pane, host: g.host } as Row, rows, live, "from the dashboard");
     // Something still runs there (it may be the agent itself, hung): never a second copy of its session.
     if (end !== null) throw new UserError(`${label}'s terminal doesn't show a shell prompt (it ends with “${end.slice(-60)}”): look at it before bringing it back.`);
   }
