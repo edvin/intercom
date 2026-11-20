@@ -4357,7 +4357,13 @@ describe("questions for you", () => {
         { question: "Open a follow-up ticket for the four other callers?", options: ["Yes", "No"] },
       ],
     };
-    assert.match(await w.ok("bob", "question", qs, core), /Asked your user \(Q1\)/);
+    const asked = await w.ok("bob", "question", { ...qs, ticket: "shop-15" }, core);
+    assert.match(asked, /Asked your user \(Q1\): it's a card in their dashboard, and a page of its own: \S*\/dashboard\?view=question&id=1\nWherever you mention these questions/);
+    // Its page, and the ticket's: linked.
+    const qpage = await (await w.request("/dashboard?view=question&id=1", { as: "bob", cookie: true })).text();
+    assert.match(qpage, /<span class="tkkeyl">Q1<\/span><span class="badge">SHOP-15<\/span>[\s\S]*<h1>SHOP-15: dates for a contract without a term<\/h1>[\s\S]*action="\/question\/1"[\s\S]*name="back" value="\/dashboard\?view=question&amp;id=1&amp;back=/);
+    const { questionsAbout } = await import("../src/questions.ts");
+    assert.match(await questionsAbout(w.env(), "bob", "SHOP-15"), /href="\/dashboard\?view=question&id=1"[\s\S]*to answer/);
     const page = await (await w.request("/dashboard", { as: "bob", cookie: true })).text();
     assert.match(page, /class="ask k-question"[\s\S]*?core<\/span><span class="askk">asks you[\s\S]*?SHOP-15: dates for a contract without a term[\s\S]*?Should a contract without a term[\s\S]*?The reviewer leans to <b>none<\/b>[\s\S]*?name="o1" value="0"><span><b>None is right<\/b><em class="qsug">suggested<\/em><span class="qdet">I update AC1 and the QA steps[\s\S]*?name="o2" value="1"><span><b>No<\/b>[\s\S]*?Send answers to core/);
     assert.match(page, /id="railasks"[^>]*>[\s\S]*?<span class="rpill amber">1<\/span>/);
@@ -4368,6 +4374,7 @@ describe("questions for you", () => {
     assert.match(await w.ok("bob", "decisions", { query: "SHOP-15" }), /NOTED · SHOP-15: dates for a contract without a term — 1\. None is right\. and say so in the MR description \| 2\. Yes/);
     assert.doesNotMatch(await (await w.request("/dashboard", { as: "bob", cookie: true })).text(), /class="ask k-question"/);
     assert.match(loc(await w.form("/question/1", "bob", { o1: "1" })).get("err")!, /already answered/);
+    assert.match(await (await w.request("/dashboard?view=question&id=1", { as: "bob", cookie: true })).text(), /You answered[\s\S]*class="qans">[\s\S]*None is right\. and say so in the MR description/);
     // A review that's only questions, nothing to post on the MR, is sent to the question tool.
     const r = await w.tool("bob", "review", { url: qs.url, title: "Dates", verdict: "Needs your call.", recommend: "hold", findings: [{ severity: "blocker", summary: "Is empty right?", comment: "Decision needed.", post: false }] }, core);
     assert.match(r.text, /These are questions for your user, not review comments[\s\S]*question tool/);

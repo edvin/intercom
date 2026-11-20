@@ -6,7 +6,7 @@
 import { type Env, UserError, postMessage } from "./lib";
 import { queuePush } from "./push";
 import { logDecision } from "./records";
-import { esc, hidden, icon, md } from "./ui";
+import { agentAvatar, esc, hidden, icon, md, time } from "./ui";
 
 export const QLIMITS = { title: 120, questions: 5, question: 300, context: 1500, options: 5, option: 80, detail: 200, answer: 1000 };
 
@@ -25,6 +25,7 @@ export interface Question {
   project: string;
   title: string;
   url: string;
+  ticket: string;
   items: string;
   status: string;
   answer: string | null;
@@ -72,16 +73,18 @@ export async function askQuestion(env: Env, me: string, a: Record<string, unknow
     };
   });
   const url = typeof a.url === "string" && /^https?:\/\/\S{1,400}$/.test(a.url.trim()) ? a.url.trim() : "";
+  const ticket = typeof a.ticket === "string" && /^[A-Za-z][A-Za-z0-9_]*-\d+$/.test(a.ticket.trim()) ? a.ticket.trim().toUpperCase() : "";
   // The same title from the same agent while one is open: replaced, not stacked.
   await env.DB.prepare("UPDATE questions SET status = 'withdrawn' WHERE member = ? AND label = ? AND title = ? AND status = 'open'").bind(me, s.label, title).run();
   const row = await env.DB.prepare(
-    "INSERT INTO questions (member, label, session_id, project, title, url, items, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?) RETURNING id",
+    "INSERT INTO questions (member, label, session_id, project, title, url, ticket, items, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'open', ?) RETURNING id",
   )
-    .bind(me, s.label, s.session_id, s.project ?? "", title, url, JSON.stringify(items), Date.now())
+    .bind(me, s.label, s.session_id, s.project ?? "", title, url, ticket, JSON.stringify(items), Date.now())
     .first<{ id: number }>();
   await queuePush(env, me, `y${row!.id}`);
   env.refreshWeb?.(me);
-  return `Asked your user (Q${row!.id}): it's a card in their dashboard. Carry on with other work; their answers come as a YOUR USER message about Q${row!.id}. Don't act on these questions until then.`;
+  const page = `${env.origin ?? ""}${questionHref(row!.id)}`;
+  return `Asked your user (Q${row!.id}): it's a card in their dashboard, and a page of its own: ${page}\nWherever you mention these questions (a comment on the ticket or the MR, a message), link that page, so your user can answer there. Carry on with other work; their answers come as a YOUR USER message about Q${row!.id}. Don't act on these questions until then.`;
 }
 
 export async function pendingQuestions(env: Env, me: string): Promise<Question[]> {
@@ -123,8 +126,52 @@ export async function answerQuestion(env: Env, me: string, id: number, answers: 
   return `Sent your answers to ${q.label}.`;
 }
 
-/** The card in Waiting for you: each question, its options as buttons (the suggested one marked), your words. */
-export function questionCard(q: Question, back: string): string {
+export const questionHref = (id: number) => `/dashboard?view=question&id=${id}`;
+
+/** Questions about a ticket, for its page and the MR's: each linked to its own page, open ones first. */
+export async function questionsAbout(env: Env, me: string, key: string): Promise<string> {
+  if (!key) return "";
+  const { results } = await env.DB.prepare("SELECT id, label, title, status, created_at FROM questions WHERE member = ? AND ticket = ? AND status != 'withdrawn' ORDER BY status = 'open' DESC, id DESC LIMIT 10")
+    .bind(me, key.toUpperCase())
+    .all<{ id: number; label: string; title: string; status: string; created_at: number }>();
+  if (!results.length) return "";
+  return `<ul class="qabout">${results
+    .map((q) => `<li><a href="${questionHref(q.id)}">${icon("message", 13)}<span>${esc(q.title)}</span></a><span class="${q.status === "open" ? "tklz warn" : "tklz ok"}">${q.status === "open" ? "to answer" : "answered"}</span></li>`)
+    .join("")}</ul>`;
+}
+
+/** A question's own page: the questions to answer, or what you answered. */
+export async function questionView(env: Env, me: string, id: number, back: string): Promise<string> {
+  const q = await env.DB.prepare("SELECT * FROM questions WHERE id = ? AND member = ?").bind(id, me).first<Question>();
+  if (!q) return `<div class="pane-in"><div class="empty"><h2>No such question</h2><p class="muted">It may have been for someone else.</p><a class="btn" href="/dashboard">${icon("back", 14)}Back</a></div></div>`;
+  const agent = `/dashboard?view=agents&agent=${encodeURIComponent(`${me}/${q.label}`)}`;
+  const items = itemsOf(q);
+  let body: string;
+  if (q.status === "open") body = questionForm(q, `${questionHref(q.id)}&back=${encodeURIComponent(back)}`);
+  else {
+    let ans: { choices: number[]; text: string }[] = [];
+    try {
+      ans = q.answer ? (JSON.parse(q.answer) as typeof ans) : [];
+    } catch {}
+    body = `<div class="tkdone">${icon(q.status === "answered" ? "check" : "clock", 15)}<span>${q.status === "answered" ? `You answered ${time(q.answered_at ?? q.created_at)}` : `${esc(q.label)} took this back.`}</span></div>
+      ${items
+        .map((it, i) => {
+          const a = ans[i] ?? { choices: [], text: "" };
+          const picked = a.choices.map((c) => it.options[c]?.label).filter(Boolean).join(" + ");
+          return `<div class="qitem"><div class="qlegend"><span class="qn">${i + 1}</span>${esc(it.question)}</div>${it.context ? `<div class="qctx md">${md(it.context)}</div>` : ""}${
+            q.status === "answered" ? `<p class="qans">${icon("arrow", 13)}<span>${esc([picked, a.text.trim()].filter(Boolean).join(". ") || "No answer")}</span></p>` : ""
+          }</div>`;
+        })
+        .join("")}`;
+  }
+  return `<div class="pane-in tkpane qpane">
+    <div class="tkcrumb"><a class="btn ghost sm tkback" href="${esc(back)}">${icon("back", 14)}Back</a><span class="tksep">/</span>${icon("message", 15)}<span class="tkkeyl">Q${q.id}</span>${q.ticket ? `<span class="badge">${esc(q.ticket)}</span>` : ""}${q.url ? `<a href="${esc(q.url)}" target="_blank" rel="noopener noreferrer" class="tkkeyl" title="Open it">${icon("link", 12)}</a>` : ""}<span class="grow"></span><span class="tkfrom">${agentAvatar(me, q.label, "s")}<a href="${esc(agent)}">${esc(q.label)}</a><span>asked ${time(q.created_at)}</span></span></div>
+    <header class="tkhead"><h1>${esc(q.title)}</h1></header>
+    <section class="tkcard qcard">${body}</section>
+  </div>`;
+}
+
+function questionForm(q: Question, back: string): string {
   const items = itemsOf(q);
   const qs = items
     .map((it, i) => {
@@ -142,11 +189,16 @@ export function questionCard(q: Question, back: string): string {
       </fieldset>`;
     })
     .join("");
-  return `<article class="ask k-question" data-mid="y${q.id}">
-    <header class="askwho"><span class="upic">${icon("message", 14)}</span><span class="askname">${esc(q.label)}</span><span class="askk">asks you</span></header>
-    <p class="stkhead">${esc(q.title)}${q.url ? ` <a href="${esc(q.url)}" target="_blank" rel="noopener" class="qlink">${icon("arrow", 12)}open</a>` : ""}</p>
-    <form method="post" action="/question/${q.id}" class="qform">${hidden({ back })}${qs}
+  return `<form method="post" action="/question/${q.id}" class="qform">${hidden({ back })}${qs}
       <div class="askact"><button class="btn primary sm">${icon("send", 13)}Send answers to ${esc(q.label)}</button></div>
-    </form>
+    </form>`;
+}
+
+/** The card in Waiting for you: each question, its options as buttons (the suggested one marked), your words. */
+export function questionCard(q: Question, back: string): string {
+  return `<article class="ask k-question" data-mid="y${q.id}">
+    <header class="askwho"><span class="upic">${icon("message", 14)}</span><span class="askname">${esc(q.label)}</span><span class="askk">asks you</span><span class="grow"></span><a class="btn ghost xs" href="${questionHref(q.id)}" title="Its own page">${icon("arrow", 12)}Open</a></header>
+    <p class="stkhead">${esc(q.title)}${q.ticket ? ` <span class="badge">${esc(q.ticket)}</span>` : ""}${q.url ? ` <a href="${esc(q.url)}" target="_blank" rel="noopener" class="qlink">${icon("link", 12)}link</a>` : ""}</p>
+    ${questionForm(q, back)}
   </article>`;
 }

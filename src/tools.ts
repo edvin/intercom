@@ -572,13 +572,14 @@ export const tools: Tool[] = [
   {
     name: "question",
     description:
-      "Ask your user to decide something about your own work that you can't decide yourself: which way to go, whether to open a follow-up ticket, what a requirement means. It shows as a card in their dashboard: each question with your options as buttons (mark the one you'd pick with suggest) and room for their own words; their answers come back as a YOUR USER message about Q<id>. Up to 5 questions at once, each self-contained: what's at stake in a sentence or two of context, then the options. Not for reviewing someone else's MR (that's review) or triaging tickets (ticket). Carry on with other work meanwhile, and don't act on what you asked until the answers arrive. action withdraw (id) takes a card down when it no longer matters; list shows what's still waiting.",
+      "Ask your user to decide something about your own work that you can't decide yourself: which way to go, whether to open a follow-up ticket, what a requirement means. It shows as a card in their dashboard: each question with your options as buttons (mark the one you'd pick with suggest) and room for their own words; their answers come back as a YOUR USER message about Q<id>. It gives you the question's page: link it wherever you mention the question (a comment on the ticket or MR). Up to 5 questions at once, each self-contained: what's at stake in a sentence or two of context, then the options. Not for reviewing someone else's MR (that's review) or triaging tickets (ticket). Carry on with other work meanwhile, and don't act on what you asked until the answers arrive. action withdraw (id) takes a card down when it no longer matters; list shows what's still waiting.",
     inputSchema: {
       type: "object",
       properties: {
         action: { type: "string", enum: ["ask", "withdraw", "list"], description: "ask (default): put the questions to your user. withdraw: take Q<id> down. list: your questions still waiting." },
         title: { type: "string", description: "ask: what it's about, in a few words, e.g. \"SHOP-15: dates for a contract without a term\"." },
         url: { type: "string", description: "ask: a link to what it's about (the MR, ticket), optional." },
+        ticket: { type: "string", description: "ask: the ticket it's about (its key, e.g. \"SHOP-15\"), so the question shows on that ticket's page in the dashboard." },
         questions: {
           type: "array",
           description: "ask: up to 5.",

@@ -3,6 +3,7 @@
 // the agent about it, and where you decide.
 
 import { drawDiff, fid } from "./code";
+import { questionsAbout } from "./questions";
 import { type Env } from "./lib";
 import { type Ticket, type TicketDecision, type TicketMR, TICKET_OUTCOMES, dataOf, getTicket, ticketThread } from "./tickets";
 import { agentAvatar, avatar, esc, hidden, icon, md, time } from "./ui";
@@ -186,6 +187,7 @@ export async function ticketView(env: Env, me: string, id: number, back: string)
           <div class="tkboxh">${f.status ? `<span class="tklz big${tone(f.status)}">${esc(f.status)}</span>` : ""}<span class="grow"></span>${open ? `<a class="btn sm primary" href="#tkdecision">${icon("check", 13)}Decide</a>` : ""}</div>
           ${details ? `<dl class="tkdl">${details}</dl>` : ""}
         </div>
+        ${await (async () => { const qs = await questionsAbout(env, me, t.key); return qs ? `<div class="tkbox"><div class="tkboxt">${icon("message", 14)}<span>Questions to you</span></div>${qs}</div>` : ""; })()}
         <div class="tkbox">
           <div class="tkboxt">${agentAvatar(me, t.label, "s")}<span>${esc(t.label)}'s plan</span></div>
           <dl class="tkdl">${work}</dl>

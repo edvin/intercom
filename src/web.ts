@@ -6,6 +6,7 @@ import { galleryFilters, galleryView, pruneFiles } from "./gallery";
 import { trackedView } from "./tracked";
 import { bargeIn, screenDialog } from "./screen";
 import { browserDialog } from "./browsers";
+import { questionView } from "./questions";
 import { type Delivery, type Env, type Lock, deliveryMarks, issueToken, type Message, type Project, type Proposal, DELEGATE_PER_HOUR, LIVE, MAX_BODY, MEMBER_OF, RECEIVES, activeLocks, address, authenticate, coMembers, isAdmin, myProjects, normChannel, postMessage, roleIn, sha256, workingOn, newToken, HANDLE, limit, UserError, unsend, ago } from "./lib";
 import { agentsView } from "./agents";
 import { askBtw } from "./btw";
@@ -582,7 +583,7 @@ export async function dashboard(url: URL, env: Env, me: string, cookie = ""): Pr
   const ownerOf = (project: string) => admin || pmRes.results.some((m) => m.project === project && m.member === me && m.role === "owner");
   const shownLocks = channel ? locks.filter((l) => l.channel === channel) : locks;
   const asked = url.searchParams.get("view");
-  const view = asked === "admin" && admin ? "admin" : asked === "account" ? "account" : asked === "ticket" ? "ticket" : asked === "review" ? "review" : asked === "work" ? "work"  : asked === "files" ? "files" : asked === "handoffs" ? "handoffs" : asked === "tracked" ? "tracked" : asked === "agents" ? "agents" : asked === "feed" || channel ? "feed" : "home";
+  const view = asked === "admin" && admin ? "admin" : asked === "account" ? "account" : asked === "ticket" ? "ticket" : asked === "question" ? "question" : asked === "review" ? "review" : asked === "work" ? "work"  : asked === "files" ? "files" : asked === "handoffs" ? "handoffs" : asked === "tracked" ? "tracked" : asked === "agents" ? "agents" : asked === "feed" || channel ? "feed" : "home";
 
   const { results: requests } = await env.DB.prepare(
     `SELECT r.project, r.member, r.note, r.created_at, m.org, m.github_login FROM join_requests r JOIN members m ON m.name = r.member
@@ -749,6 +750,8 @@ export async function dashboard(url: URL, env: Env, me: string, cookie = ""): Pr
         ? `<main class="pane">${await trackedView(env, me, url)}</main>`
       : view === "work"
         ? `<main class="pane">${await workView(env, me, url, decodeURIComponent(/(?:^|;\s*)ic_tz=([^;]+)/.exec(cookie)?.[1] ?? ""))}</main>`
+      : view === "question"
+        ? `<main class="pane">${await questionView(env, me, Number(url.searchParams.get("id")), localPath(url.searchParams.get("back"), "/dashboard"))}</main>`
       : view === "ticket"
         ? `<main class="pane">${await ticketView(env, me, Number(url.searchParams.get("id")), localPath(url.searchParams.get("back"), "/dashboard?view=agents"))}</main>`
       : view === "agents"

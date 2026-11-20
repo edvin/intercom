@@ -3,6 +3,7 @@
 // decided for it; asking the agent about any of it; and the decision (post or drop each finding, the outcome).
 
 import { type Env } from "./lib";
+import { questionsAbout } from "./questions";
 import { type Finding, type Review, OUTCOMES, agentOnline, findingsOf, onlineAgents, reviewData, threadOf } from "./reviews";
 import { type Ticket, type TicketDecision, TICKET_OUTCOMES, dataOf } from "./tickets";
 import { lozenge, mrBlock, person, row, ticketHref } from "./ticketview";
@@ -27,7 +28,8 @@ function mrRef(url: string): string {
 async function ticketBox(env: Env, me: string, key: string, back: string): Promise<string> {
   if (!key) return "";
   const t = await env.DB.prepare("SELECT * FROM tickets WHERE member = ? AND key = ? ORDER BY id DESC LIMIT 1").bind(me, key).first<Ticket>();
-  if (!t) return `<div class="tkbox"><div class="tkboxt">${icon("file", 14)}<span>Ticket</span><span class="grow"></span><b class="rvtkey">${esc(key)}</b></div><p class="tkboxp">No ticket ${esc(key)} was decided here.</p></div>`;
+  const qs = await questionsAbout(env, me, key);
+  if (!t) return `<div class="tkbox"><div class="tkboxt">${icon("file", 14)}<span>Ticket</span><span class="grow"></span><b class="rvtkey">${esc(key)}</b></div>${qs || `<p class="tkboxp">No ticket ${esc(key)} was decided here, and no agent asked you about it.</p>`}</div>`;
   const dec = t.decision ? (JSON.parse(t.decision) as TicketDecision) : null;
   const plan = dec?.outcome === "go_changes" && dec.plan ? dec.plan : dataOf(t).plan;
   const state =
@@ -41,6 +43,7 @@ async function ticketBox(env: Env, me: string, key: string, back: string): Promi
     <p class="rvttitle">${esc(t.title)}</p>
     <div class="rvtstate">${state}</div>
     ${dec?.note ? `<p class="tkboxp">“${esc(dec.note)}”</p>` : ""}
+    ${qs}
     ${plan ? `<details class="rvtplan"><summary>${dec?.outcome === "go_changes" ? "The plan as you changed it" : "The plan you saw"}</summary><div class="md tkprose">${md(plan)}</div></details>` : ""}
   </div>`;
 }
