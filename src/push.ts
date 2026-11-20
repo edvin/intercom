@@ -165,7 +165,8 @@ async function waitingCount(env: Env, me: string): Promise<number> {
   const a = await env.DB.prepare("SELECT COUNT(*) AS n FROM approvals WHERE member = ? AND decision IS NULL AND expires_at > ?").bind(me, Date.now()).first<{ n: number }>();
   const r = await env.DB.prepare("SELECT COUNT(*) AS n FROM reviews WHERE member = ? AND status = 'open'").bind(me).first<{ n: number }>();
   const t = await env.DB.prepare("SELECT COUNT(*) AS n FROM tickets WHERE member = ? AND status = 'open'").bind(me).first<{ n: number }>();
-  return (a?.n ?? 0) + (r?.n ?? 0) + (t?.n ?? 0) + (await stuckSessions(env, me)).length;
+  const q = await env.DB.prepare("SELECT COUNT(*) AS n FROM questions WHERE member = ? AND status = 'open'").bind(me).first<{ n: number }>();
+  return (a?.n ?? 0) + (r?.n ?? 0) + (t?.n ?? 0) + (q?.n ?? 0) + (await stuckSessions(env, me)).length;
 }
 
 /** The notification for a queued item as it is now; null when it's no longer waiting. */
@@ -184,6 +185,16 @@ async function noteFor(env: Env, me: string, ref: string, extra: string): Promis
   if (ref === "s") {
     const sum = await daySummary(env, me, extra);
     return sum ? { title: sum.title, body: clip(sum.body, 240), tag: `s${extra}`, url: `/dashboard?view=work&date=${extra}`, count: 0, ttl: 43200 } : null;
+  }
+  if (ref[0] === "y") {
+    // A question card (questions.ts).
+    const q = await env.DB.prepare("SELECT label, title, items FROM questions WHERE id = ? AND member = ? AND status = 'open'").bind(id, me).first<{ label: string; title: string; items: string }>();
+    if (!q) return null;
+    let first = "";
+    try {
+      first = (JSON.parse(q.items) as { question: string }[])[0]?.question ?? "";
+    } catch {}
+    return { title: `${q.label} asks you`, body: clip(`${q.title}: ${first}`, 180), tag: ref, url: "/dashboard", count: 0, ttl: 86400 };
   }
   if (ref[0] === "t" || ref[0] === "k") {
     const t = await env.DB.prepare("SELECT key, label, title, verdict FROM tickets WHERE id = ? AND member = ? AND status = 'open'").bind(id, me).first<{ key: string; label: string; title: string; verdict: string }>();

@@ -105,6 +105,9 @@ export async function openReview(env: Env, me: string, a: Record<string, unknown
       ...(typeof f?.line === "number" && f.line >= 1 ? { line: Math.round(f.line) } : {}),
     };
   });
+  // Nothing to post and every finding a question: that's questions for your user about the work, not a review.
+  if (findings.every((f) => !f.post) && findings.every((f) => /\?\s*$/.test(f.summary) || f.severity === "question"))
+    throw new UserError("These are questions for your user, not review comments to post on the MR: ask them with the question tool (each with its options), which shows them as questions to answer. Use review for an MR you reviewed whose comments should go on it.");
   const mr = mrOf(a, "the MR", false);
   if (mr.diff.length > MR_LIMITS.diff) throw new UserError(`The diff is ${mr.diff.length} characters; keep it under ${MR_LIMITS.diff}: send the diff of the files that matter (files still lists them all).`);
   const description = typeof a.description === "string" ? a.description.replace(/\r\n?/g, "\n").trim() : "";

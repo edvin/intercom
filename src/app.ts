@@ -24,6 +24,7 @@ import { search } from "./search";
 import { updateSummary } from "./upkeep";
 import { closeTerm, newTerm, termsPanel } from "./terminals";
 import { browserShot, browsersPanel, handBrowser } from "./browsers";
+import { answerQuestion } from "./questions";
 import { type Env, type Message, type Proposal, type Session, LIVE, MEMBER_OF, isAdmin, postMessage, RECEIVES, UserError, activeLocks, address, isMyLock, ago, addActivity, lockIn, scopedLocks, cleanBranch, cleanClient, fromOwnUser, fromOwnAgent, DELEGATED_NOTE, staleFor, renameSession, setHost, setVersion, workingOn, authenticate, coMembers, fmtLock, fmtMessage, myProjects, moveSession, projectFor, resolveProject, setCwd, setOrigin, setPresence, setRepo, signedIn, tally, touchSession, unread } from "./lib";
 import { type Tool, instructions, missingArgs, tools } from "./tools";
 import { CONNECTOR, authorize, connectorMember, preflight, register, resourceMetadata, serverMetadata, token, unauthorized } from "./connector";
@@ -839,6 +840,21 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
       ...(allow && st.note ? { additionalContext: `Your user approved this from the intercom dashboard and added: ${st.note}` } : {}),
     };
     return json({ status: st.status, output: JSON.stringify(output), ...(st.answers ? { answers: st.answers } : {}) });
+  }
+  if (url.pathname.startsWith("/question/") && req.method === "POST") {
+    // A question card (questions.ts): your answers, sent to the agent.
+    if (!sameOrigin(req)) return new Response("Cross-origin request refused", { status: 403 });
+    const form = await req.formData();
+    const u = new URL(localPath(form.get("back"), "/dashboard"), url);
+    try {
+      const id = Number(url.pathname.slice(10));
+      const answers = Array.from({ length: 5 }, (_, i) => ({ choices: form.getAll(`o${i + 1}`).map(Number).filter((n) => Number.isInteger(n)), text: String(form.get(`t${i + 1}`) ?? "").replace(/\r\n?/g, "\n") }));
+      u.searchParams.set("ok", await answerQuestion(env, me, id, answers));
+    } catch (e) {
+      if (!(e instanceof UserError)) throw e;
+      u.searchParams.set("err", e.message);
+    }
+    return Response.redirect(u.toString(), 303);
   }
   if (url.pathname.startsWith("/review/") && req.method === "POST") {
     // A review card (reviews.ts): one form, and the button says what it does: ask, move, or send the decision.

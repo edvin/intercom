@@ -7,6 +7,7 @@ import { screenAttrs } from "./screen";
 import { awayState, pendingApprovals } from "./approvals";
 import { pendingReviews } from "./reviews";
 import { pendingTickets } from "./tickets";
+import { pendingQuestions } from "./questions";
 import { chatAsks } from "./asks";
 import { AUTO_UPDATE_SINCE, PLUGIN_VERSION, outdated } from "./version";
 import { activeLoops, loopCard, parseLoops } from "./loops";
@@ -279,7 +280,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
     .join("");
   const loose = agents.filter((a) => a.member === me && (!a.project || !nav.mine.includes(a.project)));
   const { away, waitMin } = await awayState(env, me);
-  const pending = [...(await pendingApprovals(env, me)), ...reviews, ...tickets];
+  const pending = [...(await pendingApprovals(env, me)), ...reviews, ...tickets, ...(await pendingQuestions(env, me))];
   const waitingN = pending.length + (await stuckSessions(env, me)).length;
   const stale = agents.filter((a) => a.member === me && isOn(a) && outdated(a.version));
   const trackedN = await trackedNeedsYou(env, me);

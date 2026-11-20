@@ -13,6 +13,7 @@ import { type Row as UpRow, exitedAgents, frozenAgents, fullAgents, myRows, outO
 import { type ResetTry, RESET_GAP_MS, resetsOf } from "./resets";
 import { PLUGIN_VERSION } from "./version";
 import { pendingTickets } from "./tickets";
+import { pendingQuestions, questionCard } from "./questions";
 import { reviewHref } from "./reviewview";
 import { ticketCard } from "./ticketview";
 import { agentAvatar, esc, hidden, icon, md, time } from "./ui";
@@ -331,6 +332,7 @@ export async function asksDock(env: Env, me: string, back: string): Promise<stri
   const leads = await leadUps(env, me, pending);
   const reviews = await pendingReviews(env, me);
   const tickets = await pendingTickets(env, me);
+  const questions = await pendingQuestions(env, me);
   const stuck = await stuckSessions(env, me);
   const nudgeOn = stuck.length ? await nudgeIsOn(env, me) : true;
   // Your agents whose terminal can be seen from here (screen.ts): for a look at what they're asking, and for the ones
@@ -358,8 +360,8 @@ export async function asksDock(env: Env, me: string, back: string): Promise<stri
     .filter(([host, rs]) => (dismissed[`limit:${host}`] ?? -1) < Math.max(...rs.map((r) => r.state_at ?? 0)))
     .map(([host, rs]) => limitCard(host, rs, me, back, resetsOn, resetLog[host]));
   const upkeepCards = [...limits, ...exited.map((r) => exitedCard(r, me, back)), ...frozen.map((r) => frozenCard(r, me, back)), ...full.map((r) => fullCard(r, me, back)), ...(stale.length ? [updatesCard(stale, me, back, auto)] : [])];
-  if (!pending.length && !reviews.length && !tickets.length && !stuck.length && !waits.length && !upkeepCards.length) return `<div id="asks" data-region hidden></div>`;
-  const n = pending.length + reviews.length + tickets.length + stuck.length + waits.length + upkeepCards.length;
+  if (!pending.length && !reviews.length && !tickets.length && !questions.length && !stuck.length && !waits.length && !upkeepCards.length) return `<div id="asks" data-region hidden></div>`;
+  const n = pending.length + reviews.length + tickets.length + questions.length + stuck.length + waits.length + upkeepCards.length;
   const agents = reviews.length || stuck.length ? await onlineAgents(env, me) : [];
   const names = [...new Set(agents.map((a) => a.label))];
   const now = Date.now();
@@ -369,7 +371,7 @@ export async function asksDock(env: Env, me: string, back: string): Promise<stri
       <div class="askhd"><span class="askdot"></span><b>Waiting for you</b><span class="badge amber">${n}</span><span class="grow"></span><button type="button" class="btn ghost xs askpush" data-pushon hidden title="Get a notification on this device when something is waiting for you">${icon("bell", 13)}Notify me</button><button type="button" class="btn ghost xs icon" data-askstoggle title="Minimize">${icon("chevron", 14)}</button></div>
       <div class="asklist">${pending.map((p) => card(p, me, back, now, screens, leads.get(p.id))).join("")}${waits.map((w) => waitCard(w, me, back)).join("")}${reviews
         .map((r) => reviewCard(r, me, back, agentOnline(env, r, agents), names.filter((l) => l !== r.label)))
-        .join("")}${tickets.map((t) => ticketCard(t, me, back)).join("")}${stuck.map((st) => stuckCard(st, me, back, agents, nudgeOn)).join("")}${upkeepCards.join("")}</div>
+        .join("")}${questions.map((q) => questionCard(q, back)).join("")}${tickets.map((t) => ticketCard(t, me, back)).join("")}${stuck.map((st) => stuckCard(st, me, back, agents, nudgeOn)).join("")}${upkeepCards.join("")}</div>
     </div>
   </section>`;
 }

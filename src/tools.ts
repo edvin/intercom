@@ -8,6 +8,7 @@ import { RETENTION_DAYS as ATTACHMENT_DAYS, fileMarker, getAttachment, isImage, 
 import { HANDOFF_STATES, MAX_OBLIGATIONS, OPEN_HANDOFF, VERDICTS, createHandoff, crewRoles, findDecisions, decisionById, fmtCrew, fmtDecision, fmtHandoff, handoffIds, listHandoffs, logDecision, updateHandoff, withdrawHandoffs } from "./records";
 import { adminsInvite, githubRepo } from "./github";
 import { claimBrowser, releaseBrowser, shootOwn, statusOwn } from "./browsers";
+import { askQuestion, pendingQuestions, withdrawQuestion } from "./questions";
 import {
   type Env,
   type Lock,
@@ -569,9 +570,48 @@ export const tools: Tool[] = [
     },
   },
   {
+    name: "question",
+    description:
+      "Ask your user to decide something about your own work that you can't decide yourself: which way to go, whether to open a follow-up ticket, what a requirement means. It shows as a card in their dashboard: each question with your options as buttons (mark the one you'd pick with suggest) and room for their own words; their answers come back as a YOUR USER message about Q<id>. Up to 5 questions at once, each self-contained: what's at stake in a sentence or two of context, then the options. Not for reviewing someone else's MR (that's review) or triaging tickets (ticket). Carry on with other work meanwhile, and don't act on what you asked until the answers arrive. action withdraw (id) takes a card down when it no longer matters; list shows what's still waiting.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        action: { type: "string", enum: ["ask", "withdraw", "list"], description: "ask (default): put the questions to your user. withdraw: take Q<id> down. list: your questions still waiting." },
+        title: { type: "string", description: "ask: what it's about, in a few words, e.g. \"SHOP-15: dates for a contract without a term\"." },
+        url: { type: "string", description: "ask: a link to what it's about (the MR, ticket), optional." },
+        questions: {
+          type: "array",
+          description: "ask: up to 5.",
+          items: {
+            type: "object",
+            properties: {
+              question: { type: "string", description: "The question, one sentence, e.g. \"Should a contract without a term offer no termination dates?\"" },
+              context: { type: "string", description: "What they need to know to answer: what happens either way, who leans which way. Short; markdown." },
+              options: { type: "array", description: "The choices, up to 5: strings, or {label, detail} with what that choice means for the work.", items: {} },
+              suggest: { type: "number", description: "The option you'd pick (1-based), shown as suggested." },
+              multi: { type: "boolean", description: "More than one option may be picked." },
+            },
+            required: ["question"],
+          },
+        },
+        id: { type: "number", description: "withdraw: the question card's id (Q<id>)." },
+      },
+    },
+    async run(env, me, a) {
+      const action = str(a, "action") ?? "ask";
+      if (action === "ask") return askQuestion(env, me, a);
+      if (action === "withdraw") return withdrawQuestion(env, me, num(a, "id", 0, 1, 1e9));
+      if (action === "list") {
+        const open = (await pendingQuestions(env, me)).filter((q) => q.label === env.session?.label);
+        return open.length ? open.map((q) => `Q${q.id} · ${q.title} (asked ${new Date(q.created_at).toISOString().slice(0, 16)})`).join("\n") : "None of your questions is waiting.";
+      }
+      throw new UserError(`Unknown action "${action}": ask, withdraw or list.`);
+    },
+  },
+  {
     name: "review",
     description:
-      "Ask your user to decide the important part of a code review (an MR or PR you reviewed): it shows as a card in their dashboard that opens a view of its own, where they read the MR, post or drop each finding (its comment editable), ask you about any of it and pick the outcome. They may not reach the forge from where they are, so copy the MR in: its description, author, branches, pipeline, files, commits and the diff; give each finding its file and line (the new side) so it shows in the diff where it applies; and name the ticket the MR implements (ticket: its key), so they see what was decided for it. Send only findings that need their call: a security or data-loss problem, a break for existing clients, behaviour that contradicts the ticket, a design trade-off, anything you're unsure of. Nits and mechanical fixes you handle yourself; with nothing important, don't use this. Be brief: they decide from this on a phone, so each summary says the problem and its consequence in a sentence or two, no background. Then carry on with other work; don't post those findings or approve until their decision arrives (a YOUR USER message about R<id>). Sending the same MR at the same head again keeps the waiting card (pass replace: true to change it); a new head replaces it. action \"list\" shows what is still waiting. action \"answer\" answers their follow-up question on the card; \"withdraw\" takes the card down (e.g. the MR was closed). After their decision, when the MR is merged or closed, report it with action \"closed\" (id, state: merged or closed): it goes in their work log.",
+      "Ask your user to decide the important part of a code review of someone else's MR or PR (one you reviewed, not your own work: for decisions on your own MR, use the question tool): it shows as a card in their dashboard that opens a view of its own, where they read the MR, post or drop each finding (its comment editable), ask you about any of it and pick the outcome. They may not reach the forge from where they are, so copy the MR in: its description, author, branches, pipeline, files, commits and the diff; give each finding its file and line (the new side) so it shows in the diff where it applies; and name the ticket the MR implements (ticket: its key), so they see what was decided for it. Send only findings that need their call: a security or data-loss problem, a break for existing clients, behaviour that contradicts the ticket, a design trade-off, anything you're unsure of. Nits and mechanical fixes you handle yourself; with nothing important, don't use this. Be brief: they decide from this on a phone, so each summary says the problem and its consequence in a sentence or two, no background. Then carry on with other work; don't post those findings or approve until their decision arrives (a YOUR USER message about R<id>). Sending the same MR at the same head again keeps the waiting card (pass replace: true to change it); a new head replaces it. action \"list\" shows what is still waiting. action \"answer\" answers their follow-up question on the card; \"withdraw\" takes the card down (e.g. the MR was closed). After their decision, when the MR is merged or closed, report it with action \"closed\" (id, state: merged or closed): it goes in their work log.",
     inputSchema: {
       type: "object",
       properties: {

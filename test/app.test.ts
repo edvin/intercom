@@ -4343,6 +4343,37 @@ describe("codex usage", () => {
   });
 });
 
+describe("questions for you", () => {
+  const loc = (r: Response) => new URL(r.headers.get("location")!, ORIGIN).searchParams;
+  test("an agent asks about its own work: a card with each question's options (the suggested one marked); your picks and words go back to it as YOUR USER and into the log", async () => {
+    const w = await standardWorld();
+    await w.request(`/api/hook?event=SessionStart&project=billing-api&session=q1&name=core`, { as: "bob" });
+    const core = { id: "q1", project: "billing-api" };
+    const qs = {
+      title: "SHOP-15: dates for a contract without a term",
+      url: "https://git.example.com/shop/billing/-/merge_requests/9",
+      questions: [
+        { question: "Should a contract without a term offer no termination dates?", context: "QA step 2 expects the usual dates. The reviewer leans to **none**.", options: [{ label: "None is right", detail: "I update AC1 and the QA steps" }, { label: "Compute the usual dates", detail: "Extra logic in this MR" }], suggest: 1 },
+        { question: "Open a follow-up ticket for the four other callers?", options: ["Yes", "No"] },
+      ],
+    };
+    assert.match(await w.ok("bob", "question", qs, core), /Asked your user \(Q1\)/);
+    const page = await (await w.request("/dashboard", { as: "bob", cookie: true })).text();
+    assert.match(page, /class="ask k-question"[\s\S]*?core<\/span><span class="askk">asks you[\s\S]*?SHOP-15: dates for a contract without a term[\s\S]*?Should a contract without a term[\s\S]*?The reviewer leans to <b>none<\/b>[\s\S]*?name="o1" value="0"><span><b>None is right<\/b><em class="qsug">suggested<\/em><span class="qdet">I update AC1 and the QA steps[\s\S]*?name="o2" value="1"><span><b>No<\/b>[\s\S]*?Send answers to core/);
+    assert.match(page, /id="railasks"[^>]*>[\s\S]*?<span class="rpill amber">1<\/span>/);
+    assert.match(loc(await w.form("/question/1", "bob", {})).get("err")!, /Answer at least one/);
+    assert.match(loc(await w.form("/question/1", "bob", { o1: "0", t1: "and say so in the MR description", o2: "0" })).get("ok")!, /Sent your answers to core/);
+    const inbox = await w.ok("bob", "inbox", {}, core);
+    assert.match(inbox, /YOUR USER[\s\S]*My answers to Q1, SHOP-15: dates for a contract without a term:\n1\. Should a contract without a term offer no termination dates\?\n\s*→ None is right\. and say so in the MR description\n2\. Open a follow-up ticket for the four other callers\?\n\s*→ Yes/);
+    assert.match(await w.ok("bob", "decisions", { query: "SHOP-15" }), /NOTED · SHOP-15: dates for a contract without a term — 1\. None is right\. and say so in the MR description \| 2\. Yes/);
+    assert.doesNotMatch(await (await w.request("/dashboard", { as: "bob", cookie: true })).text(), /class="ask k-question"/);
+    assert.match(loc(await w.form("/question/1", "bob", { o1: "1" })).get("err")!, /already answered/);
+    // A review that's only questions, nothing to post on the MR, is sent to the question tool.
+    const r = await w.tool("bob", "review", { url: qs.url, title: "Dates", verdict: "Needs your call.", recommend: "hold", findings: [{ severity: "blocker", summary: "Is empty right?", comment: "Decision needed.", post: false }] }, core);
+    assert.match(r.text, /These are questions for your user, not review comments[\s\S]*question tool/);
+  });
+});
+
 describe("browsers", () => {
   const machine = async <T>(w: World, go: () => Promise<T>, answer: (q: Record<string, unknown>) => object) => {
     const seen: Record<string, unknown>[] = [];
