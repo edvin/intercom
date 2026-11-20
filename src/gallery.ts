@@ -263,6 +263,6 @@ export async function galleryView(env: Env, me: string, url: URL): Promise<strin
     <header class="flhead"><div><h1>Files from agents</h1><p class="muted">${total ? `${imgs} image${imgs === 1 ? "" : "s"}, ${vids} video${vids === 1 ? "" : "s"} and ${total - imgs - vids} other file${total - imgs - vids === 1 ? "" : "s"} in the last ${RETENTION_DAYS} days.` : `Nothing shared in the last ${RETENTION_DAYS} days.`}</p></div>${prune}</header>
     ${bar}
     ${!shown.length ? empty : asList ? `<div class="glist" data-gallery><div class="glhd" aria-hidden="true"><span></span><span>Name</span><span>Shared by</span><span>Size</span><span>When</span></div>${shown.map(row).join("")}</div>` : `<div class="gal" data-gallery>${shown.map(tile).join("")}</div>`}
-    ${more || before ? `<nav class="galmore">${before ? `<a class="btn ghost sm" href="${esc(link({ before: "" }))}">${icon("back", 13)}Newest</a>` : ""}${more ? `<a class="btn sm" href="${esc(link({ before: String(shown[shown.length - 1].id) }))}">Older${icon("arrow", 13)}</a>` : ""}</nav>` : ""}
+    ${more || before ? `<nav class="galmore">${before ? `<a class="btn ghost sm" href="${esc(link({ before: "" }))}">${icon("back", 13)}Newest</a>` : ""}${more ? `<a class="btn sm" data-galnext href="${esc(link({ before: String(shown[shown.length - 1].id) }))}">Older${icon("arrow", 13)}</a>` : ""}</nav>` : ""}
   </div>`;
 }

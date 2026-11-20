@@ -1040,7 +1040,7 @@ details.hoobl>summary{cursor:pointer}details.hoobl>summary svg{transition:transf
 .glist .attgone{opacity:.5}.glist a.glrow.attgone{padding:6px 14px!important}.glist .attgone::before{content:none}.glist .attgone .glth img{display:none!important}
 @media (max-width:640px){.glhd{display:none}.glist a.glrow{grid-template-columns:36px minmax(0,1fr) auto;grid-template-areas:"th nm sz" "th by dt";row-gap:1px;column-gap:10px;padding:8px 10px}.glth{grid-area:th}.glnm{grid-area:nm}.glsz{grid-area:sz;font-size:12px}.glby{grid-area:by;font-size:12px}.gldt{grid-area:dt;font-size:12px;text-align:right}}
 [data-gallery] [hidden]{display:none!important}.galq{position:relative;display:flex;align-items:center;flex:0 1 200px;width:200px;min-width:140px}.galq .i{position:absolute;left:10px;color:var(--mute);pointer-events:none}.galq input{width:100%;height:32px;padding-left:31px;font-size:13px}
-.galempty{padding:64px 16px;text-align:center}.galprune{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--mute)}.galprune select{width:auto;height:30px;font-size:13px}.galprune .btn{color:var(--red)}.galmore{display:flex;gap:8px;justify-content:center}
+.galempty{padding:64px 16px;text-align:center}.galprune{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--mute)}.galprune select{width:auto;height:30px;font-size:13px}.galprune .btn{color:var(--red)}.galmore{display:flex;gap:8px;justify-content:center}.galmore .loading{opacity:.6;pointer-events:none}
 @media (max-width:640px){.galpane{padding:12px 12px 88px}.gal{grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:4px}.gtile{border-radius:6px}.galbar select{min-width:0;flex:1}}
 /* Tickets & MRs (tracked.ts): grouped by who they wait on, an MR under its ticket, each row opening to its history. */
 .trkpane{max-width:1180px;gap:18px;padding-bottom:96px}
@@ -2869,6 +2869,34 @@ ${markupScript()}
   // The files list's search: what's shown narrows as you type; Enter searches everything (gallery.ts).
   document.addEventListener("input", (e) => { const q = e.target.closest && e.target.closest("[data-galq]"); if (!q) return; const v = q.value.trim().toLowerCase();
     $$("[data-gallery] [data-name]").forEach((a) => (a.hidden = !!v && !a.dataset.name.toLowerCase().includes(v))); });
+  // Files from agents: the next page comes in by itself as you near the end (the Older link stays as the way without
+  // script).
+  let galObs = null;
+  function galMore() {
+    const a = document.querySelector("[data-galnext]"); if (!a || a._watched) return;
+    a._watched = true;
+    if (!galObs) galObs = new IntersectionObserver((es) => es.forEach((e) => { if (e.isIntersecting) galLoad(e.target); }), { rootMargin: "1200px 0px" });
+    galObs.observe(a);
+  }
+  async function galLoad(a) {
+    if (a._loading) return; a._loading = true;
+    const grid = document.querySelector("[data-gallery]");
+    a.classList.add("loading");
+    try {
+      const r = await fetch(a.href, { credentials: "same-origin" }); if (!r.ok) throw new Error(String(r.status));
+      const doc = new DOMParser().parseFromString(await r.text(), "text/html");
+      const nextGrid = doc.querySelector("[data-gallery]"), nextNav = doc.querySelector(".galmore");
+      const have = new Set($$("[data-name]", grid).map((x) => x.getAttribute("href")));
+      const q = (document.querySelector("[data-galq]")?.value || "").trim().toLowerCase();
+      if (nextGrid) [...nextGrid.children].filter((c) => !c.classList.contains("glhd") && !have.has(c.getAttribute("href"))).forEach((c) => {
+        const n = document.importNode(c, true); if (q && n.dataset.name && !n.dataset.name.toLowerCase().includes(q)) n.hidden = true; grid.appendChild(n); });
+      galObs.unobserve(a);
+      const older = nextNav && nextNav.querySelector("[data-galnext]");
+      a._loading = false; a.classList.remove("loading");
+      if (older) { a.href = older.href; galObs.observe(a); } else a.hidden = true;
+      bind(grid);
+    } catch { a._loading = false; a.classList.remove("loading"); }
+  }
   function inspAuto() {
     const h = document.getElementById("chathd"); if (!h) return;
     const k = "ic_subs:" + h.dataset.agent, n = Number(h.dataset.subs || 0);
@@ -3147,6 +3175,7 @@ ${markupScript()}
     bindTabs();
     hdMenu();
     inspAuto();
+    galMore();
     themeShow();
     mermaids();
     longFolds();
