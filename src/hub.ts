@@ -6,7 +6,7 @@ import { pruneBtw } from "./btw";
 import { pruneTracked } from "./tracked";
 import { sendDuePushes } from "./push";
 import { SqlDb, splitStatements, sqlCtx } from "./db";
-import { type Env, type Message, address, authenticate, cleanBranch, cleanClient, fmtMessage, prune, setHost, setVersion, projectFor, setPresence, setRepo, takeOver, touchSession, unread } from "./lib";
+import { type Env, type Message, address, authenticate, cleanBranch, cleanClient, fmtMessage, prune, setHost, setVersion, projectFor, setPresence, setRepo, takeOver, touchSession, unread, addressedTo } from "./lib";
 import m0001 from "../migrations/0001_init.sql";
 import m0002 from "../migrations/0002_projects.sql";
 import m0003 from "../migrations/0003_sessions.sql";
@@ -82,6 +82,7 @@ import m0072 from "../migrations/0072_session_browser.sql";
 import m0073 from "../migrations/0073_questions.sql";
 import m0074 from "../migrations/0074_question_ticket.sql";
 import m0075 from "../migrations/0075_question_refs.sql";
+import m0076 from "../migrations/0076_message_agent_only.sql";
 import { upkeepTick } from "./upkeep";
 
 /** A short fingerprint of the MCP tools (names, descriptions, schemas) this code offers. */
@@ -167,6 +168,7 @@ const MIGRATIONS: [string, string][] = [
   ["0073_questions", m0073],
   ["0074_question_ticket", m0074],
   ["0075_question_refs", m0075],
+  ["0076_message_agent_only", m0076],
 ];
 
 const DAY = 86400_000;
@@ -389,7 +391,7 @@ export class TeamHub extends DurableObject<WorkerEnv> {
       // Don't echo a session's own message back to it; the member's other sessions do get it.
       if (s.member === m.sender && (!m.sender_agent ? false : m.sender_agent === s.label)) continue;
       const receives = m.recipient
-        ? m.recipient === s.member && !mutedSender.has(s.member) && (!m.recipient_agent || m.recipient_agent === s.label || m.recipient_agent === s.project)
+        ? m.recipient === s.member && !mutedSender.has(s.member) && addressedTo(m, s)
         : members!.has(s.member) && s.project === m.channel && (m.broadcast === 1 || (!mutedSender.has(s.member) && !mutedChannel!.has(s.member)));
       if (!receives) continue;
       try {

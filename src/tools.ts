@@ -138,9 +138,9 @@ async function send(env: Env, me: string, a: Args, body: string): Promise<{ id: 
     // An old name of an agent that was renamed: it goes to the new name, and the sender learns it.
     const moved = asked ? await renamedTo(env, recipient, asked) : null;
     const recipient_agent = moved?.label ?? asked;
-    if (recipient_agent && !moved) await requireKnownAgent(env, recipient, recipient_agent, env.session?.project);
+    if (recipient_agent && !moved) await requireKnownAgent(env, recipient, recipient_agent, env.session?.project, a.to_project === true);
     const channel = env.session?.project || "dm";
-    const id = await postMessage(env, { channel, sender: me, recipient, recipient_agent, body });
+    const id = await postMessage(env, { channel, sender: me, recipient, recipient_agent, body, toProject: a.to_project === true });
     const sent = `Sent DM [${id}] to ${address(recipient, recipient_agent)}.${moved ? renameNote(recipient, asked!, moved) : ""}`;
     if (!recipient_agent) return { id, text: sent };
     // Is a session with that name (or in that project) running? If not, say so; the next one picks it up.
@@ -167,6 +167,7 @@ export const tools: Tool[] = [
         message: { type: "string", description: `Message text (max ${MAX_BODY} chars).` },
         channel: channelProp,
         to: { type: "string", description: "Recipient address for a direct message, e.g. \"anna\" or \"anna/shop\". Omit for a channel post." },
+        to_project: { type: "boolean", description: "The address names a project (\"anna/shop\"), and you mean every agent of theirs in it. Without it, a project's name is refused, so a message meant for one agent doesn't reach them all." },
       },
       required: ["message"],
     },
@@ -184,6 +185,7 @@ export const tools: Tool[] = [
         path: { type: "string", description: "The file's path on this machine (absolute, ~/…, or relative to this session's directory)." },
         message: { type: "string", description: "A line to go with it (optional)." },
         to: { type: "string", description: "Recipient address (default: your user, i.e. the dashboard). E.g. \"anna\" or \"anna/shop\"." },
+        to_project: { type: "boolean", description: "The address names a project (\"anna/shop\"), and you mean every agent of theirs in it. Without it, a project's name is refused, so a message meant for one agent doesn't reach them all." },
         channel: channelProp,
         hold: { type: "boolean", description: "Store the file without sending it: you get its marker ([📎 image #N]) to place in a ticket's description or comment." },
       },
@@ -874,6 +876,7 @@ export const tools: Tool[] = [
         },
         evidence: { type: "string", description: "Where the evidence is (path, benchmark output, log)." },
         to: { type: "string", description: "Who should take it: an address like \"edvin/core\" or \"anna\". Omit to post it to the project." },
+        to_project: { type: "boolean", description: "The address names a project (\"anna/shop\"), and you mean every agent of theirs in it. Without it, a project's name is refused, so a message meant for one agent doesn't reach them all." },
         supersedes: { type: "array", items: { type: "number" }, description: "Earlier handoffs this one replaces (a rebase or combined stack of them): they're closed as withdrawn, \"superseded by\" this one. Always pass them, so the receiver isn't left with stale ones." },
         channel: channelProp,
       },
@@ -893,7 +896,7 @@ export const tools: Tool[] = [
       const moved = to_member && to_agent ? await renamedTo(env, to_member, to_agent) : null;
       const asked = to_agent;
       if (moved) to_agent = moved.label;
-      else if (to_member && to_agent) await requireKnownAgent(env, to_member, to_agent, project);
+      else if (to_member && to_agent) await requireKnownAgent(env, to_member, to_agent, project, a.to_project === true);
       const h = await createHandoff(env, me, { project, ref: str(a, "ref", true), summary: str(a, "summary", true), evidence: str(a, "evidence"), gates: a.gates, obligations: a.obligations, to_member, to_agent });
       const old = handoffIds(a.supersedes).filter((id) => id !== h.id);
       const closed = await withdrawHandoffs(env, me, old, `superseded by H${h.id}`, address(me, env.session?.label));

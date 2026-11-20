@@ -25,7 +25,7 @@ import { updateSummary } from "./upkeep";
 import { closeTerm, newTerm, termsPanel } from "./terminals";
 import { browserShot, browsersPanel, handBrowser } from "./browsers";
 import { answerQuestion } from "./questions";
-import { type Env, type Message, type Proposal, type Session, LIVE, MEMBER_OF, isAdmin, postMessage, RECEIVES, UserError, activeLocks, address, isMyLock, ago, addActivity, lockIn, scopedLocks, cleanBranch, cleanClient, fromOwnUser, fromOwnAgent, DELEGATED_NOTE, staleFor, renameSession, setHost, setVersion, workingOn, authenticate, coMembers, fmtLock, fmtMessage, myProjects, moveSession, projectFor, resolveProject, setCwd, setOrigin, setPresence, setRepo, signedIn, tally, touchSession, unread } from "./lib";
+import { type Env, type Message, type Proposal, type Session, LIVE, MEMBER_OF, isAdmin, postMessage, RECEIVES, UserError, activeLocks, address, isMyLock, ago, addActivity, lockIn, scopedLocks, cleanBranch, cleanClient, fromOwnUser, fromOwnAgent, DELEGATED_NOTE, staleFor, renameSession, setHost, setVersion, workingOn, authenticate, coMembers, fmtLock, fmtMessage, myProjects, moveSession, projectFor, resolveProject, setCwd, setOrigin, setPresence, setRepo, signedIn, tally, touchSession, unread, addressedTo } from "./lib";
 import { type Tool, instructions, missingArgs, tools } from "./tools";
 import { CONNECTOR, authorize, connectorMember, preflight, register, resourceMetadata, serverMetadata, token, unauthorized } from "./connector";
 import { cliPoll, cliStart, connectPage, discoverJoin, discoverPage, discoverRequest, githubCallback, githubCreate, githubStart, signOut } from "./accounts";
@@ -143,7 +143,7 @@ const preamble = (version: string | null | undefined, me: string) =>
 async function replyFromTurn(env: Env, me: string, session: Session & { cursor: number }, text: string): Promise<void> {
   const asked = await env.DB.prepare(
     `SELECT MAX(m.id) AS id FROM messages m JOIN sessions s ON s.member = ?1 AND s.session_id = ?2
-     WHERE m.sender = ?1 AND m.sender_agent IS NULL AND m.recipient = ?1 AND m.kind != 'event' AND (m.recipient_agent = s.label OR m.recipient_agent = s.project)
+     WHERE m.sender = ?1 AND m.sender_agent IS NULL AND m.recipient = ?1 AND m.kind != 'event' AND (m.recipient_agent = s.label OR (m.recipient_agent = s.project AND m.agent_only = 0))
        AND m.id > s.answered AND m.id <= s.cursor AND m.created_at > ?3 AND ${LIVE}`,
   )
     .bind(me, session.session_id, Date.now() - 6 * 3600_000)
@@ -282,7 +282,7 @@ async function handleHook(url: URL, env: Env, me: string, input: { last_assistan
     if (session) {
       const { messages } = await unread(env, me, 20, false, session);
       const forMe = messages.filter(
-        (m) => fromOwnUser(m, me) && !staleFor(m, session.started_at) && m.kind !== "event" && m.recipient === me && (m.recipient_agent === session.label || m.recipient_agent === session.project),
+        (m) => fromOwnUser(m, me) && !staleFor(m, session.started_at) && m.kind !== "event" && m.recipient === me && !!m.recipient_agent && addressedTo(m, session),
       );
       // Or work another of your agents handed it, when it takes that.
       const handed = messages.filter((m) => fromOwnAgent(m, me) && !staleFor(m, session.started_at) && m.recipient_agent === session.label);
@@ -598,7 +598,7 @@ async function handleUi(url: URL, env: Env, me: string): Promise<Response> {
         .filter(
           (m) =>
             !staleFor(m, mySession!.started_at) &&
-            ((fromOwnUser(m, me) && m.kind !== "event" && m.recipient === me && (m.recipient_agent === mySession!.label || m.recipient_agent === mySession!.project)) ||
+            ((fromOwnUser(m, me) && m.kind !== "event" && m.recipient === me && !!m.recipient_agent && addressedTo(m, mySession!)) ||
               (modDelegates && fromOwnAgent(m, me) && m.recipient_agent === mySession!.label)),
         )
         .map((m) => (fromOwnAgent(m, me) ? { id: m.id, body: m.body, from: address(m.sender, m.sender_agent), note: `${DELEGATED_NOTE(address(m.sender, m.sender_agent))}.` } : { id: m.id, body: m.body }))

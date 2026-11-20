@@ -1347,11 +1347,30 @@ describe("addresses", () => {
     assert.match((await w.tool("bob", "handoff", { ref: "abc1234", summary: "x", to: "bob/ux-editors" }, s)).text, /isn't an agent on the intercom/);
     // Names that were there keep working: one that ended, a project, a person.
     assert.match(await w.ok("bob", "post", { to: "bob/core", message: "for when you're back" }, s), /Sent DM \[\d+\] to bob\/core\. Note: no bob\/core session is connected/);
-    assert.match(await w.ok("bob", "post", { to: "bob/billing", message: "anyone in billing" }, s), /Sent DM/);
+    // A project's name only on purpose: it would reach every agent in it.
+    assert.match((await w.tool("bob", "post", { to: "bob/billing", message: "anyone in billing" }, s)).text, /bob\/billing is a project, not an agent: this would message every agent of bob's in it \(alder\)\. If that's what you mean, pass to_project: true\. If not, address the agent by its name, e\.g\. bob\/alder\./);
+    assert.match(await w.ok("bob", "post", { to: "bob/billing", message: "anyone in billing", to_project: true }, s), /Sent DM/);
     assert.match((await w.tool("bob", "post", { to: "alice/whoever", message: "hi" }, s)).text, /alice\/whoever isn't an agent/);
     // From before this check: a message already waiting on such a name says it'll never be read here.
     await w.db.prepare("INSERT INTO messages (channel, sender, sender_agent, recipient, recipient_agent, body, created_at) VALUES ('billing-api', 'bob', 'alder', 'bob', 'ux-lane', 'old', ?)").bind(Date.now() - 3600_000).run();
     assert.match(await (await w.request("/dashboard?view=feed", { as: "bob", cookie: true })).text(), /ux-lane[\s\S]*No agent has ever had this name/);
+  });
+});
+
+describe("an agent named like a project", () => {
+  test("a DM to an agent whose name is also a project's reaches that agent only, not every agent in the project", async () => {
+    const w = await standardWorld();
+    // "billing" is an agent of bob's, and bob's project; "alder" works in that project.
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=p1&name=billing", { as: "bob" });
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=p2&name=alder", { as: "bob" });
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=p3&name=core", { as: "bob" });
+    const at = (id: string) => ({ id, project: "billing-api" });
+    await w.ok("bob", "post", { to: "bob/billing", message: "only for the billing agent" }, at("p3"));
+    assert.match(await w.ok("bob", "inbox", {}, at("p1")), /only for the billing agent/);
+    assert.doesNotMatch(await w.ok("bob", "inbox", {}, at("p2")), /only for the billing agent/);
+    // On purpose, the whole project.
+    await w.ok("bob", "post", { to: "bob/billing", message: "for all of billing", to_project: true }, at("p3"));
+    assert.match(await w.ok("bob", "inbox", {}, at("p2")), /for all of billing/);
   });
 });
 
@@ -3021,7 +3040,7 @@ describe("security review fixes", () => {
     assert.match(g, /DM bob\/beta → bob\/gamma/);
     assert.doesNotMatch(g, /YOUR AGENT/);
     // A project's address is no one agent: never handed work.
-    await w.ok("bob", "post", { to: "bob/billing", message: "everyone do Y" }, s("h-a"));
+    await w.ok("bob", "post", { to: "bob/billing", message: "everyone do Y", to_project: true }, s("h-a"));
     assert.doesNotMatch(await w.ok("bob", "inbox", {}, s("h-c")), /YOUR AGENT/);
     // Switched off, then renamed: still off.
     await w.form("/agent/takes-work", "bob", { label: "gamma", on: "0" });

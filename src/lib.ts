@@ -50,6 +50,8 @@ export interface Message {
   created_at: number;
   sender_agent: string | null;
   recipient_agent: string | null;
+  /** 1: recipient_agent is one agent's name, not also the project of that name (only that agent takes it). */
+  agent_only?: number;
   broadcast: number;
   /** A dashboard DM being edited, or one its sender took back before an agent got it (unsend). */
   held_at?: number | null;
@@ -404,13 +406,18 @@ export async function postMessage(
     /** Longer than MAX_BODY: an agent's reply taken from its terminal. */
     max?: number;
     via?: string | null;
+    /** recipient_agent names a project on purpose: every agent in it takes the message. */
+    toProject?: boolean;
   },
 ): Promise<number> {
   const senderAgent = m.sender_agent ?? env.session?.label ?? null;
+  // To one agent by its name: only that agent takes it, even where a project has the same name.
+  const agentOnly =
+    !!m.recipient && !!m.recipient_agent && !m.toProject && !!(await env.DB.prepare("SELECT 1 FROM sessions WHERE member = ? AND label = ? LIMIT 1").bind(m.recipient, m.recipient_agent).first());
   const delegated = await delegatedTo(env, m.sender, senderAgent, m.recipient ?? null, m.recipient_agent ?? null);
   const row = await env.DB.prepare(
-    `INSERT INTO messages (channel, sender, sender_agent, recipient, recipient_agent, kind, body, created_at, broadcast, via, delegated, from_user)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
+    `INSERT INTO messages (channel, sender, sender_agent, recipient, recipient_agent, kind, body, created_at, broadcast, via, delegated, from_user, agent_only)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
   )
     .bind(
       m.channel,
@@ -426,6 +433,7 @@ export async function postMessage(
       delegated ? 1 : 0,
       // The person themself: only from a browser signed in with GitHub, or Claude.ai; never an agent's token.
       !senderAgent && (env.authKind === "web" || env.authKind === "connector") ? 1 : 0,
+      agentOnly ? 1 : 0,
     )
     .first<Message>();
   // A DM to one agent: look again in a while, to notify its person if it's still waiting (stuck.ts).
@@ -524,6 +532,10 @@ const MISSED_DAYS = 7;
  * Unread messages for `me`, excluding their own. Without a session this is the person-level view (all DMs);
  * with one, DMs addressed to another of their sessions are skipped and the session's own cursor is used.
  */
+/** Whether a DM's agent address takes in this session: its name, or its project unless it was meant for one agent. */
+export const addressedTo = (m: { recipient_agent: string | null; agent_only?: number | null }, s: { label: string; project: string | null }): boolean =>
+  !m.recipient_agent || m.recipient_agent === s.label || (!m.agent_only && !!s.project && m.recipient_agent === s.project);
+
 export async function unread(
   env: Env,
   me: string,
@@ -535,7 +547,7 @@ export async function unread(
   // A session gets the posts of its own project only (another project's lock claims are noise there), and the DMs
   // meant for it. The person-level view (dashboard, no session) still has everything.
   const agentOk = session
-    ? "(recipient IS NULL OR recipient_agent IS NULL OR recipient_agent IN (?4, ?5)) AND (recipient IS NOT NULL OR channel = ?5)"
+    ? "(recipient IS NULL OR recipient_agent IS NULL OR recipient_agent = ?4 OR (recipient_agent = ?5 AND agent_only = 0)) AND (recipient IS NOT NULL OR channel = ?5)"
     : "?4 IS NULL AND ?5 IS NULL";
   // A session skips only what it sent itself: the member's other sessions (say Claude Code and Codex in one
   // project) and their posts from the dashboard reach it. Without a session it's the person's view: skip all their own.
@@ -550,7 +562,7 @@ export async function unread(
   // The new ones by id (NOT INDEXED: an id range, not every message to you through RECEIVES's OR), the missed ones by
   // recipient and time; as one OR it read the whole table on every poll.
   const missed = session
-    ? "UNION ALL SELECT * FROM messages WHERE id IN (SELECT m.id FROM messages m INDEXED BY messages_untaken WHERE m.recipient = ?2 AND m.taken IS NULL AND m.recipient_agent IS NOT NULL AND m.recipient_agent IN (?4, ?5) AND m.created_at > ?6 AND m.id <= ?1 AND m.kind != 'event' AND NOT EXISTS (SELECT 1 FROM deliveries d WHERE d.message_id = m.id))"
+    ? "UNION ALL SELECT * FROM messages WHERE id IN (SELECT m.id FROM messages m INDEXED BY messages_untaken WHERE m.recipient = ?2 AND m.taken IS NULL AND m.recipient_agent IS NOT NULL AND m.recipient_agent IN (?4, ?5) AND (m.recipient_agent = ?4 OR m.agent_only = 0) AND m.created_at > ?6 AND m.id <= ?1 AND m.kind != 'event' AND NOT EXISTS (SELECT 1 FROM deliveries d WHERE d.message_id = m.id))"
     : "";
   const top = session ? ((await env.DB.prepare("SELECT MAX(id) AS id FROM messages").first<{ id: number | null }>())?.id ?? 0) : 0;
   const { results } = await env.DB.prepare(`SELECT * FROM (SELECT * FROM messages NOT INDEXED WHERE id > ?1 ${missed}) WHERE ${notMine} AND ${RECEIVES} AND ${agentOk} ORDER BY id LIMIT ?3`)
@@ -782,7 +794,17 @@ export async function agentUp(env: Env, member: string, agent: string): Promise<
  * crew name) or a project of theirs. Any other name (a sub-agent, a helper or a "lane" inside an agent, a guessed
  * name) never connects, so what's sent there would wait forever: refused, naming the agents that are there.
  */
-export async function requireKnownAgent(env: Env, member: string, agent: string, project?: string | null): Promise<void> {
+export async function requireKnownAgent(env: Env, member: string, agent: string, project?: string | null, toProject = false): Promise<void> {
+  // A project's name, not an agent's: every agent of theirs in that project would take it. Only on purpose.
+  if (!toProject && !(await env.DB.prepare("SELECT 1 FROM sessions WHERE member = ? AND label = ? LIMIT 1").bind(member, agent).first())) {
+    const { results: inIt } = await env.DB.prepare("SELECT DISTINCT label FROM sessions WHERE member = ? AND project = ? AND last_seen > ? ORDER BY label LIMIT 20")
+      .bind(member, agent, Date.now() - 7 * 86_400_000)
+      .all<{ label: string }>();
+    if (inIt.length)
+      throw new UserError(
+        `${address(member, agent)} is a project, not an agent: this would message every agent of ${member}'s in it (${inIt.map((r) => r.label).join(", ")}). If that's what you mean, pass to_project: true. If not, address the agent by its name, e.g. ${address(member, inIt[0]!.label)}.`,
+      );
+  }
   const known = await env.DB.prepare(
     `SELECT 1 FROM sessions WHERE member = ?1 AND (label = ?2 OR project = ?2)
      UNION ALL SELECT 1 FROM ended_sessions WHERE member = ?1 AND label = ?2
@@ -1146,7 +1168,7 @@ export async function deliveryMarks(env: Env, me: string, msgs: Message[]): Prom
       out.set(m.id, { state: "waiting", detail });
       continue;
     }
-    const takers = mine.filter((s) => !m.recipient_agent || s.label === m.recipient_agent || s.project === m.recipient_agent);
+    const takers = mine.filter((s) => addressedTo(m, s));
     const up = takers.some((s) => live.has(s.session_id) || s.last_seen > recent);
     out.set(m.id, { state: up ? "waiting" : "offline", detail });
   }
