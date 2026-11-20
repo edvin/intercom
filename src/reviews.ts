@@ -145,7 +145,7 @@ export async function pendingReviews(env: Env, me: string): Promise<Review[]> {
 
 export interface ReviewDecision {
   outcome: Outcome;
-  findings: { post: boolean; comment: string; edited: boolean }[];
+  findings: { post: boolean; comment: string; edited: boolean; reply?: string }[];
   note: string;
 }
 
@@ -158,8 +158,10 @@ export async function decideReview(env: Env, me: string, id: number, d: ReviewDe
   const fs = findingsOf(r);
   const lines = fs.map((f, i) => {
     const c = d.findings[i] ?? { post: f.post, comment: f.comment, edited: false };
-    if (!c.post) return `${i + 1}. Drop: ${f.summary}`;
-    return `${i + 1}. Post: ${f.summary}${c.edited ? `\n   Post this comment instead of yours:\n${c.comment.replace(/^/gm, "   > ")}` : f.comment ? " (your comment as written)" : ""}`;
+    // Your answer to what it asks (a finding that's a question to you, more than a comment for the MR).
+    const reply = c.reply?.trim() ? `\n   Your user's answer: ${c.reply.trim().replace(/\n/g, "\n   ")}` : "";
+    if (!c.post) return `${i + 1}. Don't post: ${f.summary}${reply}`;
+    return `${i + 1}. Post: ${f.summary}${c.edited ? `\n   Post this comment instead of yours:\n${c.comment.replace(/^/gm, "   > ")}` : f.comment ? " (your comment as written)" : ""}${reply}`;
   });
   const body = [
     `Review R${r.id} of ${r.url} (${r.title}): ${OUTCOMES[d.outcome]}.`,
@@ -178,7 +180,7 @@ export async function decideReview(env: Env, me: string, id: number, d: ReviewDe
       project: r.project,
       subject: `review of ${r.title}`.slice(0, 200),
       verdict: d.outcome === "approve" || d.outcome === "approve_after" ? "approved" : "held",
-      reason: `${OUTCOMES[d.outcome]}${posted.length ? `; posted: ${posted.join(" | ")}` : ""}${d.note ? `; note: ${d.note}` : ""}`,
+      reason: `${OUTCOMES[d.outcome]}${posted.length ? `; posted: ${posted.join(" | ")}` : ""}${d.findings.some((c) => c.reply?.trim()) ? `; answers: ${d.findings.map((c, i) => (c.reply?.trim() ? `${i + 1}. ${c.reply.trim()}` : "")).filter(Boolean).join(" | ")}` : ""}${d.note ? `; note: ${d.note}` : ""}`,
       refs: r.url,
     }).catch(() => undefined);
   }

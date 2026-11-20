@@ -863,7 +863,7 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
         const fs = findingsOf(r);
         const findings = fs.map((f, i) => {
           const comment = form.has(`c${i + 1}`) ? field(`c${i + 1}`).replace(/\r\n?/g, "\n").trim().slice(0, 4000) : f.comment;
-          return { post: form.get(`f${i + 1}`) ? field(`f${i + 1}`) === "post" : f.post, comment, edited: comment !== f.comment.trim() };
+          return { post: form.get(`f${i + 1}`) ? field(`f${i + 1}`) === "post" : f.post, comment, edited: comment !== f.comment.trim(), reply: field(`r${i + 1}`).replace(/\r\n?/g, "\n").trim().slice(0, 1000) };
         });
         u.searchParams.set("ok", await decideReview(env, me, id, { outcome: field("outcome") as Outcome, findings, note: field("note").trim().slice(0, 500) }));
       }

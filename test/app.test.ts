@@ -2360,11 +2360,11 @@ describe("reviews", () => {
     assert.match(await (await w.request("/dashboard?view=agents&agent=bob/core", { as: "bob", cookie: true })).text(), /class="badge amber rvbadge" data-asksopen[^>]*>[\s\S]*?review waiting for you<\/button>/);
     // Only bob decides bob's reviews.
     assert.match(loc(await w.form("/review/1", "alice", { decide: "1", outcome: "approve" })).get("err")!, /No such review/);
-    const res = await w.form("/review/1", "bob", { decide: "1", outcome: "approve_after", f1: "post", c1: "A 409 here means a duplicate; fail it.", f2: "drop", c2: review.findings[1]!.comment, note: "ok once fixed" });
+    const res = await w.form("/review/1", "bob", { decide: "1", outcome: "approve_after", f1: "post", c1: "A 409 here means a duplicate; fail it.", f2: "drop", c2: review.findings[1]!.comment, r2: "Keep it in the worker for now; a ticket for later.", note: "ok once fixed" });
     assert.match(loc(res).get("ok")!, /Sent to core: Approve once fixed/);
     const inbox = await w.ok("bob", "inbox", {}, core);
-    assert.match(inbox, /YOUR USER[\s\S]*Review R1 of https:\/\/git\.example\.com\S+ \(Retry failed invoices\): Approve once fixed\.\n\s*1\. Post: A 409[\s\S]*Post this comment instead of yours:\n\s*> A 409 here means a duplicate; fail it\.\n\s*2\. Drop: The backoff[\s\S]*Note: ok once fixed[\s\S]*You reviewed abc1234/);
-    assert.match(await w.ok("bob", "decisions", { query: "Retry" }), /APPROVED · review of Retry failed invoices — Approve once fixed; posted: A 409 [^|]*; note: ok once fixed/);
+    assert.match(inbox, /YOUR USER[\s\S]*Review R1 of https:\/\/git\.example\.com\S+ \(Retry failed invoices\): Approve once fixed\.\n\s*1\. Post: A 409[\s\S]*Post this comment instead of yours:\n\s*> A 409 here means a duplicate; fail it\.\n\s*2\. Don't post: The backoff[^\n]*\n\s*Your user's answer: Keep it in the worker for now; a ticket for later\.\n[\s\S]*Note: ok once fixed[\s\S]*You reviewed abc1234/);
+    assert.match(await w.ok("bob", "decisions", { query: "Retry" }), /APPROVED · review of Retry failed invoices — Approve once fixed; posted: A 409 [^|]*; answers: 2\. Keep it in the worker for now; a ticket for later\.; note: ok once fixed/);
     assert.doesNotMatch(await (await w.request("/dashboard?view=agents", { as: "bob", cookie: true })).text(), /class="ask k-review"/);
     assert.match(loc(await w.form("/review/1", "bob", { decide: "1", outcome: "hold" })).get("err")!, /already decided/);
   });

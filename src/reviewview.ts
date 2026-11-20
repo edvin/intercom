@@ -144,9 +144,10 @@ export async function reviewView(env: Env, me: string, id: number, back: string)
         const n = i + 1;
         return `<div class="rvpost">
           <div class="rvposth">${sev(f)}<span class="rvpostsum">${esc(f.summary)}</span>
-            <span class="rvseg"><label><input type="radio" name="f${n}" value="post"${f.post ? " checked" : ""}>Post</label><label><input type="radio" name="f${n}" value="drop"${f.post ? "" : " checked"}>Drop</label></span></div>
+            <span class="rvseg" title="Whether its comment goes on the MR"><label><input type="radio" name="f${n}" value="post"${f.post ? " checked" : ""}>Post on MR</label><label><input type="radio" name="f${n}" value="drop"${f.post ? "" : " checked"}>Don't post</label></span></div>
           ${f.file ? `<span class="rvpostat">${icon("file", 12)}${esc(f.file)}${f.line ? `:${f.line}` : ""}</span>` : ""}
-          ${f.comment ? `<div class="rvpostq"><span class="rvpostql">The comment it would post</span><p>${esc(f.comment)}</p></div><details class="rvpostc"><summary>${icon("pencil", 12)}Edit the comment</summary><textarea name="c${n}" id="rvc${r.id}-${n}" rows="${Math.min(14, Math.max(4, Math.ceil(f.comment.length / 90) + f.comment.split("\n").length))}" class="tkta">${esc(f.comment)}</textarea></details>` : ""}
+          ${f.comment ? `<div class="rvpostq"><span class="rvpostql" data-on="The comment it would post on the MR" data-off="Not posted on the MR"></span><p>${esc(f.comment)}</p></div><details class="rvpostc"><summary>${icon("pencil", 12)}Edit the comment</summary><textarea name="c${n}" id="rvc${r.id}-${n}" rows="${Math.min(14, Math.max(4, Math.ceil(f.comment.length / 90) + f.comment.split("\n").length))}" class="tkta">${esc(f.comment)}</textarea></details>` : ""}
+          <label class="rvreply"><span>Your answer to ${esc(r.label)}${/\?\s*$/.test(f.summary) || f.severity === "question" ? "" : " (optional)"}</span><textarea name="r${n}" id="rvr${r.id}-${n}" rows="2" class="tkta" maxlength="1000" placeholder="${/\?\s*$/.test(f.summary) || f.severity === "question" ? "It asks you something: answer it here" : "Anything it should know or do about this"}"></textarea></label>
         </div>`;
       })
       .join("");
@@ -156,8 +157,9 @@ export async function reviewView(env: Env, me: string, id: number, back: string)
     decision = `<form method="post" action="/review/${r.id}" class="tkcard tkdecide rvdecide">${hidden({ back: self })}<button name="enter" value="1" hidden></button>
       <h2 class="tkh2">${icon("check", 16)}Your decision</h2>
       ${move}
-      <div class="rvposts"><span class="askh">Comments on the MR</span>${posts}</div>
-      <div class="rvout"><span class="askh">Outcome</span><div class="rvseg wide tkout">${outcomes}</div></div>
+      <p class="rvhow">For each finding, choose whether its comment goes on the MR, and answer it when it asks you something. Then pick what happens to the MR.</p>
+      <div class="rvposts"><span class="askh">Findings</span>${posts}</div>
+      <div class="rvout"><span class="askh">The MR</span><div class="rvseg wide tkout">${outcomes}</div></div>
       <label class="tknote"><span class="askh">Note for ${esc(r.label)} (optional)</span><textarea name="note" id="rvnote${r.id}" rows="2" class="tkta" maxlength="500"></textarea></label>
       <div class="askact"><button name="decide" value="1" class="btn primary">${icon("send", 14)}Send decision</button></div>
     </form>`;
