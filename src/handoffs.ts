@@ -103,7 +103,9 @@ export const STALE_MS = 3 * 86400_000;
 
 export async function handoffsView(env: Env, me: string, url: URL): Promise<string> {
   const p = url.searchParams;
-  const show: Show = (Object.keys(SHOWS) as Show[]).find((k) => k === p.get("show")) ?? "open";
+  // One handoff (id=N, linked where it's named, as H2409 in a question): it, whatever its status.
+  const one = Number(p.get("id")) || 0;
+  const show: Show = one ? "all" : ((Object.keys(SHOWS) as Show[]).find((k) => k === p.get("show")) ?? "open");
   const project = p.get("project") ?? "";
   const whoRaw = (p.get("who") ?? "").trim();
   const [wm, wa] = whoRaw.includes("/") ? [whoRaw.slice(0, whoRaw.indexOf("/")), whoRaw.slice(whoRaw.indexOf("/") + 1)] : [whoRaw, ""];
@@ -116,6 +118,10 @@ export async function handoffsView(env: Env, me: string, url: URL): Promise<stri
   const ph = scope.map(() => "?").join(",") || "NULL";
   const where = [`project IN (${ph})`];
   const binds: unknown[] = [...scope];
+  if (one) {
+    where.push("id = ?");
+    binds.push(one);
+  }
   if (wm) {
     if (wa) {
       where.push("((author = ? AND author_agent = ?) OR (to_member = ? AND to_agent = ?))");
@@ -197,7 +203,7 @@ export async function handoffsView(env: Env, me: string, url: URL): Promise<stri
     <nav class="seg" aria-label="Status">${tab("open", "Open", pending + held)}${tab("pending", "Pending", pending)}${tab("held", "Held", held)}${tab("settled", "Settled")}${tab("all", "All")}</nav>
     <select name="project" aria-label="Project" onchange="this.form.requestSubmit()">${opt("", "All projects", !project)}${projects.map((k) => opt(k, `#${k}`, k === project)).join("")}</select>
     <select name="who" aria-label="Person or agent" onchange="this.form.requestSubmit()">${opt("", "Anyone", !whoRaw)}${whoOpts.map((k) => opt(k, k === me ? `${k} (you)` : k, k === whoRaw)).join("")}</select>
-    ${project || whoRaw ? `<a class="btn ghost sm" href="${esc(link({ project: "", who: "", before: "" }))}" title="Clear the filters">${icon("x", 13)}<span class="lbl">Clear</span></a>` : ""}
+    ${project || whoRaw || one ? `<a class="btn ghost sm" href="${esc(one ? "/dashboard?view=handoffs" : link({ project: "", who: "", before: "" }))}" title="Clear the filters">${icon("x", 13)}<span class="lbl">Clear</span></a>` : ""}
   </form>`;
 
   const whoLink = (m: string, a: string | null) => link({ who: a ? `${m}/${a}` : m, before: "" });

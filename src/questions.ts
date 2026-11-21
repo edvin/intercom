@@ -54,10 +54,9 @@ export const refsOf = (q: Question): QRef[] => {
   }
 };
 
-/** Each ref's key as a link (outside tags and existing links) in already-escaped HTML. */
+/** Each ref's key as a link (outside tags and existing links) in already-escaped HTML; a handoff (H2409) to its page here. */
 function linkKeys(html: string, refs: QRef[]): string {
   const by = new Map(refs.filter((r) => r.url).map((r) => [r.key.toLowerCase(), r]));
-  if (!by.size) return html;
   let inA = 0;
   return html
     .split(/(<[^>]+>)/)
@@ -68,10 +67,12 @@ function linkKeys(html: string, refs: QRef[]): string {
         return part;
       }
       if (inA) return part;
-      return part.replace(KEY_RE, (k) => {
-        const r = by.get(k.toLowerCase());
-        return r ? `<a href="${esc(r.url)}" target="_blank" rel="noopener noreferrer" class="qkey" title="${esc([r.title, r.status].filter(Boolean).join(" · "))}">${k}</a>` : k;
-      });
+      return part
+        .replace(/(?<![\w/#-])H(\d{1,7})(?![\w-])/g, (k, n: string) => `<a href="/dashboard?view=handoffs&amp;id=${n}" class="qkey" title="The handoff: what was handed over, its evidence and what's still to do">${k}</a>`)
+        .replace(KEY_RE, (k) => {
+          const r = by.get(k.toLowerCase());
+          return r ? `<a href="${esc(r.url)}" target="_blank" rel="noopener noreferrer" class="qkey" title="${esc([r.title, r.status].filter(Boolean).join(" · "))}">${k}</a>` : k;
+        });
     })
     .join("");
 }
