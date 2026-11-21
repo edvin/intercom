@@ -55,6 +55,7 @@ import { STEPS_KEEP, type Sub, parseSubMessage, parseSubs, shownSubs, subSteps }
 import { commandStep, fileStep } from "./steps";
 import { getNote } from "./notes";
 import { NEW_AGENT_SINCE } from "./terminals";
+import { PROCS_SINCE } from "./procs";
 import { type Gone, endedAgents, newer, reviveByHand } from "./upkeep";
 import { subMark, subMarkOf, subsRegion, subWhen } from "./subview";
 import { trackedNeedsYou } from "./tracked";
@@ -713,6 +714,8 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   // Its plan's limits (5-hour and weekly windows, from the last answer Claude Code got) and what it has cost: what its
   // mod reads off the status line's figures. Your own agents only; a window whose reset has passed is left out.
   const usage = ownAgent ? usageOf(agent.usage) : null;
+  // Its processes (procs.ts): read when you open the panel, through its own intercom.
+  const procsOn = ownAgent && isOn(agent) && !!agent.version && !newer(PROCS_SINCE, agent.version);
   const usageGauges = (usage?.rl ?? [])
     .map((w) => gauge(esc(WINDOWS[w.k] ?? w.k.replace(/_/g, " ")), `${w.p}%`, w.p, w.p >= 90 ? "red" : w.p >= 70 ? "amber" : "", w.r ? `resets <time data-ts="${w.r}" data-at title="${new Date(w.r).toISOString()}">${esc(ago(w.r))}</time>` : ""))
     .join("");
@@ -749,7 +752,8 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
         <form method="post" action="/agent/notes" data-native>${hidden({ label: agent.label, project: agent.project, back: here })}<textarea name="body" rows="9" maxlength="4000" placeholder="On: …&#10;Next: …&#10;Watch out for: …">${esc(note?.body ?? "")}</textarea><div class="row" style="justify-content:flex-end;gap:6px;margin-top:8px"><button type="button" class="btn sm ghost" data-closedetails>Cancel</button><button class="btn sm primary">Save</button></div></form>
       </details>` : ""}
     ${loopsOf(agent).length ? `<h3>Loops</h3><div class="loops">${loopsOf(agent).map((l) => loopCard(l, esc, icon("repeat", 13))).join("")}</div>` : ""}
-    ${jobsOf(agent).length ? `<h3>Background jobs</h3><div class="ijobs">${jobsOf(agent).map((j) => `<div class="irow jobrow" title="${esc(j.command)}"><span class="ijic">${icon("clock", 12)}</span><span class="grow"><span class="ijn">${esc(jobName(j))}</span><span class="muted ijt">running ${duration(Date.now() - j.at)}</span></span><form method="post" action="/agent/job-dismiss" data-native>${hidden({ session: agent.session_id, id: j.id, back: here })}<button class="btn ghost xs icon jobx" title="Not running any more? Remove it from this list">${icon("x", 11)}</button></form></div>`).join("")}</div>` : ""}
+    ${procsOn ? `<details class="terms iprocs" id="iprocs-${esc(agent.label)}" data-procsagent="${esc(agent.label)}"><summary>${icon("cpu", 13)}<b>Processes</b><span class="small muted">what it runs, and stop one</span></summary><div class="termsbody"><p class="small muted">Asking…</p></div></details>` : ""}
+    ${jobsOf(agent).length ? `<h3>Background jobs</h3><div class="ijobs">${jobsOf(agent).map((j) => `<div class="irow jobrow" title="${esc(j.command)}"><span class="ijic">${icon("clock", 12)}</span><span class="grow"><span class="ijn">${esc(jobName(j))}</span><span class="muted ijt">running ${duration(Date.now() - j.at)}</span></span>${procsOn ? `<button type="button" class="btn ghost xs icon" data-jobout="${esc(j.id)}" data-agent="${esc(agent.label)}" title="Show its output">${icon("terminal", 11)}</button>` : ""}<form method="post" action="/agent/job-dismiss" data-native>${hidden({ session: agent.session_id, id: j.id, back: here })}<button class="btn ghost xs icon jobx" title="Not running any more? Remove it from this list">${icon("x", 11)}</button></form></div>`).join("")}</div>` : ""}
   </section>`;
   const menu = `<div class="cmenu" role="menu">
       <div class="mrow"><span>Text size</span><span class="fsz"><button type="button" class="btn ghost xs icon" data-fs="-1" title="Smaller text">A</button><button type="button" class="btn ghost xs icon" data-fs="1" title="Larger text">A</button></span></div>

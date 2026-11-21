@@ -24,6 +24,7 @@ import { search } from "./search";
 import { updateSummary } from "./upkeep";
 import { closeTerm, newTerm, termsPanel } from "./terminals";
 import { browserShot, browsersPanel, handBrowser } from "./browsers";
+import { agentProcsPanel, hostProcsPanel, jobOutput, stopProc } from "./procs";
 import { answerQuestion } from "./questions";
 import { type Env, type Message, type Proposal, type Session, LIVE, MEMBER_OF, isAdmin, postMessage, RECEIVES, UserError, activeLocks, address, isMyLock, ago, addActivity, lockIn, scopedLocks, cleanBranch, cleanClient, fromOwnUser, fromOwnAgent, DELEGATED_NOTE, staleFor, renameSession, setHost, setVersion, workingOn, authenticate, coMembers, fmtLock, fmtMessage, myProjects, moveSession, projectFor, resolveProject, setCwd, setOrigin, setPresence, setRepo, signedIn, tally, touchSession, unread, addressedTo } from "./lib";
 import { type Tool, instructions, missingArgs, tools } from "./tools";
@@ -1212,6 +1213,27 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
       body = `<div class="screrr">${icon("monitor", 22)}<p>${esc(e.message)}</p></div>`;
     }
     return new Response(body, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "content-security-policy": "default-src 'none'; frame-ancestors 'none'" } });
+  }
+  if (url.pathname === "/procs" || url.pathname === "/procs/stop" || url.pathname === "/procs/output") {
+    // Processes (procs.ts): an agent's or a machine's list, stopping one, a background job's output.
+    const post = req.method === "POST";
+    if (post && !sameOrigin(req)) return new Response("Cross-origin request refused", { status: 403 });
+    const b = post ? ((await req.json().catch(() => ({}))) as Record<string, unknown>) : Object.fromEntries(url.searchParams);
+    const agent = typeof b.agent === "string" && b.agent ? b.agent.slice(0, 64) : undefined;
+    const host = typeof b.host === "string" && b.host ? b.host.slice(0, 120) : undefined;
+    try {
+      if (url.pathname === "/procs/stop") {
+        if (!post) return new Response("POST only", { status: 405 });
+        return json({ ok: true, text: await stopProc(env, me, { agent, host }, Number(b.pid)) });
+      }
+      if (url.pathname === "/procs/output") return json({ ok: true, ...(await jobOutput(env, me, agent ?? "", String(b.id ?? "").slice(0, 40))) });
+      const body = agent ? await agentProcsPanel(env, me, agent) : await hostProcsPanel(env, me, host ?? "");
+      return new Response(body, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "content-security-policy": "default-src 'none'; frame-ancestors 'none'" } });
+    } catch (e) {
+      if (!(e instanceof UserError)) throw e;
+      if (post || url.pathname === "/procs/output") return json({ ok: false, error: e.message });
+      return new Response(`<p class="small muted">${esc(e.message)}</p>`, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+    }
   }
   if (url.pathname === "/browsers" && req.method === "GET") {
     // A machine's browsers, as a panel for the Overview (browsers.ts).

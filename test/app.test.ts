@@ -4410,6 +4410,54 @@ describe("questions for you", () => {
   });
 });
 
+describe("processes", () => {
+  const machine = async <T>(w: World, go: () => Promise<T>, answer: (q: Record<string, unknown>) => object) => {
+    const seen: Record<string, unknown>[] = [];
+    let done = false;
+    const p = go().finally(() => (done = true));
+    let n = w.screenAsked.length;
+    while (!done) {
+      while (w.screenAsked.length > n) {
+        const ask = w.screenAsked[n++]!;
+        seen.push(ask.q);
+        await w.request("/api/screen-reply", { as: ask.member, method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ req: ask.req, data: { text: "", cols: 0, rows: 0, cursor: null, keys: true, ...answer(ask.q) } }) });
+      }
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    return { result: await p, seen };
+  };
+  const dev = { pid: 4321, ppid: 1, up: 3 * 3600, cpu: 2, mem: 120, cmd: "npm run dev", cwd: "/home/bob/projects/shop/.worktrees/a1 (deleted)", ports: [3166], kids: 2, total: 930 };
+  const answer = (q: Record<string, unknown>) =>
+    q.op === "procs" ? { procs: { agent: [{ pid: 55, ppid: 50, up: 90, cpu: 40, mem: 300, cmd: "cargo test --locked", cwd: "/home/bob/projects/shop", ports: [] }], codex: [], codexHere: [], left: [dev] } }
+    : q.op === "proc-stop" ? { procs: { stopped: { pid: q.pid, cmd: "npm run dev", stopped: 3, forced: 1 } } }
+    : q.op === "job-output" ? { output: { text: "Compiling…\nok", size: 14, at: 1 } }
+    : {};
+
+  test("an agent's own processes in its panel and a machine's left-running ones on the overview; Stop tells the agent and logs it", async () => {
+    const w = await standardWorld();
+    await w.request(`/api/hook?event=SessionStart&project=billing-api&session=k1&name=core&version=${PLUGIN_VERSION}`, { as: "bob" });
+    await w.db.prepare("UPDATE sessions SET host = 'ultra' WHERE session_id = 'k1'").run();
+    const page = await (await w.request("/dashboard?view=agents&agent=bob%2Fcore", { as: "bob", cookie: true })).text();
+    assert.match(page, /data-procsagent="core"[\s\S]*?<b>Processes<\/b>/);
+    assert.match(await (await w.request("/dashboard", { as: "bob", cookie: true })).text(), /data-procshost="ultra"[\s\S]*?Processes on ultra/);
+    const mine = await machine(w, async () => (await w.request("/procs?agent=core", { as: "bob", cookie: true })).text(), answer);
+    assert.match(mine.result, /<code class="pcmd"[^>]*>cargo test --locked<\/code>[\s\S]*?pid 55[\s\S]*?40% CPU[\s\S]*?300 MB[\s\S]*?data-procagent="core" data-pid="55"/);
+    const host = await machine(w, async () => (await w.request("/procs?host=ultra", { as: "bob", cookie: true })).text(), answer);
+    assert.match(host.result, /Running on their own <span class="badge">1<\/span>[\s\S]*?npm run dev[\s\S]*?930 MB with 2 more[\s\S]*?:3166[\s\S]*?~\/projects\/shop\/\.worktrees\/a1[\s\S]*?folder deleted[\s\S]*?data-prochost="ultra" data-pid="4321"/);
+    // An agent's token can't read or stop them.
+    assert.match(await (await w.request("/procs?agent=core", { as: "bob" })).text(), /can only be seen and stopped from your dashboard/);
+    const post = (body: object, origin = ORIGIN) => w.request("/procs/stop", { as: "bob", cookie: true, method: "POST", headers: { origin, "content-type": "application/json" }, body: JSON.stringify(body) });
+    assert.equal((await post({ agent: "core", pid: 55 }, "https://evil.example")).status, 403);
+    const stop = await machine(w, async () => (await post({ agent: "core", pid: 55 })).json() as Promise<{ ok: boolean; text: string }>, answer);
+    assert.deepEqual(stop.seen[0], { op: "proc-stop", pid: 55 });
+    assert.match(stop.result.text, /Stopped npm run dev \(pid 55\) and 2 it started; it had to be forced\./);
+    assert.ok(await w.db.prepare("SELECT 1 FROM activity WHERE session_id = 'k1' AND text LIKE 'you stopped a process it ran from the dashboard: npm run dev (pid 55, with 2 it started, forced)'").first());
+    assert.match(await w.ok("bob", "inbox", {}, { id: "k1", project: "billing-api" }), /I stopped one of your processes from the dashboard: npm run dev \(pid 55\)\. Don't wait for its result/);
+    const out = await machine(w, async () => (await w.request("/procs/output?agent=core&id=b9x1", { as: "bob", cookie: true })).json() as Promise<{ ok: boolean; text: string }>, answer);
+    assert.equal(out.result.text, "Compiling…\nok");
+  });
+});
+
 describe("browsers", () => {
   const machine = async <T>(w: World, go: () => Promise<T>, answer: (q: Record<string, unknown>) => object) => {
     const seen: Record<string, unknown>[] = [];

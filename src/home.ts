@@ -16,6 +16,7 @@ import { resetsOf } from "./resets";
 import { fableOpusOn } from "./fable";
 import { PLUGIN_VERSION } from "./version";
 import { BROWSERS_SINCE, browserAttrs } from "./browsers";
+import { PROCS_SINCE } from "./procs";
 
 interface Row {
   session_id: string;
@@ -322,6 +323,10 @@ export async function homeView(env: Env, me: string): Promise<string> {
     ${termHosts
       .filter((h) => agents.some((a) => a.host === h && a.version && !newer(BROWSERS_SINCE, a.version)))
       .map((h) => `<details class="terms brs" data-browsers="${esc(h)}"><summary>${icon("globe", 14)}<b>Browsers on ${esc(hostOf(h))}</b><span class="small muted">remote-chrome slots there: whose each is, what's open, watch and step in</span></summary><div class="termsbody"><p class="small muted">Asking ${esc(hostOf(h))}…</p></div></details>`)
+      .join("")}
+    ${termHosts
+      .filter((h) => agents.some((a) => a.host === h && a.version && !newer(PROCS_SINCE, a.version)))
+      .map((h) => `<details class="terms prs" data-procshost="${esc(h)}"><summary>${icon("cpu", 14)}<b>Processes on ${esc(hostOf(h))}</b><span class="small muted">under Codex, and running on their own: dev servers and runs agents left behind</span></summary><div class="termsbody"><p class="small muted">Asking ${esc(hostOf(h))}…</p></div></details>`)
       .join("")}
     ${termHosts.map((h) => `<details class="terms" id="terms-${esc(h.replace(/[^\w-]/g, "_"))}" data-terms="${esc(h)}"><summary>${icon("terminal", 14)}<b>Terminals on ${esc(hostOf(h))}</b><span class="small muted">tmux sessions there: open, start or close them</span></summary><div class="termsbody"><p class="small muted">Asking ${esc(hostOf(h))}…</p></div></details>`).join("")}
   </section>`;

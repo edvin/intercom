@@ -21,7 +21,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const VERSION = "0.12.65"; // kept in step with .claude-plugin/plugin.json (a test checks)
+const VERSION = "0.12.66"; // kept in step with .claude-plugin/plugin.json (a test checks)
 const DIR = path.join(os.homedir(), ".claude", "intercom");
 const CONFIG = path.join(DIR, "config");
 function readConf() {
@@ -390,7 +390,7 @@ async function answerScreenRequest(f) {
   try {
     if (!screenOn()) throw new Error("Seeing the screen is turned off on that machine (INTERCOM_SCREEN=0 in its intercom config).");
     const { screenRequest } = await import("./code.mjs");
-    body = { data: await screenRequest(f.q ?? {}, { pane: PANE, keysOn: keysOn(), termsOn: termsOn(), browsersOn: browsersOn(), browsersUrl: setting("INTERCOM_BROWSERS_URL") || "http://127.0.0.1:9230" }) };
+    body = { data: await screenRequest(f.q ?? {}, { pane: PANE, keysOn: keysOn(), termsOn: termsOn(), browsersOn: browsersOn(), browsersUrl: setting("INTERCOM_BROWSERS_URL") || "http://127.0.0.1:9230", procAgent: headers["x-intercom-client"] === "codex" ? 0 : process.ppid, procWorkdir: WORKDIR, procSession: SESSION }) };
   } catch (e) {
     body = { error: String(e.message ?? e).slice(0, 300) };
   }

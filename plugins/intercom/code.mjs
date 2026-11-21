@@ -462,7 +462,7 @@ function codexNote(id, cwd) {
   fs.writeFileSync(path.join(notes, id), `0\n${dir}\n${Math.floor(Date.now() / 1000)}\n`);
 }
 
-export async function screenRequest(q, { pane, keysOn = true, termsOn = false, browsersOn = false, browsersUrl = "http://127.0.0.1:9230" } = {}) {
+export async function screenRequest(q, { pane, keysOn = true, termsOn = false, browsersOn = false, browsersUrl = "http://127.0.0.1:9230", procAgent = 0, procWorkdir = "", procSession = "" } = {}) {
   // Browsers on this machine (below): listed, pictured, used from the dashboard; claimed and released by agents.
   if (typeof q.op === "string" && q.op.startsWith("browser")) {
     if (!browsersOn) throw new Error("Browsers are turned off on that machine (INTERCOM_BROWSERS=0, or seeing screens is off there).");
@@ -472,6 +472,17 @@ export async function screenRequest(q, { pane, keysOn = true, termsOn = false, b
     if (q.op === "browser-claim") return { ...empty, claimed: await claimBrowser(browsersUrl, q) };
     if (q.op === "browser-release") return { ...empty, claimed: await releaseBrowser(browsersUrl, q) };
     throw new Error(`Unknown browser request "${q.op}".`);
+  }
+  // Processes (below): lists read on request; stopping one follows sending keys (INTERCOM_KEYS).
+  if (q.op === "procs" || q.op === "proc-stop" || q.op === "job-output") {
+    const empty = { text: "", cols: 0, rows: 0, cursor: null, keys: keysOn };
+    const opts = { agentPid: procAgent, workdir: procWorkdir };
+    if (q.op === "procs") return { ...empty, procs: await procLists(opts) };
+    if (q.op === "job-output") return { ...empty, output: jobOutput(q.id, procSession) };
+    if (!keysOn) throw new Error("Stopping processes is turned off on that machine (INTERCOM_KEYS=0).");
+    const pid = Number(q.pid);
+    if (!Number.isInteger(pid) || pid < 2) throw new Error("Which process?");
+    return { ...empty, procs: { stopped: await stopProc(pid, opts) } };
   }
   if (q.op === "codex-note") {
     if (!keysOn) throw new Error("Sending keys is turned off on that machine (INTERCOM_KEYS=0).");
@@ -870,4 +881,203 @@ async function releaseBrowser(base, q) {
   if (!Number.isInteger(n) || n < 1) throw new Error("Which slot?");
   await brApi(base, `/${q.keep ? "unclaim" : "release"}?slot=${n}`, 30_000);
   return { slot: n, released: true };
+}
+
+// ---- processes: what an agent runs, what runs under Codex here, and what agents left behind ----
+// Read when you open the panel (nothing is polled), from ps; stopped only from your dashboard, only a process in one of
+// these lists (checked again at the time), and never the agents themselves, their intercom or their MCP servers.
+
+const out = (cmd, args, timeout = 6000) =>
+  new Promise((resolve) => execFile(cmd, args, { encoding: "utf8", timeout, maxBuffer: 16 * 1024 * 1024 }, (err, o) => resolve(err ? "" : o)));
+
+/** "[[dd-]hh:]mm:ss" from ps, in seconds. */
+const etimeSec = (s) => {
+  const [d, rest] = s.includes("-") ? s.split("-") : ["0", s];
+  const p = rest.split(":").map(Number);
+  while (p.length < 3) p.unshift(0);
+  return Number(d) * 86400 + p[0] * 3600 + p[1] * 60 + p[2];
+};
+
+/** A command line as shown: secrets masked, Claude Code's shell wrapper reduced to the command it runs. */
+function shownCommand(cmd) {
+  let c = cmd;
+  const ev = /\beval '((?:[^']|'\\'')*)'/.exec(c);
+  if (/shell-snapshots/.test(c) && ev) c = ev[1].replace(/'\\''/g, "'");
+  return c
+    .replace(/((?:token|secret|password|passwd|api[-_]?key|authorization|auth)[\w-]*["']?\s*[:=]\s*["']?)[^\s"',]{6,}/gi, "$1•••")
+    .replace(/(--?(?:token|password|secret|key|header)[=\s]+)(\S+)/gi, (m, a, v) => (/[:=]/.test(v) ? `${a}${v.split(/[:=]/)[0]}:•••` : `${a}•••`))
+    .replace(/\b(Bearer|Basic)\s+[\w.~+/=-]{8,}/g, "$1 •••")
+    .replace(/(https?:\/\/[^\s:/@]+:)[^\s@]+@/g, "$1•••@")
+    .slice(0, 400);
+}
+
+async function psAll() {
+  const text = await out("ps", ["-axo", "pid=,ppid=,etime=,pcpu=,rss=,command="]);
+  return text
+    .split("\n")
+    .map((l) => /^\s*(\d+)\s+(\d+)\s+(\S+)\s+([\d.]+)\s+(\d+)\s+(.*)$/.exec(l))
+    .filter(Boolean)
+    .map((m) => ({ pid: Number(m[1]), ppid: Number(m[2]), up: etimeSec(m[3]), cpu: Number(m[4]), mem: Math.round(Number(m[5]) / 1024), cmd: m[6] }))
+    .filter((p) => !/<defunct>$/.test(p.cmd));
+}
+
+async function cwdsOf(pids) {
+  const cwd = new Map();
+  if (!pids.length) return cwd;
+  if (process.platform === "linux") {
+    for (const p of pids)
+      try {
+        cwd.set(p, fs.readlinkSync(`/proc/${p}/cwd`));
+      } catch {}
+    return cwd;
+  }
+  const text = await out("lsof", ["-a", "-d", "cwd", "-Fpn", "-p", pids.slice(0, 400).join(",")]);
+  let at = 0;
+  for (const l of text.split("\n")) {
+    if (l[0] === "p") at = Number(l.slice(1));
+    else if (l[0] === "n" && at) cwd.set(at, l.slice(1));
+  }
+  return cwd;
+}
+
+async function portsOf() {
+  const text = await out("lsof", ["-nP", "-iTCP", "-sTCP:LISTEN", "-Fpn"], 5000);
+  const ports = new Map();
+  let at = 0;
+  for (const l of text.split("\n")) {
+    if (l[0] === "p") at = Number(l.slice(1));
+    else if (l[0] === "n" && at) {
+      const port = Number(l.slice(1).split(":").pop());
+      if (port) ports.set(at, [...new Set([...(ports.get(at) ?? []), port])]);
+    }
+  }
+  return ports;
+}
+
+const AGENT_RE = /(^|\/)(claude|codex)(\s|$)|app-server(-daemon)?\b|codex-code-mode-host/;
+const INFRA_RE = /intercom-channel\.mjs|\bmcp\b|mcp-remote|mcp-server|-mcp\b|\bcaffeinate\b|(^|\/)(tmux|sshd|ssh-agent|systemd|dbus-[\w-]+|login|sudo|su|launchd|gpg-agent)(\s|$)/;
+const SHELL_RE = /^(-?\/?(?:usr\/)?(?:local\/)?bin\/)?-?(ba|z|fi|da)?sh(\s+-[il]+)?$/;
+
+/**
+ * The processes in one of three lists: an agent's own (Claude Code: the commands it ran through its shell, and what
+ * they started), the commands running under Codex on this machine (its app-server runs them, for all Codex agents
+ * here), and leftovers (yours, running for over 10 minutes in a folder under your home, under no running agent).
+ */
+async function procLists({ agentPid, workdir }) {
+  const all = await psAll();
+  const by = new Map(all.map((p) => [p.pid, p]));
+  const kids = new Map();
+  for (const p of all) kids.set(p.ppid, [...(kids.get(p.ppid) ?? []), p]);
+  const below = (pid, acc = []) => {
+    for (const k of kids.get(pid) ?? []) if (acc.length < 2000) (acc.push(k), below(k.pid, acc));
+    return acc;
+  };
+  // One row per command it runs (Claude Code's shell for it), with what it started counted in.
+  const mine = [];
+  if (agentPid && by.has(agentPid)) for (const k of kids.get(agentPid) ?? []) if (/shell-snapshots/.test(k.cmd)) mine.push(k);
+  const daemons = all.filter((p) => /app-server(-daemon)? daemon|app-server-daemon\/.*\/codex app-server/.test(p.cmd) || / app-server daemon/.test(p.cmd));
+  const codex = [];
+  for (const d of daemons) for (const k of kids.get(d.pid) ?? []) if (!INFRA_RE.test(k.cmd) && !AGENT_RE.test(k.cmd)) codex.push(k);
+  // Owned by a running agent: anything under a claude, codex or app-server process.
+  const owned = new Set();
+  for (const p of all) if (AGENT_RE.test(p.cmd)) for (const d of below(p.pid)) owned.add(d.pid);
+  const home = os.homedir();
+  const cand = all.filter((p) => p.pid !== process.pid && !owned.has(p.pid) && !AGENT_RE.test(p.cmd) && !INFRA_RE.test(p.cmd) && !SHELL_RE.test(p.cmd.trim()) && p.up > 600);
+  const cwd = await cwdsOf([...new Set([...cand, ...mine, ...codex].map((p) => p.pid))]);
+  // A leftover is in a folder under your home (a project, a worktree), not home itself; and none of its ancestors is
+  // something that runs on purpose (tmux, ssh, a login shell's session manager): it was started by an agent that's gone.
+  const underInfra = (p) => {
+    // Process 1 is where an orphan ends up when what started it is gone, not something that started it.
+    for (let q = by.get(p.ppid), n = 0; q && q.pid > 1 && n < 50; q = by.get(q.ppid), n++) if (INFRA_RE.test(q.cmd) && !/intercom-channel/.test(q.cmd)) return true;
+    return false;
+  };
+  const left = cand.filter((p) => {
+    const c = cwd.get(p.pid) ?? "";
+    return c.startsWith(home + path.sep) && !underInfra(p);
+  });
+  // A leftover's children come with it; only the top one of each tree is listed.
+  const leftSet = new Set(left.map((p) => p.pid));
+  const leftTop = left.filter((p) => !leftSet.has(p.ppid));
+  const ports = await portsOf();
+  const shown = (p, extra = {}) => ({ pid: p.pid, ppid: p.ppid, up: p.up, cpu: p.cpu, mem: p.mem, cmd: shownCommand(p.cmd), cwd: cwd.get(p.pid) ?? "", ports: ports.get(p.pid) ?? [], ...extra });
+  const tree = (list) =>
+    list.map((p) => {
+      const sub = below(p.pid);
+      return shown(p, { kids: sub.length, total: p.mem + sub.reduce((n, k) => n + k.mem, 0), cpu: Math.round((p.cpu + sub.reduce((n, k) => n + k.cpu, 0)) * 10) / 10, ports: [...new Set([...(ports.get(p.pid) ?? []), ...sub.flatMap((k) => ports.get(k.pid) ?? [])])] });
+    });
+  const codexHere = workdir ? codex.filter((p) => (cwd.get(p.pid) ?? "").startsWith(workdir)) : codex;
+  return { agent: tree(mine), codex: tree(codex), codexHere: tree(codexHere), left: leftTop
+      .map((p) => {
+        const sub = below(p.pid);
+        return shown(p, { kids: sub.length, total: p.mem + sub.reduce((n, k) => n + k.mem, 0), ports: [...new Set([...(ports.get(p.pid) ?? []), ...sub.flatMap((k) => ports.get(k.pid) ?? [])])] });
+      })
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 40) };
+}
+
+/** Stop one process in a list (and what it started): asked to end, then forced after 3 seconds. */
+async function stopProc(pid, opts) {
+  const lists = await procLists(opts);
+  const inList = [...lists.agent, ...lists.codex, ...lists.left].find((p) => p.pid === pid);
+  if (!inList) throw new Error(`Process ${pid} isn't one of the listed ones (any more); open the list again.`);
+  const all = await psAll();
+  const kids = new Map();
+  for (const p of all) kids.set(p.ppid, [...(kids.get(p.ppid) ?? []), p.pid]);
+  const tree = [];
+  const walk = (p) => {
+    for (const k of kids.get(p) ?? []) if (tree.length < 500) (walk(k), tree.push(k));
+  };
+  walk(pid);
+  tree.push(pid);
+  const alive = (p) => {
+    try {
+      process.kill(p, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  for (const p of tree)
+    try {
+      process.kill(p, "SIGTERM");
+    } catch {}
+  for (let i = 0; i < 15 && tree.some(alive); i++) await new Promise((r) => setTimeout(r, 200));
+  const forced = tree.filter(alive);
+  for (const p of forced)
+    try {
+      process.kill(p, "SIGKILL");
+    } catch {}
+  return { pid, cmd: inList.cmd, stopped: tree.length, forced: forced.length };
+}
+
+/** A Claude Code background job's output (the file it writes next to the session), its last 48 KB. */
+function jobOutput(id, session) {
+  if (typeof id !== "string" || !/^[\w-]{3,40}$/.test(id)) throw new Error("Not a job id.");
+  if (typeof session !== "string" || !/^[\w-]{8,80}$/.test(session)) throw new Error("Its session isn't known here.");
+  const uid = process.getuid?.() ?? "";
+  for (const base of [...new Set(["/tmp", "/private/tmp", os.tmpdir()])]) {
+    const root = path.join(base, `claude-${uid}`);
+    let dirs = [];
+    try {
+      dirs = fs.readdirSync(root);
+    } catch {
+      continue;
+    }
+    for (const d of dirs) {
+      const f = path.join(root, d, session, "tasks", `${id}.output`);
+      try {
+        const st = fs.statSync(f);
+        const fd = fs.openSync(f, "r");
+        const len = Math.min(st.size, 48 * 1024);
+        const buf = Buffer.alloc(len);
+        try {
+          fs.readSync(fd, buf, 0, len, st.size - len);
+        } finally {
+          fs.closeSync(fd);
+        }
+        return { text: buf.toString("utf8"), size: st.size, at: st.mtimeMs };
+      } catch {}
+    }
+  }
+  throw new Error("Its output isn't on this machine (any more).");
 }
