@@ -4959,7 +4959,7 @@ describe("keeping agents running and current", () => {
       }
       await new Promise((r) => setTimeout(r, 5));
     }
-    assert.match(ok(await p)!, /^Bringing core back on vms01, in a new terminal \(%9\)/);
+    assert.match(ok(await p)!, /^Bringing core back on vms01, in a new terminal \(%9, named core\)/);
     assert.deepEqual(seen, [
       { op: "capture", pane: "%5" },
       { op: "tmux-new", name: "core", cwd: "/home/bob/billing", run: "claude", resume: { id: "up1", flags: ["--model", "opus"], channel: false }, label: "core" },
@@ -4989,7 +4989,7 @@ describe("keeping agents running and current", () => {
       }
       await new Promise((r) => setTimeout(r, 5));
     }
-    assert.match(ok(await p2)!, /^Bringing core back on vms01, in a new terminal \(%12\)/);
+    assert.match(ok(await p2)!, /^Bringing core back on vms01, in a new terminal \(%12, named core\)/);
     assert.deepEqual(seen.slice(1), [
       { op: "tmux-new", name: "core", cwd: "/home/bob/billing", run: "shell" },
       { op: "keys", pane: "%12", text: "INTERCOM_NAME=core claude --model opus --resume up1", enter: true },

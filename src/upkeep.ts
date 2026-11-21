@@ -8,7 +8,7 @@
 
 import { compactable } from "./btw";
 import { type Env, GONE_MS, UserError, ago, liveIds, postMessage } from "./lib";
-import { type Term, busy, carryOn, goal, pause } from "./codexterm";
+import { type Term, busy, carryOn, choose, goal, pause, typeLine } from "./codexterm";
 import { type AgentPane, type ScreenData, type ScreenQuery, askSession, plainScreen } from "./screen";
 import { resumeTerm } from "./terminals";
 import { PLUGIN_VERSION } from "./version";
@@ -146,6 +146,35 @@ const lastLine = (text: string) => plainScreen(text).trimEnd().split("\n").pop()
 /** Before resuming a Codex session: tell its machine which session it is (code.mjs codexNote), so it's back at once. */
 async function noteCodex(term: Term, t: { session_id: string; cwd?: string | null }): Promise<void> {
   if (t.cwd) await term({ op: "codex-note", id: t.session_id, cwd: t.cwd } as never).catch(() => undefined);
+}
+
+export const BACK_LINE = "You were brought back from the intercom dashboard and are on the intercom again. Check your intercom inbox; if you had a goal, it stays paused until your user resumes it.";
+
+/**
+ * A Codex agent just brought back: past what it can stop at when it starts (its update offer, skipped; the goal
+ * question a resumed session with a goal asks, answered Leave paused, as resuming spends its usage and is your call),
+ * then given a line, as it only joins the intercom when a turn starts. What it did, for the reply.
+ */
+async function settleCodex(term: Term): Promise<string> {
+  await skipCodexUpdate(term);
+  let paused = false;
+  for (let i = 0; i < 6; i++) {
+    const s = await term({ op: "capture" });
+    const leave = choose(s.text, /^Leave paused/i);
+    if (leave) {
+      await term({ op: "keys", keys: leave });
+      paused = true;
+      await pause();
+      continue;
+    }
+    if (busy(s.text)) return paused ? "its goal left paused; it's working" : "it's working";
+    if (/Ask Codex to do anything|for shortcuts/i.test(plainScreen(s.text))) {
+      await typeLine(term, BACK_LINE);
+      return paused ? "its goal left paused (resume it in its terminal, or tell it to), and told it's back" : "told it's back, so it joins the intercom";
+    }
+    await pause();
+  }
+  return "it hasn't reached its prompt yet: look at its terminal";
 }
 
 /** Codex can stop at its own "Update available" choice when it starts: skip it (updating Codex is your call). */
@@ -363,8 +392,8 @@ export async function reviveAgent(env: Env, me: string, label: string): Promise<
       const term: Term = (q) => ask(env, me, at, tr, q, "from the dashboard");
       if (g.client === "codex") await noteCodex(term, g);
       await ask(env, me, at, tr, { op: "keys", text: resumeCommand(g), enter: true }, "from the dashboard");
-      if (g.client === "codex") await skipCodexUpdate(term);
-      return `Bringing ${label} back in its terminal: ${resumeCommand(g)}`;
+      const how = g.client === "codex" ? await settleCodex(term).catch(() => "") : "";
+      return `Bringing ${label} back in its terminal: ${resumeCommand(g)}${how ? `; ${how}` : ""}`;
     }
     // Codex itself still runs there, idle at its prompt, only off the intercom (its server lost track of its session):
     // restarted in place, the same session, which puts it back on the intercom.
@@ -378,7 +407,9 @@ export async function reviveAgent(env: Env, me: string, label: string): Promise<
     if (e instanceof UserError) throw new UserError(`${e.message} By hand, on ${g.host}: ${reviveByHand(g)}`);
     throw e;
   });
-  return `Bringing ${label} back on ${g.host}, in a new terminal${pane ? ` (${pane})` : ""}: it resumes its session and shows up here in a few seconds`;
+  // A Codex one can stop at a question as it starts, and only joins the intercom once a turn runs: seen to.
+  const how = g.client === "codex" && pane && helper ? await settleCodex((q) => ask(env, me, { via: helper, pane }, tr, q, "from the dashboard")).catch(() => "") : "";
+  return `Bringing ${label} back on ${g.host}, in a new terminal${pane ? ` (${pane}, named ${label})` : ""}: it resumes its session${how ? `; ${how}` : " and shows up here in a few seconds"}`;
 }
 
 // ---- context ----
