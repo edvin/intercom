@@ -256,6 +256,14 @@ export async function answerQuestion(env: Env, me: string, id: number, answers: 
   return fresh.length ? `Sent ${fresh.length === 1 ? "your answer" : `${fresh.length} answers`} to ${q.label}${open.length ? (rest === "agent" ? "; it decides the rest" : `; ${open.length} still open`) : ""}.` : `${q.label} decides the rest.`;
 }
 
+/** How many questions a card holds, and how many you answered: the card's number is one, its questions often several. */
+const qcount = (q: Question): string => {
+  const n = itemsOf(q).length;
+  if (n < 2) return "";
+  const done = answersOf(q).filter(Boolean).length;
+  return `<span class="tkcount">${n} questions${done && done < n ? ` · ${done} answered` : ""}</span>`;
+};
+
 export const questionHref = (id: number) => `/dashboard?view=question&id=${id}`;
 
 /** Questions about a ticket, for its page and the MR's: each linked to its own page, open ones first. */
@@ -291,7 +299,7 @@ export async function questionView(env: Env, me: string, id: number, back: strin
         .join("")}`;
   }
   return `<div class="pane-in tkpane qpane">
-    <div class="tkcrumb"><a class="btn ghost sm tkback" href="${esc(back)}">${icon("back", 14)}Back</a><span class="tksep">/</span>${icon("message", 15)}<span class="tkkeyl">Q${q.id}</span>${q.ticket ? `<span class="badge">${esc(q.ticket)}</span>` : ""}${q.url ? `<a href="${esc(q.url)}" target="_blank" rel="noopener noreferrer" class="tkkeyl" title="Open it">${icon("link", 12)}</a>` : ""}<span class="grow"></span><span class="tkfrom">${agentAvatar(me, q.label, "s")}<a href="${esc(agent)}">${esc(q.label)}</a><span>asked ${time(q.created_at)}</span></span></div>
+    <div class="tkcrumb"><a class="btn ghost sm tkback" href="${esc(back)}">${icon("back", 14)}Back</a><span class="tksep">/</span>${icon("message", 15)}<span class="tkkeyl" title="The number of this card: the questions ${esc(q.label)} asked you together">Q${q.id}</span>${qcount(q)}${q.ticket ? `<span class="badge">${esc(q.ticket)}</span>` : ""}${q.url ? `<a href="${esc(q.url)}" target="_blank" rel="noopener noreferrer" class="tkkeyl" title="Open it">${icon("link", 12)}</a>` : ""}<span class="grow"></span><span class="tkfrom">${agentAvatar(me, q.label, "s")}<a href="${esc(agent)}">${esc(q.label)}</a><span>asked ${time(q.created_at)}</span></span></div>
     <header class="tkhead"><h1>${linkKeys(esc(q.title), refsOf(q))}</h1></header>
     ${refLine(refsLeft(q))}
     <section class="tkcard qcard">${body}</section>

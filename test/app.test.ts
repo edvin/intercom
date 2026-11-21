@@ -4403,7 +4403,7 @@ describe("questions for you", () => {
     assert.match(asked, /Asked your user \(Q1\): it's a card in their dashboard, and a page of its own: \S*\/dashboard\?view=question&id=1\nWherever you mention these questions/);
     // Its page, and the ticket's: linked.
     const qpage = await (await w.request("/dashboard?view=question&id=1", { as: "bob", cookie: true })).text();
-    assert.match(qpage, /<span class="tkkeyl">Q1<\/span><span class="badge">SHOP-15<\/span>[\s\S]*action="\/question\/1"[\s\S]*name="back" value="\/dashboard\?view=question&amp;id=1&amp;back=/);
+    assert.match(qpage, /<span class="tkkeyl" title="[^"]*">Q1<\/span>(<span class="tkcount">[^<]*<\/span>)?<span class="badge">SHOP-15<\/span>[\s\S]*action="\/question\/1"[\s\S]*name="back" value="\/dashboard\?view=question&amp;id=1&amp;back=/);
     // The ticket it names, under the title once (no question names it), with what it is on hover.
     assert.match(qpage, /<ul class="qreflin"><li title="The ticket this MR implements"><a href="https:\/\/tracker\.example\.com\/browse\/SHOP-15"[^>]*class="qrkey">SHOP-15[\s\S]*?<span class="qrt">Termination dates for contracts<\/span><span class="tklz">In Review<\/span>/);
     assert.match(qpage, /<h1><a href="https:\/\/tracker\.example\.com\/browse\/SHOP-15"[^>]*class="qkey"[^>]*>SHOP-15<\/a>: dates for a contract without a term<\/h1>/);
