@@ -2508,7 +2508,9 @@ ${markupScript()}
   }, true);
   // An image or video whose file was deleted (Clean up, or past 30 days): a quiet "removed" in its place, not a broken image.
   document.addEventListener("error", (e) => {
-    const img = e.target; if (!img || img.tagName !== "IMG") return;
+    // A video's poster that isn't made yet is missing, not the video: posterMissing makes it from the video (and only
+    // a video that can't be fetched counts as gone).
+    const img = e.target; if (!img || img.tagName !== "IMG" || img.hasAttribute("data-poster")) return;
     const a = img.closest("a.att, a.attv"); if (a) a.classList.add("attgone");
   }, true);
   document.addEventListener("submit", async (e) => {
@@ -3080,7 +3082,11 @@ ${markupScript()}
       }, "image/jpeg", 0.75);
     };
     vid.muted = true; vid.playsInline = true; vid.preload = "auto";
-    vid.addEventListener("error", finish);
+    // The video itself failing: gone only if it isn't there any more (a codec this browser can't draw isn't that).
+    vid.addEventListener("error", () => {
+      fetch(href + "/info", { credentials: "same-origin" }).then((r) => { if (r.status === 404 || r.status === 410) $$('a.attv[href="' + href + '"]').forEach((a) => a.classList.add("attgone")); }).catch(() => {});
+      finish();
+    });
     vid.addEventListener("loadeddata", () => { if (vid.currentTime < 0.1 && vid.duration > 0.3) vid.currentTime = 0.1; else grab(); });
     vid.addEventListener("seeked", grab);
     vid.src = href;
