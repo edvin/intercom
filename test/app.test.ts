@@ -4384,12 +4384,13 @@ describe("questions for you", () => {
     // Its page, and the ticket's: linked.
     const qpage = await (await w.request("/dashboard?view=question&id=1", { as: "bob", cookie: true })).text();
     assert.match(qpage, /<span class="tkkeyl">Q1<\/span><span class="badge">SHOP-15<\/span>[\s\S]*action="\/question\/1"[\s\S]*name="back" value="\/dashboard\?view=question&amp;id=1&amp;back=/);
-    assert.match(qpage, /What it's about[\s\S]*class="qrkey">SHOP-15[\s\S]*<b>Termination dates for contracts<\/b><span class="tklz">In Review<\/span><span class="qrabout">The ticket this MR implements/);
+    // The ticket it names, under the title once (no question names it), with what it is on hover.
+    assert.match(qpage, /<ul class="qreflin"><li title="The ticket this MR implements"><a href="https:\/\/tracker\.example\.com\/browse\/SHOP-15"[^>]*class="qrkey">SHOP-15[\s\S]*?<span class="qrt">Termination dates for contracts<\/span><span class="tklz">In Review<\/span>/);
     assert.match(qpage, /<h1><a href="https:\/\/tracker\.example\.com\/browse\/SHOP-15"[^>]*class="qkey"[^>]*>SHOP-15<\/a>: dates for a contract without a term<\/h1>/);
     // One the intercom already tracks for you links by itself.
     await w.db.prepare("INSERT INTO tracked (member, board, key, url, title, state, created_at, changed_at, seen_at) VALUES ('bob', 'b', 'PAY-7', 'https://tracker.example.com/browse/PAY-7', 'Refunds', 'Done', 1, 1, 1)").run();
     assert.match(await w.ok("bob", "question", { title: "PAY-7 again?", questions: [{ question: "Reopen PAY-7?", options: ["Yes", "No"] }] }, core), /Asked your user \(Q2\)/);
-    assert.match(await (await w.request("/dashboard?view=question&id=2", { as: "bob", cookie: true })).text(), /class="qrkey">PAY-7[\s\S]*<b>Refunds<\/b><span class="tklz">Done<\/span>/);
+    assert.match(await (await w.request("/dashboard?view=question&id=2", { as: "bob", cookie: true })).text(), /class="qrkey">PAY-7[\s\S]*?<span class="qrt">Refunds<\/span><span class="tklz">Done<\/span>/);
     await w.ok("bob", "question", { action: "withdraw", id: 2 }, core);
     const { questionsAbout } = await import("../src/questions.ts");
     assert.match(await questionsAbout(w.env(), "bob", "SHOP-15"), /href="\/dashboard\?view=question&id=1"[\s\S]*to answer/);

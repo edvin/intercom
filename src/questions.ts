@@ -76,15 +76,28 @@ function linkKeys(html: string, refs: QRef[]): string {
     .join("");
 }
 
-/** What they're about, on top: each ticket and MR with its title, status and a line on what it is. */
-function refsBox(refs: QRef[]): string {
+/** The tickets and MRs one question names (in it, its context or its options), in the order they appear. */
+function refsIn(it: QItem, refs: QRef[]): QRef[] {
+  const said = mentions([it.question, it.context, ...it.options.flatMap((o) => [o.label, o.detail])].join("\n")).map((k) => k.toLowerCase());
+  return refs.filter((r) => said.includes(r.key.toLowerCase()));
+}
+
+/** A question's tickets and MRs, under it: one line each, key, title and status (what it is on hover). */
+function refLine(refs: QRef[]): string {
   if (!refs.length) return "";
-  return `<ul class="qrefs">${refs
+  return `<ul class="qreflin">${refs
     .map(
-      (r) => `<li>${r.url ? `<a href="${esc(r.url)}" target="_blank" rel="noopener noreferrer" class="qrkey">${esc(r.key)}${icon("link", 11)}</a>` : `<b class="qrkey">${esc(r.key)}</b>`}<div class="qrmain">${r.title ? `<b>${esc(r.title)}</b>` : ""}${r.status ? `<span class="tklz">${esc(r.status)}</span>` : ""}${r.about ? `<span class="qrabout">${esc(r.about)}</span>` : ""}</div></li>`,
+      (r) =>
+        `<li${r.about ? ` title="${esc(r.about)}"` : ""}>${r.url ? `<a href="${esc(r.url)}" target="_blank" rel="noopener noreferrer" class="qrkey">${esc(r.key)}${icon("link", 10)}</a>` : `<b class="qrkey">${esc(r.key)}</b>`}<span class="qrt">${esc(r.title || r.about)}</span>${r.status ? `<span class="tklz">${esc(r.status)}</span>` : ""}</li>`,
     )
     .join("")}</ul>`;
 }
+
+/** The ones no question names (the title's, say): shown once, under the title. */
+const refsLeft = (q: Question): QRef[] => {
+  const used = new Set(itemsOf(q).flatMap((it) => refsIn(it, refsOf(q)).map((r) => r.key.toLowerCase())));
+  return refsOf(q).filter((r) => !used.has(r.key.toLowerCase()));
+};
 
 export const itemsOf = (q: Question): QItem[] => {
   try {
@@ -239,7 +252,7 @@ export async function questionView(env: Env, me: string, id: number, back: strin
         .map((it, i) => {
           const a = ans[i] ?? { choices: [], text: "" };
           const picked = a.choices.map((c) => it.options[c]?.label).filter(Boolean).join(" + ");
-          return `<div class="qitem"><div class="qlegend"><span class="qn">${i + 1}</span><span class="qq">${linkKeys(esc(it.question), refsOf(q))}</span></div>${it.context ? `<div class="qctx md">${linkKeys(md(it.context), refsOf(q))}</div>` : ""}${
+          return `<div class="qitem"><div class="qlegend"><span class="qn">${i + 1}</span><span class="qq">${linkKeys(esc(it.question), refsOf(q))}</span></div>${refLine(refsIn(it, refsOf(q)))}${it.context ? `<div class="qctx md">${linkKeys(md(it.context), refsOf(q))}</div>` : ""}${
             q.status === "answered" ? `<p class="qans">${icon("arrow", 13)}<span>${esc([picked, a.text.trim()].filter(Boolean).join(". ") || "No answer")}</span></p>` : ""
           }</div>`;
         })
@@ -248,7 +261,7 @@ export async function questionView(env: Env, me: string, id: number, back: strin
   return `<div class="pane-in tkpane qpane">
     <div class="tkcrumb"><a class="btn ghost sm tkback" href="${esc(back)}">${icon("back", 14)}Back</a><span class="tksep">/</span>${icon("message", 15)}<span class="tkkeyl">Q${q.id}</span>${q.ticket ? `<span class="badge">${esc(q.ticket)}</span>` : ""}${q.url ? `<a href="${esc(q.url)}" target="_blank" rel="noopener noreferrer" class="tkkeyl" title="Open it">${icon("link", 12)}</a>` : ""}<span class="grow"></span><span class="tkfrom">${agentAvatar(me, q.label, "s")}<a href="${esc(agent)}">${esc(q.label)}</a><span>asked ${time(q.created_at)}</span></span></div>
     <header class="tkhead"><h1>${linkKeys(esc(q.title), refsOf(q))}</h1></header>
-    ${refsOf(q).length ? `<section class="tkcard qcard qrefcard"><span class="askh">What it's about</span>${refsBox(refsOf(q))}</section>` : ""}
+    ${refLine(refsLeft(q))}
     <section class="tkcard qcard">${body}</section>
   </div>`;
 }
@@ -266,6 +279,7 @@ function questionForm(q: Question, back: string): string {
         )
         .join("");
       return `<fieldset class="qitem"><legend><span class="qn">${n}</span><span class="qq">${linkKeys(esc(it.question), refs)}</span></legend>
+        ${refLine(refsIn(it, refs))}
         ${it.context ? `<div class="qctx md">${linkKeys(md(it.context), refs)}</div>` : ""}
         ${opts ? `<div class="qopts">${opts}</div>` : ""}
         <textarea name="t${n}" rows="${opts ? 1 : 2}" class="tkta" maxlength="${QLIMITS.answer}" placeholder="${opts ? "Or in your own words (optional)" : "Your answer"}"></textarea>
@@ -282,7 +296,7 @@ export function questionCard(q: Question, back: string): string {
   return `<article class="ask k-question" data-mid="y${q.id}">
     <header class="askwho"><span class="upic">${icon("message", 14)}</span><span class="askname">${esc(q.label)}</span><span class="askk">asks you</span><span class="grow"></span><a class="btn ghost xs" href="${questionHref(q.id)}" title="Its own page">${icon("arrow", 12)}Open</a></header>
     <p class="stkhead">${linkKeys(esc(q.title), refsOf(q))}${q.url ? ` <a href="${esc(q.url)}" target="_blank" rel="noopener" class="qlink">${icon("link", 12)}link</a>` : ""}</p>
-    ${refsBox(refsOf(q))}
+    ${refLine(refsLeft(q))}
     ${questionForm(q, back)}
   </article>`;
 }
