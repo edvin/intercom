@@ -42,7 +42,8 @@ function questionForm(p: Approval, back: string): string {
     })
     .join("");
   return `<form method="post" action="/approval/${p.id}">${hidden({ back })}${body}
-    <div class="askact">${oneClick ? "" : `<button name="decision" value="allow" class="btn sm primary">${icon("send", 13)}Send</button>`}<button name="decision" value="deny" class="btn sm ghost" title="Tell the agent you're not answering">Skip</button></div></form>`;
+    <details class="askback"><summary>${icon("message", 12)}Ask it something first</summary><div class="askbackrow"><input name="askback" placeholder="Your question to it, before you answer" autocomplete="off"><button name="decision" value="askback" class="btn sm">${icon("send", 12)}Ask</button></div></details>
+    <div class="askact">${oneClick ? "" : `<button name="decision" value="allow" class="btn sm primary" title="${qs.length > 1 ? "Send what you answered; the rest go back as not answered yet" : "Send your answer"}">${icon("send", 13)}Send${qs.length > 1 ? " what I answered" : ""}</button>`}<button name="decision" value="deny" class="btn sm ghost" title="Tell the agent you're not answering">Skip</button></div></form>`;
 }
 
 type Screens = Map<string, { label: string; screen: string; client: string }>;

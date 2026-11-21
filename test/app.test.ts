@@ -991,6 +991,26 @@ describe("answering agents from the dashboard, whoever answers first", () => {
     assert.deepEqual((await poll(w, id2)).answers, { "Which color?": "Teal, actually" });
   });
 
+  test("several questions: send what you answered (the rest go back as not answered yet), or ask it something back first", async () => {
+    const w = await standardWorld();
+    await start(w, "q2");
+    const two = { tool_name: "AskUserQuestion", tool_input: { questions: [color.tool_input.questions[0], { question: "Which size?", header: "Size", multiSelect: false, options: [{ label: "S", description: "" }, { label: "L", description: "" }] }] } };
+    const { id } = (await (await ask(w, "q2", two)).json()) as { id: number };
+    const html = await dock(w);
+    assert.match(html, /Send what I answered[\s\S]*?Skip/);
+    assert.match(html, /Ask it something first[\s\S]*?name="askback"[\s\S]*?value="askback"/);
+    await w.form(`/approval/${id}`, "bob", { decision: "allow", q0: "Blue" });
+    assert.deepEqual((await poll(w, id)).answers, { "Which color?": "Blue", "Which size?": "(Not answered yet. Don't assume an answer: ask again when you need it.)" });
+    // Asking back: no answers, your question goes to it.
+    const { id: id2 } = (await (await ask(w, "q2", two)).json()) as { id: number };
+    const empty = new URL((await w.form(`/approval/${id2}`, "bob", { decision: "askback", askback: "" })).headers.get("location")!, ORIGIN);
+    assert.match(empty.searchParams.get("err")!, /Type what you want to ask it/);
+    await w.form(`/approval/${id2}`, "bob", { decision: "askback", askback: "What's the size for, a poster or a card?" });
+    const d = await poll(w, id2);
+    assert.equal(d.status, "deny");
+    assert.match(JSON.stringify(d), /Before answering, your user asks you: What's the size for, a poster or a card\?/);
+  });
+
   test("answered in the terminal: the plugin closes the card; a turn that ends closes its cards; unanswered ones just close", async () => {
     const w = await standardWorld();
     await start(w, "c1");

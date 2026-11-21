@@ -157,7 +157,9 @@ export function answersFrom(questions: Question[], picked: (i: number) => string
     const answer = text || (q.multiSelect ? labels : labels.slice(0, 1)).join(", ");
     if (answer) out[q.question] = answer;
   });
-  if (Object.keys(out).length < questions.length) throw new UserError(questions.length > 1 ? "Answer each question (pick an option or type something)." : "Pick an option or type something.");
+  if (!Object.keys(out).length) throw new UserError(questions.length > 1 ? "Answer at least one question (pick an option or type something), or ask it something back." : "Pick an option or type something.");
+  // The ones you left: said so, so it doesn't take a guess for your answer.
+  for (const q of questions) if (!out[q.question]) out[q.question] = "(Not answered yet. Don't assume an answer: ask again when you need it.)";
   return out;
 }
 

@@ -989,10 +989,14 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
       const id = Number(url.pathname.slice(10));
       const a = await env.DB.prepare("SELECT kind, detail FROM approvals WHERE id = ? AND member = ?").bind(id, me).first<Pick<Approval, "kind" | "detail">>();
       const questions = a?.kind === "question" ? questionsOf({ questions: JSON.parse(a.detail || "[]") }) : null;
-      const deny = form.get("decision") === "deny";
+      // Asking it something back instead of answering: a deny that carries your question, so it answers and asks again.
+      const back = String(form.get("askback") ?? "").trim().slice(0, 2000);
+      const deny = form.get("decision") === "deny" || form.get("decision") === "askback";
+      if (form.get("decision") === "askback" && !back) throw new UserError("Type what you want to ask it.");
       // A question is answered with its options (or typed text); skipping it is a deny with your note.
       const answers = questions && !deny ? answersFrom(questions, (i) => form.getAll(`q${i}`).map(String), (i) => String(form.get(`t${i}`) ?? "")) : undefined;
-      u.searchParams.set("ok", await decide(env, me, id, deny ? "deny" : "allow", String(form.get("note") ?? ""), answers));
+      const note = form.get("decision") === "askback" ? `Before answering, your user asks you: ${back}\nAnswer that first (in your reply to them), then ask your questions again if you still need them.` : String(form.get("note") ?? "");
+      u.searchParams.set("ok", await decide(env, me, id, deny ? "deny" : "allow", note, answers));
     } catch (e) {
       u.searchParams.set("err", (e as Error).message);
     }
