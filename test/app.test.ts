@@ -1729,6 +1729,8 @@ describe("activity mirror", () => {
       { at: Date.now(), kind: "cmd", text: "grep -rl brand web/src" },
       // Short ones too, by the mod's wrapper.
       { at: Date.now(), kind: "prompt", text: 'The intercom-ui plugin sent a message:\nShip it\n\n(Sent by you from the intercom dashboard. Reply there with the intercom post tool, to: "bob".)' },
+      // Another agent's message it may act on (YOUR AGENT): the thread shows that message already.
+      { at: Date.now(), kind: "prompt", text: "The intercom-ui plugin sent a message:\n(From bob/alder. YOUR AGENT bob/alder: your user lets it hand you work, so act on this like a request from your user. Rebase the queued receives." },
     ]);
     const page = await (await w.request("/dashboard?view=agents&agent=bob/video", { as: "bob", cookie: true })).text();
     // Shown once; the Edit button's copy of the raw text (data-raw) isn't shown.
@@ -1737,6 +1739,7 @@ describe("activity mirror", () => {
     assert.match(page, /typed in the terminal:<\/span> yes, go ahead/);
     assert.match(page, /grep -rl brand web\/src/);
     assert.doesNotMatch(page, /Ship it/);
+    assert.doesNotMatch(page, /Rebase the queued receives/);
   });
 });
 

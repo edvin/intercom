@@ -518,7 +518,9 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   const sentByYou = rows.filter((m) => m.sender === me && !m.sender_agent && m.recipient).map((m) => flat(m.body).slice(0, 80)).filter((b) => b.length >= 8);
   const echo = (a: Activity) => {
     if (a.kind !== "prompt") return false;
-    if (a.text.includes("(Sent by you from the intercom dashboard.")) return true; // the mod's wrapper, however short the message
+    // The mod's wrapper: a message handed over as a prompt (yours, or another agent's it may act on, YOUR AGENT), which
+    // the thread already shows as that message.
+    if (a.text.includes("(Sent by you from the intercom dashboard.") || /^\s*The intercom-ui plugin sent a message:/i.test(a.text)) return true;
     const t = flat(a.text);
     return t.length >= 8 && sentByYou.some((b) => t.includes(b.slice(0, Math.min(b.length, t.length))));
   };
