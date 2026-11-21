@@ -1377,6 +1377,23 @@ describe("addresses", () => {
   });
 });
 
+describe("pausing an agent", () => {
+  test("a paused agent's senders are told why and until when, team shows it, and Resume ends it", async () => {
+    const w = await standardWorld();
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=p1&name=alder", { as: "bob" });
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=p2&name=core", { as: "bob" });
+    const s = { id: "p1", project: "billing-api" };
+    const loc = (r: Response) => new URL(r.headers.get("location")!, "https://x");
+    assert.match(loc(await w.form("/agent/pause", "bob", { label: "core", reason: "out of tokens", minutes: "180", tz: "Europe/Berlin", back: "/dashboard?view=agents" })).searchParams.get("ok")!, /core is paused until/);
+    assert.match(await w.ok("bob", "post", { to: "bob/core", message: "can you check the build?" }, s), /Sent DM \[\d+\] to bob\/core\. Note: bob\/core is paused by bob \(out of tokens\) until \w{3} \d\d:\d\d, in 2h 5\dm|Note: bob\/core is paused by bob \(out of tokens\) until/);
+    assert.match(await w.ok("bob", "team", {}, s), /core[\s\S]*paused by bob \(out of tokens\)/);
+    assert.match(await (await w.request("/dashboard?view=agents&agent=bob%2Fcore", { as: "bob", cookie: true })).text(), /class="cbanner pausedbar"[\s\S]*?Paused until[\s\S]*?out of tokens/);
+    assert.match(loc(await w.form("/agent/pause", "bob", { label: "core", resume: "1", back: "/dashboard?view=agents" })).searchParams.get("ok")!, /core isn't paused any more/);
+    assert.doesNotMatch(await w.ok("bob", "post", { to: "bob/core", message: "and now?" }, s), /paused/);
+    assert.match(loc(await w.form("/agent/pause", "bob", { label: "nobody", back: "/dashboard?view=agents" })).searchParams.get("err")!, /No agent of yours is called nobody/);
+  });
+});
+
 describe("an agent named like a project", () => {
   test("a DM to an agent whose name is also a project's reaches that agent only, not every agent in the project", async () => {
     const w = await standardWorld();

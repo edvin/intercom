@@ -1,3 +1,4 @@
+import { pauseNote, pauseOf } from "./pauses";
 import { freeNotes, getNote, setNote } from "./notes";
 import { setAway } from "./approvals";
 import { type Review, LIMITS, OUTCOMES, SEVERITIES, answerReview, closeReview, openReview, pendingReviews, withdrawReview } from "./reviews";
@@ -147,6 +148,8 @@ async function send(env: Env, me: string, a: Args, body: string): Promise<{ id: 
     const { results: matches } = await env.DB.prepare("SELECT session_id, last_seen FROM sessions WHERE member = ? AND (label = ?2 OR project = ?2) ORDER BY last_seen DESC")
       .bind(recipient, recipient_agent)
       .all<{ session_id: string; last_seen: number }>();
+    const paused = await pauseOf(env, recipient, recipient_agent);
+    if (paused) return { id, text: sent + pauseNote(recipient, recipient_agent, paused) };
     const up = await agentUp(env, recipient, recipient_agent);
     if (up) return { id, text: sent + (await sendWarning(env, recipient, recipient_agent)) };
     return { id, text: `${sent} Note: no ${address(recipient, recipient_agent)} session is connected right now${matches[0] ? ` (last seen ${ago(matches[0].last_seen)})` : ""}. It's kept for them: the next session with that name gets it.` };

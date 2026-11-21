@@ -2,6 +2,7 @@
 // What you write there reaches that session as YOUR USER (your own agents act on it like a typed prompt);
 // what it answers comes back here. Its project posts show in the thread as activity.
 
+import { pauseOf, pausedBar } from "./pauses";
 import { stuckSessions } from "./stuck";
 import { screenAttrs } from "./screen";
 import { awayState, pendingApprovals } from "./approvals";
@@ -714,6 +715,8 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
   // Its plan's limits (5-hour and weekly windows, from the last answer Claude Code got) and what it has cost: what its
   // mod reads off the status line's figures. Your own agents only; a window whose reset has passed is left out.
   const usage = ownAgent ? usageOf(agent.usage) : null;
+  // Paused by you (pauses.ts): a banner with Resume, instead of Pause in its menu.
+  const paused = ownAgent ? await pauseOf(env, me, agent.label) : null;
   // Its processes (procs.ts): read when you open the panel, through its own intercom.
   const procsOn = ownAgent && isOn(agent) && !!agent.version && !newer(PROCS_SINCE, agent.version);
   const usageGauges = (usage?.rl ?? [])
@@ -761,7 +764,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
       ${ownAgent ? `<button type="button" class="mi ttog" data-acttoggle>${icon("eye", 15)}<span>What it's doing</span><span class="mchk">${icon("check", 13)}</span></button>` : ""}
       ${ownAgent ? `<div class="mnarrow">${codeOn ? `<a class="mi" href="${back}">${icon("message", 15)}<span>Chat</span></a>` : `<a class="mi" href="${back}&amp;code=changes">${icon("code", 15)}<span>Code: its changes and files</span></a>`}${canScreen ? `<button type="button" class="mi" ${screenAttrs(key(agent), agent.label, agent.screen ?? "", agent.client ?? "")}>${icon("terminal", 15)}<span>Its screen</span></button>` : ""}<button type="button" class="mi mwatch${watching ? " on" : ""}" data-watch="${esc(agent.label)}">${icon("bell", 15)}<span>Tell me when it's done</span><span class="mchk">${icon("check", 13)}</span></button></div>` : ""}
       <a class="mi" href="/dashboard?view=files&amp;agent=${encodeURIComponent(key(agent))}">${icon("image", 15)}<span>Files from ${esc(agent.label)}</span></a>
-      ${ownAgent ? `<hr><button type="button" class="mi" data-open="dlg-rename">${icon("pencil", 15)}<span>Rename…</span></button><button type="button" class="mi" data-open="dlg-project">${icon("hash", 15)}<span>Change project…</span></button>${canCompact && !agent.compact_req && !agent.compact_prep ? `<button type="button" class="mi" data-open="dlg-compact">${icon("layers", 15)}<span>Compact…</span></button>` : ""}${canModel && !modelWant ? `<button type="button" class="mi" data-open="dlg-model">${icon("cpu", 15)}<span>Model…</span></button>` : ""}` : ""}
+      ${ownAgent ? `<hr>${paused ? "" : `<button type="button" class="mi" data-open="dlg-pause">${icon("clock", 15)}<span>Pause…</span></button>`}<button type="button" class="mi" data-open="dlg-rename">${icon("pencil", 15)}<span>Rename…</span></button><button type="button" class="mi" data-open="dlg-project">${icon("hash", 15)}<span>Change project…</span></button>${canCompact && !agent.compact_req && !agent.compact_prep ? `<button type="button" class="mi" data-open="dlg-compact">${icon("layers", 15)}<span>Compact…</span></button>` : ""}${canModel && !modelWant ? `<button type="button" class="mi" data-open="dlg-model">${icon("cpu", 15)}<span>Model…</span></button>` : ""}` : ""}
     </div>`;
   const chat = `<section class="chat${codeOn ? " codemode" : ""}${inspOpen ? " inspon" : ""}">
       <header class="chd" id="chathd" data-region data-subs="${runningN}" data-agent="${esc(key(agent))}" data-state="${on ? esc(agent.state ?? "") : "off"}">
@@ -781,6 +784,7 @@ export async function agentsView(env: Env, me: string, url: URL, people: string[
         </div>
       </header>
       ${codeOn || !ownAgent ? "" : subTabs}
+      ${ownAgent && paused ? pausedBar(agent.label, paused, here, esc, hidden) : ""}
       ${ownAgent && !on ? reviveBar(agent, endedList.find((g) => g.label === agent.label), back) : ""}
       ${on && agent.state === "waiting" && !pending.some((p) => p.session_id === agent.session_id) && !asksHere.includes('data-mid="w') ? `<div class="cbanner"><i></i><span><b>${esc(agent.label)} is waiting${agent.state_at ? ` (asked ${ago(agent.state_at)})` : ""}:</b> ${esc(agent.state_detail || "for approval or input")}. Only its terminal can answer this.${canScreen ? "" : " Already answered? Claude Code doesn't say when, so this stays until the step has run."}</span>${canScreen ? `<button type="button" class="btn sm" ${screenAttrs(key(agent), agent.label, agent.screen ?? "", agent.client ?? "")}>${icon("terminal", 14)}Open its screen</button>` : ""}</div>` : ""}
       <div class="cbody"><div class="cmain">
@@ -823,7 +827,13 @@ ${(() => {
       </aside></div>
     </section>`;
   const dialogs = ownAgent
-    ? `${canCompact ? `<dialog id="dlg-compact"><div class="hd">${icon("layers", 18)}<h2>Compact ${esc(agent.label)}</h2></div>
+    ? `<dialog id="dlg-pause"><div class="hd">${icon("clock", 18)}<h2>Pause ${esc(agent.label)}</h2></div>
+        <form method="post" action="/agent/pause">${hidden({ label: agent.label, back: here })}<input type="hidden" name="tz" data-tz><div class="bd stack">
+          <p class="small muted" style="margin:0">While it's paused, whoever messages ${esc(agent.label)} (your other agents, teammates) is told it won't answer before then, and that their message waits for it. The intercom doesn't wake it. Stopping it is still up to you, in its terminal.</p>
+          <label class="field">Why, as they see it<input name="reason" maxlength="200" value="out of tokens" autocomplete="off"></label>
+          <label class="field">For<select name="minutes"><option value="60">An hour</option><option value="180">3 hours</option><option value="360" selected>6 hours</option><option value="720">12 hours</option><option value="1440">A day</option><option value="4320">3 days</option><option value="10080">A week</option><option value="0">Until I resume it</option></select></label>
+        </div><div class="ft"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary">${icon("clock", 14)}Pause</button></div></form></dialog>
+      ${canCompact ? `<dialog id="dlg-compact"><div class="hd">${icon("layers", 18)}<h2>Compact ${esc(agent.label)}</h2></div>
         <form method="post" action="/agent/compact">${hidden({ session: agent.session_id, back: here })}<div class="bd stack">
           <p class="small muted" style="margin:0">Like /compact: the conversation so far becomes a summary, freeing its context${agent.ctx_pct != null ? ` (now ${agent.ctx_pct}% full)` : ""}. It runs when the current turn ends.</p>
           <label class="field">What the summary should keep (optional)<textarea name="instructions" rows="3" maxlength="500" placeholder="e.g. the deploy plan and the open review comments"></textarea></label>

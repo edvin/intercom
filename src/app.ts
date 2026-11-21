@@ -1,3 +1,4 @@
+import { pauseAgent, resumeAgent } from "./pauses";
 import { sqlCtx, sqlStatsText } from "./db";
 import { queueReset, resetHost, setResets } from "./resets";
 import { isFable, maybeFableLook, queueFableLook, setFableOpus } from "./fable";
@@ -1382,6 +1383,24 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
     else {
       await env.DB.prepare("INSERT INTO agent_prefs (member, label, takes_work) VALUES (?, ?, ?) ON CONFLICT(member, label) DO UPDATE SET takes_work = excluded.takes_work").bind(me, label, on ? 1 : 0).run();
       back.searchParams.set("ok", on ? `${label} now takes work from your other agents` : `${label} treats your other agents' messages as information again`);
+    }
+    return redirect(back.pathname + back.search);
+  }
+  if (url.pathname === "/agent/pause" && req.method === "POST") {
+    // Pausing one of your agents (pauses.ts): whoever messages it is told it won't answer until then; or resuming it.
+    if (!sameOrigin(req) || env.authKind !== "web") return new Response("Cross-origin request refused", { status: 403 });
+    const form = await req.formData();
+    const back = new URL(localPath(form.get("back"), "/dashboard?view=agents"), url);
+    const label = String(form.get("label") ?? "").slice(0, 64);
+    try {
+      const mins = Number(form.get("minutes") ?? 0);
+      back.searchParams.set(
+        "ok",
+        form.get("resume") ? await resumeAgent(env, me, label) : await pauseAgent(env, me, label, String(form.get("reason") ?? ""), Number.isFinite(mins) && mins > 0 ? mins : null, String(form.get("tz") ?? "")),
+      );
+    } catch (e) {
+      if (!(e instanceof UserError)) throw e;
+      back.searchParams.set("err", e.message);
     }
     return redirect(back.pathname + back.search);
   }

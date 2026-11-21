@@ -4,6 +4,7 @@
 // notification), and from there moves the waiting messages to another agent, tells the senders not to wait, or
 // dismisses it.
 
+import { pauseOf, pauseReason } from "./pauses";
 import { typeLine } from "./codexterm";
 import { type Env, GONE_MS, UserError, address, ago, forwardAgent, liveIds, postMessage } from "./lib";
 import { onlineAgents } from "./reviews";
@@ -61,6 +62,12 @@ interface SessionRow {
 
 /** Why a session can't take messages now, if it can't: "" when it can (as far as the hub knows). */
 export async function cantTake(env: Env, member: string, agent: string): Promise<{ reason: string; client: string; activeAt: number | null; host: string; wake: boolean; nudgeable?: boolean }> {
+  // Paused by its person (pauses.ts): that's why, whatever its session is doing, and it isn't woken.
+  const [why, paused] = await Promise.all([cantTakeNow(env, member, agent), pauseOf(env, member, agent)]);
+  return paused ? { ...why, reason: pauseReason(member, paused), wake: false, nudgeable: false } : why;
+}
+
+async function cantTakeNow(env: Env, member: string, agent: string): Promise<{ reason: string; client: string; activeAt: number | null; host: string; wake: boolean; nudgeable?: boolean }> {
   const { results } = await env.DB.prepare(
     "SELECT session_id, label, project, client, state, state_detail, last_seen, active_at, host, screen FROM sessions WHERE member = ?1 AND (label = ?2 OR project = ?2) ORDER BY last_seen DESC LIMIT 20",
   )
