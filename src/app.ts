@@ -850,7 +850,7 @@ export async function handle(req: Request, env: Env, adminToken: string | undefi
     try {
       const id = Number(url.pathname.slice(10));
       const answers = Array.from({ length: 5 }, (_, i) => ({ choices: form.getAll(`o${i + 1}`).map(Number).filter((n) => Number.isInteger(n)), text: String(form.get(`t${i + 1}`) ?? "").replace(/\r\n?/g, "\n") }));
-      u.searchParams.set("ok", await answerQuestion(env, me, id, answers));
+      u.searchParams.set("ok", await answerQuestion(env, me, id, answers, form.get("rest") === "agent" ? "agent" : "later"));
     } catch (e) {
       if (!(e instanceof UserError)) throw e;
       u.searchParams.set("err", e.message);

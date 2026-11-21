@@ -4395,13 +4395,18 @@ describe("questions for you", () => {
     const { questionsAbout } = await import("../src/questions.ts");
     assert.match(await questionsAbout(w.env(), "bob", "SHOP-15"), /href="\/dashboard\?view=question&id=1"[\s\S]*to answer/);
     const page = await (await w.request("/dashboard", { as: "bob", cookie: true })).text();
-    assert.match(page, /class="ask k-question"[\s\S]*?core<\/span><span class="askk">asks you[\s\S]*?SHOP-15<\/a>: dates for a contract without a term[\s\S]*?Should a contract without a term[\s\S]*?The reviewer leans to <b>none<\/b>[\s\S]*?name="o1" value="0"><span><b>None is right<\/b><em class="qsug">suggested<\/em><span class="qdet">I update AC1 and the QA steps[\s\S]*?name="o2" value="1"><span><b>No<\/b>[\s\S]*?Send answers to core/);
+    assert.match(page, /class="ask k-question"[\s\S]*?core<\/span><span class="askk">asks you[\s\S]*?SHOP-15<\/a>: dates for a contract without a term[\s\S]*?Should a contract without a term[\s\S]*?The reviewer leans to <b>none<\/b>[\s\S]*?name="o1" value="0"><span><b>None is right<\/b><em class="qsug">suggested<\/em><span class="qdet">I update AC1 and the QA steps[\s\S]*?name="o2" value="1"><span><b>No<\/b>[\s\S]*?Send, and let it decide the rest[\s\S]*?Send what I answered to core/);
     assert.match(page, /id="railasks"[^>]*>[\s\S]*?<span class="rpill amber">1<\/span>/);
     assert.match(loc(await w.form("/question/1", "bob", {})).get("err")!, /Answer at least one/);
-    assert.match(loc(await w.form("/question/1", "bob", { o1: "0", t1: "and say so in the MR description", o2: "0" })).get("ok")!, /Sent your answers to core/);
-    const inbox = await w.ok("bob", "inbox", {}, core);
-    assert.match(inbox, /YOUR USER[\s\S]*My answers to Q1, SHOP-15: dates for a contract without a term:\n1\. Should a contract without a term offer no termination dates\?\n\s*→ None is right\. and say so in the MR description\n2\. Open a follow-up ticket for the four other callers\?\n\s*→ Yes/);
-    assert.match(await w.ok("bob", "decisions", { query: "SHOP-15" }), /NOTED · SHOP-15: dates for a contract without a term — 1\. None is right\. and say so in the MR description \| 2\. Yes/);
+    // One now, the other later: the card stays with the one still open.
+    assert.match(loc(await w.form("/question/1", "bob", { o1: "0", t1: "and say so in the MR description" })).get("ok")!, /Sent your answer to core; 1 still open/);
+    let inbox = await w.ok("bob", "inbox", {}, core);
+    assert.match(inbox, /YOUR USER[\s\S]*My answers to Q1, SHOP-15: dates for a contract without a term:\n1\. Should a contract without a term offer no termination dates\?\n\s*→ None is right\. and say so in the MR description\nStill open: 2\. I'll answer it later; don't act on it yet\./);
+    assert.match(await (await w.request("/dashboard", { as: "bob", cookie: true })).text(), /class="qitem qdone"[\s\S]*?None is right\. and say so in the MR description[\s\S]*?name="o2" value="0"[\s\S]*?Send answer to core/);
+    assert.match(loc(await w.form("/question/1", "bob", { o2: "0" })).get("ok")!, /Sent your answer to core\./);
+    inbox = await w.ok("bob", "inbox", {}, core);
+    assert.match(inbox, /My answers to Q1, SHOP-15: dates for a contract without a term:\n2\. Open a follow-up ticket for the four other callers\?\n\s*→ Yes/);
+    assert.match(await w.ok("bob", "decisions", { query: "SHOP-15" }), /NOTED · SHOP-15: dates for a contract without a term \(1\) — 1\. None is right\. and say so in the MR description/);
     assert.doesNotMatch(await (await w.request("/dashboard", { as: "bob", cookie: true })).text(), /class="ask k-question"/);
     assert.match(loc(await w.form("/question/1", "bob", { o1: "1" })).get("err")!, /already answered/);
     assert.match(await (await w.request("/dashboard?view=question&id=1", { as: "bob", cookie: true })).text(), /You answered[\s\S]*class="qans">[\s\S]*None is right\. and say so in the MR description/);

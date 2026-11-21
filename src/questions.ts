@@ -194,30 +194,66 @@ export async function withdrawQuestion(env: Env, me: string, id: number): Promis
   return `Withdrew Q${id}.`;
 }
 
-/** Your answers: each question's choice(s) and your words, sent to the agent as YOUR USER, and logged. */
-export async function answerQuestion(env: Env, me: string, id: number, answers: { choices: number[]; text: string }[]): Promise<string> {
+type Answer = { choices: number[]; text: string; at?: number };
+
+/** What you answered so far (per question; null where you haven't yet). */
+export const answersOf = (q: Question): (Answer | null)[] => {
+  try {
+    const a = JSON.parse(q.answer ?? "[]") as (Answer | null)[];
+    return itemsOf(q).map((_, i) => {
+      const x = a[i];
+      return x && ((x.choices?.length ?? 0) || x.text?.trim()) ? x : null;
+    });
+  } catch {
+    return itemsOf(q).map(() => null);
+  }
+};
+
+const answerText = (it: QItem, a: Answer) => {
+  const picked = a.choices.filter((c) => c >= 0 && c < it.options.length).map((c) => it.options[c]!.label);
+  const said = a.text.trim().slice(0, QLIMITS.answer);
+  return [picked.join(" + "), said].filter(Boolean).join(picked.length && said ? ". " : "");
+};
+
+/**
+ * Your answers to the questions you answered now, sent to the agent as YOUR USER and logged. The others stay open on
+ * the card for later; or, with `rest: "agent"`, it decides them itself.
+ */
+export async function answerQuestion(env: Env, me: string, id: number, answers: Answer[], rest: "later" | "agent" = "later"): Promise<string> {
   const q = await env.DB.prepare("SELECT * FROM questions WHERE id = ? AND member = ?").bind(id, me).first<Question>();
   if (!q) throw new UserError("No such question.");
   if (q.status !== "open") throw new UserError(q.status === "answered" ? "You already answered this." : `${q.label} took this question back.`);
   const items = itemsOf(q);
-  const lines: string[] = [];
-  const short: string[] = [];
-  items.forEach((it, i) => {
-    const a = answers[i] ?? { choices: [], text: "" };
-    const picked = a.choices.filter((c) => c >= 0 && c < it.options.length).map((c) => it.options[c]!.label);
-    const said = a.text.trim().slice(0, QLIMITS.answer);
-    const ans = [picked.join(" + "), said].filter(Boolean).join(picked.length && said ? ". " : "");
-    lines.push(`${i + 1}. ${it.question}\n   → ${ans || "(no answer: decide yourself, or ask again)"}`);
-    if (ans) short.push(`${i + 1}. ${ans}`);
+  const had = answersOf(q);
+  const now = Date.now();
+  const fresh: number[] = [];
+  const merged = items.map((it, i) => {
+    if (had[i]) return had[i];
+    const a = answers[i];
+    if (a && answerText(it, a)) {
+      fresh.push(i);
+      return { choices: a.choices, text: a.text.trim().slice(0, QLIMITS.answer), at: now };
+    }
+    return null;
   });
-  if (!short.length) throw new UserError("Answer at least one of the questions.");
-  const res = await env.DB.prepare("UPDATE questions SET status = 'answered', answer = ?, answered_at = ? WHERE id = ? AND status = 'open'").bind(JSON.stringify(answers), Date.now(), id).run();
+  if (!fresh.length && rest !== "agent") throw new UserError("Answer at least one of the questions (or let it decide the rest).");
+  const open = merged.map((a, i) => (a ? -1 : i)).filter((i) => i >= 0);
+  const done = !open.length || rest === "agent";
+  const res = await env.DB.prepare("UPDATE questions SET status = ?, answer = ?, answered_at = ? WHERE id = ? AND status = 'open'")
+    .bind(done ? "answered" : "open", JSON.stringify(merged), done ? now : null, id)
+    .run();
   if (!res.meta.changes) throw new UserError("This was just answered or taken back.");
-  await postMessage(env, { channel: q.project || "dm", sender: me, recipient: me, recipient_agent: q.label, body: [`My answers to Q${q.id}, ${q.title}:`, ...lines].join("\n") });
-  if (q.project)
-    await logDecision(env, me, { project: q.project, subject: q.title.slice(0, 200), verdict: "noted", reason: short.join(" | ").slice(0, 1000), ...(q.url ? { refs: q.url } : {}) }).catch(() => undefined);
+  const lines = fresh.map((i) => `${i + 1}. ${items[i]!.question}\n   → ${answerText(items[i]!, merged[i]!)}`);
+  const tail = !open.length
+    ? []
+    : rest === "agent"
+      ? [`The rest (${open.map((i) => i + 1).join(", ")}) I leave to you: decide them yourself.`]
+      : [`Still open: ${open.map((i) => i + 1).join(", ")}. I'll answer ${open.length === 1 ? "it" : "them"} later; don't act on ${open.length === 1 ? "it" : "them"} yet.`];
+  await postMessage(env, { channel: q.project || "dm", sender: me, recipient: me, recipient_agent: q.label, body: [`My answers to Q${q.id}, ${q.title}${fresh.length ? ":" : "."}`, ...lines, ...tail].join("\n") });
+  if (q.project && fresh.length)
+    await logDecision(env, me, { project: q.project, subject: `${q.title}${items.length > 1 ? ` (${fresh.map((i) => i + 1).join(", ")})` : ""}`.slice(0, 200), verdict: "noted", reason: fresh.map((i) => `${i + 1}. ${answerText(items[i]!, merged[i]!)}`).join(" | ").slice(0, 1000), ...(q.url ? { refs: q.url } : {}) }).catch(() => undefined);
   env.refreshWeb?.(me);
-  return `Sent your answers to ${q.label}.`;
+  return fresh.length ? `Sent ${fresh.length === 1 ? "your answer" : `${fresh.length} answers`} to ${q.label}${open.length ? (rest === "agent" ? "; it decides the rest" : `; ${open.length} still open`) : ""}.` : `${q.label} decides the rest.`;
 }
 
 export const questionHref = (id: number) => `/dashboard?view=question&id=${id}`;
@@ -243,17 +279,13 @@ export async function questionView(env: Env, me: string, id: number, back: strin
   let body: string;
   if (q.status === "open") body = questionForm(q, `${questionHref(q.id)}&back=${encodeURIComponent(back)}`);
   else {
-    let ans: { choices: number[]; text: string }[] = [];
-    try {
-      ans = q.answer ? (JSON.parse(q.answer) as typeof ans) : [];
-    } catch {}
+    const ans = answersOf(q);
     body = `<div class="tkdone">${icon(q.status === "answered" ? "check" : "clock", 15)}<span>${q.status === "answered" ? `You answered ${time(q.answered_at ?? q.created_at)}` : `${esc(q.label)} took this back.`}</span></div>
       ${items
         .map((it, i) => {
-          const a = ans[i] ?? { choices: [], text: "" };
-          const picked = a.choices.map((c) => it.options[c]?.label).filter(Boolean).join(" + ");
+          const a = ans[i];
           return `<div class="qitem"><div class="qlegend"><span class="qn">${i + 1}</span><span class="qq">${linkKeys(esc(it.question), refsOf(q))}</span></div>${refLine(refsIn(it, refsOf(q)))}${it.context ? `<div class="qctx md">${linkKeys(md(it.context), refsOf(q))}</div>` : ""}${
-            q.status === "answered" ? `<p class="qans">${icon("arrow", 13)}<span>${esc([picked, a.text.trim()].filter(Boolean).join(". ") || "No answer")}</span></p>` : ""
+            q.status === "answered" ? `<p class="qans">${icon("arrow", 13)}<span>${esc(a ? answerText(it, a) : `Left to ${q.label}`)}</span></p>` : ""
           }</div>`;
         })
         .join("")}`;
@@ -269,9 +301,14 @@ export async function questionView(env: Env, me: string, id: number, back: strin
 function questionForm(q: Question, back: string): string {
   const items = itemsOf(q);
   const refs = refsOf(q);
+  const had = answersOf(q);
+  const left = had.filter((a) => !a).length;
   const qs = items
     .map((it, i) => {
       const n = i + 1;
+      const a = had[i];
+      if (a)
+        return `<div class="qitem qdone"><div class="qlegend"><span class="qn">${n}</span><span class="qq">${linkKeys(esc(it.question), refs)}</span></div><p class="qans">${icon("check", 13)}<span>${esc(answerText(it, a))}</span></p></div>`;
       const opts = it.options
         .map(
           (o, j) =>
@@ -287,7 +324,9 @@ function questionForm(q: Question, back: string): string {
     })
     .join("");
   return `<form method="post" action="/question/${q.id}" class="qform">${hidden({ back })}${qs}
-      <div class="askact"><button class="btn primary sm">${icon("send", 13)}Send answers to ${esc(q.label)}</button></div>
+      <div class="askact qact">${left > 1 ? `<span class="small muted">Answer the ones you can: the others stay here for later.</span>` : ""}<span class="grow"></span>${
+        left > 1 ? `<button class="btn ghost sm" name="rest" value="agent" title="Send what you answered; ${esc(q.label)} decides the rest itself">Send, and let it decide the rest</button>` : ""
+      }<button class="btn primary sm">${icon("send", 13)}Send ${left > 1 ? "what I answered" : "answer"} to ${esc(q.label)}</button></div>
     </form>`;
 }
 
