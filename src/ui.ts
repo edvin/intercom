@@ -1532,7 +1532,7 @@ h1{font-size:22px;font-weight:620;letter-spacing:-.02em}
 .askpanel{border-radius:14px;border:1px solid var(--line-strong);box-shadow:var(--shadow-lg);background:var(--surface)}
 .askhd{background:var(--surface)}
 .toast{border-radius:12px;padding:10px 12px;font-size:13px;align-items:center}
-.asktoast{gap:10px;min-width:300px}.asktoast .grow{min-width:0;line-height:1.4}.asktoast b{font-weight:600}
+@keyframes askflash{0%,60%{box-shadow:0 0 0 2px var(--accent)}100%{box-shadow:0 0 0 0 transparent}}.ask.askflash{animation:askflash 2.2s ease-out}.asktoast{gap:10px;min-width:300px}.asktoast .grow{min-width:0;line-height:1.4}.asktoast b{font-weight:600}
 .asktoast .askdot{flex:none}
 
 .asktoast .i{color:inherit;margin:0}
@@ -2754,6 +2754,15 @@ ${markupScript()}
     box.classList.toggle("min", !asksOpened);
     $$("[data-askstoggle]", box).forEach((b) => b.onclick = () => { const m = !box.classList.contains("min"); box.classList.toggle("min", m); asksOpened = !m; store(m ? ids : null); });
   }
+  function askFocus(box, mid) {
+    const card = $$(".ask", box).find((c) => c.dataset.mid === mid); if (!card) return;
+    requestAnimationFrame(() => {
+      card.scrollIntoView({ block: "start", behavior: "smooth" });
+      card.classList.remove("askflash"); void card.offsetWidth; card.classList.add("askflash");
+      setTimeout(() => card.classList.remove("askflash"), 2200);
+      const f = card.querySelector(".askopt, input:not([type=hidden]), textarea, button.primary"); if (f && !matchMedia("(pointer: coarse)").matches) f.focus({ preventScroll: true });
+    });
+  }
   function askToast(fresh, box) {
     let tray = $(".toasts"); if (!tray) { tray = document.createElement("div"); tray.className = "toasts"; document.body.append(tray); }
     $$(".asktoast", tray).forEach((t) => t.remove());
@@ -2763,7 +2772,9 @@ ${markupScript()}
     t.querySelector("b").textContent = who + (fresh.length > 1 ? " and " + (fresh.length - 1) + " more" : "");
     t.querySelector(".muted").textContent = what.trim().slice(0, 90);
     const bye = () => { t.classList.add("out"); setTimeout(() => t.remove(), 300); };
-    t.querySelector(".btn.xs:not(.icon)").onclick = () => { bye(); box.classList.remove("min"); asksOpened = true; };
+    // Open goes to the card the toast is about, not just the list: scrolled to, and marked for a moment.
+    const mid = a.dataset.mid;
+    t.querySelector(".btn.xs:not(.icon)").onclick = () => { bye(); box.classList.remove("min"); asksOpened = true; askFocus(box, mid); };
     t.querySelector(".btn.icon").onclick = bye;
     tray.append(t);
     let timer = setTimeout(bye, 12000);
