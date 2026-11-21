@@ -21,7 +21,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const VERSION = "0.12.66"; // kept in step with .claude-plugin/plugin.json (a test checks)
+const VERSION = "0.12.67"; // kept in step with .claude-plugin/plugin.json (a test checks)
 const DIR = path.join(os.homedir(), ".claude", "intercom");
 const CONFIG = path.join(DIR, "config");
 function readConf() {
@@ -316,11 +316,21 @@ function noteMentions(text) {
   }
 }
 
-/** Whether the session's transcript has this path in it, as written or JSON-escaped (C:\\Users\\…). */
+/** Whether the session's transcript (or one of its subagents' logs) has this path in it, as written or JSON-escaped. */
 function inTranscript(p) {
+  const file = transcriptFor(SESSION);
+  if (!file || !p) return false;
+  if (inFile(file, p)) return true;
   try {
-    const file = transcriptFor(SESSION);
-    if (!file || !p) return false;
+    const dir = path.join(file.slice(0, -6), "subagents");
+    return fs.readdirSync(dir).some((n) => /^agent-[\w-]+\.jsonl$/.test(n) && inFile(path.join(dir, n), p));
+  } catch {
+    return false;
+  }
+}
+
+function inFile(file, p) {
+  try {
     const st = fs.statSync(file);
     const fd = fs.openSync(file, "r");
     // The last 64 MB at most: enough for any session, without reading a huge one whole.
@@ -795,6 +805,7 @@ function subLine(s, l) {
   for (const it of summarizeLine(l, true)) {
     if (!SUB_STEPS.has(it.kind) || (final && it.kind === "text")) continue;
     mirror.outbox.push(subItem(it.at, { op: "step", id: s.id, kind: it.kind, text: it.text }));
+    noteMentions(it.text);
   }
   if (final) {
     s.done = true;

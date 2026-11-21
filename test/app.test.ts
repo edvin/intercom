@@ -4411,6 +4411,18 @@ describe("questions for you", () => {
   });
 });
 
+describe("files a subagent mentioned", () => {
+  test("a file only a subagent wrote about can be opened from the dashboard too", async () => {
+    const w = await standardWorld();
+    await w.request("/api/hook?event=SessionStart&project=billing-api&session=f1&name=core&version=0.1.0", { as: "bob" });
+    const get = async (path: string) => (await w.request(`/agent-file?agent=bob%2Fcore&path=${encodeURIComponent(path)}`, { as: "bob", cookie: true })).text();
+    assert.match(await get("/tmp/shots/render.png"), /hasn(?:'|&#39;)t mentioned that file/);
+    await w.db.prepare("INSERT INTO subagent_steps (member, session_id, agent_id, at, kind, text) VALUES ('bob', 'f1', 'a1', ?, 'text', 'Saved the render to /tmp/shots/render.png for you.')").bind(Date.now()).run();
+    // Past the check: now it's only the old intercom on its machine that stops it.
+    assert.match(await get("/tmp/shots/render.png"), /fetching files needs/);
+  });
+});
+
 describe("processes", () => {
   const machine = async <T>(w: World, go: () => Promise<T>, answer: (q: Record<string, unknown>) => object) => {
     const seen: Record<string, unknown>[] = [];

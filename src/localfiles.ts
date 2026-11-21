@@ -26,9 +26,11 @@ export async function fetchLocalFile(env: Env, me: string, label: string, path: 
   // As a whole path, not part of a longer one (".env" inside ".env.example" doesn't count).
   const { results: texts } = await env.DB.prepare(
     `SELECT text AS t FROM activity WHERE member = ? AND session_id = ? AND instr(text, ?) > 0
-     UNION ALL SELECT body AS t FROM messages WHERE sender = ? AND sender_agent = ? AND instr(body, ?) > 0 LIMIT 50`,
+     UNION ALL SELECT body AS t FROM messages WHERE sender = ? AND sender_agent = ? AND instr(body, ?) > 0
+     UNION ALL SELECT text AS t FROM subagent_steps WHERE member = ? AND session_id = ? AND instr(text, ?) > 0
+     UNION ALL SELECT subagents AS t FROM sessions WHERE member = ? AND session_id = ? AND instr(subagents, ?) > 0 LIMIT 50`,
   )
-    .bind(me, s.session_id, path, me, label, path)
+    .bind(me, s.session_id, path, me, label, path, me, s.session_id, path, me, s.session_id, path)
     .all<{ t: string }>();
   const whole = new RegExp(`(^|[\\s(\\[>"'\`])${path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?=$|[\\s&).,:;!?\\]'"<\`])`);
   const said = texts.some((r) => whole.test(r.t));
