@@ -4417,6 +4417,8 @@ describe("questions for you", () => {
     const page = await (await w.request("/dashboard", { as: "bob", cookie: true })).text();
     assert.match(page, /class="ask k-question"[\s\S]*?core<\/span><span class="askk">asks you[\s\S]*?SHOP-15<\/a>: dates for a contract without a term[\s\S]*?Should a contract without a term[\s\S]*?The reviewer leans to <b>none<\/b>[\s\S]*?name="o1" value="0"><span><b>None is right<\/b><em class="qsug">suggested<\/em><span class="qdet">I update AC1 and the QA steps[\s\S]*?name="o2" value="1"><span><b>No<\/b>[\s\S]*?Send, and let it decide the rest[\s\S]*?Send what I answered to core/);
     assert.match(page, /id="railasks"[^>]*>[\s\S]*?<span class="rpill amber">1<\/span>/);
+    // And in its own chat, under what it said before asking.
+    assert.match(await (await w.request("/dashboard?view=agents&agent=bob%2Fcore", { as: "bob", cookie: true })).text(), /id="chatasks" data-region>[\s\S]*?class="ask k-question" data-mid="y1"/);
     assert.match(loc(await w.form("/question/1", "bob", {})).get("err")!, /Answer at least one/);
     // One now, the other later: the card stays with the one still open.
     assert.match(loc(await w.form("/question/1", "bob", { o1: "0", t1: "and say so in the MR description" })).get("ok")!, /Sent your answer to core; 1 still open/);

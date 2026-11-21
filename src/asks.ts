@@ -13,7 +13,7 @@ import { type Row as UpRow, exitedAgents, frozenAgents, fullAgents, myRows, outO
 import { type ResetTry, RESET_GAP_MS, resetsOf } from "./resets";
 import { PLUGIN_VERSION } from "./version";
 import { pendingTickets } from "./tickets";
-import { pendingQuestions, questionCard } from "./questions";
+import { type Question as QCard, pendingQuestions, questionCard } from "./questions";
 import { reviewHref } from "./reviewview";
 import { ticketCard } from "./ticketview";
 import { agentAvatar, esc, hidden, icon, md, time } from "./ui";
@@ -311,21 +311,28 @@ function stuckCard(st: Stuck, me: string, back: string, online: { label: string;
 /** What one agent asks you, as cards in its own chat (the same cards as in Waiting for you). */
 export async function chatAsks(env: Env, me: string, sessionId: string, back: string): Promise<string> {
   const pending = (await pendingApprovals(env, me)).filter((p) => p.session_id === sessionId);
+  // Its question cards (questions.ts), under what it said leading up to them: the context is right above.
+  const { results: qs } = await env.DB.prepare(
+    "SELECT * FROM questions WHERE member = ?1 AND status = 'open' AND (session_id = ?2 OR label = (SELECT label FROM sessions WHERE member = ?1 AND session_id = ?2)) ORDER BY id",
+  )
+    .bind(me, sessionId)
+    .all<QCard>();
+  const qcards = qs.map((q) => questionCard(q, back)).join("");
   // A question it asks in its terminal alone, read off its screen (prompts.ts).
   const w = pending.length
     ? null
     : await env.DB.prepare("SELECT session_id, label, screen, client, state, state_detail, state_at, prompt FROM sessions WHERE member = ? AND session_id = ? AND screen = 'keys'")
         .bind(me, sessionId)
         .first<{ session_id: string; label: string; screen: string; client: string; state: string; state_detail: string; state_at: number | null; prompt: string | null }>();
-  if (w && promptOf(w)) return `<div class="chatasks" id="chatasks" data-region>${waitCard(w, me, back)}</div>`;
-  if (!pending.length) return `<div class="chatasks" id="chatasks" data-region hidden></div>`;
+  if (w && promptOf(w)) return `<div class="chatasks" id="chatasks" data-region>${waitCard(w, me, back)}${qcards}</div>`;
+  if (!pending.length) return qcards ? `<div class="chatasks" id="chatasks" data-region>${qcards}</div>` : `<div class="chatasks" id="chatasks" data-region hidden></div>`;
   const leads = await leadUps(env, me, pending);
   const { results: seen } = await env.DB.prepare("SELECT session_id, label, screen, client FROM sessions WHERE member = ? AND session_id = ? AND screen != ''")
     .bind(me, sessionId)
     .all<{ session_id: string; label: string; screen: string; client: string }>();
   const screens: Screens = new Map(seen.map((x) => [x.session_id, x]));
   const now = Date.now();
-  return `<div class="chatasks" id="chatasks" data-region>${pending.map((p) => card(p, me, back, now, screens, leads.get(p.id))).join("")}</div>`;
+  return `<div class="chatasks" id="chatasks" data-region>${pending.map((p) => card(p, me, back, now, screens, leads.get(p.id))).join("")}${qcards}</div>`;
 }
 
 export async function asksDock(env: Env, me: string, back: string): Promise<string> {
